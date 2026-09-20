@@ -1,0 +1,690 @@
+---
+title: Example Setup
+description: Set up standalone projects for the ORM guides
+canonical: https://www.paradedb.com/docs/guides/setup
+---
+
+These guides contain complete, standalone examples for Drizzle, Django, SQLAlchemy, Rails, and EF Core. Choose an ORM below, prepare its project once, then copy the files from a guide into that project. Each code block is labeled with its destination path. Create any parent directories before saving the files. Run commands from the project root.
+
+<Warning>
+  Use a disposable database. The examples recreate demo tables and indexes,
+  including `mock_items`, `products`, `autocomplete_items`, and `search_idx`.
+  Run one example at a time.
+</Warning>
+
+## Start ParadeDB
+
+Start a local database using the [installation guide](/start/install). The vector, hybrid, and RAG examples need the `vector` extension as well as `pg_search`; both are included in the ParadeDB Docker image.
+
+Point the examples at your database:
+
+```bash
+export DATABASE_URL=postgresql://myuser:mypassword@localhost:5432/mydatabase
+```
+
+## Prepare your project
+
+<Tabs>
+<Tab title="Drizzle">
+
+Use Node.js 22.12 or later. Create a TypeScript project and install the published integration:
+
+```bash
+mkdir paradedb-guides
+cd paradedb-guides
+npm init -y
+npm pkg set type=module
+npm install drizzle-orm@1.0.0-rc.4 postgres @paradedb/drizzle-paradedb@0.5.0 tsx
+```
+
+Save the shared connection, schema, and seed helpers:
+
+```ts common.ts
+import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import {
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  varchar,
+} from "drizzle-orm/pg-core";
+import postgres from "postgres";
+
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+export const client = postgres(
+  process.env.DATABASE_URL ??
+    "postgres://postgres:postgres@localhost:5432/postgres",
+  { onnotice: () => undefined },
+);
+export const db = drizzle({ client });
+
+export const mockItems = pgTable(
+  "mock_items",
+  {
+    id: integer("id").primaryKey(),
+    description: text("description").notNull(),
+    category: varchar("category", { length: 255 }).notNull(),
+    rating: integer("rating").notNull(),
+    inStock: boolean("in_stock").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown> | null>(),
+    embedding: indexing.vector("embedding", { dimensions: 8 }),
+  },
+  (table) => [
+    indexing
+      .paradedbIndex("search_idx")
+      .on(
+        table.id,
+        table.description,
+        indexing.paradedbField(table.category, tokenizer.literal()),
+        table.rating,
+        table.inStock,
+        table.createdAt,
+        table.metadata,
+        indexing.vectorField(table.embedding, "cosine"),
+      ),
+  ],
+);
+
+export const autocompleteItems = pgTable(
+  "autocomplete_items",
+  {
+    id: integer("id").primaryKey(),
+    description: text("description").notNull(),
+    category: varchar("category", { length: 100 }).notNull(),
+    rating: integer("rating").notNull(),
+    inStock: boolean("in_stock").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [
+    indexing
+      .paradedbIndex("search_idx")
+      .on(
+        table.id,
+        table.description,
+        indexing.paradedbField(
+          table.description,
+          tokenizer.ngram(3, 8, { alias: "description_ngram" }),
+        ),
+        indexing.paradedbField(table.category, tokenizer.literal()),
+      ),
+  ],
+);
+
+export async function setupMockItems(): Promise<void> {
+  await db.execute(sql`DROP TABLE IF EXISTS mock_items CASCADE`);
+  await db.execute(sql`
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    )
+  `);
+  await db.execute(sql`DROP INDEX IF EXISTS search_idx`);
+  await db.execute(sql`
+    CREATE INDEX search_idx ON mock_items
+    USING paradedb (id, description, ((category)::pdb.literal), rating, in_stock, created_at, metadata, weight_range, last_updated_date, latest_available_time, embedding vector_cosine_ops)
+    WITH (key_field='id', json_fields='{"metadata":{"fast":true}}')
+  `);
+}
+
+export async function setupAutocompleteItems(): Promise<void> {
+  await setupMockItems();
+  console.log("\nCreating autocomplete_items table...");
+  await db.execute(sql`DROP TABLE IF EXISTS autocomplete_items CASCADE`);
+  await db.execute(sql`
+    CREATE TABLE autocomplete_items (
+      id integer PRIMARY KEY,
+      description text NOT NULL,
+      category varchar(100) NOT NULL,
+      rating integer NOT NULL,
+      in_stock boolean NOT NULL,
+      created_at timestamp NOT NULL
+    )
+  `);
+  await db.execute(sql`
+    INSERT INTO autocomplete_items (id, description, category, rating, in_stock, created_at)
+    SELECT id, description, category, rating, in_stock, created_at
+    FROM mock_items
+  `);
+  await db.execute(sql`DROP INDEX IF EXISTS search_idx`);
+  await db.execute(sql`
+    CREATE INDEX search_idx ON autocomplete_items
+    USING paradedb (id, description, ((description)::pdb.ngram(3,8,'alias=description_ngram')), ((category)::pdb.literal))
+    WITH (key_field='id')
+  `);
+}
+
+export async function closeDb(): Promise<void> {
+  await client.end();
+}
+```
+
+</Tab>
+
+<Tab title="Django">
+
+Create a Python 3.10 or later virtual environment and install the published integration:
+
+```bash
+mkdir paradedb-guides
+cd paradedb-guides
+python3 -m venv .venv
+source .venv/bin/activate
+pip install django-paradedb==0.13.0 "psycopg[binary]" django-cte httpx python-dotenv
+```
+
+The examples configure Django themselves; no `manage.py` project is needed. Save the shared model and database helpers:
+
+```python common.py
+"""Common utilities for django-paradedb examples.
+
+This module provides shared Django setup, database configuration,
+and model definitions used across all examples.
+"""
+
+import os
+from urllib.parse import urlparse
+
+import django
+from django.conf import settings
+
+from paradedb.indexes import ParadeDBIndex
+from paradedb.queryset import ParadeDBManager
+from paradedb.search import Tokenizer
+from paradedb.vector import VectorField
+
+
+def configure_django() -> None:
+    """Configure Django settings for standalone scripts.
+
+    Uses standard PostgreSQL environment variables:
+    - PGHOST (default: localhost)
+    - PGPORT (default: 5432)
+    - PGUSER (default: postgres)
+    - PGPASSWORD (default: empty)
+    - PGDATABASE (default: postgres)
+    """
+    if settings.configured:
+        return
+
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        parsed = urlparse(database_url)
+        name = (parsed.path or "/postgres").lstrip("/") or "postgres"
+        database_settings = {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": name,
+            "USER": parsed.username or "postgres",
+            "PASSWORD": parsed.password or "",
+            "HOST": parsed.hostname or "localhost",
+            "PORT": int(parsed.port or 5432),
+        }
+    else:
+        database_settings = {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("PGDATABASE", "postgres"),
+            "USER": os.environ.get("PGUSER", "postgres"),
+            "PASSWORD": os.environ.get("PGPASSWORD", ""),
+            "HOST": os.environ.get("PGHOST", "localhost"),
+            "PORT": int(os.environ.get("PGPORT", "5432")),
+        }
+
+    settings.configure(
+        DEBUG=os.environ.get("DJANGO_DEBUG", "0") == "1",
+        DATABASES={"default": database_settings},
+        INSTALLED_APPS=["django.contrib.contenttypes"],
+        DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
+    )
+    django.setup()
+
+
+def setup_mock_items() -> int:
+    """Create mock_items table with a ParadeDB index. Returns row count."""
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE")
+        cursor.execute(
+            "CALL paradedb.create_bm25_test_table("
+            "schema_name => 'public', table_name => 'mock_items')"
+        )
+        cursor.execute("DROP INDEX IF EXISTS search_idx;")
+
+    # Render index SQL from the unmanaged model metadata.
+    with connection.schema_editor(atomic=False) as schema_editor:
+        for index in MockItem._meta.indexes:
+            statement = index.create_sql(model=MockItem, schema_editor=schema_editor)
+            schema_editor.execute(statement)
+
+    return MockItem.objects.count()
+
+
+# Pre-computed 8-dim query embeddings in the same embedding space as the
+# mock_items.embedding column seeded by paradedb.create_bm25_test_table().
+QUERY_EMBEDDINGS: dict[str, list[float]] = {
+    "running shoes": [-0.02, 0.47, -0.76, 0.13, 0.34, 0.04, 0.19, -0.19],
+    "footwear for exercise": [-0.06, 0.40, -0.71, 0.02, 0.39, 0.15, 0.30, -0.14],
+    "wireless earbuds": [-0.08, 0.19, -0.88, 0.16, 0.30, 0.03, -0.08, -0.23],
+}
+
+# Examples are standalone scripts, so this module intentionally configures Django
+# at import time to keep per-example boilerplate minimal.
+configure_django()
+
+# Import models after Django is configured
+from django.db import models  # noqa: E402
+
+
+def _mock_items_indexes() -> list[ParadeDBIndex]:
+    return [
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "description": {},
+                "rating": {},
+                "category": {"tokenizer": Tokenizer.literal({"alias": "category"})},
+                "metadata": {"json_fields": {"fast": True}},
+                "embedding": {"metric": "cosine"},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+
+
+class MockItem(models.Model):
+    """ParadeDB's built-in mock_items table.
+
+    This unmanaged model maps to the mock_items table created by
+    paradedb.create_bm25_test_table(). It contains sample product
+    data with a pre-configured ParadeDB index on description, rating,
+    category, native metadata subfields like ``metadata.color``, and
+    a pre-populated 8-dim ``embedding`` vector column.
+    """
+
+    id = models.IntegerField(primary_key=True)
+    description = models.TextField()
+    category = models.CharField(max_length=100)
+    rating = models.IntegerField()
+    in_stock = models.BooleanField()
+    created_at = models.DateTimeField()
+    metadata = models.JSONField(null=True)
+    embedding = VectorField(dimensions=8, null=True)
+
+    objects = ParadeDBManager()
+
+    class Meta:
+        app_label = "examples"
+        managed = False
+        db_table = "mock_items"
+        indexes = _mock_items_indexes()
+
+    def __str__(self) -> str:
+        return self.description
+```
+
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+Create a Python 3.10 or later virtual environment and install the published integration:
+
+```bash
+mkdir paradedb-guides
+cd paradedb-guides
+python3 -m venv .venv
+source .venv/bin/activate
+pip install sqlalchemy-paradedb==0.11.0 "psycopg[binary]"
+```
+
+SQLAlchemy needs the Psycopg driver in its connection URL:
+
+```bash
+export DATABASE_URL=postgresql+psycopg://myuser:mypassword@localhost:5432/mydatabase
+```
+
+Each guide supplies its own `setup.py` alongside the query script. Save both files in the directory shown on that guide.
+
+</Tab>
+
+<Tab title="Rails">
+
+Use Ruby 3.2 or later and Bundler. These scripts use a minimal Rails application; you do not need to generate a Rails project.
+
+```bash
+mkdir paradedb-guides
+cd paradedb-guides
+```
+
+```ruby Gemfile
+source "https://rubygems.org"
+
+gem "rails-paradedb", "0.12.0"
+gem "activerecord", "~> 7.2"
+gem "activesupport", "~> 7.2"
+gem "railties", "~> 7.2"
+```
+
+```bash
+bundle install
+```
+
+Each guide supplies a model, setup script, and query script. Save them in the directory shown on that guide.
+
+</Tab>
+
+<Tab title="EF Core">
+
+Use the .NET 10 SDK. Create a directory for the examples:
+
+```bash
+mkdir paradedb-guides
+cd paradedb-guides
+```
+
+```xml Examples.csproj
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>efcore-paradedb-examples</UserSecretsId>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**\bin\**;**\obj\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Example)' != ''">
+    <AssemblyName>Examples.$(Example)</AssemblyName>
+    <IntermediateOutputPath>obj\$(Configuration)\$(TargetFramework)\$(Example)\</IntermediateOutputPath>
+    <OutputPath>bin\$(Configuration)\$(TargetFramework)\$(Example)\</OutputPath>
+  </PropertyGroup>
+
+  <Target Name="RequireExample" BeforeTargets="CoreCompile" Condition="'$(Example)' == ''">
+    <Error Text="Set the Example property to one of: Quickstart, VectorSearch, FacetedSearch, Autocomplete, MoreLikeThis, HybridRrf, Rag." />
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.5" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="*\Program.cs" />
+    <Compile Include="$(Example)\Program.cs" Condition="'$(Example)' != ''" />
+
+    <PackageReference Include="ParadeDB.EntityFrameworkCore" Version="0.3.0" />
+  </ItemGroup>
+</Project>
+```
+
+Save all of these shared files, including the autocomplete and embedding models. The shared contexts refer to them even when running a different example.
+
+<CodeGroup>
+
+```cs Shared/AppDbContexts.cs
+using Autocomplete.Models;
+using Microsoft.EntityFrameworkCore;
+
+namespace Shared
+{
+    public class MockItemsDbContext<TContext, TItem> : DbContext
+        where TContext : DbContext
+        where TItem : MockItem
+    {
+        public DbSet<TItem> MockItems { get; set; }
+
+        public MockItemsDbContext(DbContextOptions<TContext> options)
+            : base(options) { }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<TItem>().Property(e => e.Id).ValueGeneratedNever();
+        }
+    }
+
+    public class AutocompleteDbContext<TContext> : DbContext
+        where TContext : DbContext
+    {
+        public DbSet<AutocompleteItem> AutocompleteItems { get; set; }
+
+        public AutocompleteDbContext(DbContextOptions<TContext> options)
+            : base(options) { }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<AutocompleteItem>().Property(e => e.Id).ValueGeneratedNever();
+            modelBuilder.Entity<AutocompleteItem>().Property(e => e.Category).HasMaxLength(100);
+        }
+    }
+}
+
+namespace Autocomplete.Data
+{
+    public class AppDbContext : Shared.AutocompleteDbContext<AppDbContext>
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options)
+            : base(options) { }
+    }
+}
+
+namespace FacetedSearch.Data
+{
+    public class AppDbContext : Shared.MockItemsDbContext<AppDbContext, Shared.MockItem>
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options)
+            : base(options) { }
+    }
+}
+
+namespace MoreLikeThis.Data
+{
+    public class AppDbContext : Shared.MockItemsDbContext<AppDbContext, Shared.MockItem>
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options)
+            : base(options) { }
+    }
+}
+
+namespace Quickstart.Data
+{
+    public class AppDbContext : Shared.MockItemsDbContext<AppDbContext, Shared.MockItem>
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options)
+            : base(options) { }
+    }
+}
+
+// The Rag and VectorSearch examples reuse HybridRrf.Data.AppDbContext, since
+// they also query the embedding column.
+namespace HybridRrf.Data
+{
+    public class AppDbContext : Shared.MockItemsDbContext<AppDbContext, MockItemWithEmbedding>
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options)
+            : base(options) { }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            modelBuilder
+                .Entity<MockItemWithEmbedding>()
+                .Property(x => x.Embedding)
+                .HasColumnType("vector(8)");
+        }
+    }
+}
+```
+
+```cs Shared/ExampleSetup.cs
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+
+namespace Shared;
+
+public static class ExampleSetup
+{
+    public static string ConnectionString
+    {
+        get
+        {
+            var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+            if (
+                !string.IsNullOrWhiteSpace(databaseUrl)
+                && Uri.TryCreate(databaseUrl, UriKind.Absolute, out var uri)
+            )
+            {
+                var userInfo = uri.UserInfo.Split(':', 2);
+                var database = uri.AbsolutePath.TrimStart('/');
+
+                return new NpgsqlConnectionStringBuilder
+                {
+                    Host = uri.Host,
+                    Port = uri.Port > 0 ? uri.Port : 5432,
+                    Username = Uri.UnescapeDataString(userInfo[0]),
+                    Password = userInfo.Length == 2 ? Uri.UnescapeDataString(userInfo[1]) : "",
+                    Database = string.IsNullOrWhiteSpace(database) ? "postgres" : database,
+                }.ConnectionString;
+            }
+
+            return new NpgsqlConnectionStringBuilder
+            {
+                Host = Environment.GetEnvironmentVariable("PGHOST") ?? "localhost",
+                Port = int.Parse(Environment.GetEnvironmentVariable("PGPORT") ?? "5432"),
+                Username = Environment.GetEnvironmentVariable("PGUSER") ?? "postgres",
+                Password = Environment.GetEnvironmentVariable("PGPASSWORD") ?? "postgres",
+                Database = Environment.GetEnvironmentVariable("PGDATABASE") ?? "postgres",
+            }.ConnectionString;
+        }
+    }
+
+    public static async Task SetupMockItemsAsync(DbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector");
+        await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS pg_search");
+        await db.Database.ExecuteSqlRawAsync(
+            "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items')"
+        );
+        await db.Database.ExecuteSqlRawAsync("DROP INDEX IF EXISTS search_idx");
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE INDEX search_idx ON mock_items
+            USING paradedb (
+                id,
+                description,
+                rating,
+                (category::pdb.literal('alias=category')),
+                metadata,
+                embedding vector_cosine_ops
+            )
+            WITH (key_field='id', json_fields='{{"metadata":{{"fast":true}}}}');
+            """
+        );
+    }
+
+    public static async Task SetupAutocompleteAsync(DbContext db)
+    {
+        await SetupMockItemsAsync(db);
+        await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS autocomplete_items CASCADE");
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE autocomplete_items (
+                id integer PRIMARY KEY,
+                description text NOT NULL,
+                category varchar(100) NOT NULL,
+                rating integer NOT NULL,
+                in_stock boolean NOT NULL DEFAULT true,
+                created_at timestamp DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        );
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO autocomplete_items (id, description, category, rating, in_stock, created_at)
+            SELECT id, description, category, rating, in_stock, created_at
+            FROM mock_items;
+            """
+        );
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE INDEX autocomplete_items_idx ON autocomplete_items
+            USING paradedb (
+                id,
+                (description::pdb.unicode_words),
+                (description::pdb.ngram(3,8,'alias=description_ngram')),
+                (category::pdb.literal('alias=category'))
+            )
+            WITH (key_field='id');
+            """
+        );
+    }
+}
+```
+
+```cs Shared/MockItem.cs
+using System.Text.Json;
+
+namespace Shared;
+
+public class MockItem
+{
+    public int Id { get; set; }
+    public string Description { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public int Rating { get; set; }
+    public bool InStock { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public JsonDocument? Metadata { get; set; }
+}
+```
+
+```cs Autocomplete/Models/AutocompleteItem.cs
+namespace Autocomplete.Models;
+
+public class AutocompleteItem
+{
+    public int Id { get; set; }
+    public string Description { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public int Rating { get; set; }
+    public bool InStock { get; set; } = true;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+```
+
+```cs HybridRrf/Data/MockItemWithEmbedding.cs
+using Shared;
+
+namespace HybridRrf.Data;
+
+public class MockItemWithEmbedding : MockItem
+{
+    public float[]? Embedding { get; set; }
+}
+```
+
+</CodeGroup>
+
+```bash
+dotnet restore Examples.csproj
+```
+
+</Tab>
+
+</Tabs>
+
+## Choose a guide
+
+- [Quickstart](/guides/quickstart)
+- [Vector Search](/guides/vector-search)
+- [Faceted Search](/guides/faceted-search)
+- [Hybrid Search](/guides/hybrid-search)
+- [Retrieval-Augmented Generation](/guides/rag-and-agents)
+- [Autocomplete](/guides/search-as-you-type)
+- [More Like This](/guides/more-like-this)

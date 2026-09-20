@@ -1,0 +1,892 @@
+---
+title: Hybrid Search
+description: Combine keyword and vector rankings with Reciprocal Rank Fusion
+canonical: https://www.paradedb.com/docs/guides/hybrid-search
+---
+
+Rank candidates independently with BM25 and vector distance, then combine their ranks with Reciprocal Rank Fusion (RRF). This avoids directly comparing scores from different scales. The examples use demo embeddings; evaluate retrieval quality on your own data.
+
+Complete [Example Setup](/guides/setup) for your ORM first. Save every file shown in your ORM tab at the labeled path, then run the command from your project root.
+
+<Tabs>
+<Tab title="Drizzle">
+
+```bash
+npx tsx hybrid-rrf.ts
+```
+
+```ts hybrid-rrf.ts
+import { desc, eq, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/pg-core";
+
+import { closeDb, db, mockItems, setupMockItems } from "./common.js";
+import { search } from "@paradedb/drizzle-paradedb";
+
+type HybridRow = {
+  id: number;
+  description: string;
+  rrfScore: number;
+};
+
+// In production, compute query embeddings with the same model that produced
+// the stored embeddings. These fixed vectors stand in for that model.
+const demos: { query: string; embedding: number[] }[] = [
+  {
+    query: "running shoes",
+    embedding: [-0.02, 0.47, -0.76, 0.13, 0.34, 0.04, 0.19, -0.19],
+  },
+  {
+    query: "footwear for exercise",
+    embedding: [-0.04, 0.4, -0.66, -0.07, 0.43, 0.21, 0.39, -0.1],
+  },
+  {
+    query: "wireless earbuds",
+    embedding: [-0.08, 0.19, -0.88, 0.16, 0.3, 0.03, -0.08, -0.23],
+  },
+];
+
+export async function runHybridRrf(): Promise<void> {
+  console.log("=".repeat(60));
+  console.log("Hybrid Search with Reciprocal Rank Fusion (RRF)");
+  console.log("=".repeat(60));
+  console.log("\nSingle-query CTE: BM25 (keyword) + Vector (semantic)");
+  console.log("RRF formula: score = sum(1 / (k + rank)) across all rankings");
+
+  await setupMockItems();
+
+  for (const { query, embedding } of demos) {
+    await demo(query, embedding);
+  }
+
+  console.log("\n" + "=".repeat(70));
+  console.log("All results produced by a single SQL query per search.");
+  console.log("=".repeat(70));
+}
+
+async function demo(query: string, embedding: number[]): Promise<void> {
+  const results = await hybridSearch(query, embedding);
+
+  console.log("\n" + "=".repeat(70));
+  console.log(`Query: '${query}'`);
+  console.log("=".repeat(70));
+
+  for (const [index, item] of results.entries()) {
+    console.log(
+      `  ${index + 1}. ${item.description.slice(0, 60).padEnd(60)} (RRF: ${item.rrfScore.toFixed(4)})`,
+    );
+  }
+}
+
+async function hybridSearch(
+  query: string,
+  queryEmbedding: number[],
+  topK = 20,
+  rrfK = 60,
+  limit = 5,
+): Promise<HybridRow[]> {
+  const vectorDistance = search.cosineDistance(
+    mockItems.embedding,
+    queryEmbedding,
+  );
+  const fulltext = db.$with("fulltext").as(
+    db
+      .select({
+        id: mockItems.id,
+        rank: sql<number>`row_number() over (order by ${search.score(mockItems.id)} desc)`.as(
+          "rank",
+        ),
+      })
+      .from(mockItems)
+      .where(search.matchAll(mockItems.description, query))
+      .orderBy(desc(search.score(mockItems.id)))
+      .limit(topK),
+  );
+  const semantic = db.$with("semantic").as(
+    db
+      .select({
+        id: mockItems.id,
+        rank: sql<number>`row_number() over (order by ${vectorDistance})`.as(
+          "rank",
+        ),
+      })
+      .from(mockItems)
+      .where(search.all(mockItems.id))
+      .orderBy(vectorDistance)
+      .limit(topK),
+  );
+  const rrf = db.$with("rrf").as(
+    unionAll(
+      db
+        .select({
+          id: fulltext.id,
+          score: sql<number>`1.0 / (${rrfK} + ${fulltext.rank})`.as("score"),
+        })
+        .from(fulltext),
+      db
+        .select({
+          id: semantic.id,
+          score: sql<number>`1.0 / (${rrfK} + ${semantic.rank})`.as("score"),
+        })
+        .from(semantic),
+    ),
+  );
+  const rrfScores = db.$with("rrf_scores").as(
+    db
+      .select({
+        id: rrf.id,
+        rrfScore: sql<number>`sum(${rrf.score})`.as("rrf_score"),
+      })
+      .from(rrf)
+      .groupBy(rrf.id)
+      .orderBy(desc(sql`sum(${rrf.score})`))
+      .limit(limit),
+  );
+
+  return db
+    .with(fulltext, semantic, rrf, rrfScores)
+    .select({
+      id: mockItems.id,
+      description: mockItems.description,
+      rrfScore: sql<number>`${rrfScores.rrfScore}::float8`,
+    })
+    .from(rrfScores)
+    .innerJoin(mockItems, eq(mockItems.id, rrfScores.id))
+    .orderBy(desc(rrfScores.rrfScore));
+}
+
+try {
+  await runHybridRrf();
+} finally {
+  await closeDb();
+}
+```
+
+</Tab>
+
+<Tab title="Django">
+
+```bash
+python hybrid_rrf/hybrid_rrf.py
+```
+
+```python hybrid_rrf/hybrid_rrf.py
+#!/usr/bin/env python
+"""Hybrid search example using BM25 + vector search with Reciprocal Rank Fusion.
+
+Uses a single SQL query with CTEs to combine BM25 full-text search and vector
+similarity search, fused via Reciprocal Rank Fusion (RRF).
+
+Reference: https://www.paradedb.com/blog/hybrid-search-in-postgresql-the-missing-manual
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common import QUERY_EMBEDDINGS, MockItem, setup_mock_items
+from django.db.models import F, FloatField, Sum, Window
+from django.db.models.expressions import ExpressionWrapper, Value
+from django.db.models.functions import Cast, RowNumber
+from django_cte import CTE, with_cte
+
+from paradedb.functions import Score
+from paradedb.search import All, MatchAll, ParadeDB
+from paradedb.vector import CosineDistance
+
+
+def _rrf_score(k: float) -> ExpressionWrapper:
+    """Build the RRF score expression: 1.0 / (k + rank)."""
+    return ExpressionWrapper(
+        Value(1.0, output_field=FloatField())
+        / (Value(k, output_field=FloatField()) + Cast(F("rank"), FloatField())),
+        output_field=FloatField(),
+    )
+
+
+def hybrid_search(
+    query: str,
+    query_embedding: list[float],
+    *,
+    top_k: int = 20,
+    rrf_k: int = 60,
+    limit: int = 5,
+) -> list:
+    """Single-query hybrid search combining BM25 + vector via RRF.
+
+    Builds one SQL statement with four CTEs:
+      1. fulltext    - BM25 ranked results via ParadeDB
+      2. semantic    - vector similarity ranked results via cosine distance
+      3. rrf         - UNION ALL of RRF score contributions
+      4. rrf_scores  - aggregated RRF scores per item
+
+    Args:
+        query: Text query for BM25 full-text search.
+        query_embedding: Vector embedding for similarity search.
+        top_k: Number of candidates from each ranker.
+        rrf_k: RRF constant (typically 60).
+        limit: Number of final results to return.
+    """
+    # CTE 1: BM25 full-text search with ROW_NUMBER rank
+    fulltext_qs = (
+        MockItem.objects.filter(description=ParadeDB(MatchAll(query)))
+        .annotate(bm25=Score())
+        .annotate(rank=Window(expression=RowNumber(), order_by=F("bm25").desc()))
+        .order_by("-bm25")
+        .values("id", "rank")[:top_k]
+    )
+    fulltext_cte = CTE(fulltext_qs, name="fulltext")
+
+    # CTE 2: Vector similarity search with ROW_NUMBER rank.
+    semantic_qs = (
+        MockItem.objects.filter(id=ParadeDB(All()))
+        .annotate(distance=CosineDistance("embedding", query_embedding))
+        .annotate(rank=Window(expression=RowNumber(), order_by=F("distance").asc()))
+        .order_by("distance")
+        .values("id", "rank")[:top_k]
+    )
+    semantic_cte = CTE(semantic_qs, name="semantic")
+
+    # CTE 3: UNION ALL of RRF contributions from each ranker
+    rrf_expr = _rrf_score(float(rrf_k))
+    fulltext_rrf = (
+        fulltext_cte.queryset().annotate(score=rrf_expr).values("id", "score")
+    )
+    semantic_rrf = (
+        semantic_cte.queryset().annotate(score=rrf_expr).values("id", "score")
+    )
+    rrf_cte = CTE(fulltext_rrf.union(semantic_rrf, all=True), name="rrf")
+
+    # CTE 4: Aggregate RRF scores per item
+    rrf_scores_qs = (
+        rrf_cte.queryset()
+        .values("id")
+        .annotate(rrf_score=Sum("score"))
+        .order_by("-rrf_score")
+    )[:limit]
+    rrf_scores_cte = CTE(rrf_scores_qs, name="rrf_scores")
+
+    # Final SELECT: join aggregated scores back to model for full fields
+    final_qs = with_cte(
+        fulltext_cte,
+        semantic_cte,
+        rrf_cte,
+        rrf_scores_cte,
+        select=rrf_scores_cte.join(MockItem, id=rrf_scores_cte.col.id)
+        .annotate(rrf_score=rrf_scores_cte.col.rrf_score)
+        .order_by("-rrf_score"),
+    )
+    return list(final_qs)
+
+
+def display_results(query: str, results: list) -> None:
+    """Display hybrid search results."""
+    print(f"\n{'=' * 70}")
+    print(f"Query: '{query}'")
+    print("=" * 70)
+
+    for i, item in enumerate(results, 1):
+        print(f"  {i}. {item.description[:60]:<60} (RRF: {item.rrf_score:.4f})")
+
+
+def demo(query: str) -> None:
+    """Run hybrid search demo for a query."""
+    results = hybrid_search(query, QUERY_EMBEDDINGS[query])
+    display_results(query, results)
+
+
+if __name__ == "__main__":
+    print("=" * 70)
+    print("Hybrid Search with Reciprocal Rank Fusion (RRF)")
+    print("=" * 70)
+    print("\nSingle-query CTE: BM25 (keyword) + Vector (semantic)")
+    print("RRF formula: score = sum(1 / (k + rank)) across all rankings")
+
+    count = setup_mock_items()
+    print(f"Loaded {count} products")
+
+    demo("running shoes")
+    demo("footwear for exercise")
+    demo("wireless earbuds")
+
+    print("\n" + "=" * 70)
+    print("All results produced by a single SQL query per search.")
+    print("=" * 70)
+```
+
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+```bash
+python hybrid_rrf/hybrid_rrf.py
+```
+
+<CodeGroup>
+
+```python hybrid_rrf/hybrid_rrf.py
+from __future__ import annotations
+
+from sqlalchemy import Float, func, literal, select, union_all
+from sqlalchemy.orm import Session
+
+from paradedb.sqlalchemy import pdb, search, vector
+from setup import Product, engine_from_env, setup_database
+
+
+def main() -> None:
+    engine = engine_from_env()
+    setup_database(engine)
+
+    query = "running shoes"
+    query_embedding = [1.0, 0.0, 0.0]
+
+    fulltext = (
+        select(
+            Product.id.label("id"),
+            func.row_number().over(order_by=pdb.score(Product.id).desc()).label("rank"),
+        )
+        .where(search.match_any(Product.description, query.split()))
+        .order_by(pdb.score(Product.id).desc())
+        .limit(20)
+        .cte("fulltext")
+    )
+
+    distance = vector.l2_distance(Product.embedding, query_embedding)
+    semantic = (
+        select(
+            Product.id.label("id"),
+            func.row_number().over(order_by=distance).label("rank"),
+        )
+        .where(search.all(Product.id))
+        .order_by(distance)
+        .limit(20)
+        .cte("semantic")
+    )
+
+    rrf_k = 60.0
+    rrf_fulltext = select(fulltext.c.id, (literal(1.0) / (literal(rrf_k) + fulltext.c.rank)).label("score"))
+    rrf_semantic = select(semantic.c.id, (literal(1.0) / (literal(rrf_k) + semantic.c.rank)).label("score"))
+    rrf = union_all(rrf_fulltext, rrf_semantic).cte("rrf")
+
+    final_stmt = (
+        select(rrf.c.id, func.sum(rrf.c.score).cast(Float).label("hybrid_score"))
+        .group_by(rrf.c.id)
+        .order_by(func.sum(rrf.c.score).desc())
+        .limit(10)
+    )
+
+    with Session(engine) as session:
+        for row in session.execute(final_stmt):
+            print(dict(row._mapping))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```python hybrid_rrf/setup.py
+from __future__ import annotations
+
+import os
+
+from sqlalchemy import Index, Integer, String, Text, create_engine, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+
+from paradedb import tokenizer
+from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy.vector import Vector
+
+
+PRODUCT_ROWS = [
+    {
+        "id": 1,
+        "description": "Sleek running shoes for daily training",
+        "category": "Footwear",
+        "rating": 5,
+        "embedding": [1, 0, 0],
+    },
+    {
+        "id": 2,
+        "description": "Trail running shoes with durable grip",
+        "category": "Footwear",
+        "rating": 4,
+        "embedding": [0.9, 0.1, 0],
+    },
+    {
+        "id": 3,
+        "description": "Wireless noise-canceling headphones",
+        "category": "Electronics",
+        "rating": 5,
+        "embedding": [0, 1, 0],
+    },
+    {
+        "id": 4,
+        "description": "Budget walking sneakers",
+        "category": "Footwear",
+        "rating": 2,
+        "embedding": [0.8, 0, 0.2],
+    },
+    {"id": 5, "description": "Artistic ceramic vase", "category": "Home", "rating": 3, "embedding": [0, 0, 1]},
+]
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Product(Base):
+    __tablename__ = "products"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(120), nullable=False)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(3), nullable=False)
+
+
+Index(
+    "search_idx",
+    indexing.ParadeDBField(Product.id),
+    indexing.ParadeDBField(Product.description),
+    indexing.ParadeDBField(Product.category, tokenizer=tokenizer.literal()),
+    indexing.ParadeDBField(Product.rating),
+    indexing.VectorField(Product.embedding, metric="l2"),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+
+def engine_from_env() -> Engine:
+    dsn = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/postgres")
+    return create_engine(dsn)
+
+
+def setup_database(engine: Engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(Product(**row) for row in PRODUCT_ROWS)
+        session.commit()
+```
+
+</CodeGroup>
+
+</Tab>
+
+<Tab title="Rails">
+
+```bash
+bundle exec ruby hybrid_rrf/setup.rb
+bundle exec ruby hybrid_rrf/hybrid_rrf.rb
+```
+
+<CodeGroup>
+
+```ruby hybrid_rrf/hybrid_rrf.rb
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "setup"
+
+module RrfHelpers
+  module_function
+
+  def rrf_score(weight:, rrf_k:, rank_column:)
+    "#{weight.to_f}::float8 / (#{rrf_k.to_f}::float8 + #{rank_column}.rank_position)"
+  end
+end
+
+def fulltext_ranked_cte(query, top_k:)
+  fulltext_source = MockItem.search(:description)
+                            .parse(query, lenient: true)
+                            .with_score
+                            .order(search_score: :desc)
+                            .limit(top_k)
+
+  MockItem.from(fulltext_source, :fulltext_source)
+          .select("fulltext_source.id",
+                  "ROW_NUMBER() OVER (ORDER BY fulltext_source.search_score DESC) AS rank_position")
+end
+
+def semantic_ranked_cte(query_embedding, top_k:)
+  distance = MockItem.cosine_distance(:embedding, query_embedding)
+  semantic_source = MockItem.nearest(:embedding, query_embedding)
+                            .select(MockItem.arel_table[:id], distance.as("neighbor_distance"))
+                            .limit(top_k)
+
+  MockItem.from(semantic_source, :semantic_source)
+          .select("semantic_source.id",
+                  "ROW_NUMBER() OVER (ORDER BY semantic_source.neighbor_distance ASC) AS rank_position")
+end
+
+def bm25_contribution_cte(weight:, rrf_k:)
+  contribution = RrfHelpers.rrf_score(weight: weight, rrf_k: rrf_k, rank_column: "fulltext")
+
+  MockItem.from("fulltext")
+          .select(
+            "fulltext.id",
+            "fulltext.rank_position AS bm25_rank",
+            "NULL::integer AS semantic_rank",
+            "#{contribution} AS bm25_rrf",
+            "0.0::float8 AS semantic_rrf",
+            "#{contribution} AS hybrid_rrf"
+          )
+end
+
+def semantic_contribution_cte(weight:, rrf_k:)
+  contribution = RrfHelpers.rrf_score(weight: weight, rrf_k: rrf_k, rank_column: "semantic")
+
+  MockItem.from("semantic")
+          .select(
+            "semantic.id",
+            "NULL::integer AS bm25_rank",
+            "semantic.rank_position AS semantic_rank",
+            "0.0::float8 AS bm25_rrf",
+            "#{contribution} AS semantic_rrf",
+            "#{contribution} AS hybrid_rrf"
+          )
+end
+
+def combined_scores_cte
+  MockItem.from("contributions")
+          .select(
+            "contributions.id",
+            "MAX(contributions.bm25_rank) AS bm25_rank",
+            "MAX(contributions.semantic_rank) AS semantic_rank",
+            "SUM(contributions.bm25_rrf) AS bm25_rrf",
+            "SUM(contributions.semantic_rrf) AS semantic_rrf",
+            "SUM(contributions.hybrid_rrf) AS hybrid_score"
+          )
+          .group("contributions.id")
+end
+
+def hybrid_search(query, top_k: 20, limit: 5, rrf_k: 60, bm25_weight: 1.0, semantic_weight: 1.0)
+  query_embedding = HybridRrfSetup.query_embedding_for(query)
+  fulltext_cte = fulltext_ranked_cte(query, top_k: top_k)
+  semantic_cte = semantic_ranked_cte(query_embedding, top_k: top_k)
+  bm25_contrib_cte = bm25_contribution_cte(weight: bm25_weight, rrf_k: rrf_k)
+  semantic_contrib_cte = semantic_contribution_cte(weight: semantic_weight, rrf_k: rrf_k)
+  scores_cte = combined_scores_cte
+
+  MockItem.with(
+            fulltext: fulltext_cte,
+            semantic: semantic_cte,
+            contributions: [bm25_contrib_cte, semantic_contrib_cte],
+            hybrid_scores: scores_cte
+          )
+          .from("hybrid_scores")
+          .joins("JOIN #{MockItem.table_name} ON #{MockItem.table_name}.id = hybrid_scores.id")
+          .select(
+            "#{MockItem.table_name}.id",
+            "#{MockItem.table_name}.description",
+            "hybrid_scores.bm25_rank",
+            "hybrid_scores.semantic_rank",
+            "hybrid_scores.bm25_rrf",
+            "hybrid_scores.semantic_rrf",
+            "hybrid_scores.hybrid_score"
+          )
+          .order("hybrid_scores.hybrid_score DESC, #{MockItem.table_name}.id ASC")
+          .limit(limit)
+end
+
+def display_results(query, rows)
+  puts "\n#{'=' * 80}"
+  puts "Query: '#{query}'"
+  puts "=" * 80
+
+  if rows.empty?
+    puts "  No results."
+    return
+  end
+
+  rows.each_with_index do |row, index|
+    bm25_rank = row.bm25_rank&.to_i
+    semantic_rank = row.semantic_rank&.to_i
+
+    puts format(
+      "  %<rank>d. %<desc>-60s hybrid=%<hybrid>.4f bm25_rank=%<bm25>s semantic_rank=%<semantic>s",
+      rank: index + 1,
+      desc: row.description.truncate(60),
+      hybrid: row.hybrid_score,
+      bm25: bm25_rank || "--",
+      semantic: semantic_rank || "--"
+    )
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  puts "=" * 80
+  puts "Hybrid Search with Reciprocal Rank Fusion (single SQL query)"
+  puts "=" * 80
+  puts "\nCombining ParadeDB BM25 + vector distance in one CTE-based query"
+
+  HybridRrfSetup.setup!
+  MockItem.reset_column_information
+
+  ["running shoes", "footwear for exercise", "wireless earbuds"].each do |query|
+    results = hybrid_search(query, top_k: 20, limit: 5).to_a
+    display_results(query, results)
+  end
+
+  puts "\n#{"=" * 80}"
+  puts "Done!"
+end
+```
+
+```ruby hybrid_rrf/model.rb
+# frozen_string_literal: true
+
+require "active_record"
+require "parade_db"
+
+class MockItem < ActiveRecord::Base
+  include ParadeDB::Model
+
+  self.table_name = "mock_items"
+  self.primary_key = "id"
+end
+
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: nil,
+    rating: nil,
+    category: { tokenizer: ParadeDB::Tokenizer.literal() },
+    "metadata->>'color'" => { tokenizer: ParadeDB::Tokenizer.literal(options: {alias: "metadata_color"}) },
+    "metadata->>'location'" => { tokenizer: ParadeDB::Tokenizer.literal(options: {alias: "metadata_location"}) },
+    embedding: { metric: :cosine }
+  }
+end
+```
+
+```ruby hybrid_rrf/setup.rb
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "json"
+require "logger"
+require "rails"
+require "active_record"
+require "parade_db"
+
+class HybridRrfExampleApp < Rails::Application
+  config.root = File.expand_path("..", __dir__)
+  config.eager_load = false
+  config.logger = Logger.new(nil)
+  config.secret_key_base = "paradedb_examples_secret_key_base"
+end
+
+HybridRrfExampleApp.initialize!
+
+require_relative "model"
+
+module HybridRrfSetup
+  module_function
+
+  QUERY_SEED_TEXT = {
+    "running shoes" => "Sleek running shoes",
+    "footwear for exercise" => "Sleek running shoes",
+    "wireless earbuds" => "Innovative wireless earbuds"
+  }.freeze
+
+  def database_url
+    return ENV["DATABASE_URL"] if ENV["DATABASE_URL"]
+
+    host = ENV.fetch("PGHOST", "localhost")
+    port = ENV.fetch("PGPORT", "5432")
+    user = ENV.fetch("PGUSER", "postgres")
+    password = ENV.fetch("PGPASSWORD", "postgres")
+    database = ENV.fetch("PGDATABASE", "postgres")
+
+    "postgresql://#{user}:#{password}@#{host}:#{port}/#{database}"
+  end
+
+  def connect!
+    return if ActiveRecord::Base.connected?
+
+    ActiveRecord::Base.establish_connection(database_url)
+    ActiveRecord::Base.logger = nil
+  end
+
+  def setup!
+    connect!
+
+    conn = ActiveRecord::Base.connection
+    conn.execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;")
+    conn.drop_table(:mock_items, if_exists: true)
+    conn.execute(
+      "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
+    )
+    conn.remove_paradedb_index(:mock_items, name: :search_idx, if_exists: true)
+    conn.create_paradedb_index(MockItemIndex)
+
+    MockItem.reset_column_information
+    MockItem.count
+  end
+
+  def query_embedding_for(query)
+    seed_text = QUERY_SEED_TEXT[query.to_s.downcase.strip]
+    raise "No query embedding seed configured for '#{query}'" unless seed_text
+
+    connect!
+    embedding = MockItem.where.not(embedding: nil)
+                        .search(:description)
+                        .match_all(seed_text)
+                        .order(id: :asc)
+                        .limit(1)
+                        .pick(:embedding)
+    raise "No embedding found for seed '#{seed_text}'" if embedding.nil?
+
+    normalize_embedding(embedding)
+  end
+
+  def normalize_embedding(value)
+    return value if value.is_a?(Array)
+    return JSON.parse(value) if value.is_a?(String)
+
+    if value.respond_to?(:to_a)
+      as_array = value.to_a
+      return as_array if as_array.is_a?(Array)
+    end
+
+    raise "Unsupported embedding value type: #{value.class}"
+  rescue JSON::ParserError => e
+    raise "Invalid embedding payload for query seed: #{e.message}"
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  puts "=" * 60
+  puts "Hybrid Search Setup"
+  puts "=" * 60
+
+  count = HybridRrfSetup.setup!
+  puts "+ Loaded #{count} mock items with pre-populated embeddings"
+
+  puts "\nSetup complete! Run: BUNDLE_GEMFILE=examples/Gemfile bundle exec ruby examples/hybrid_rrf/hybrid_rrf.rb"
+end
+```
+
+</CodeGroup>
+
+</Tab>
+
+<Tab title="EF Core">
+
+```bash
+dotnet run --project Examples.csproj -p:Example=HybridRrf
+```
+
+```cs HybridRrf/Program.cs
+using HybridRrf.Data;
+using Microsoft.EntityFrameworkCore;
+using ParadeDB.EntityFrameworkCore.Extensions;
+using Shared;
+
+var options = new DbContextOptionsBuilder<AppDbContext>()
+    .UseNpgsql(ExampleSetup.ConnectionString, o => o.UseParadeDb())
+    .UseSnakeCaseNamingConvention()
+    .Options;
+
+await using var dbContext = new AppDbContext(options);
+
+Console.WriteLine(new string('=', 70));
+Console.WriteLine("Hybrid Search with Reciprocal Rank Fusion (RRF)");
+Console.WriteLine(new string('=', 70));
+Console.WriteLine("\nBM25 (keyword) + Vector (semantic)");
+Console.WriteLine("RRF formula: score = sum(1 / (k + rank)) across all rankings");
+
+await ExampleSetup.SetupMockItemsAsync(dbContext);
+
+await Demo(dbContext, "running shoes", "Sleek running shoes");
+await Demo(dbContext, "wireless earbuds", "Innovative wireless earbuds");
+await Demo(dbContext, "bluetooth speaker", "Bluetooth-enabled speaker");
+
+Console.WriteLine("\n" + new string('=', 70));
+Console.WriteLine("BM25 results use the ParadeDB EF query builder.");
+Console.WriteLine(new string('=', 70));
+return;
+
+static async Task Demo(AppDbContext db, string query, string seedDescription)
+{
+    // The mock_items table ships with a pre-populated embedding column; use the
+    // embedding of a known item as the semantic query vector
+    var queryEmbedding = await db
+        .MockItems.Where(x => x.Description == seedDescription)
+        .Select(x => x.Embedding!)
+        .FirstAsync();
+
+    var results = await HybridSearch(db, query, queryEmbedding);
+    DisplayResults(query, results);
+}
+
+static async Task<List<(string Description, double RrfScore)>> HybridSearch(
+    AppDbContext db,
+    string query,
+    float[] queryEmbedding,
+    int topK = 20,
+    int rrfK = 60,
+    int limit = 5
+)
+{
+    var fulltext = await db
+        .MockItems.Where(x => EF.Functions.MatchAll(x.Description, query))
+        .Select(x => new
+        {
+            x.Id,
+            x.Description,
+            Score = EF.Functions.Score(x.Id),
+        })
+        .OrderByDescending(x => x.Score)
+        .Take(topK)
+        .ToListAsync();
+
+    var semantic = await db
+        .MockItems.Where(x => EF.Functions.All(x.Id))
+        .Select(x => new
+        {
+            x.Id,
+            x.Description,
+            Distance = EF.Functions.CosineDistance(x.Embedding, queryEmbedding),
+        })
+        .OrderBy(x => x.Distance)
+        .Take(topK)
+        .ToListAsync();
+
+    return fulltext
+        .Select((x, index) => (x.Id, x.Description, Score: 1.0 / (rrfK + index + 1)))
+        .Concat(
+            semantic.Select((x, index) => (x.Id, x.Description, Score: 1.0 / (rrfK + index + 1)))
+        )
+        .GroupBy(x => x.Id)
+        .Select(x => (x.First().Description, RrfScore: x.Sum(y => y.Score)))
+        .OrderByDescending(x => x.RrfScore)
+        .Take(limit)
+        .ToList();
+}
+
+static void DisplayResults(string query, List<(string Description, double RrfScore)> results)
+{
+    Console.WriteLine($"\n{new string('=', 70)}");
+    Console.WriteLine($"Query: '{query}'");
+    Console.WriteLine(new string('=', 70));
+
+    for (var i = 0; i < results.Count; i++)
+    {
+        var desc = results[i].Description[..Math.Min(60, results[i].Description.Length)];
+        Console.WriteLine($"  {i + 1}. {desc, -60} (RRF: {results[i].RrfScore:F4})");
+    }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+For details, see the [reference documentation](/reference/hybrid/rrf).

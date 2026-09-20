@@ -1,0 +1,527 @@
+---
+title: Vector Search
+description: Find similar products with vector search
+canonical: https://www.paradedb.com/docs/guides/vector-search
+---
+
+Retrieve the nearest products to a query vector. Keep the search predicate and limit in the query so ParadeDB can perform Top-K retrieval. The vectors are small demo embeddings; in an application, generate document and query embeddings with the same model.
+
+Complete [Example Setup](/guides/setup) for your ORM first. Save every file shown in your ORM tab at the labeled path, then run the command from your project root.
+
+<Tabs>
+<Tab title="Drizzle">
+
+```bash
+npx tsx vector-search.ts
+```
+
+```ts vector-search.ts
+import { sql } from "drizzle-orm";
+
+import { closeDb, db, mockItems, setupMockItems } from "./common.js";
+import { search } from "@paradedb/drizzle-paradedb";
+
+// In production, compute query embeddings with the same model that produced
+// the stored embeddings. This fixed vector stands in for that model.
+const queryEmbedding = [-0.02, 0.47, -0.76, 0.13, 0.34, 0.04, 0.19, -0.19];
+
+export async function runVectorSearch(): Promise<void> {
+  console.log("=".repeat(60));
+  console.log("Vector Search inside a ParadeDB Index");
+  console.log("=".repeat(60));
+  console.log("\nTop-K nearest neighbors served by the paradedb index.");
+  console.log("A @@@ predicate and a LIMIT are required for index pushdown.");
+
+  await setupMockItems();
+
+  await nearestNeighbors();
+  await filteredNearestNeighbors("Footwear");
+
+  console.log("\n" + "=".repeat(60));
+  console.log("Done!");
+}
+
+async function nearestNeighbors(): Promise<void> {
+  console.log("\n--- Nearest neighbors across all items ---");
+
+  const distance = search.cosineDistance(mockItems.embedding, queryEmbedding);
+
+  for (const item of await db
+    .select({
+      description: mockItems.description,
+      distance: sql<number>`(${distance})::float8`,
+    })
+    .from(mockItems)
+    .where(search.all(mockItems.id))
+    .orderBy(distance)
+    .limit(5)) {
+    console.log(
+      `  • ${item.description.padEnd(40)} (distance: ${item.distance.toFixed(4)})`,
+    );
+  }
+}
+
+async function filteredNearestNeighbors(category: string): Promise<void> {
+  console.log(`\n--- Nearest neighbors in category '${category}' ---`);
+
+  const distance = search.cosineDistance(mockItems.embedding, queryEmbedding);
+
+  for (const item of await db
+    .select({
+      description: mockItems.description,
+      distance: sql<number>`(${distance})::float8`,
+    })
+    .from(mockItems)
+    .where(search.term(mockItems.category, category))
+    .orderBy(distance)
+    .limit(5)) {
+    console.log(
+      `  • ${item.description.padEnd(40)} (distance: ${item.distance.toFixed(4)})`,
+    );
+  }
+}
+
+try {
+  await runVectorSearch();
+} finally {
+  await closeDb();
+}
+```
+
+</Tab>
+
+<Tab title="Django">
+
+```bash
+python vector_search/vector_search.py
+```
+
+```python vector_search/vector_search.py
+#!/usr/bin/env python
+"""Vector search example using a ParadeDB index.
+
+ParadeDB indexes pgvector ``vector`` columns inside its search index and serves
+Top-K nearest-neighbor queries. Three things are required for index-accelerated
+vector search:
+
+1. A ``@@@`` predicate to activate the index scan — use ``ParadeDB(All())``
+   for a pure vector query.
+2. A distance operator that matches the metric of the index opclass
+   (``l2`` ↔ ``L2Distance``, ``cosine`` ↔ ``CosineDistance``,
+   ``ip`` ↔ ``InnerProduct``).
+3. A ``LIMIT`` (slice the queryset) to get Top-K pushdown.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common import QUERY_EMBEDDINGS, MockItem, setup_mock_items
+
+from paradedb.search import All, MatchAll, ParadeDB
+from paradedb.vector import CosineDistance
+
+
+def demo_semantic_search(query: str, query_embedding: list[float]) -> None:
+    """Pure vector Top-K query with the mandatory match-all predicate."""
+    print(f"\n--- Semantic Search: '{query}' ---")
+    results = (
+        MockItem.objects.filter(id=ParadeDB(All()))
+        .annotate(distance=CosineDistance("embedding", query_embedding))
+        .order_by("distance")[:5]
+    )
+    for item in results:
+        print(f"  • {item.description[:55]:<55} (distance: {item.distance:.4f})")
+
+
+def demo_filtered_semantic_search(query: str, query_embedding: list[float]) -> None:
+    """Vector ordering with a full-text predicate instead of match-all."""
+    print(f"\n--- Keyword-Filtered Semantic Search: 'shoes' + '{query}' ---")
+    results = MockItem.objects.filter(description=ParadeDB(MatchAll("shoes"))).order_by(
+        CosineDistance("embedding", query_embedding)
+    )[:5]
+    for item in results:
+        print(f"  • {item.description[:55]}")
+
+
+if __name__ == "__main__":
+    print("=" * 70)
+    print("django-paradedb Vector Search Example")
+    print("=" * 70)
+
+    count = setup_mock_items()
+    print(f"Loaded {count} products")
+
+    for query in ["running shoes", "footwear for exercise", "wireless earbuds"]:
+        demo_semantic_search(query, QUERY_EMBEDDINGS[query])
+
+    demo_filtered_semantic_search(
+        "footwear for exercise", QUERY_EMBEDDINGS["footwear for exercise"]
+    )
+
+    print("\n" + "=" * 70)
+    print("Done!")
+```
+
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+```bash
+python vector_search/vector_search.py
+```
+
+<CodeGroup>
+
+```python vector_search/vector_search.py
+"""Top-K vector search over a ParadeDB index.
+
+Requires pg_search 0.25.0+ and the `vector` (pgvector) extension.
+The ORDER BY metric must match the index opclass metric, the ``@@@`` predicate
+(here ``search.all``) is mandatory, and a LIMIT is required for Top-K index
+pushdown.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from paradedb.sqlalchemy import search, vector
+from setup import Product, engine_from_env, setup_database
+
+
+def main() -> None:
+    engine = engine_from_env()
+    setup_database(engine)
+
+    query_embedding = [1.0, 0.0, 0.0]
+
+    stmt = (
+        select(Product.id, Product.description)
+        .where(search.all(Product.id))
+        .order_by(vector.l2_distance(Product.embedding, query_embedding))
+        .limit(2)
+    )
+
+    with Session(engine) as session:
+        for row in session.execute(stmt):
+            print(dict(row._mapping))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```python vector_search/setup.py
+from __future__ import annotations
+
+import os
+
+from sqlalchemy import Index, Integer, Text, create_engine, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+
+from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy.vector import Vector
+
+
+PRODUCT_ROWS = [
+    {"id": 1, "description": "Sleek running shoes for daily training", "embedding": [1, 0, 0]},
+    {"id": 2, "description": "Trail running shoes with durable grip", "embedding": [0.9, 0.1, 0]},
+    {"id": 3, "description": "Wireless noise-canceling headphones", "embedding": [0, 1, 0]},
+    {"id": 4, "description": "Artistic ceramic vase", "embedding": [0, 0, 1]},
+]
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Product(Base):
+    __tablename__ = "products"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(3), nullable=False)
+
+
+Index(
+    "search_idx",
+    indexing.ParadeDBField(Product.id),
+    indexing.ParadeDBField(Product.description),
+    indexing.VectorField(Product.embedding, metric="l2"),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+
+def engine_from_env() -> Engine:
+    dsn = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/postgres")
+    return create_engine(dsn)
+
+
+def setup_database(engine: Engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(Product(**row) for row in PRODUCT_ROWS)
+        session.commit()
+```
+
+</CodeGroup>
+
+</Tab>
+
+<Tab title="Rails">
+
+```bash
+bundle exec ruby vector_search/setup.rb
+bundle exec ruby vector_search/vector_search.rb
+```
+
+<CodeGroup>
+
+```ruby vector_search/vector_search.rb
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "setup"
+
+def demo_top_k(query_embedding)
+  puts "\n--- Top-K Nearest Neighbors (L2, from the index metric) ---"
+  results = MockItem.nearest(:embedding, query_embedding).limit(3)
+  puts(results.map { |item| "  - #{item.description}" })
+end
+
+def demo_metric_override(query_embedding)
+  puts "\n--- Metric Override (cosine; falls back to a plain sort without a matching opclass) ---"
+  results = MockItem.nearest(:embedding, query_embedding, metric: :cosine).limit(3)
+  puts(results.map { |item| "  - #{item.description}" })
+end
+
+def demo_filtered_vector_search(query_embedding)
+  puts "\n--- Vector Search + Full-Text Filter: category 'Footwear' ---"
+  results = MockItem.search(:category)
+                    .term("Footwear")
+                    .nearest(:embedding, query_embedding)
+                    .limit(3)
+  puts(results.map { |item| "  - #{item.description}" })
+end
+
+def demo_distance_projection(query_embedding)
+  puts "\n--- Distance Projection ---"
+  distance = MockItem.l2_distance(:embedding, query_embedding)
+  results = MockItem.nearest(:embedding, query_embedding)
+                    .select(MockItem.arel_table[Arel.star], distance.as("distance"))
+                    .limit(3)
+  puts(results.map { |item| "  - #{item.description} (distance: #{item.distance.round(3)})" })
+end
+
+if $PROGRAM_NAME == __FILE__
+  puts "=" * 60
+  puts "rails-paradedb Vector Search Example"
+  puts "=" * 60
+
+  VectorSearchSetup.setup!
+  query_embedding = VectorSearchSetup.query_embedding
+
+  demo_top_k(query_embedding)
+  demo_metric_override(query_embedding)
+  demo_filtered_vector_search(query_embedding)
+  demo_distance_projection(query_embedding)
+
+  puts "\nDone!"
+end
+```
+
+```ruby vector_search/model.rb
+# frozen_string_literal: true
+
+require "active_record"
+require "parade_db"
+
+class MockItem < ActiveRecord::Base
+  include ParadeDB::Model
+
+  self.table_name = "mock_items"
+  self.primary_key = "id"
+end
+
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: nil,
+    category: { tokenizer: ParadeDB::Tokenizer.literal() },
+    embedding: { metric: :l2 }
+  }
+end
+```
+
+```ruby vector_search/setup.rb
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "logger"
+require "rails"
+require "active_record"
+require "parade_db"
+
+class VectorSearchExampleApp < Rails::Application
+  config.root = File.expand_path("..", __dir__)
+  config.eager_load = false
+  config.logger = Logger.new(nil)
+  config.secret_key_base = "paradedb_examples_secret_key_base"
+end
+
+VectorSearchExampleApp.initialize!
+
+require_relative "model"
+
+module VectorSearchSetup
+  module_function
+
+  QUERY_SEED_TEXT = "Sleek running shoes"
+
+  def database_url
+    return ENV["DATABASE_URL"] if ENV["DATABASE_URL"]
+
+    host = ENV.fetch("PGHOST", "localhost")
+    port = ENV.fetch("PGPORT", "5432")
+    user = ENV.fetch("PGUSER", "postgres")
+    password = ENV.fetch("PGPASSWORD", "postgres")
+    database = ENV.fetch("PGDATABASE", "postgres")
+
+    "postgresql://#{user}:#{password}@#{host}:#{port}/#{database}"
+  end
+
+  def connect!
+    return if ActiveRecord::Base.connected?
+
+    ActiveRecord::Base.establish_connection(database_url)
+    ActiveRecord::Base.logger = nil
+  end
+
+  def setup!
+    connect!
+
+    conn = ActiveRecord::Base.connection
+    conn.execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;")
+    conn.drop_table(:mock_items, if_exists: true)
+    conn.execute(
+      "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
+    )
+    conn.remove_paradedb_index(:mock_items, name: :search_idx, if_exists: true)
+    conn.create_paradedb_index(MockItemIndex)
+
+    MockItem.reset_column_information
+    MockItem.count
+  end
+
+  def query_embedding
+    connect!
+
+    embedding = MockItem.where.not(embedding: nil)
+                        .search(:description)
+                        .match_all(QUERY_SEED_TEXT)
+                        .order(id: :asc)
+                        .limit(1)
+                        .pick(:embedding)
+    raise "No embedding found for seed '#{QUERY_SEED_TEXT}'" if embedding.nil?
+
+    embedding
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  puts "=" * 60
+  puts "Vector Search Setup - Loading mock_items Table"
+  puts "=" * 60
+
+  count = VectorSearchSetup.setup!
+  puts "+ Loaded #{count} mock items with pre-populated vector(8) embeddings"
+  puts "\nSetup complete! Run: BUNDLE_GEMFILE=examples/Gemfile bundle exec ruby examples/vector_search/vector_search.rb"
+end
+```
+
+</CodeGroup>
+
+</Tab>
+
+<Tab title="EF Core">
+
+```bash
+dotnet run --project Examples.csproj -p:Example=VectorSearch
+```
+
+```cs VectorSearch/Program.cs
+using HybridRrf.Data;
+using Microsoft.EntityFrameworkCore;
+using ParadeDB.EntityFrameworkCore.Extensions;
+using Shared;
+
+var options = new DbContextOptionsBuilder<AppDbContext>()
+    .UseNpgsql(ExampleSetup.ConnectionString, o => o.UseParadeDb())
+    .UseSnakeCaseNamingConvention()
+    .Options;
+
+await using var dbContext = new AppDbContext(options);
+
+Console.WriteLine(new string('=', 70));
+Console.WriteLine("Vector Search");
+Console.WriteLine(new string('=', 70));
+Console.WriteLine("\nTop-K nearest-neighbor search over a pgvector column");
+
+// The shared search_idx created here covers the embedding column with the
+// cosine metric, so it serves the vector queries below
+await ExampleSetup.SetupMockItemsAsync(dbContext);
+
+await Demo(dbContext, "Sleek running shoes");
+await Demo(dbContext, "Innovative wireless earbuds");
+return;
+
+static async Task Demo(AppDbContext db, string seedDescription)
+{
+    // The mock_items table ships with a pre-populated embedding column; use the
+    // embedding of a known item as the query vector
+    var queryEmbedding = await db
+        .MockItems.Where(x => x.Description == seedDescription)
+        .Select(x => x.Embedding!)
+        .FirstAsync();
+
+    // The @@@ predicate (EF.Functions.All) and the LIMIT are required for the
+    // ParadeDB index to serve the query; the ORDER BY metric must match the
+    // index opclass (cosine here)
+    var results = await db
+        .MockItems.Where(x => EF.Functions.All(x.Id))
+        .Select(x => new
+        {
+            x.Description,
+            Distance = EF.Functions.CosineDistance(x.Embedding, queryEmbedding),
+        })
+        .OrderBy(x => x.Distance)
+        .Take(5)
+        .ToListAsync();
+
+    Console.WriteLine($"\n{new string('=', 70)}");
+    Console.WriteLine($"Similar to: '{seedDescription}'");
+    Console.WriteLine(new string('=', 70));
+
+    for (var i = 0; i < results.Count; i++)
+    {
+        var desc = results[i].Description[..Math.Min(60, results[i].Description.Length)];
+        Console.WriteLine($"  {i + 1}. {desc, -60} (distance: {results[i].Distance:F4})");
+    }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+For details, see the [reference documentation](/reference/vector/querying).

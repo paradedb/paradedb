@@ -1,0 +1,732 @@
+---
+title: Autocomplete
+description: Suggest matches as a user types
+canonical: https://www.paradedb.com/docs/guides/search-as-you-type
+---
+
+Index product descriptions with n-grams and query the tokenized field as the user types. With n-grams starting at three characters, a fragment such as `wir` can match `wireless`.
+
+Complete [Example Setup](/guides/setup) for your ORM first. Save every file shown in your ORM tab at the labeled path, then run the command from your project root.
+
+<Tabs>
+<Tab title="Drizzle">
+
+```bash
+npx tsx autocomplete.ts
+```
+
+```ts autocomplete.ts
+import { desc } from "drizzle-orm";
+import {
+  autocompleteItems,
+  closeDb,
+  db,
+  setupAutocompleteItems,
+} from "./common.js";
+import { search } from "@paradedb/drizzle-paradedb";
+
+export async function runAutocomplete(): Promise<void> {
+  console.log("=".repeat(60));
+  console.log("drizzle-paradedb Autocomplete Example");
+  console.log("Fast as-you-type search");
+  console.log("=".repeat(60));
+
+  await setupAutocompleteItems();
+
+  console.log("=".repeat(60));
+  console.log("Autocomplete");
+  console.log("=".repeat(60));
+  for (const query of [
+    "run",
+    "runn",
+    "running",
+    "wire",
+    "wirel",
+    "wireles",
+    "wireless",
+    "blue",
+    "blueto",
+    "bluetooth",
+  ]) {
+    console.log(`\nUser types: '${query}' →`);
+
+    const rows = await db
+      .select({
+        description: autocompleteItems.description,
+        score: search.score(autocompleteItems.id),
+      })
+      .from(autocompleteItems)
+      .where(search.parse(autocompleteItems.id, `description_ngram:${query}`))
+      .orderBy(desc(search.score(autocompleteItems.id)))
+      .limit(5);
+
+    if (rows.length === 0) {
+      console.log("  (no results)");
+      continue;
+    }
+
+    for (const item of rows) {
+      console.log(
+        `  • ${item.description.slice(0, 50)}... (score: ${item.score.toFixed(2)})`,
+      );
+    }
+  }
+
+  console.log("\nDone.");
+}
+
+try {
+  await runAutocomplete();
+} finally {
+  await closeDb();
+}
+```
+
+</Tab>
+
+<Tab title="Django">
+
+```bash
+python autocomplete/autocomplete.py
+```
+
+<CodeGroup>
+
+```python autocomplete/autocomplete.py
+#!/usr/bin/env python
+"""Autocomplete (as-you-type) search example."""
+
+import sys
+from pathlib import Path
+
+from paradedb.functions import Score
+from paradedb.search import ParadeDB, Parse
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from models import AutocompleteItem
+
+
+def demo_autocomplete() -> None:
+    """As-you-type autocomplete."""
+    print("\n" + "=" * 60)
+    print("Autocomplete")
+    print("=" * 60)
+
+    queries = [
+        "run",
+        "runn",
+        "running",
+        "wire",
+        "wirel",
+        "wireles",
+        "wireless",
+        "blue",
+        "blueto",
+        "bluetooth",
+    ]
+
+    for query in queries:
+        print(f"\nUser types: '{query}' →")
+
+        # Autocomplete query
+        results = (
+            AutocompleteItem.objects.filter(
+                description=ParadeDB(Parse(f"description_ngram:{query}"))
+            )
+            .annotate(score=Score())
+            .order_by("-score")[:5]
+        )
+
+        if results:
+            for item in results:
+                print(f"  • {item.description[:50]}... (score: {item.score:.2f})")
+        else:
+            print("  (no results)")
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("django-paradedb Autocomplete Example")
+    print("Fast as-you-type search")
+    print("=" * 60)
+
+    # Import setup here to avoid circular import issues
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from setup import setup_autocomplete_table
+
+    # Ensure table and index exist before running the demo.
+    count = setup_autocomplete_table()
+    print(f"Loaded {count} products from autocomplete_items table\n")
+
+    demo_autocomplete()
+    print("\nDone.")
+```
+
+```python autocomplete/models.py
+"""Shared model definitions for autocomplete examples."""
+
+from common import configure_django
+from django.db import models
+
+from paradedb.indexes import ParadeDBIndex
+from paradedb.queryset import ParadeDBManager
+from paradedb.search import Tokenizer
+
+configure_django()
+
+
+class AutocompleteItem(models.Model):
+    id = models.IntegerField(primary_key=True)
+    description = models.TextField()
+    category = models.CharField(max_length=100)
+    rating = models.IntegerField()
+    in_stock = models.BooleanField()
+    created_at = models.DateTimeField()
+
+    objects = ParadeDBManager()
+
+    class Meta:
+        app_label = "examples"
+        managed = False
+        db_table = "autocomplete_items"
+        indexes = (
+            ParadeDBIndex(
+                fields={
+                    "id": {},
+                    "description": {
+                        "tokenizers": [
+                            {"tokenizer": Tokenizer.unicode_words()},
+                            {
+                                "tokenizer": Tokenizer.ngram(
+                                    3, 8, {"alias": "description_ngram"}
+                                ),
+                            },
+                        ]
+                    },
+                    "category": {"tokenizer": Tokenizer.literal({"alias": "category"})},
+                },
+                key_field="id",
+                name="autocomplete_items_idx",
+            ),
+        )
+
+    def __str__(self) -> str:
+        return self.description
+```
+
+```python autocomplete/setup.py
+#!/usr/bin/env python
+"""Setup script: Create dedicated table for autocomplete demo.
+
+This script creates an autocomplete_items table with product data
+from mock_items, optimized for autocomplete with ngram indexes.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from models import AutocompleteItem
+
+
+def setup_autocomplete_table() -> int:
+    """Create autocomplete_items table with data from mock_items and ngram index."""
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE")
+
+        # Ensure mock_items exists first
+        cursor.execute(
+            "CALL paradedb.create_bm25_test_table("
+            "schema_name => 'public', table_name => 'mock_items')"
+        )
+
+        # Drop and recreate table
+        print("\nCreating autocomplete_items table...")
+        cursor.execute("DROP TABLE IF EXISTS autocomplete_items CASCADE;")
+        cursor.execute(
+            """
+            CREATE TABLE autocomplete_items (
+                id SERIAL PRIMARY KEY,
+                description TEXT NOT NULL,
+                category VARCHAR(100) NOT NULL,
+                rating INTEGER NOT NULL,
+                in_stock BOOLEAN NOT NULL DEFAULT true,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        print("  ✓ Table created")
+
+        # Copy data from mock_items
+        print("\nCopying data from mock_items...")
+        cursor.execute(
+            """
+            INSERT INTO autocomplete_items (id, description, category, rating, in_stock, created_at)
+            SELECT id, description, category, rating, in_stock, created_at
+            FROM mock_items;
+            """
+        )
+
+        cursor.execute("SELECT COUNT(*) FROM autocomplete_items")
+        count = cursor.fetchone()[0]
+        print(f"  ✓ Copied {count} products from mock_items")
+
+        print("\nCreating autocomplete-optimized ParadeDB index...")
+    with connection.schema_editor(atomic=False) as schema_editor:
+        for index in AutocompleteItem._meta.indexes:
+            statement = index.create_sql(
+                model=AutocompleteItem, schema_editor=schema_editor
+            )
+            schema_editor.execute(statement)
+        print("  ✓ Created ParadeDB index with:")
+        print("    - description (standard tokenizer)")
+        print("    - description_ngram (ngram 3-8 for substring matching)")
+        print("    - category (literal for exact matching)")
+
+    return count
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("Autocomplete Setup - Creating Dedicated Table")
+    print("=" * 60)
+    count = setup_autocomplete_table()
+    print("\n" + "=" * 60)
+    print(f"✓ Setup complete! Created autocomplete_items with {count} products")
+    print("=" * 60)
+    print("\nRun: python examples/autocomplete/autocomplete.py")
+```
+
+</CodeGroup>
+
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+```bash
+python autocomplete/autocomplete.py
+```
+
+<CodeGroup>
+
+```python autocomplete/autocomplete.py
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from paradedb.sqlalchemy import search
+from setup import Product, engine_from_env, setup_database
+
+
+def main() -> None:
+    engine = engine_from_env()
+    setup_database(engine)
+
+    stmt = (
+        select(Product.id, Product.description)
+        .where(search.phrase_prefix(Product.description, ["running", "sh"]))
+        .order_by(Product.id)
+        .limit(10)
+    )
+
+    with Session(engine) as session:
+        for row in session.execute(stmt):
+            print(dict(row._mapping))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```python autocomplete/setup.py
+from __future__ import annotations
+
+import os
+
+from sqlalchemy import Index, Integer, String, Text, create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+
+from paradedb import tokenizer
+from paradedb.sqlalchemy import indexing
+
+
+PRODUCT_ROWS = [
+    {"id": 1, "description": "Sleek running shoes for daily training", "category": "Footwear", "rating": 5},
+    {"id": 2, "description": "Trail running shoes with durable grip", "category": "Footwear", "rating": 4},
+    {"id": 3, "description": "Wireless noise-canceling headphones", "category": "Electronics", "rating": 5},
+    {"id": 4, "description": "Budget walking sneakers", "category": "Footwear", "rating": 2},
+    {"id": 5, "description": "Artistic ceramic vase", "category": "Home", "rating": 3},
+]
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Product(Base):
+    __tablename__ = "products"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(120), nullable=False)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+Index(
+    "search_idx",
+    indexing.ParadeDBField(Product.id),
+    indexing.ParadeDBField(Product.description),
+    indexing.ParadeDBField(
+        Product.description,
+        tokenizer=tokenizer.ngram(3, 8, options={"prefix_only": True, "alias": "description_ngram"}),
+    ),
+    indexing.ParadeDBField(Product.category, tokenizer=tokenizer.literal()),
+    indexing.ParadeDBField(Product.rating),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+
+def engine_from_env() -> Engine:
+    dsn = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/postgres")
+    return create_engine(dsn)
+
+
+def setup_database(engine: Engine) -> None:
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(Product(**row) for row in PRODUCT_ROWS)
+        session.commit()
+```
+
+</CodeGroup>
+
+</Tab>
+
+<Tab title="Rails">
+
+```bash
+bundle exec ruby autocomplete/setup.rb
+bundle exec ruby autocomplete/autocomplete.rb
+```
+
+<CodeGroup>
+
+```ruby autocomplete/autocomplete.rb
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "setup"
+
+def demo_autocomplete
+  puts "\n#{"=" * 60}"
+  puts "Autocomplete"
+  puts "=" * 60
+
+  queries = %w[run runn running wire wirel wireles wireless blue blueto bluetooth]
+
+  queries.each do |query|
+    puts "\nUser types: '#{query}' ->"
+
+    results = AutocompleteItem.search(:description)
+                              .parse("description_ngram:#{query}")
+                              .with_score
+                              .order(search_score: :desc)
+                              .limit(5)
+    puts(results.map { |item| "  - #{item.description.truncate(50)} (score: #{item.search_score.round(2)})" })
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  puts "=" * 60
+  puts "rails-paradedb Autocomplete Example"
+  puts "Fast as-you-type search"
+  puts "=" * 60
+
+  count = AutocompleteSetup.setup_autocomplete_table!
+  AutocompleteItem.reset_column_information
+  puts "Loaded #{count} products from autocomplete_items table"
+
+  demo_autocomplete
+
+  puts "\nDone."
+end
+```
+
+```ruby autocomplete/model.rb
+# frozen_string_literal: true
+
+require "active_record"
+require "parade_db"
+
+class MockItem < ActiveRecord::Base
+  include ParadeDB::Model
+
+  self.table_name = "mock_items"
+  self.primary_key = "id"
+end
+
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: nil,
+    rating: nil,
+    category: { tokenizer: ParadeDB::Tokenizer.literal() },
+    "metadata->>'color'" => { tokenizer: ParadeDB::Tokenizer.literal(options: {alias: "metadata_color"}) },
+    "metadata->>'location'" => { tokenizer: ParadeDB::Tokenizer.literal(options: {alias: "metadata_location"}) }
+  }
+end
+
+class AutocompleteItem < ActiveRecord::Base
+  include ParadeDB::Model
+
+  self.table_name = "autocomplete_items"
+  self.primary_key = "id"
+end
+
+class AutocompleteItemIndex < ParadeDB::Index
+  self.table_name = :autocomplete_items
+  self.key_field = :id
+  self.index_name = :autocomplete_items_idx
+  self.fields = {
+    id: nil,
+    description: {
+      tokenizers: [
+        ParadeDB::Tokenizer.unicode_words(),
+        ParadeDB::Tokenizer.ngram(3, 8, options: {alias: "description_ngram"})
+      ]
+    },
+    category: { tokenizer: ParadeDB::Tokenizer.literal() }
+  }
+end
+```
+
+```ruby autocomplete/setup.rb
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "logger"
+require "rails"
+require "active_record"
+require "parade_db"
+
+class AutocompleteExampleApp < Rails::Application
+  config.root = File.expand_path("..", __dir__)
+  config.eager_load = false
+  config.logger = Logger.new(nil)
+  config.secret_key_base = "paradedb_examples_secret_key_base"
+end
+
+AutocompleteExampleApp.initialize!
+
+require_relative "model"
+
+module AutocompleteSetup
+  module_function
+
+  def database_url
+    return ENV["DATABASE_URL"] if ENV["DATABASE_URL"]
+
+    host = ENV.fetch("PGHOST", "localhost")
+    port = ENV.fetch("PGPORT", "5432")
+    user = ENV.fetch("PGUSER", "postgres")
+    password = ENV.fetch("PGPASSWORD", "postgres")
+    database = ENV.fetch("PGDATABASE", "postgres")
+
+    "postgresql://#{user}:#{password}@#{host}:#{port}/#{database}"
+  end
+
+  def connect!
+    return if ActiveRecord::Base.connected?
+
+    ActiveRecord::Base.establish_connection(database_url)
+    ActiveRecord::Base.logger = nil
+  end
+
+  def setup_mock_items!
+    connect!
+
+    conn = ActiveRecord::Base.connection
+    conn.execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;")
+    conn.drop_table(:mock_items, if_exists: true)
+    conn.execute(
+      "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
+    )
+    conn.remove_paradedb_index(:mock_items, name: :search_idx, if_exists: true)
+    conn.create_paradedb_index(MockItemIndex)
+
+    MockItem.reset_column_information
+    MockItem.count
+  end
+
+  def setup_autocomplete_table!
+    setup_mock_items!
+    conn = ActiveRecord::Base.connection
+
+    puts "\nCreating autocomplete_items table..."
+    conn.execute("DROP TABLE IF EXISTS autocomplete_items CASCADE;")
+    conn.execute(<<~SQL)
+      CREATE TABLE autocomplete_items (
+        id INTEGER PRIMARY KEY,
+        description TEXT NOT NULL,
+        category VARCHAR(100) NOT NULL,
+        rating INTEGER NOT NULL,
+        in_stock BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    SQL
+    puts "  + Table created"
+
+    puts "\nCopying data from #{MockItem.table_name}..."
+    conn.execute(<<~SQL)
+      INSERT INTO autocomplete_items (id, description, category, rating, in_stock, created_at)
+      SELECT id, description, category, rating, in_stock, created_at
+      FROM #{MockItem.table_name};
+    SQL
+
+    count = conn.select_value("SELECT COUNT(*) FROM autocomplete_items").to_i
+    puts "  + Copied #{count} products from #{MockItem.table_name}"
+
+    puts "\nCreating autocomplete-optimized search index..."
+    conn.create_paradedb_index(AutocompleteItemIndex)
+
+    puts "  + Created search index with:"
+    puts "    - description (standard tokenizer)"
+    puts "    - description_ngram (ngram 3-8 for substring matching)"
+    puts "    - category (literal for exact matching)"
+
+    count
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  puts "=" * 60
+  puts "Autocomplete Setup - Creating Dedicated Table"
+  puts "=" * 60
+
+  count = AutocompleteSetup.setup_autocomplete_table!
+
+  puts "\n" + "=" * 60
+  puts "+ Setup complete! Created autocomplete_items with #{count} products"
+  puts "=" * 60
+  puts "\nRun: BUNDLE_GEMFILE=examples/Gemfile bundle exec ruby examples/autocomplete/autocomplete.rb"
+end
+```
+
+</CodeGroup>
+
+</Tab>
+
+<Tab title="EF Core">
+
+```bash
+dotnet run --project Examples.csproj -p:Example=Autocomplete
+```
+
+<CodeGroup>
+
+```cs Autocomplete/Program.cs
+using Autocomplete.Data;
+using Microsoft.EntityFrameworkCore;
+using ParadeDB.EntityFrameworkCore.Extensions;
+using Shared;
+
+var options = new DbContextOptionsBuilder<AppDbContext>()
+    .UseNpgsql(ExampleSetup.ConnectionString, o => o.UseParadeDb())
+    .UseSnakeCaseNamingConvention()
+    .Options;
+
+await using var dbContext = new AppDbContext(options);
+
+Console.WriteLine(new string('=', 60));
+Console.WriteLine("Autocomplete Example");
+Console.WriteLine(new string('=', 60));
+
+await ExampleSetup.SetupAutocompleteAsync(dbContext);
+
+var count = await dbContext.AutocompleteItems.CountAsync();
+Console.WriteLine($"\nLoaded {count} items");
+
+string[] queries =
+[
+    "run",
+    "runn",
+    "running",
+    "wire",
+    "wirel",
+    "wireles",
+    "wireless",
+    "blue",
+    "blueto",
+    "bluetooth",
+];
+
+foreach (var query in queries)
+{
+    Console.WriteLine($"\nUser types: '{query}'");
+
+    var parseQuery = $"description_ngram:{query}";
+
+    var results = await dbContext
+        .AutocompleteItems.Where(x => EF.Functions.Parse(x.Description, parseQuery))
+        .Select(x => new
+        {
+            x.Id,
+            x.Description,
+            x.Category,
+            x.Rating,
+            x.InStock,
+            SearchScore = EF.Functions.Score(x.Id),
+        })
+        .OrderByDescending(x => x.SearchScore)
+        .Take(5)
+        .ToListAsync();
+
+    if (results.Count == 0)
+    {
+        Console.WriteLine("  (no results)");
+        continue;
+    }
+
+    foreach (var item in results)
+    {
+        var desc = item.Description.Length > 50 ? item.Description[..47] + "..." : item.Description;
+
+        Console.WriteLine($"  - {desc} (score: {item.SearchScore:F2})");
+    }
+}
+
+Console.WriteLine();
+Console.WriteLine(new string('=', 60));
+Console.WriteLine("Done.");
+```
+
+```cs Autocomplete/AutocompleteResult.cs
+namespace Autocomplete;
+
+public class AutocompleteResult
+{
+    public int Id { get; set; }
+    public string Description { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public int Rating { get; set; }
+    public bool InStock { get; set; }
+    public double SearchScore { get; set; }
+}
+```
+
+</CodeGroup>
+
+</Tab>
+
+</Tabs>
+
+For details, see the [reference documentation](/reference/tokenizers/available-tokenizers/ngrams).

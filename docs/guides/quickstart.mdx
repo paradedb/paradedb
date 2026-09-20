@@ -1,0 +1,642 @@
+---
+title: Quickstart
+description: Search products with your ORM
+canonical: https://www.paradedb.com/docs/guides/quickstart
+---
+
+Run keyword queries against a small product catalog. The examples demonstrate basic search; depending on the ORM, they also cover fuzzy matching, BM25 scores, phrase search, highlighting, and filters.
+
+Complete [Example Setup](/guides/setup) for your ORM first. Save every file shown in your ORM tab at the labeled path, then run the command from your project root.
+
+<Tabs>
+<Tab title="Drizzle">
+
+```bash
+npx tsx quickstart.ts
+```
+
+```ts quickstart.ts
+import { and, desc, eq, gte, sql } from "drizzle-orm";
+
+import { closeDb, db, mockItems, setupMockItems } from "./common.js";
+import { search } from "@paradedb/drizzle-paradedb";
+
+export async function runQuickstart(): Promise<void> {
+  console.log("=".repeat(60));
+  console.log("drizzle-paradedb Quickstart Example");
+  console.log("=".repeat(60));
+
+  await setupMockItems();
+
+  console.log("\n--- Basic Search: 'shoes' ---");
+  for (const item of await db
+    .select({ description: mockItems.description })
+    .from(mockItems)
+    .where(search.matchAll(mockItems.description, "shoes"))
+    .limit(5)) {
+    console.log(`  • ${item.description.slice(0, 60)}...`);
+  }
+
+  console.log("\n--- Scored Search: 'running' ---");
+  for (const item of await db
+    .select({
+      description: mockItems.description,
+      score: search.score(mockItems.id),
+    })
+    .from(mockItems)
+    .where(search.matchAll(mockItems.description, "running"))
+    .orderBy(desc(search.score(mockItems.id)))
+    .limit(5)) {
+    console.log(
+      `  • ${item.description.slice(0, 50)}... (score: ${item.score.toFixed(2)})`,
+    );
+  }
+
+  console.log("\n--- Phrase Search: 'running shoes' ---");
+  for (const item of await db
+    .select({
+      description: mockItems.description,
+      score: search.score(mockItems.id),
+    })
+    .from(mockItems)
+    .where(search.phrase(mockItems.description, "running shoes"))
+    .orderBy(desc(search.score(mockItems.id)))
+    .limit(5)) {
+    console.log(
+      `  • ${item.description.slice(0, 50)}... (score: ${item.score.toFixed(2)})`,
+    );
+  }
+
+  console.log("\n--- Snippet Highlighting: 'shoes' ---");
+  for (const item of await db
+    .select({
+      snippet: search.snippet(mockItems.description, {
+        startTag: "<b>",
+        endTag: "</b>",
+      }),
+      score: search.score(mockItems.id),
+    })
+    .from(mockItems)
+    .where(search.matchAll(mockItems.description, "shoes"))
+    .orderBy(desc(search.score(mockItems.id)))
+    .limit(3)) {
+    console.log(`  • ${item.snippet}`);
+  }
+
+  console.log("\n--- Filtered Search: 'shoes' + in_stock + rating >= 4 ---");
+  for (const item of await db
+    .select({
+      description: mockItems.description,
+      rating: mockItems.rating,
+      score: search.score(mockItems.id),
+    })
+    .from(mockItems)
+    .where(
+      and(
+        search.matchAll(mockItems.description, "shoes"),
+        eq(mockItems.inStock, true),
+        gte(mockItems.rating, 4),
+      ),
+    )
+    .orderBy(desc(search.score(mockItems.id)))
+    .limit(5)) {
+    console.log(
+      `  • ${item.description.slice(0, 40)}... (rating: ${item.rating})`,
+    );
+  }
+
+  console.log("\n" + "=".repeat(60));
+  console.log("Done!");
+}
+
+try {
+  await runQuickstart();
+} finally {
+  await db.execute(sql`DROP INDEX IF EXISTS search_idx`).catch(() => undefined);
+  await closeDb();
+}
+```
+
+</Tab>
+
+<Tab title="Django">
+
+```bash
+python quickstart/quickstart.py
+```
+
+```python quickstart/quickstart.py
+#!/usr/bin/env python
+"""Quickstart example for django-paradedb."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common import MockItem, setup_mock_items
+
+from paradedb.functions import Score, Snippet
+from paradedb.search import MatchAll, ParadeDB, Phrase
+
+
+def demo_basic_search() -> None:
+    """Basic keyword search."""
+    print("\n--- Basic Search: 'shoes' ---")
+    for item in MockItem.objects.filter(description=ParadeDB(MatchAll("shoes")))[:5]:
+        print(f"  • {item.description[:60]}...")
+
+
+def demo_scored_search() -> None:
+    """Search with BM25 scores."""
+    print("\n--- Scored Search: 'running' ---")
+    results = (
+        MockItem.objects.filter(description=ParadeDB(MatchAll("running")))
+        .annotate(score=Score())
+        .order_by("-score")[:5]
+    )
+    for item in results:
+        print(f"  • {item.description[:50]}... (score: {item.score:.2f})")
+
+
+def demo_phrase_search() -> None:
+    """Phrase search."""
+    print("\n--- Phrase Search: 'running shoes' ---")
+    results = (
+        MockItem.objects.filter(description=ParadeDB(Phrase("running shoes")))
+        .annotate(score=Score())
+        .order_by("-score")[:5]
+    )
+    for item in results:
+        print(f"  • {item.description[:50]}... (score: {item.score:.2f})")
+
+
+def demo_snippet_highlighting() -> None:
+    """Snippet highlighting."""
+    print("\n--- Snippet Highlighting: 'shoes' ---")
+    results = (
+        MockItem.objects.filter(description=ParadeDB(MatchAll("shoes")))
+        .annotate(
+            score=Score(),
+            snippet=Snippet("description", start_sel="<b>", stop_sel="</b>"),
+        )
+        .order_by("-score")[:3]
+    )
+    for item in results:
+        print(f"  • {item.snippet}")
+
+
+def demo_filtered_search() -> None:
+    """Search with Django ORM filters."""
+    print("\n--- Filtered Search: 'shoes' + in_stock + rating >= 4 ---")
+    results = (
+        MockItem.objects.filter(
+            description=ParadeDB(MatchAll("shoes")),
+            in_stock=True,
+            rating__gte=4,
+        )
+        .annotate(score=Score())
+        .order_by("-score")[:5]
+    )
+    for item in results:
+        print(f"  • {item.description[:40]}... (rating: {item.rating})")
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("django-paradedb Quickstart Example")
+    print("=" * 60)
+
+    count = setup_mock_items()
+    print(f"Loaded {count} mock items")
+
+    demo_basic_search()
+    demo_scored_search()
+    demo_phrase_search()
+    demo_snippet_highlighting()
+    demo_filtered_search()
+
+    print("\n" + "=" * 60)
+    print("Done!")
+```
+
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+```bash
+python quickstart/quickstart.py
+```
+
+<CodeGroup>
+
+```python quickstart/quickstart.py
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from paradedb.sqlalchemy import search
+from setup import Product, engine_from_env, setup_database
+
+
+def main() -> None:
+    engine = engine_from_env()
+    setup_database(engine)
+
+    stmt = (
+        select(Product.id, Product.description)
+        .where(search.match_any(Product.description, search.fuzzy("runnning", 1)))
+        .order_by(Product.id)
+        .limit(5)
+    )
+
+    with Session(engine) as session:
+        for row in session.execute(stmt):
+            print(dict(row._mapping))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```python quickstart/setup.py
+from __future__ import annotations
+
+import os
+
+from sqlalchemy import Index, Integer, String, Text, create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+
+from paradedb import tokenizer
+from paradedb.sqlalchemy import indexing
+
+
+PRODUCT_ROWS = [
+    {"id": 1, "description": "Sleek running shoes for daily training", "category": "Footwear", "rating": 5},
+    {"id": 2, "description": "Trail running shoes with durable grip", "category": "Footwear", "rating": 4},
+    {"id": 3, "description": "Wireless noise-canceling headphones", "category": "Electronics", "rating": 5},
+    {"id": 4, "description": "Budget walking sneakers", "category": "Footwear", "rating": 2},
+    {"id": 5, "description": "Artistic ceramic vase", "category": "Home", "rating": 3},
+]
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Product(Base):
+    __tablename__ = "products"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(120), nullable=False)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+Index(
+    "search_idx",
+    indexing.ParadeDBField(Product.id),
+    indexing.ParadeDBField(Product.description),
+    indexing.ParadeDBField(Product.category, tokenizer=tokenizer.literal()),
+    indexing.ParadeDBField(Product.rating),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+
+def engine_from_env() -> Engine:
+    dsn = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/postgres")
+    return create_engine(dsn)
+
+
+def setup_database(engine: Engine) -> None:
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(Product(**row) for row in PRODUCT_ROWS)
+        session.commit()
+```
+
+</CodeGroup>
+
+</Tab>
+
+<Tab title="Rails">
+
+```bash
+bundle exec ruby quickstart/quickstart.rb
+```
+
+<CodeGroup>
+
+```ruby quickstart/quickstart.rb
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "setup"
+
+def demo_basic_search
+  puts "\n--- Basic Search: 'shoes' ---"
+  results = MockItem.search(:description).match_all("shoes").limit(5)
+  puts(results.map { |item| "  - #{item.description.truncate(60)}" })
+end
+
+def demo_scored_search
+  puts "\n--- Scored Search: 'running' ---"
+  results = MockItem.search(:description)
+                    .match_all("running")
+                    .with_score
+                    .order(search_score: :desc)
+                    .limit(5)
+
+  puts(results.map { |item| "  - #{item.description.truncate(50)} (score: #{item.search_score.round(2)})" })
+end
+
+def demo_phrase_search
+  puts "\n--- Phrase Search: 'running shoes' ---"
+  results = MockItem.search(:description)
+                    .phrase("running shoes")
+                    .with_score
+                    .order(search_score: :desc)
+                    .limit(5)
+
+  puts(results.map { |item| "  - #{item.description.truncate(50)} (score: #{item.search_score.round(2)})" })
+end
+
+def demo_snippet_highlighting
+  puts "\n--- Snippet Highlighting: 'shoes' ---"
+  results = MockItem.search(:description)
+                    .match_all("shoes")
+                    .with_score
+                    .with_snippet(:description, start_tag: "<b>", end_tag: "</b>")
+                    .order(search_score: :desc)
+                    .limit(3)
+
+  puts(results.map { |item| "  - #{item.description_snippet}" })
+end
+
+def demo_filtered_search
+  puts "\n--- Filtered Search: 'shoes' + in_stock + rating >= 4 ---"
+  results = MockItem.search(:description)
+                    .match_all("shoes")
+                    .where(in_stock: true)
+                    .where(MockItem.arel_table[:rating].gteq(4))
+                    .with_score
+                    .order(search_score: :desc)
+                    .limit(5)
+
+  puts(results.map { |item| "  - #{item.description.truncate(40)} (rating: #{item.rating})" })
+end
+
+if $PROGRAM_NAME == __FILE__
+  puts "=" * 60
+  puts "rails-paradedb Quickstart Example"
+  puts "=" * 60
+
+  count = QuickstartSetup.setup_mock_items!
+  puts "Loaded #{count} mock items"
+
+  demo_basic_search
+  demo_scored_search
+  demo_phrase_search
+  demo_snippet_highlighting
+  demo_filtered_search
+
+  puts "\n" + "=" * 60
+  puts "Done!"
+end
+```
+
+```ruby quickstart/model.rb
+# frozen_string_literal: true
+
+require "active_record"
+require "parade_db"
+
+class MockItem < ActiveRecord::Base
+  include ParadeDB::Model
+
+  self.table_name = "mock_items"
+  self.primary_key = "id"
+end
+
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: nil,
+    category: nil,
+    rating: nil,
+    in_stock: nil,
+    created_at: nil,
+    metadata: nil,
+    weight_range: nil
+  }
+end
+```
+
+```ruby quickstart/setup.rb
+# frozen_string_literal: true
+
+require "logger"
+require "rails"
+require "active_record"
+require "parade_db"
+
+class QuickstartExampleApp < Rails::Application
+  config.root = File.expand_path("..", __dir__)
+  config.eager_load = false
+  config.logger = Logger.new(nil)
+  config.secret_key_base = "paradedb_examples_secret_key_base"
+end
+
+QuickstartExampleApp.initialize!
+
+require_relative "model"
+
+module QuickstartSetup
+  module_function
+
+  def database_url
+    return ENV["DATABASE_URL"] if ENV["DATABASE_URL"]
+
+    host = ENV.fetch("PGHOST", "localhost")
+    port = ENV.fetch("PGPORT", "5432")
+    user = ENV.fetch("PGUSER", "postgres")
+    password = ENV.fetch("PGPASSWORD", "postgres")
+    database = ENV.fetch("PGDATABASE", "postgres")
+
+    "postgresql://#{user}:#{password}@#{host}:#{port}/#{database}"
+  end
+
+  def connect!
+    return if ActiveRecord::Base.connected?
+
+    ActiveRecord::Base.establish_connection(database_url)
+    ActiveRecord::Base.logger = nil
+  end
+
+  def setup_mock_items!
+    connect!
+
+    conn = ActiveRecord::Base.connection
+    conn.execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;")
+    conn.drop_table(:mock_items, if_exists: true)
+    conn.execute(
+      "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
+    )
+    conn.remove_paradedb_index(:mock_items, name: :search_idx, if_exists: true)
+    conn.create_paradedb_index(MockItemIndex)
+
+    MockItem.reset_column_information
+    MockItem.count
+  end
+end
+```
+
+</CodeGroup>
+
+</Tab>
+
+<Tab title="EF Core">
+
+```bash
+dotnet run --project Examples.csproj -p:Example=Quickstart
+```
+
+```cs Quickstart/Program.cs
+using Microsoft.EntityFrameworkCore;
+using ParadeDB.EntityFrameworkCore;
+using ParadeDB.EntityFrameworkCore.Extensions;
+using Quickstart.Data;
+using Shared;
+
+var options = new DbContextOptionsBuilder<AppDbContext>()
+    .UseNpgsql(ExampleSetup.ConnectionString, o => o.UseParadeDb())
+    .UseSnakeCaseNamingConvention()
+    .Options;
+
+await using var dbContext = new AppDbContext(options);
+
+Console.WriteLine(new string('=', 60));
+Console.WriteLine("Quickstart Example");
+Console.WriteLine(new string('=', 60));
+
+await ExampleSetup.SetupMockItemsAsync(dbContext);
+
+var count = await dbContext.MockItems.CountAsync();
+Console.WriteLine($"Loaded {count} mock items");
+
+await DemoBasicSearch(dbContext);
+await DemoScoredSearch(dbContext);
+await DemoPhraseSearch(dbContext);
+await DemoSnippetHighlighting(dbContext);
+await DemoFilteredSearch(dbContext);
+
+Console.WriteLine();
+Console.WriteLine(new string('=', 60));
+Console.WriteLine("Done!");
+return;
+
+static async Task DemoBasicSearch(AppDbContext db)
+{
+    Console.WriteLine("\n--- Basic Search: 'shoes' ---");
+
+    var results = await db
+        .MockItems.Where(x => EF.Functions.MatchAll(x.Description, "shoes"))
+        .Take(5)
+        .ToListAsync();
+
+    foreach (var item in results)
+        Console.WriteLine($"  • {Truncate(item.Description, 60)}...");
+}
+
+static async Task DemoScoredSearch(AppDbContext db)
+{
+    Console.WriteLine("\n--- Scored Search: 'running' ---");
+
+    var results = await db
+        .MockItems.Where(x => EF.Functions.MatchAll(x.Description, "running"))
+        .Select(x => new { Item = x, Score = EF.Functions.Score(x.Id) })
+        .OrderByDescending(x => x.Score)
+        .Take(5)
+        .ToListAsync();
+
+    foreach (var result in results)
+        Console.WriteLine(
+            $"  • {Truncate(result.Item.Description, 50)}... (score: {result.Score:F2})"
+        );
+}
+
+static async Task DemoPhraseSearch(AppDbContext db)
+{
+    Console.WriteLine("\n--- Phrase Search: 'running shoes' ---");
+
+    var results = await db
+        .MockItems.Where(x => EF.Functions.Phrase(x.Description, "running shoes"))
+        .Select(x => new { Item = x, Score = EF.Functions.Score(x.Id) })
+        .OrderByDescending(x => x.Score)
+        .Take(5)
+        .ToListAsync();
+
+    foreach (var result in results)
+        Console.WriteLine(
+            $"  • {Truncate(result.Item.Description, 50)}... (score: {result.Score:F2})"
+        );
+}
+
+static async Task DemoSnippetHighlighting(AppDbContext db)
+{
+    Console.WriteLine("\n--- Snippet Highlighting: 'shoes' ---");
+
+    var results = await db
+        .MockItems.Where(x => EF.Functions.MatchAll(x.Description, "shoes"))
+        .Select(x => new
+        {
+            Score = EF.Functions.Score(x.Id),
+            Snippet = EF.Functions.Snippet(
+                x.Description,
+                new SnippetOptions { StartTag = "<b>", EndTag = "</b>" }
+            ),
+        })
+        .OrderByDescending(x => x.Score)
+        .Take(3)
+        .ToListAsync();
+
+    foreach (var result in results)
+        Console.WriteLine($"  • {result.Snippet}");
+}
+
+static async Task DemoFilteredSearch(AppDbContext db)
+{
+    Console.WriteLine("\n--- Filtered Search: 'shoes' + in_stock + rating >= 4 ---");
+
+    var results = await db
+        .MockItems.Where(x =>
+            EF.Functions.MatchAll(x.Description, "shoes") && x.InStock && x.Rating >= 4
+        )
+        .Select(x => new { Item = x, Score = EF.Functions.Score(x.Id) })
+        .OrderByDescending(x => x.Score)
+        .Take(5)
+        .ToListAsync();
+
+    foreach (var result in results)
+        Console.WriteLine(
+            $"  • {Truncate(result.Item.Description, 40)}... (rating: {result.Item.Rating})"
+        );
+}
+
+static string Truncate(string value, int length)
+{
+    return value.Length <= length ? value : value[..length];
+}
+```
+
+</Tab>
+
+</Tabs>
+
+For details, see the [reference documentation](/reference/full-text/overview).

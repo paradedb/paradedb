@@ -43,6 +43,20 @@
             ]
           },
           {
+            "tab": "Guides",
+            "icon": "map",
+            "pages": [
+              "guides/setup",
+              "guides/quickstart",
+              "guides/vector-search",
+              "guides/faceted-search",
+              "guides/hybrid-search",
+              "guides/rag-and-agents",
+              "guides/search-as-you-type",
+              "guides/more-like-this"
+            ]
+          },
+          {
             "tab": "Reference",
             "icon": "book-open",
             "pages": [

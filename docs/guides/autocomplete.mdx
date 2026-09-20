@@ -13,7 +13,7 @@ canonical: https://www.paradedb.com/docs/guides/autocomplete
 
 Suggest products from partial words: typing `wir` should match descriptions containing `wireless`.
 
-## Add an n-gram field and query it
+## Add an N-gram field and query it
 
 The default index matches whole tokens. Replace the demo `search_idx` with one that also indexes description fragments of three to eight characters under the alias `description_ngram`. The table and model stay the same, and the original indexed fields remain available.
 
@@ -206,7 +206,7 @@ await dbContext
 
 Add a `GET /api/suggestions?q=wir` handler in your application. Trim the input and return `{"suggestions": []}` without querying when it has fewer than three characters. Otherwise, run only the query above with the input in place of `wir` and serialize the rows as `{"suggestions": [{"id": ..., "description": ..., "rating": ..., "category": ...}]}`. Keep the five-result limit on the server.
 
-Pass the input as a query parameter or ORM value. The match conjunction (`&&&`) requires every generated n-gram to match; this finds word fragments rather than only prefixes. See [Match Conjunction](/reference/full-text/match#match-conjunction) and [Ngram](/reference/tokenizers/available-tokenizers/ngrams) for query behavior.
+Pass the input as a query parameter or ORM value. The match conjunction (`&&&`) requires every generated N-gram to match; this finds word fragments rather than only prefixes. See [Match Conjunction](/reference/full-text/match#match-conjunction) and [Ngram](/reference/tokenizers/available-tokenizers/ngrams) for query behavior.
 
 ## Connect the search box
 

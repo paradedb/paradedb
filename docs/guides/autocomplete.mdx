@@ -33,7 +33,7 @@ USING paradedb (
 WITH (key_field='id');
 
 SELECT description, rating, category FROM mock_items
-WHERE id @@@ pdb.parse('description_ngram:wir')
+WHERE description::pdb.alias('description_ngram') &&& 'wir'
 ORDER BY pdb.score(id) DESC, id
 LIMIT 5;
 ```
@@ -66,7 +66,12 @@ const rows = await db
     category: mockItems.category,
   })
   .from(mockItems)
-  .where(search.parse(mockItems.id, "description_ngram:wir"))
+  .where(
+    search.matchAll(
+      search.alias(mockItems.description, "description_ngram"),
+      "wir",
+    ),
+  )
   .orderBy(desc(search.score(mockItems.id)), mockItems.id)
   .limit(5);
 console.log(rows);
@@ -78,7 +83,7 @@ console.log(rows);
 
 ```python
 from django.db import connection
-from paradedb import ParadeDB, Parse, Score
+from paradedb import Score
 
 with connection.cursor() as cursor:
     cursor.execute("""
@@ -93,7 +98,10 @@ with connection.cursor() as cursor:
     """)
 
 rows = list(
-    MockItem.objects.filter(id=ParadeDB(Parse("description_ngram:wir")))
+    MockItem.objects.extra(
+        where=["description::pdb.alias('description_ngram') &&& %s"],
+        params=["wir"],
+    )
     .values("description", "rating", "category")
     .annotate(score=Score())
     .order_by("-score", "id")[:5]
@@ -124,7 +132,7 @@ with engine.begin() as conn:
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.parse(MockItem.id, "description_ngram:wir"))
+    .where(search.match_all(pdb.alias(MockItem.description, "description_ngram"), "wir"))
     .order_by(pdb.score(MockItem.id).desc(), MockItem.id)
     .limit(5)
 )
@@ -149,8 +157,8 @@ USING paradedb (
 WITH (key_field='id');
 SQL
 
-MockItem.search(:id)
-        .parse("description_ngram:wir")
+MockItem.search(Arel.sql("description::pdb.alias('description_ngram')"))
+        .match_all("wir")
         .select(:description, :rating, :category)
         .with_score
         .order(search_score: :desc, id: :asc)
@@ -178,7 +186,10 @@ await dbContext.Database.ExecuteSqlRawAsync("""
 
 await dbContext
     .MockItems.Where(item =>
-        EF.Functions.Parse(item.Id, "description_ngram:wir")
+        EF.Functions.MatchAll(
+            EF.Functions.Alias(item.Description, "description_ngram"),
+            "wir"
+        )
     )
     .OrderByDescending(item => EF.Functions.Score(item.Id))
     .ThenBy(item => item.Id)
@@ -194,4 +205,4 @@ await dbContext
 
 Issue the query after the user enters at least three characters, and debounce requests so each keystroke does not require a round trip. Replace `wir` with the current input and keep the result limit small.
 
-The example uses a fixed query-parser string. Escape query-parser syntax before inserting user text, or use a structured query targeting the alias. See [Query Parser](/reference/full-text/query-parser) and [Ngram](/reference/tokenizers/available-tokenizers/ngrams) for query and tokenizer behavior.
+The match conjunction (`&&&`) tokenizes the input with the aliased field’s n-gram tokenizer and requires every generated n-gram to match. Pass the input as a query parameter or ORM value. See [Match Conjunction](/reference/full-text/match#match-conjunction) and [Ngram](/reference/tokenizers/available-tokenizers/ngrams) for query and tokenizer behavior.

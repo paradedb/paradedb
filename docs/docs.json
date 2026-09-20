@@ -314,7 +314,7 @@
                 "pages": [
                   "guides/rag",
                   "guides/autocomplete",
-                  "guides/faceted-search"
+                  "guides/search-with-filters"
                 ]
               }
             ]

@@ -309,9 +309,9 @@
             "icon": "map",
             "pages": [
               "guides/vector-search",
-              "guides/faceted-search",
               "guides/hybrid-search",
               "guides/rag-and-agents",
+              "guides/faceted-search",
               "guides/search-as-you-type",
               "guides/more-like-this"
             ]

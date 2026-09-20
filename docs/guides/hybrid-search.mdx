@@ -4,9 +4,14 @@ description: Combine keyword and vector rankings with Reciprocal Rank Fusion
 canonical: https://www.paradedb.com/docs/guides/hybrid-search
 ---
 
-Combine keyword matches with semantic neighbors to search a product catalog. Reciprocal Rank Fusion (RRF) merges the two ranked lists without comparing BM25 scores directly to vector distances.
+<Note>
+  Complete [Connect Your App](/start/connect-your-app) and [Create Your First
+  Index](/start/create-your-first-index) first. These examples use the same
+  `mock_items` table, model, and database connection. Run them in the shell or
+  application you configured there.
+</Note>
 
-Complete [Connect Your App](/start/connect-your-app) and [Create Your First Index](/start/create-your-first-index) first. These examples use the same `mock_items` table, model, and database connection. Run them in the shell or application you configured there.
+Combine keyword matches with semantic neighbors to search a product catalog. Reciprocal Rank Fusion (RRF) merges the two ranked lists without comparing BM25 scores directly to vector distances.
 
 ## Prepare the query
 

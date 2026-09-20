@@ -15,14 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::mvcc::PinCushion;
 use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::FileEntry;
+use crate::postgres::storage::block::{FileEntry, VECTOR_VEC_EXT};
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
+use parking_lot::Mutex;
 use std::io::Error;
 use std::ops::Range;
+use std::sync::Arc;
 use tantivy::HasLen;
 use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
@@ -32,6 +35,7 @@ pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     entry: FileEntry,
     component: Option<tantivy::index::SegmentComponent>,
+    segment_pins: Option<Arc<Mutex<Option<PinCushion>>>>,
 }
 
 impl SegmentComponentReader {
@@ -39,6 +43,7 @@ impl SegmentComponentReader {
         indexrel: &PgSearchRelation,
         entry: FileEntry,
         component: Option<tantivy::index::SegmentComponent>,
+        segment_pins: Option<Arc<Mutex<Option<PinCushion>>>>,
     ) -> Self {
         let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
 
@@ -46,6 +51,7 @@ impl SegmentComponentReader {
             block_list,
             entry,
             component,
+            segment_pins,
         }
     }
 
@@ -66,6 +72,48 @@ impl FileHandle for SegmentComponentReader {
             Some(component) => io_stats::record(component, || self.read_bytes_raw(range)),
             None => self.read_bytes_raw(range),
         }
+    }
+
+    fn read_bytes_chunks(
+        &self,
+        range: Range<usize>,
+        visitor: &mut dyn FnMut(&[u8]),
+    ) -> Result<(), Error> {
+        let range = range.start..range.end.min(self.len());
+        let is_vector = matches!(
+            &self.component,
+            Some(tantivy::index::SegmentComponent::Custom(ext)) if ext == VECTOR_VEC_EXT
+        );
+        if is_vector {
+            let published = self.segment_pins.is_some();
+            let mut chunks = unsafe {
+                self.block_list
+                    .get_bytes_range_page_chunks(range, published)
+            };
+            loop {
+                let chunk = match &self.component {
+                    Some(component) => io_stats::record(component, || chunks.next()),
+                    None => chunks.next(),
+                };
+                let Some(chunk) = chunk else {
+                    break;
+                };
+                visitor(chunk.as_ref());
+            }
+            return Ok(());
+        }
+        let mut chunks = unsafe { self.block_list.get_bytes_range_chunks(range, false) };
+        loop {
+            let chunk = match &self.component {
+                Some(component) => io_stats::record(component, || chunks.next()),
+                None => chunks.next(),
+            };
+            let Some(chunk) = chunk else {
+                break;
+            };
+            visitor(&chunk);
+        }
+        Ok(())
     }
 
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {
@@ -105,7 +153,8 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
-        let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
+        let page_size = crate::postgres::storage::block::bm25_max_free_space();
+        let bytes: Vec<u8> = (1..=251).cycle().take(page_size * 24 + 13).collect();
         let segment = format!("{}.term", uuid::Uuid::new_v4());
         let path = Path::new(segment.as_str());
 
@@ -114,20 +163,91 @@ mod tests {
         let file_entry = writer.file_entry();
         writer.terminate().unwrap();
 
-        let reader = SegmentComponentReader::new(&indexrel, file_entry, None);
+        let reader = SegmentComponentReader::new(&indexrel, file_entry, None, None);
 
-        assert_eq!(reader.len(), 100_000);
+        assert_eq!(reader.len(), bytes.len());
         assert_eq!(
-            reader.read_bytes(99_998..100_000).unwrap().as_ref(),
-            &bytes[99_998..100_000]
+            reader
+                .read_bytes(bytes.len() - 2..bytes.len())
+                .unwrap()
+                .as_ref(),
+            &bytes[bytes.len() - 2..]
         );
         assert_eq!(
-            reader.read_bytes(99_999..100_001).unwrap().as_ref(),
-            &bytes[99_999..100_000]
+            reader
+                .read_bytes(bytes.len() - 1..bytes.len() + 1)
+                .unwrap()
+                .as_ref(),
+            &bytes[bytes.len() - 1..]
+        );
+        assert_eq!(reader.read_bytes(0..bytes.len()).unwrap().as_ref(), &bytes);
+        let vector_reader = SegmentComponentReader::new(
+            &indexrel,
+            file_entry,
+            Some(tantivy::index::SegmentComponent::Custom(
+                VECTOR_VEC_EXT.to_owned(),
+            )),
+            None,
         );
         assert_eq!(
-            reader.read_bytes(0..100_000).unwrap().as_ref(),
-            &bytes[0..100_000]
+            vector_reader.read_bytes(0..bytes.len()).unwrap().as_ref(),
+            &bytes
         );
+        let retained = vector_reader.read_bytes(1..33).unwrap();
+        let retained_clone = retained.clone();
+        for reader in [&reader, &vector_reader] {
+            for range in [
+                0..0,
+                0..bytes.len(),
+                page_size - 1..page_size + 1,
+                page_size..page_size * 2,
+                bytes.len() - 1..bytes.len() + 1,
+            ] {
+                let mut copied = Vec::new();
+                reader
+                    .read_bytes_chunks(range.clone(), &mut |chunk| {
+                        assert!(!chunk.is_empty());
+                        assert!(chunk.len() <= page_size);
+                        copied.extend_from_slice(chunk);
+                    })
+                    .unwrap();
+                assert_eq!(copied, bytes[range.start..range.end.min(bytes.len())]);
+            }
+
+            let mut copied = Vec::new();
+            reader
+                .read_bytes_chunks(0..page_size * 2 + 13, &mut |chunk| {
+                    if copied.is_empty() {
+                        assert_eq!(chunk, &bytes[..page_size]);
+                        assert_eq!(
+                            reader
+                                .read_bytes(page_size..page_size * 19)
+                                .unwrap()
+                                .as_ref(),
+                            &bytes[page_size..page_size * 19]
+                        );
+                        assert_eq!(chunk, &bytes[..page_size]);
+
+                        let mut nested = Vec::new();
+                        reader
+                            .read_bytes_chunks(
+                                page_size * 20 + 3..page_size * 22 + 11,
+                                &mut |part| {
+                                    nested.extend_from_slice(part);
+                                    assert_eq!(chunk, &bytes[..page_size]);
+                                },
+                            )
+                            .unwrap();
+                        assert_eq!(nested, bytes[page_size * 20 + 3..page_size * 22 + 11]);
+                        assert_eq!(chunk, &bytes[..page_size]);
+                    }
+                    copied.extend_from_slice(chunk);
+                })
+                .unwrap();
+            assert_eq!(copied, bytes[..page_size * 2 + 13]);
+        }
+        drop(vector_reader);
+        assert_eq!(retained.as_ref(), &bytes[1..33]);
+        assert_eq!(retained_clone.as_ref(), &bytes[1..33]);
     }
 }

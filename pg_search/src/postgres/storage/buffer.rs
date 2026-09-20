@@ -26,6 +26,7 @@ use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use std::mem::size_of;
 use std::ops::Deref;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// A module to help with tracking when/where blocks are acquired and released.
@@ -257,6 +258,7 @@ impl Buffer {
         block_tracker::forget!(pg_sys::BufferGetBlockNumber(pg_buffer));
         ImmutablePage {
             pinned_buffer: PinnedBuffer::new(pg_buffer),
+            pg_page: std::ptr::null_mut(),
         }
     }
 
@@ -781,10 +783,25 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct BufferManager {
     rbufacc: RelationBufferAccess,
     fsm_blockno: Option<pg_sys::BlockNumber>,
+    recent_buffer: AtomicU64,
+    #[cfg(any(test, feature = "pg_test"))]
+    recent_buffer_hit: std::sync::atomic::AtomicBool,
+}
+
+impl Clone for BufferManager {
+    fn clone(&self) -> Self {
+        Self {
+            rbufacc: self.rbufacc.clone(),
+            fsm_blockno: self.fsm_blockno,
+            recent_buffer: AtomicU64::new(self.recent_buffer.load(Ordering::Relaxed)),
+            #[cfg(any(test, feature = "pg_test"))]
+            recent_buffer_hit: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
 }
 
 impl BufferManager {
@@ -792,6 +809,9 @@ impl BufferManager {
         Self {
             rbufacc: RelationBufferAccess::open(rel),
             fsm_blockno: None,
+            recent_buffer: AtomicU64::new(0),
+            #[cfg(any(test, feature = "pg_test"))]
+            recent_buffer_hit: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -919,6 +939,177 @@ impl BufferManager {
 
         block_tracker::track!(Read, blockno);
         Buffer::new(pg_buffer)
+    }
+
+    /// # Safety
+    /// The page must remain immutable until all its pins are released.
+    pub unsafe fn get_immutable_page(&self, blockno: pg_sys::BlockNumber) -> ImmutablePage {
+        self.get_immutable_page_for_chunks(blockno, false)
+    }
+
+    /// # Safety
+    /// A published page must be fully initialized and independently protected
+    /// against logical reuse. Its contents must remain immutable while pinned.
+    pub(super) unsafe fn get_immutable_page_for_chunks(
+        &self,
+        blockno: pg_sys::BlockNumber,
+        published: bool,
+    ) -> ImmutablePage {
+        if cfg!(feature = "block_tracker") || blockno == pg_sys::InvalidBlockNumber {
+            return self.get_buffer(blockno).into_immutable_page();
+        }
+
+        assert!(
+            crate::postgres::utils::IsTransactionState(),
+            "buffer cannot be allocated outside of a transaction"
+        );
+        let relation = self.rbufacc.rel().as_ptr();
+        let fork = self.rbufacc.rel().fork_number();
+        let recent_buffer = if published {
+            let hint = self.recent_buffer.load(Ordering::Relaxed);
+            let previous_buffer = hint as u32 as pg_sys::Buffer;
+            let previous_block = (hint >> 32) as pg_sys::BlockNumber;
+            let predicted =
+                i64::from(previous_buffer) + i64::from(blockno) - i64::from(previous_block);
+            if previous_buffer > 0 && predicted >= 1 && predicted <= i64::from(pg_sys::NBuffers) {
+                predicted as pg_sys::Buffer
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        #[cfg(feature = "pg15")]
+        let locator = (*relation).rd_node;
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        let locator = (*relation).rd_locator;
+        let (pg_buffer, pg_page, recent_hit) = pg_sys::ffi::pg_guard_ffi_boundary(|| {
+            unsafe extern "C-unwind" {
+                #[link_name = "ReadBufferExtended"]
+                fn read_buffer_extended(
+                    rel: pg_sys::Relation,
+                    fork: pg_sys::ForkNumber::Type,
+                    blockno: pg_sys::BlockNumber,
+                    mode: pg_sys::ReadBufferMode::Type,
+                    strategy: pg_sys::BufferAccessStrategy,
+                ) -> pg_sys::Buffer;
+                #[cfg(feature = "pg15")]
+                #[link_name = "ReadRecentBuffer"]
+                fn read_recent_buffer(
+                    locator: pg_sys::RelFileNode,
+                    fork: pg_sys::ForkNumber::Type,
+                    blockno: pg_sys::BlockNumber,
+                    buffer: pg_sys::Buffer,
+                ) -> bool;
+                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                #[link_name = "ReadRecentBuffer"]
+                fn read_recent_buffer(
+                    locator: pg_sys::RelFileLocator,
+                    fork: pg_sys::ForkNumber::Type,
+                    blockno: pg_sys::BlockNumber,
+                    buffer: pg_sys::Buffer,
+                ) -> bool;
+                #[link_name = "pgstat_assoc_relation"]
+                fn associate_relation_stats(relation: pg_sys::Relation);
+                #[cfg(any(feature = "pg16", feature = "pg17"))]
+                #[link_name = "pgstat_count_io_op"]
+                fn count_io_hit(
+                    object: pg_sys::IOObject::Type,
+                    context: pg_sys::IOContext::Type,
+                    operation: pg_sys::IOOp::Type,
+                );
+                #[cfg(feature = "pg18")]
+                #[link_name = "pgstat_count_io_op"]
+                fn count_io_hit(
+                    object: pg_sys::IOObject::Type,
+                    context: pg_sys::IOContext::Type,
+                    operation: pg_sys::IOOp::Type,
+                    count: u32,
+                    bytes: u64,
+                );
+                #[link_name = "LockBuffer"]
+                fn lock_buffer(buffer: pg_sys::Buffer, mode: i32);
+                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                #[link_name = "BufferGetPage__pgrx_cshim"]
+                fn buffer_get_page(buffer: pg_sys::Buffer) -> pg_sys::Page;
+            }
+
+            // Only raw C calls and scalar values may cross this longjmp boundary.
+            let recent_hit =
+                recent_buffer > 0 && read_recent_buffer(locator, fork, blockno, recent_buffer);
+            let buffer = if recent_hit {
+                if (*relation).pgstat_info.is_null() && (*relation).pgstat_enabled {
+                    associate_relation_stats(relation);
+                }
+                if !(*relation).pgstat_info.is_null() {
+                    #[cfg(feature = "pg15")]
+                    {
+                        (*(*relation).pgstat_info).t_counts.t_blocks_fetched += 1;
+                        (*(*relation).pgstat_info).t_counts.t_blocks_hit += 1;
+                    }
+                    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                    {
+                        (*(*relation).pgstat_info).counts.blocks_fetched += 1;
+                        (*(*relation).pgstat_info).counts.blocks_hit += 1;
+                    }
+                }
+                #[cfg(any(feature = "pg16", feature = "pg17"))]
+                count_io_hit(
+                    pg_sys::IOObject::IOOBJECT_RELATION,
+                    pg_sys::IOContext::IOCONTEXT_NORMAL,
+                    pg_sys::IOOp::IOOP_HIT,
+                );
+                #[cfg(feature = "pg18")]
+                count_io_hit(
+                    pg_sys::IOObject::IOOBJECT_RELATION,
+                    pg_sys::IOContext::IOCONTEXT_NORMAL,
+                    pg_sys::IOOp::IOOP_HIT,
+                    1,
+                    0,
+                );
+                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                {
+                    pg_sys::VacuumPageHit += 1;
+                }
+                if pg_sys::VacuumCostActive {
+                    pg_sys::VacuumCostBalance += pg_sys::VacuumCostPageHit;
+                }
+                recent_buffer
+            } else {
+                read_buffer_extended(
+                    relation,
+                    fork,
+                    blockno,
+                    pg_sys::ReadBufferMode::RBM_NORMAL,
+                    std::ptr::null_mut(),
+                )
+            };
+            if !published {
+                lock_buffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+            }
+            #[cfg(feature = "pg15")]
+            let page = pg_sys::BufferGetPage(buffer);
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            let page = buffer_get_page(buffer);
+            if !published {
+                lock_buffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
+            }
+            (buffer, page, recent_hit)
+        });
+        if published && pg_buffer > 0 {
+            self.recent_buffer.store(
+                (u64::from(blockno) << 32) | pg_buffer as u64,
+                Ordering::Relaxed,
+            );
+        }
+        #[cfg(any(test, feature = "pg_test"))]
+        self.recent_buffer_hit.store(recent_hit, Ordering::Relaxed);
+        #[cfg(not(any(test, feature = "pg_test")))]
+        let _ = recent_hit;
+        ImmutablePage {
+            pinned_buffer: PinnedBuffer::new(pg_buffer),
+            pg_page,
+        }
     }
 
     ///
@@ -1096,13 +1287,18 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
 #[derive(Debug)]
 pub struct ImmutablePage {
     pinned_buffer: PinnedBuffer,
+    pg_page: pg_sys::Page,
 }
 
 impl Deref for ImmutablePage {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        let pg_page = unsafe { pg_sys::BufferGetPage(self.pinned_buffer.pg_buffer) };
+        let pg_page = if self.pg_page.is_null() {
+            unsafe { pg_sys::BufferGetPage(self.pinned_buffer.pg_buffer) }
+        } else {
+            self.pg_page
+        };
         let page = Page {
             pg_page,
             _buffer: None,
@@ -1117,3 +1313,132 @@ impl Deref for ImmutablePage {
 unsafe impl StableDeref for ImmutablePage {}
 unsafe impl Send for ImmutablePage {}
 unsafe impl Sync for ImmutablePage {}
+
+#[cfg(all(any(test, feature = "pg_test"), not(feature = "block_tracker")))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    unsafe fn test_recent_buffer_prediction_validates_tags_and_bounds() {
+        Spi::run("CREATE TABLE recent_buffer_hints (id SERIAL, data TEXT)").unwrap();
+        Spi::run(
+            "CREATE INDEX recent_buffer_hints_idx ON recent_buffer_hints USING paradedb (id, data)",
+        )
+        .unwrap();
+        let relation_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'recent_buffer_hints_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+        let mut blocks = Vec::new();
+        for byte in [37, 83] {
+            let mut buffer = init_new_buffer(&indexrel);
+            assert!(buffer.page_mut().append_bytes(&[byte; 32]));
+            blocks.push(buffer.number());
+        }
+        let bman = BufferManager::new(&indexrel);
+        let fresh = bman.get_immutable_page_for_chunks(blocks[0], true);
+        assert_eq!(&*fresh, &[37; 32]);
+        assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
+        let first_buffer = fresh.pinned_buffer.pg_buffer();
+        drop(fresh);
+        bman.recent_buffer.store(
+            (u64::from(blocks[1]) << 32) | first_buffer as u64,
+            Ordering::Relaxed,
+        );
+        let unpinned_miss = bman.get_immutable_page_for_chunks(blocks[1], true);
+        assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
+        assert_eq!(&*unpinned_miss, &[83; 32]);
+        drop(unpinned_miss);
+        bman.recent_buffer.store(
+            (u64::from(blocks[0]) << 32) | first_buffer as u64,
+            Ordering::Relaxed,
+        );
+
+        assert!(!(*indexrel.as_ptr()).pgstat_info.is_null());
+        let relation_counts = || {
+            #[cfg(feature = "pg15")]
+            let counts = (*(*indexrel.as_ptr()).pgstat_info).t_counts;
+            #[cfg(feature = "pg15")]
+            return (counts.t_blocks_fetched, counts.t_blocks_hit);
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            let counts = (*(*indexrel.as_ptr()).pgstat_info).counts;
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            return (counts.blocks_fetched, counts.blocks_hit);
+        };
+        let counts_before = relation_counts();
+        let hits_before = pg_sys::pgBufferUsage.shared_blks_hit;
+        let reads_before = pg_sys::pgBufferUsage.shared_blks_read;
+        let retained = bman.get_immutable_page_for_chunks(blocks[0], true);
+        assert!(bman.recent_buffer_hit.load(Ordering::Relaxed));
+        assert_eq!(
+            relation_counts(),
+            (counts_before.0 + 1, counts_before.1 + 1)
+        );
+        let hits_after = pg_sys::pgBufferUsage.shared_blks_hit;
+        assert_eq!(hits_after, hits_before + 1);
+        let reads_after = pg_sys::pgBufferUsage.shared_blks_read;
+        assert_eq!(reads_after, reads_before);
+        assert_eq!(&*retained, &[37; 32]);
+        let retained_ptr = retained.as_ptr();
+        let pack =
+            |block: pg_sys::BlockNumber, buffer: u32| (u64::from(block) << 32) | u64::from(buffer);
+
+        bman.recent_buffer
+            .store(pack(blocks[1], first_buffer as u32), Ordering::Relaxed);
+        let other = bman.get_immutable_page_for_chunks(blocks[1], true);
+        assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
+        assert_eq!(&*other, &[83; 32]);
+        assert_ne!(other.pinned_buffer.pg_buffer(), first_buffer);
+        let other_buffer = other.pinned_buffer.pg_buffer();
+        drop(other);
+        let delta = if other_buffer > 1 { -1i64 } else { 1 };
+        bman.recent_buffer.store(
+            pack(
+                (i64::from(blocks[1]) + delta) as pg_sys::BlockNumber,
+                (i64::from(other_buffer) + delta) as u32,
+            ),
+            Ordering::Relaxed,
+        );
+        let other = bman.get_immutable_page_for_chunks(blocks[1], true);
+        assert!(bman.recent_buffer_hit.load(Ordering::Relaxed));
+        assert_eq!(&*other, &[83; 32]);
+        drop(other);
+
+        for hint in [
+            pack(blocks[0] + 1, 1),
+            pack(blocks[0], pg_sys::NBuffers as u32 + 1),
+            pack(blocks[0], u32::MAX),
+        ] {
+            bman.recent_buffer.store(hint, Ordering::Relaxed);
+            let page = bman.get_immutable_page_for_chunks(blocks[0], true);
+            assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
+            assert_eq!(&*page, &[37; 32]);
+            assert_eq!(
+                bman.recent_buffer.load(Ordering::Relaxed),
+                pack(blocks[0], first_buffer as u32)
+            );
+        }
+
+        let disabled_hint = pack(blocks[1], first_buffer as u32);
+        bman.recent_buffer.store(disabled_hint, Ordering::Relaxed);
+        let page = bman.get_immutable_page_for_chunks(blocks[0], false);
+        assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
+        assert_eq!(bman.recent_buffer.load(Ordering::Relaxed), disabled_hint);
+        assert_eq!(&*page, &[37; 32]);
+        drop(page);
+        drop(bman);
+        assert_eq!(retained.as_ptr(), retained_ptr);
+        assert_eq!(&*retained, &[37; 32]);
+        drop(retained);
+
+        let bman = BufferManager::new(&indexrel);
+        for block in blocks {
+            let pin = bman.pinned_buffer(block);
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            pg_sys::CheckBufferIsPinnedOnce(pin.pg_buffer());
+        }
+    }
+}

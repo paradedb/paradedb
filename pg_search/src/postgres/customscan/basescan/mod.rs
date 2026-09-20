@@ -993,7 +993,8 @@ impl CustomScan for BaseScan {
                     // A vector top-k's cost is dominated by its probe
                     // budget, not the filter drive; like the prunable
                     // case, the full-docset drive cost would overstate it.
-                    WorkerDecisionReason::GlobalVectorSearch => None,
+                    WorkerDecisionReason::GlobalVectorSearch
+                    | WorkerDecisionReason::ParallelVectorSearch => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
                     | WorkerDecisionReason::SortedPerSegment
@@ -1077,11 +1078,6 @@ impl CustomScan for BaseScan {
                         method_private.set_worker_selection_reason(reason);
                         path_builder.build(method_private)
                     };
-
-                if is_vector_orderby {
-                    custom_paths.push(make_path(None, false, force));
-                    continue;
-                }
 
                 match policy {
                     WorkerPathPolicy::SerialOnly { .. } => {
@@ -1746,7 +1742,9 @@ impl CustomScan for BaseScan {
                         // Evaluate executor-level quals (e.g., RLS policy SubPlan expressions)
                         // that couldn't be pushed into the tantivy query.
                         // These are set as plan.qual in plan_custom_path.
-                        if !satisfies_subplan_quals(state, slot) {
+                        if !state.custom_state().vector_quals_checked
+                            && !satisfies_subplan_quals(state, slot)
+                        {
                             continue;
                         }
 
@@ -1783,6 +1781,17 @@ impl CustomScan for BaseScan {
                                     .expect("const_score_node should be set");
                                 (*const_score_node).constvalue = score.into_datum().unwrap();
                                 (*const_score_node).constisnull = false;
+                            }
+                            for &(node, metric) in &state.custom_state().const_vector_distance_nodes
+                            {
+                                use crate::vector::metric::VectorMetric;
+                                let distance = match metric {
+                                    VectorMetric::L2 => (-f64::from(score)).max(0.0).sqrt(),
+                                    VectorMetric::Cosine => 1.0 - f64::from(score),
+                                    VectorMetric::InnerProduct => -f64::from(score),
+                                };
+                                (*node).constvalue = distance.into_datum().unwrap();
+                                (*node).constisnull = false;
                             }
 
                             // Update window aggregate values
@@ -1839,10 +1848,15 @@ impl CustomScan for BaseScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Leader-only: last chance to read DSM before Postgres destroys it.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel.take()
+        if let Some(parallel) = scan_state.parallel
             && parallel.is_leader()
         {
             parallel.finalize_explain(&mut scan_state.telemetry);
+            if let Some(shared) = unsafe {
+                crate::postgres::vector_search::ParallelVectorState::from_scan(parallel.dsm_ptr())
+            } {
+                scan_state.vector_search_info = Some(unsafe { shared.as_ref() }.explain());
+            }
         };
     }
 
@@ -2408,47 +2422,30 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
         (targetlist, HashMap::default())
     };
 
-    // Blank out the junk vector-distance ORDER BY column. When the ORDER BY is
-    // `embedding <-> query`, pg adds that `OpExpr` to the scan's targetlist as
-    // a junk column and evaluates it per output row — triggering `detoast_attr`
-    // on the TOAST'd heap vector (~27 % of query time at LIMIT 100). The TopK
-    // scan already produced the rows in order, so the column's value is unused
-    // and junk-stripped; replacing it with a NULL Const skips the recompute.
-    // Only safe for TopK (it owns the ordering); other plans Sort by it.
-    let vector_distance_placeholder = is_topk && inject_vector_distance_placeholders(targetlist);
+    // Reuse the collector score for junk distance keys consumed by Gather Merge.
+    let vector_nodes = if is_topk {
+        inject_vector_distance_placeholders(targetlist)
+    } else {
+        Vec::new()
+    };
 
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
     state.custom_state_mut().const_window_agg_nodes = const_window_agg_nodes;
-    state.custom_state_mut().vector_distance_placeholder = vector_distance_placeholder;
+    state.custom_state_mut().vector_distance_placeholder = !vector_nodes.is_empty();
+    state.custom_state_mut().const_vector_distance_nodes = vector_nodes;
 }
 
-/// Replace every *junk* top-level pgvector distance `OpExpr`
-/// (e.g. `embedding <-> q`) in `targetlist` with a NULL `Const(float8)`,
-/// mutating the `TargetEntry`'s `expr` in place. Returns `true` if at least one
-/// entry was replaced.
-///
-/// A junk distance column only exists to carry the ORDER BY key; with a TopK
-/// scan the rows already arrive ordered and the column is junk-stripped from
-/// the result, so its value is never observed. Blanking it to NULL lets
-/// `ExecProject` skip `l2_distance(embedding, q)` and the heap-vector detoast.
-///
-/// Two deliberate restrictions:
-/// * `resjunk` only — a SELECT-ed `vec <-> q` must be computed exactly; the
-///   TopK score is an approximate, squared/normalized ordering key, not the
-///   pgvector distance.
-/// * the caller invokes this only for TopK scans — any other plan has a Sort
-///   that consumes the distance value, so it cannot be blanked.
-///
-/// This does NOT use `expression_tree_mutator`: that deep-copies every node it
-/// visits, which would orphan the score/snippet/window `Const` pointers already
-/// collected for this targetlist. The ORDER BY key is always a top-level
-/// `TargetEntry` expr, so an in-place per-entry rewrite is sufficient.
-unsafe fn inject_vector_distance_placeholders(targetlist: *mut pg_sys::List) -> bool {
+/// Replace junk distance expressions with score-backed sort keys. SELECT-visible
+/// distances retain pgvector evaluation. Mutate in place to preserve other
+/// placeholder pointers in this targetlist.
+unsafe fn inject_vector_distance_placeholders(
+    targetlist: *mut pg_sys::List,
+) -> Vec<(*mut pg_sys::Const, crate::vector::metric::VectorMetric)> {
     use crate::vector::metric::VectorMetric;
 
-    let mut replaced = false;
+    let mut replaced = Vec::new();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
     for te in tlist.iter_ptr() {
         if te.is_null() || !(*te).resjunk {
@@ -2457,7 +2454,7 @@ unsafe fn inject_vector_distance_placeholders(targetlist: *mut pg_sys::List) -> 
         let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, (*te).expr.cast::<pg_sys::Node>()) else {
             continue;
         };
-        if VectorMetric::from_opoid((*opexpr).opno).is_some() {
+        if let Some(metric) = VectorMetric::from_opoid((*opexpr).opno) {
             let const_node = pg_sys::makeConst(
                 pg_sys::FLOAT8OID,
                 -1,
@@ -2468,7 +2465,7 @@ unsafe fn inject_vector_distance_placeholders(targetlist: *mut pg_sys::List) -> 
                 true,
             );
             (*te).expr = const_node.cast();
-            replaced = true;
+            replaced.push((const_node, metric));
         }
     }
     replaced

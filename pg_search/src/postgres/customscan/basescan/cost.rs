@@ -76,11 +76,9 @@ pub(super) enum WorkerDecisionReason {
     /// The row-count heuristic (`compute_nworkers`): no ANALYZE stats, or an unsorted scan with no
     /// usable cost estimate. Caps workers so each gets at least `min_rows_per_worker` rows.
     RowHeuristic,
-    /// Vector-distance ORDER BY: the search is ONE global probe loop over
-    /// every segment with a shared kth threshold — splitting segments
-    /// across workers would re-create the per-partition waste the global
-    /// loop exists to remove, so it is always serial.
+    /// Vector-distance ORDER BY with no parallel participants.
     GlobalVectorSearch,
+    ParallelVectorSearch,
 }
 
 impl WorkerDecisionReason {
@@ -93,6 +91,7 @@ impl WorkerDecisionReason {
             Self::SortedPerSegment => "Per-segment",
             Self::RowHeuristic => "Row-capped",
             Self::GlobalVectorSearch => "Global vector search",
+            Self::ParallelVectorSearch => "Parallel vector search",
         }
     }
 }
@@ -326,9 +325,7 @@ fn cost_test_limited(
 /// Inputs to [`decide_scan_parallelism`].
 pub(super) struct ScanParallelismInputs<'a> {
     pub(super) prunability: TopKPrunability,
-    /// `true` when the exec method's primary ORDER BY is a vector
-    /// distance: always serial (see
-    /// [`WorkerDecisionReason::GlobalVectorSearch`]).
+    /// `true` when the primary ORDER BY is a vector distance.
     pub(super) is_vector_orderby: bool,
     pub(super) query: &'a SearchQueryInput,
     /// The costable drive cost (see [`costable_drive_cost`]); `Some` marks the scan as costable and
@@ -375,13 +372,24 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         has_grouping,
     } = inputs;
 
-    // 0. Vector-distance ORDER BY -> serial only, unconditionally. The
-    //    cross-segment probe loop ranks the index-level centroid index once
-    //    and gathers each cluster across ALL segments into one heap;
-    //    per-worker segment partitions would undo exactly that.
     if is_vector_orderby {
-        return WorkerPathPolicy::SerialOnly {
-            reason: WorkerDecisionReason::GlobalVectorSearch,
+        let workers = if consider_parallel {
+            max_useful_workers(
+                segment_count,
+                quals.contains_external_var(),
+                quals.contains_correlated_param(root),
+            )
+        } else {
+            0
+        };
+        return match NonZeroUsize::new(workers) {
+            Some(nworkers) => WorkerPathPolicy::ParallelOnly {
+                nworkers,
+                reason: WorkerDecisionReason::ParallelVectorSearch,
+            },
+            None => WorkerPathPolicy::SerialOnly {
+                reason: WorkerDecisionReason::GlobalVectorSearch,
+            },
         };
     }
 

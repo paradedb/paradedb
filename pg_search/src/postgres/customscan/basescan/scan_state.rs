@@ -46,10 +46,11 @@ use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct BaseScanState {
-    /// The global vector probe loop's instrumentation for this scan, one
-    /// JSON blob per query (vector scans are serial; no per-segment or
-    /// DSM breakdown exists). Surfaced in EXPLAIN as "Vector Search".
+    /// Per-query metrics, combined across workers for parallel scans.
     pub vector_search_info: Option<serde_json::Value>,
+    pub vector_plan: Option<tantivy::vector::PreparedVectorSearch>,
+    pub vector_parallel_context: *mut pg_sys::ParallelContext,
+    pub vector_quals_checked: bool,
 
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,
@@ -87,14 +88,9 @@ pub struct BaseScanState {
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoids: [pg_sys::Oid; 2],
 
-    /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
-    /// targetlist was replaced with a NULL placeholder `Const` (see
-    /// `inject_vector_distance_placeholders`). The value is never read — the
-    /// TopK scan already provides the ordering and the column is junk-stripped
-    /// — so the placeholder just spares `ExecProject` from calling
-    /// `l2_distance(embedding, query)` and detoasting the heap vector. We track
-    /// it only so the projection path knows it must use `placeholder_targetlist`.
+    /// Junk vector sort keys require the score-backed projection.
     pub vector_distance_placeholder: bool,
+    pub const_vector_distance_nodes: Vec<(*mut pg_sys::Const, crate::vector::metric::VectorMetric)>,
 
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
@@ -241,6 +237,46 @@ impl BaseScanState {
             query,
             with_aggregates,
             with_segment_info: true,
+        }
+    }
+
+    pub fn vector_search_spec(&self) -> Option<usize> {
+        if !matches!(
+            self.worker_selection_reason,
+            Some(super::cost::WorkerDecisionReason::ParallelVectorSearch)
+        ) {
+            return None;
+        }
+        let ExecMethodType::TopK {
+            orderby_info: Some(order),
+            limit_offset,
+            ..
+        } = &self.exec_method_type
+        else {
+            return None;
+        };
+        order
+            .first()
+            .is_some_and(|order| {
+                matches!(
+                    order.feature,
+                    crate::api::OrderByFeature::VectorDistance { .. }
+                )
+            })
+            .then(|| limit_offset.static_fetch().unwrap_or(0))
+    }
+
+    pub fn prepare_vector_search(&mut self, precompute_centroid_scores: bool) {
+        if self.vector_search_spec().is_some() && self.vector_plan.is_none() {
+            self.vector_plan = Some(
+                self.search_reader
+                    .as_ref()
+                    .expect("search reader initialized")
+                    .prepare_vector_search(
+                        self.orderby_info().as_ref().expect("vector ordering"),
+                        precompute_centroid_scores,
+                    ),
+            );
         }
     }
 
@@ -423,6 +459,8 @@ impl BaseScanState {
     }
 
     pub fn reset(&mut self) {
+        self.vector_plan = None;
+        self.vector_quals_checked = false;
         // Process-local state only. The shared parallel work queue must NOT be reset
         // here: ReScan runs in the leader after parallel workers are launched, and a
         // worker may have already claimed segments from the queue. Refilling it then

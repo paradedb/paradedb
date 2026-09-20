@@ -70,6 +70,16 @@ impl ConditionVariable {
         }
     }
 
+    pub fn sleep_for(&mut self, milliseconds: i64) -> bool {
+        unsafe {
+            pg_sys::ConditionVariableTimedSleep(
+                addr_of_mut!(self.0),
+                milliseconds as _,
+                pg_sys::PG_WAIT_EXTENSION,
+            )
+        }
+    }
+
     /// Cancels the current sleep operation and removes the process from the wait queue.
     /// Must be called after `prepare_to_sleep()` when the process decides not to sleep
     /// (e.g., when the awaited condition is already satisfied).

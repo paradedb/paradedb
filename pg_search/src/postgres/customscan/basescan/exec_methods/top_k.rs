@@ -25,7 +25,8 @@ use crate::gucs;
 use crate::gucs::WorkMem;
 use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::reader::index::{
-    MAX_TOPK_FEATURES, SearchIndexReader, TopKAuxiliaryCollector, TopKSearch, TopKSearchResults,
+    MAX_TOPK_FEATURES, SearchIndexReader, TopKAuxiliaryCollector, TopKSearch, TopKSearchControl,
+    TopKSearchResults,
 };
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
@@ -56,6 +57,7 @@ struct PreparedAggregations {
 }
 
 pub struct TopKScanExecState {
+    cstate: *mut pg_sys::CustomScanState,
     /// Resolved value of `LIMIT + OFFSET` (the K our scan must produce so PG's
     /// outer Limit node can apply OFFSET and return LIMIT). `Some` when both
     /// sides are static at construction; otherwise resolved in `init` from
@@ -117,6 +119,7 @@ impl TopKScanExecState {
         // None and resolve in `init` from the LimitOffset carried on
         // ExecMethodType::TopK.
         Self {
+            cstate: std::ptr::null_mut(),
             limit: limit_offset.static_fetch(),
             orderby_info,
             search_query_input: None,
@@ -153,9 +156,30 @@ impl TopKScanExecState {
     ///    necessary to allow for re-scans (when a Top K result later proves not to be visible)
     fn segments_to_query<'s>(
         &'s self,
-        search_reader: &SearchIndexReader,
+        search_reader: &'s SearchIndexReader,
         parallel_state: Option<*mut ParallelScanState>,
     ) -> Box<dyn Iterator<Item = SegmentId> + 's> {
+        if let Some(scan) = parallel_state
+            && let Some(vector) =
+                unsafe { crate::postgres::vector_search::ParallelVectorState::from_scan(scan) }
+        {
+            let participants = unsafe { vector.as_ref() }.native_participants();
+            if participants > 0 {
+                let participant = unsafe { pg_sys::ParallelWorkerNumber + 1 } as usize;
+                let segments: Vec<_> = search_reader
+                    .segment_ids()
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(ord, _)| ord % participants == participant)
+                    .map(|(_, id)| id)
+                    .collect();
+                for &segment in &segments {
+                    unsafe { (*scan).record_segment_claim(segment) };
+                }
+                *self.claimed_segments.borrow_mut() = Some(segments.clone());
+                return Box::new(segments.into_iter());
+            }
+        }
         match (parallel_state, self.claimed_segments.borrow().clone()) {
             (None, _) => {
                 // Not parallel: will search all segments.
@@ -292,6 +316,7 @@ impl TopKScanExecState {
 impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
+        self.cstate = cstate;
         // Resolve K = LIMIT + OFFSET from EState when not already known.
         // `fetch_mut` converts each `Param` → `Static` in place on the
         // `LimitOffset` carried by `ExecMethodType::TopK`, so EXPLAIN ANALYZE
@@ -357,8 +382,12 @@ impl ExecMethod for TopKScanExecState {
         state.increment_query_count();
 
         // Calculate the limit for this query, and what the offset will be for the next query.
-        let local_limit =
-            (self.limit() as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
+        let adaptive_vector = state.vector_search_spec().is_some();
+        let local_limit = if adaptive_vector {
+            self.limit()
+        } else {
+            (self.limit() as f64 * self.scale_factor).max(self.chunk_size as f64) as usize
+        };
         let next_offset = self.offset + local_limit;
 
         let prepared = self.prepare_aggregations(state);
@@ -395,6 +424,61 @@ impl ExecMethod for TopKScanExecState {
             } else {
                 None
             };
+            let shared = state.parallel_state().and_then(|scan| unsafe {
+                crate::postgres::vector_search::ParallelVectorState::from_scan(scan)
+            });
+            let vector_plan = if adaptive_vector {
+                if let Some(shared) = shared {
+                    Some(unsafe {
+                        shared
+                            .as_ref()
+                            .prepare_route(state.vector_parallel_context, || {
+                                state.prepare_vector_search(true);
+                                state.vector_plan.as_ref().unwrap().clone()
+                            })
+                    })
+                } else {
+                    state.prepare_vector_search(false);
+                    state.vector_plan.clone()
+                }
+            } else {
+                None
+            };
+            let mut visibility = adaptive_vector.then(|| {
+                state
+                    .visibility_checker
+                    .take()
+                    .expect("visibility checker initialized")
+            });
+            let reader = self.search_reader.as_ref().unwrap();
+            let mut candidate_ctids = None;
+            let cstate = self.cstate;
+            let mut accept = |doc| {
+                let ctid = resolve_ctid(&mut candidate_ctids, reader.searcher(), doc);
+                let visibility = visibility.as_mut().unwrap();
+                unsafe {
+                    let qual = (*cstate).ss.ps.qual;
+                    if qual.is_null() {
+                        visibility.check_one(ctid)
+                    } else {
+                        let slot = (*cstate).ss.ss_ScanTupleSlot;
+                        visibility
+                            .exec_if_visible(ctid, slot, |_| {
+                                let context = (*cstate).ss.ps.ps_ExprContext;
+                                pg_sys::MemoryContextReset((*context).ecxt_per_tuple_memory);
+                                (*context).ecxt_scantuple = slot;
+                                pg_sys::slot_getallattrs(slot);
+                                pg_sys::ExecQual(qual, context)
+                            })
+                            .unwrap_or(false)
+                    }
+                }
+            };
+            let mut control = crate::postgres::vector_search::PgVectorSearchControl {
+                accept: &mut accept,
+                shared,
+                parallel_context: state.vector_parallel_context,
+            };
             let TopKSearch {
                 results,
                 segment_info,
@@ -412,15 +496,25 @@ impl ExecMethod for TopKScanExecState {
                     local_limit,
                     self.offset,
                     maybe_aux_collector,
-                    maybe_parallel_state,
+                    TopKSearchControl {
+                        parallel_state: maybe_parallel_state,
+                        vector: vector_plan.as_ref().map(|plan| {
+                            (
+                                plan,
+                                &mut control as &mut dyn tantivy::vector::VectorSearchControl,
+                            )
+                        }),
+                    },
                 );
+            if let Some(visibility) = visibility {
+                state.visibility_checker = Some(visibility);
+                state.vector_quals_checked = true;
+            }
             // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
             // DSM once at EndCustomScan; the leader merges at Shutdown.
             if !segment_info.is_empty() {
                 state.accumulate_segment_info(segment_info);
             }
-            // The global vector probe loop reports one blob per query;
-            // vector scans are serial, so no DSM hop is needed.
             if let Some(vector_search) = vector_search {
                 state.vector_search_info = Some(vector_search);
             }
@@ -455,12 +549,13 @@ impl ExecMethod for TopKScanExecState {
                         .as_ref()
                         .expect("Should have claimed segments while running.")
                         .len();
-                    let parallel_state = unsafe { &mut *parallel_state };
-                    parallel_state
-                        .aggregation_append(agg_result, segment_count)
-                        .expect("Failed to append aggregation result");
+                    unsafe {
+                        (*parallel_state)
+                            .aggregation_append(agg_result, segment_count)
+                            .expect("Failed to append aggregation result");
 
-                    parallel_state.aggregation_wait()
+                        (*parallel_state).aggregation_wait()
+                    }
                 } else {
                     agg_result
                 }
@@ -502,7 +597,7 @@ impl ExecMethod for TopKScanExecState {
 
         // If we got fewer results than we requested, then the query is exhausted: there is no
         // point executing further queries.
-        self.exhausted = self.search_results.original_len() < local_limit;
+        self.exhausted = adaptive_vector || self.search_results.original_len() < local_limit;
 
         // But if we got any results at all, then the query was a success.
         self.search_results.original_len() > 0

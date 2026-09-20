@@ -348,6 +348,14 @@ pub struct TopKAuxiliaryCollector {
     pub vischeck: Option<VisibilityChecker>,
 }
 
+pub struct TopKSearchControl<'a> {
+    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    pub vector: Option<(
+        &'a tantivy::vector::PreparedVectorSearch,
+        &'a mut dyn tantivy::vector::VectorSearchControl,
+    )>,
+}
+
 pub struct SearchIndexReader {
     index_rel: PgSearchRelation,
     searcher: Searcher,
@@ -1065,6 +1073,54 @@ impl SearchIndexReader {
         )
     }
 
+    pub fn vector_cluster_capacity(&self, orderby: &[OrderByInfo]) -> usize {
+        let OrderByFeature::VectorDistance { name, .. } = &orderby[0].feature else {
+            panic!("vector ordering required");
+        };
+        let field = self
+            .schema
+            .search_field(name)
+            .expect("vector field exists")
+            .field();
+        tantivy::vector::PreparedVectorSearch::cluster_capacity(&self.searcher, field)
+            .expect("vector metadata required")
+    }
+
+    pub fn prepare_vector_search(
+        &self,
+        orderby: &[OrderByInfo],
+        precompute_centroid_scores: bool,
+    ) -> tantivy::vector::PreparedVectorSearch {
+        let OrderByFeature::VectorDistance {
+            name, query_vector, ..
+        } = &orderby[0].feature
+        else {
+            panic!("vector ordering required");
+        };
+        let field = self
+            .schema
+            .search_field(name)
+            .expect("vector field exists")
+            .field();
+        tantivy::vector::set_fixed_probe_cost_rows(crate::gucs::vector_fixed_probe_cost_rows());
+        let prepare = if precompute_centroid_scores {
+            tantivy::vector::PreparedVectorSearch::new_with_precomputed_centroid_scores
+        } else {
+            tantivy::vector::PreparedVectorSearch::new
+        };
+        prepare(
+            &self.searcher,
+            field,
+            query_vector.resolved().expect("query vector resolved"),
+            &AdaptiveProbeParams {
+                max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                ..Default::default()
+            },
+            self.weight().matches_all_docs(),
+        )
+        .expect("vector routing failed")
+    }
+
     /// Search the Tantivy index for the Top K matching documents in specific segments.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
@@ -1087,8 +1143,12 @@ impl SearchIndexReader {
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
-        parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
+        control: TopKSearchControl<'_>,
     ) -> TopKSearch {
+        let TopKSearchControl {
+            parallel_state: parallel_state_holding_shared_threshold,
+            vector,
+        } = control;
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
@@ -1280,40 +1340,50 @@ impl SearchIndexReader {
                     tie_breaks.remove(i);
                 }
 
-                // Vector search is ONE global probe loop across every
-                // segment of the searcher's snapshot, so it cannot ride
-                // the per-segment wrappers: window aggregates are rejected
-                // at plan time, and the parallel path never claims vector scans.
                 assert!(
                     aux_collector.is_none(),
                     "vector ORDER BY cannot run with an auxiliary aggregation collector; this \
                      combination is rejected at plan time"
                 );
-                let consumed: Vec<SegmentId> = segment_ids.collect();
-                assert_eq!(
-                    consumed.len(),
-                    self.searcher.segment_readers().len(),
-                    "vector ORDER BY must run serially over the full segment snapshot"
-                );
+                macro_rules! search_vector {
+                    ($collector:expr) => {
+                        if let Some((plan, control)) = vector {
+                            $collector.search_prepared(
+                                &self.searcher,
+                                self.query(),
+                                plan,
+                                segment_ids.map(|id| {
+                                    self.searcher
+                                        .segment_readers()
+                                        .iter()
+                                        .position(|reader| reader.segment_id() == id)
+                                        .expect("claimed segment belongs to snapshot")
+                                        as SegmentOrdinal
+                                }),
+                                control,
+                            )
+                        } else {
+                            let consumed: Vec<SegmentId> = segment_ids.collect();
+                            assert_eq!(
+                                consumed.len(),
+                                self.searcher.segment_readers().len(),
+                                "adaptive vector search requires the full segment snapshot"
+                            );
+                            $collector.search(&self.searcher, self.query())
+                        }
+                    };
+                }
                 // Fruit is `VectorSimilarityFruit` — hits plus ONE global
                 // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
                 let fruit = match tie_break_count {
-                    0 => vector_search.search(&self.searcher, self.query()),
-                    1 => vector_search
-                        .with_tie_break(next())
-                        .search(&self.searcher, self.query()),
-                    2 => vector_search
-                        .with_tie_break((next(), next()))
-                        .search(&self.searcher, self.query()),
-                    3 => vector_search
-                        .with_tie_break((next(), next(), next()))
-                        .search(&self.searcher, self.query()),
-                    4 => vector_search
-                        .with_tie_break((next(), next(), next(), next()))
-                        .search(&self.searcher, self.query()),
+                    0 => search_vector!(vector_search),
+                    1 => search_vector!(vector_search.with_tie_break(next())),
+                    2 => search_vector!(vector_search.with_tie_break((next(), next()))),
+                    3 => search_vector!(vector_search.with_tie_break((next(), next(), next()))),
+                    4 => search_vector!(vector_search.with_tie_break((next(), next(), next(), next()))),
                     x => panic!(
                         "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1

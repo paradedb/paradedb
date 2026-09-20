@@ -50,6 +50,7 @@ mod scan;
 pub mod shared_threshold;
 mod vacuum;
 mod validate;
+pub mod vector_search;
 
 pub mod buffile;
 mod build_parallel;
@@ -690,6 +691,7 @@ const PARALLEL_STATE_UNINITIALIZED: usize = usize::MAX;
 /// to provide a sorted stream for the segments it dynamically claims.
 #[repr(C)]
 pub struct ParallelScanState {
+    vector_offset: usize,
     mutex: Spinlock,
     /// Condition variable for efficient waiting in `aggregation_wait()`.
     /// Workers sleep on this CV instead of busy-waiting, and are woken
@@ -861,6 +863,7 @@ impl ParallelScanState {
     /// This is called by `aminitparallelscan` before any participants are launched.
     /// The leader will call `populate` to set up the segment data; workers wait for that.
     pub fn create(&mut self) {
+        self.vector_offset = 0;
         self.mutex.init();
         self.aggregation_cv.init();
         self.init_cv.init();
@@ -1051,6 +1054,17 @@ impl ParallelScanState {
             return postcard::from_bytes(&buffer[data_start..data_end])
                 .expect("failed to deserialize aggregation result");
         }
+    }
+
+    pub fn record_segment_claim(&mut self, id: SegmentId) {
+        let _mutex = self.acquire_mutex();
+        let position = self
+            .payload
+            .source_ids(0)
+            .iter()
+            .position(|bytes| *bytes == *id.uuid_bytes())
+            .expect("segment in shared view");
+        self.payload.claims_mut()[position] = unsafe { pg_sys::ParallelWorkerNumber };
     }
 
     /// Source-aware segment checkout. For the first source (index 0), also records the

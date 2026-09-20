@@ -27,11 +27,13 @@ where
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
+        context: *mut pg_sys::ParallelContext,
         coordinate: *mut std::os::raw::c_void,
     );
 
     fn reinitialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
+        context: *mut pg_sys::ParallelContext,
         coordinate: *mut std::os::raw::c_void,
     );
 
@@ -62,11 +64,11 @@ pub extern "C-unwind" fn estimate_dsm_custom_scan<CS: CustomScan + ParallelQuery
 #[pg_guard]
 pub extern "C-unwind" fn initialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable>(
     node: *mut pg_sys::CustomScanState,
-    _pcxt: *mut pg_sys::ParallelContext,
+    pcxt: *mut pg_sys::ParallelContext,
     coordinate: *mut std::os::raw::c_void,
 ) {
     let mut custom_state = wrap_custom_scan_state::<CS>(node);
-    unsafe { CS::initialize_dsm_custom_scan(custom_state.as_mut(), coordinate) }
+    unsafe { CS::initialize_dsm_custom_scan(custom_state.as_mut(), pcxt, coordinate) }
 }
 
 /// Re-initialize the dynamic shared memory required for parallel operation when the custom-scan
@@ -77,11 +79,11 @@ pub extern "C-unwind" fn initialize_dsm_custom_scan<CS: CustomScan + ParallelQue
 #[pg_guard]
 pub extern "C-unwind" fn reinitialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable>(
     node: *mut pg_sys::CustomScanState,
-    _pcxt: *mut pg_sys::ParallelContext,
+    pcxt: *mut pg_sys::ParallelContext,
     coordinate: *mut std::os::raw::c_void,
 ) {
     let mut custom_state = wrap_custom_scan_state::<CS>(node);
-    unsafe { CS::reinitialize_dsm_custom_scan(custom_state.as_mut(), coordinate) }
+    unsafe { CS::reinitialize_dsm_custom_scan(custom_state.as_mut(), pcxt, coordinate) }
 }
 
 /// Initialize a parallel worker's local state based on the shared state set up by the leader during

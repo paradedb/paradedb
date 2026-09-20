@@ -26,8 +26,9 @@ use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
+use crate::postgres::vector_search::ParallelVectorState;
 
-use pgrx::pg_sys::{Size, shm_toc};
+use pgrx::pg_sys::{self, Size, shm_toc};
 
 /// Role of this backend in a parallel-aware scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,20 +71,24 @@ impl ParallelScanHandle {
     /// Worker End: flush local telemetry into DSM.
     pub fn publish_telemetry(&self, local: &ScanTelemetry) {
         debug_assert_eq!(self.role, ParallelRole::Worker);
-        let dsm = unsafe { &mut *self.dsm.as_ptr() };
-        dsm.set_query_count(local.query_count());
-        dsm.publish_segment_info(local.segment_info());
+        unsafe {
+            let dsm = self.dsm.as_ptr();
+            (*dsm).set_query_count(local.query_count());
+            (*dsm).publish_segment_info(local.segment_info());
+        }
     }
 
     /// Leader Shutdown: write this process's query count into DSM, snapshot
     /// explain metadata + worker segment_info, merge segment_info into local.
     pub fn finalize_explain(&self, local: &mut ScanTelemetry) {
         debug_assert_eq!(self.role, ParallelRole::Leader);
-        let dsm = unsafe { &mut *self.dsm.as_ptr() };
-        dsm.set_query_count(local.query_count());
-        let explain_data = dsm.explain_data();
-        local.accumulate_segment_info(dsm.take_segment_info());
-        local.set_parallel_explain(explain_data);
+        unsafe {
+            let dsm = self.dsm.as_ptr();
+            (*dsm).set_query_count(local.query_count());
+            let explain_data = (*dsm).explain_data();
+            local.accumulate_segment_info((*dsm).take_segment_info());
+            local.set_parallel_explain(explain_data);
+        }
     }
 }
 
@@ -94,16 +99,30 @@ impl ParallelQueryCapable for BaseScan {
         }
 
         let args = state.custom_state().parallel_scan_args();
-        ParallelScanState::size_of(
+        let base_size = ParallelScanState::size_of(
             &args.all_nsegments(),
             &args.query,
             args.with_aggregates,
             args.with_segment_info,
-        )
+        );
+        match state.custom_state().vector_search_spec() {
+            Some(limit) => {
+                let scan = state.custom_state();
+                let clusters = scan
+                    .search_reader
+                    .as_ref()
+                    .unwrap()
+                    .vector_cluster_capacity(scan.orderby_info().as_ref().unwrap());
+                ParallelVectorState::offset(base_size)
+                    + ParallelVectorState::size(clusters, limit, args.all_nsegments()[0])
+            }
+            None => base_size,
+        }
     }
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
+        context: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
         let args = state.custom_state().parallel_scan_args();
@@ -120,11 +139,13 @@ impl ParallelQueryCapable for BaseScan {
             // prepare per-(consumer, segment) iterator states, and publish the claim
             // table before any worker launches. Workers only wait and attach.
             leader_publish_bitmap(state, pscan_state);
+            leader_publish_vectors(state, context, pscan_state);
         }
     }
 
     fn reinitialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
+        context: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
         // The one place the shared segment work queue is reset for a rescan.
@@ -136,20 +157,24 @@ impl ParallelQueryCapable for BaseScan {
         // already-claimed segments get scanned twice (#5024).
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
-        let pscan_state = unsafe { &mut *pscan_state };
-        pscan_state.bitmap_reset();
-        pscan_state.reset();
-        // Republish for the relaunched workers. The scan's rescan callback ran
-        // first (freeing the previous table and build when params changed), so
-        // this rebuilds with the new params or republishes the still-valid one.
-        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
-            let handle = unsafe { bitmap_exec.republish() };
-            pscan_state.publish_bitmap_handle(handle);
-            if handle.is_some()
-                && let Some(cell) = state.custom_state().bitmap_cell.clone()
-                && let Some(source) = state.custom_state().bitmap_exec.as_ref().unwrap().source()
-            {
-                cell.fill(source);
+        unsafe {
+            (*pscan_state).bitmap_reset();
+            (*pscan_state).reset();
+            state.custom_state_mut().vector_plan = None;
+            leader_publish_vectors(state, context, pscan_state);
+            // Republish for the relaunched workers. The scan's rescan callback ran
+            // first (freeing the previous table and build when params changed), so
+            // this rebuilds with the new params or republishes the still-valid one.
+            if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+                let handle = bitmap_exec.republish();
+                (*pscan_state).publish_bitmap_handle(handle);
+                if handle.is_some()
+                    && let Some(cell) = state.custom_state().bitmap_cell.clone()
+                    && let Some(source) =
+                        state.custom_state().bitmap_exec.as_ref().unwrap().source()
+                {
+                    cell.fill(source);
+                }
             }
         }
     }
@@ -163,18 +188,75 @@ impl ParallelQueryCapable for BaseScan {
         assert!(!pscan_state.is_null(), "coordinate is null");
 
         unsafe {
+            if let Some(shared) = ParallelVectorState::from_scan(pscan_state) {
+                shared.as_ref().worker_attached();
+            }
             state
                 .custom_state_mut()
-                .attach_parallel(pscan_state, ParallelRole::Worker)
-        };
-        let pscan_state = unsafe { &*pscan_state };
-        match pscan_state
-            .query()
-            .expect("should be able to deserialize the query from the ParallelScanState")
-        {
-            Some(query) => state.custom_state_mut().set_base_search_query_input(query),
-            None => panic!("no query in ParallelScanState"),
+                .attach_parallel(pscan_state, ParallelRole::Worker);
+            match (*pscan_state)
+                .query()
+                .expect("should be able to deserialize the query from the ParallelScanState")
+            {
+                Some(query) => state.custom_state_mut().set_base_search_query_input(query),
+                None => panic!("no query in ParallelScanState"),
+            }
         }
+    }
+}
+
+unsafe fn leader_publish_vectors(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    context: *mut pg_sys::ParallelContext,
+    scan: *mut ParallelScanState,
+) {
+    let Some(limit) = state.custom_state().vector_search_spec() else {
+        return;
+    };
+    let mut direct = false;
+    let mut plan = unsafe { (*(*state.csstate.ss.ps.state).es_plannedstmt).planTree };
+    while !plan.is_null() {
+        unsafe {
+            if (*plan).lefttree == state.csstate.ss.ps.plan {
+                direct = match (*plan).type_ {
+                    pg_sys::NodeTag::T_GatherMerge => true,
+                    pg_sys::NodeTag::T_Gather => !(*plan.cast::<pg_sys::Gather>()).single_copy,
+                    _ => false,
+                };
+                break;
+            }
+            plan = (*plan).lefttree;
+        }
+    }
+    // Other plan shapes may execute this scan in only a subset of workers.
+    let overlap = direct && unsafe { pg_sys::parallel_leader_participation };
+    state.custom_state_mut().vector_parallel_context = if overlap {
+        context
+    } else {
+        std::ptr::null_mut()
+    };
+    let clusters = state
+        .custom_state()
+        .search_reader
+        .as_ref()
+        .unwrap()
+        .vector_cluster_capacity(state.custom_state().orderby_info().as_ref().unwrap());
+    let args = state.custom_state().parallel_scan_args();
+    let base_size = ParallelScanState::size_of(
+        &args.all_nsegments(),
+        &args.query,
+        args.with_aggregates,
+        args.with_segment_info,
+    );
+    unsafe {
+        ParallelVectorState::initialize(
+            scan,
+            base_size,
+            overlap,
+            clusters,
+            limit,
+            args.all_nsegments()[0],
+        );
     }
 }
 
@@ -185,43 +267,42 @@ unsafe fn leader_publish_bitmap(
     state: &mut CustomScanStateWrapper<BaseScan>,
     pscan_state: *mut ParallelScanState,
 ) {
-    if state.custom_state().bitmap_exec.is_none() {
-        return;
-    }
-    if state.custom_state().search_reader.is_none() {
-        BaseScan::init_search_reader(state);
-    }
-    let pscan_state = unsafe { &mut *pscan_state };
-    let consumers = state
-        .custom_state()
-        .search_query_input()
-        .bitmap_consumer_count();
-    if consumers == 0 {
-        pscan_state.publish_bitmap_handle(None);
-        return;
-    }
-    let segments: Vec<tantivy::index::SegmentId> = state
-        .custom_state()
-        .search_reader
-        .as_ref()
-        .expect("search reader should be open")
-        .searcher()
-        .segment_readers()
-        .iter()
-        .map(|r| r.segment_id())
-        .collect();
-    let handle = unsafe {
-        state
+    unsafe {
+        if state.custom_state().bitmap_exec.is_none() {
+            return;
+        }
+        if state.custom_state().search_reader.is_none() {
+            BaseScan::init_search_reader(state);
+        }
+        let consumers = state
+            .custom_state()
+            .search_query_input()
+            .bitmap_consumer_count();
+        if consumers == 0 {
+            (*pscan_state).publish_bitmap_handle(None);
+            return;
+        }
+        let segments: Vec<tantivy::index::SegmentId> = state
+            .custom_state()
+            .search_reader
+            .as_ref()
+            .expect("search reader should be open")
+            .searcher()
+            .segment_readers()
+            .iter()
+            .map(|r| r.segment_id())
+            .collect();
+        let handle = state
             .custom_state_mut()
             .bitmap_exec
             .as_mut()
             .unwrap()
-            .shared_source(consumers, &segments)
-    };
-    pscan_state.publish_bitmap_handle(handle);
-    if let Some(cell) = state.custom_state().bitmap_cell.clone()
-        && let Some(source) = state.custom_state().bitmap_exec.as_ref().unwrap().source()
-    {
-        cell.fill(source);
+            .shared_source(consumers, &segments);
+        (*pscan_state).publish_bitmap_handle(handle);
+        if let Some(cell) = state.custom_state().bitmap_cell.clone()
+            && let Some(source) = state.custom_state().bitmap_exec.as_ref().unwrap().source()
+        {
+            cell.fill(source);
+        }
     }
 }

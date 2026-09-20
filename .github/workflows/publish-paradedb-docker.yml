@@ -176,6 +176,7 @@ jobs:
     uses: ./.github/workflows/test-pg_search-docker.yml
     with:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+      spot: false # Disable Spot for tests in the publish workflow
     secrets: inherit
 
   # Skipping this job also skips `open-dockerfile-prs` and `notify-orm-repos`, which need it.

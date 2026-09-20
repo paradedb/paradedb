@@ -25,7 +25,7 @@ jobs:
       # General-purpose m-family — Docker buildx is RAM-heavy.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
-      - retry=when-interrupted
+      - spot=false
       - family=m7a+m7i
       - cpu=8
       - ram=32
@@ -126,20 +126,10 @@ jobs:
           platform: linux/arm64
           policy-config: docker/docker-scout-policy.json
 
-  notify-slack-on-failure:
-    name: Notify Slack on Failure
-    needs: [publish-stressgres-docker]
-    if: always() && needs.publish-stressgres-docker.result == 'failure'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      checks: read
-    steps:
       - name: Notify Slack on Failure
-        uses: paradedb/actions/slack-alert@v14
+        if: failure()
+        uses: paradedb/actions/slack-alert@v13
         with:
-          suppress_spot_retries: "true"
-          job_results: ${{ toJSON(needs) }}
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "${{ github.workflow }} Failed"

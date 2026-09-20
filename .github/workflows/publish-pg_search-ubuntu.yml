@@ -34,7 +34,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
-      - retry=when-interrupted
+      - spot=false
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
@@ -392,20 +392,10 @@ jobs:
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb.cosign.bundle
           overwrite: true
 
-  notify-slack-on-failure:
-    name: Notify Slack on Failure
-    needs: [publish-pg_search-ubuntu]
-    if: always() && needs.publish-pg_search-ubuntu.result == 'failure'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      checks: read
-    steps:
       - name: Notify Slack on Failure
-        uses: paradedb/actions/slack-alert@v14
+        if: failure()
+        uses: paradedb/actions/slack-alert@v13
         with:
-          suppress_spot_retries: "true"
-          job_results: ${{ toJSON(needs) }}
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "${{ github.workflow }} Failed"

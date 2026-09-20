@@ -36,7 +36,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
-      - retry=when-interrupted
+      - spot=false
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
@@ -403,6 +403,14 @@ jobs:
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb.cosign.bundle
           overwrite: true
 
+      - name: Notify Slack on Failure
+        if: ${{ failure() && steps.guard.outputs.build == 'true' }}
+        uses: paradedb/actions/slack-alert@v13
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.workflow }} Failed"
+
   # Once the Debian packages are published, kick off the ParadeDB Docker publish. The Docker
   # image publishing runs after Debian since it installs the Debian packages to avoid needing to build
   # them from source again.
@@ -433,21 +441,3 @@ jobs:
             --repo "${{ github.repository }}" \
             --ref "${{ github.ref_name }}" \
             -f version="${{ steps.version.outputs.version }}"
-
-  notify-slack-on-failure:
-    name: Notify Slack on Failure
-    needs: [publish-pg_search-debian]
-    if: always() && needs.publish-pg_search-debian.result == 'failure'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      checks: read
-    steps:
-      - name: Notify Slack on Failure
-        uses: paradedb/actions/slack-alert@v14
-        with:
-          suppress_spot_retries: "true"
-          job_results: ${{ toJSON(needs) }}
-          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
-          title: "${{ github.workflow }} Failed"

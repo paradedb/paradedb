@@ -1044,7 +1044,6 @@ LIMIT 5;
  Post 015 |     5
 (5 rows)
 
-RESET paradedb.enable_aggregate_late_materialization;
 DROP TABLE lmp_profiles;
 DROP TABLE lmp_comments;
 DROP TABLE lmp_posts;

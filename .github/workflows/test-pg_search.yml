@@ -210,6 +210,14 @@ jobs:
         run: |
           sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
           sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
+
+          cat >> postgresql.conf <<'EOF'
+          max_worker_processes = 64
+          max_parallel_workers = 16
+          max_parallel_workers_per_gather = 2
+          dynamic_shared_memory_type = posix
+          EOF
+
           echo "citus.node_conninfo = 'sslmode=prefer'" >> postgresql.conf
 
       - name: Compile & install pg_search extension (system)

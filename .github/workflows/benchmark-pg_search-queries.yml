@@ -538,7 +538,7 @@ jobs:
       - name: Notify Slack on Failure (push only)
         uses: paradedb/actions/slack-alert@v14
         with:
-          suppress_spot_retries: "true"
+          suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
           job_results: ${{ toJSON(needs) }}
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

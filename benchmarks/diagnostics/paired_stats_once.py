@@ -1,17 +1,21 @@
 """CI-only comparison of two libraries against one unchanged physical index build."""
 
 import hashlib
+import getpass
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+from urllib.parse import quote
 
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "diagnostic-output"
-URL = "postgresql://localhost:28818/postgres"
+# SQLx defaults to `anonymous` when the URI omits a user; psql defaults to the OS user.
+# Use the same explicit OS-user URI as the repository's benchmark action.
+URL = f"postgresql://{quote(getpass.getuser(), safe='')}@localhost:28818/postgres"
 
 
 def run(args, *, cwd=ROOT, capture=False):

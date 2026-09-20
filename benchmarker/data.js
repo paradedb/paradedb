@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789850986445,
+  "lastUpdate": 1789891037092,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -5035,6 +5035,53 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.107,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "sahil",
+            "username": "sahilchug",
+            "email": "46780009+sahilchug@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "90596c730c283d9e8ee15c43f02edf3c5f839781",
+          "message": "feat(customscan): push down GROUP BY Date(timestamp) to datafusion to top K query (#6362)\n\n# Ticket(s) Closed\n\n- Closes # https://github.com/paradedb/paradedb/issues/4082\n\n## What\n\nThis is a small follow up to\nhttps://github.com/paradedb/paradedb/pull/5936 adding support for\npushing down Date(timestamp) in top K queries via Datafusion route.\n\nFor example:\n\n```sql\nSELECT DATE(created_at), COUNT(*)\nFROM events\nGROUP BY DATE(created_at)\nORDER BY DATE(created_at) DESC\nLIMIT 2;\n```\n\n## Why\n\n#5936 added DataFusion grouping for DATE(timestamp), but the TopK\ndetector only accepted bare group columns such as ORDER BY category.\nAs a result, ordering by the transformed date key left the sort and\nlimit outside the DataFusion aggregate plan. This change closes that\ngap.\n\n## How\n- Allows the TopK detector to recognize a DATE(timestamp) expression\nwhen its group column carries the `TimestampToDate` transform.\n- Resolves the TopK sort column to the output produced by the\ntimestamp-to-date UDF.\n\n## Tests\n- Extend `aggregate_custom_scan` tests to verify the plan produces a\nDatafusion plan that has `SortExec: TopK` operator\n- update `mpp_aggregate_date` and `datetime_date_pushdown` tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-19T22:23:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/90596c730c283d9e8ee15c43f02edf3c5f839781"
+        },
+        "date": 1789891032600,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6639115163040399,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.582,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.95,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.096,
             "unit": "ms"
           }
         ]

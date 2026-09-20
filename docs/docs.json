@@ -309,7 +309,6 @@
             "icon": "map",
             "pages": [
               "guides/setup",
-              "guides/quickstart",
               "guides/vector-search",
               "guides/faceted-search",
               "guides/hybrid-search",

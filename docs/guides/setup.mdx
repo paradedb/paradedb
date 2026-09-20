@@ -405,7 +405,7 @@ cd paradedb-guides
   </PropertyGroup>
 
   <Target Name="RequireExample" BeforeTargets="CoreCompile" Condition="'$(Example)' == ''">
-    <Error Text="Set the Example property to one of: Quickstart, VectorSearch, FacetedSearch, Autocomplete, MoreLikeThis, HybridRrf, Rag." />
+    <Error Text="Set the Example property to one of: VectorSearch, FacetedSearch, Autocomplete, MoreLikeThis, HybridRrf, Rag." />
   </Target>
 
   <ItemGroup>
@@ -483,15 +483,6 @@ namespace FacetedSearch.Data
 }
 
 namespace MoreLikeThis.Data
-{
-    public class AppDbContext : Shared.MockItemsDbContext<AppDbContext, Shared.MockItem>
-    {
-        public AppDbContext(DbContextOptions<AppDbContext> options)
-            : base(options) { }
-    }
-}
-
-namespace Quickstart.Data
 {
     public class AppDbContext : Shared.MockItemsDbContext<AppDbContext, Shared.MockItem>
     {
@@ -681,7 +672,6 @@ dotnet restore Examples.csproj
 
 ## Choose a guide
 
-- [Quickstart](/guides/quickstart)
 - [Vector Search](/guides/vector-search)
 - [Faceted Search](/guides/faceted-search)
 - [Hybrid Search](/guides/hybrid-search)

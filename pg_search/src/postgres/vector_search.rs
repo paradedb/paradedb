@@ -24,7 +24,7 @@ use std::time::Instant;
 use pgrx::check_for_interrupts;
 use tantivy::vector::{
     ClusterWork, PROBE_WAVE_SIZE, PreparedVectorSearch, ProbeBudget, ProbeStats, ProbeWave,
-    RankedCluster, VectorSearchControl,
+    RankedCluster, RoutingPhases, VectorSearchControl,
 };
 use tantivy::{DocAddress, Score};
 
@@ -51,6 +51,7 @@ struct RouteData {
     shareable: bool,
     routing: Option<tantivy::vector::RouterMetrics>,
     routing_time_ns: u64,
+    routing_phases: RoutingPhases,
     budget: ProbeBudget,
     initial_wave: Option<ProbeWave>,
 }
@@ -70,6 +71,7 @@ pub struct ParallelVectorState {
     rank_exhausted: AtomicBool,
     rank_complete: AtomicBool,
     rank_metrics: UnsafeCell<Option<tantivy::vector::RouterMetrics>>,
+    rank_phases: UnsafeCell<RoutingPhases>,
     rank_time_ns: AtomicU64,
     rank_precomputed_centroids: AtomicU64,
     capacity_opens: AtomicU64,
@@ -102,6 +104,7 @@ impl From<&PreparedVectorSearch> for RouteData {
             shareable: plan.shareable,
             routing: plan.routing,
             routing_time_ns: plan.routing_time_ns,
+            routing_phases: plan.routing_phases,
             budget: plan.budget,
             initial_wave: plan.initial_wave,
         }
@@ -167,6 +170,7 @@ impl ParallelVectorState {
                 rank_exhausted: AtomicBool::new(false),
                 rank_complete: AtomicBool::new(false),
                 rank_metrics: UnsafeCell::new(None),
+                rank_phases: UnsafeCell::new(RoutingPhases::default()),
                 rank_time_ns: AtomicU64::new(0),
                 rank_precomputed_centroids: AtomicU64::new(0),
                 capacity_opens: AtomicU64::new(0),
@@ -427,6 +431,7 @@ impl ParallelVectorState {
             initial_wave: self.route().initial_wave,
             routing: None,
             routing_time_ns: 0,
+            routing_phases: RoutingPhases::default(),
         }
     }
 
@@ -507,7 +512,10 @@ impl ParallelVectorState {
 
     fn finish(&self, stats: &ProbeStats) {
         if stats.routing.is_some() && self.route().incremental {
-            unsafe { self.rank_metrics.get().write(stats.routing) };
+            unsafe {
+                self.rank_metrics.get().write(stats.routing);
+                self.rank_phases.get().write(stats.routing_phases);
+            }
             self.rank_time_ns
                 .store(stats.routing_time_ns, Ordering::Relaxed);
             self.rank_precomputed_centroids
@@ -543,6 +551,9 @@ impl ParallelVectorState {
             let mut value = serde_json::to_value(ProbeStats::default())
                 .expect("vector statistics should serialize");
             value["termination"] = "NotExecuted".into();
+            value["prepare_time_ns"] = 0.into();
+            value["incremental_router_time_ns"] = 0.into();
+            value["routing_other_time_ns"] = 0.into();
             return value;
         }
         let values: Vec<_> = self
@@ -565,13 +576,17 @@ impl ParallelVectorState {
             probe_time_ns: values[11],
             routing: self.route().routing,
             routing_time_ns: self.route().routing_time_ns,
+            routing_phases: self.route().routing_phases,
             pruned_invisible: values[14] as usize,
             segment_setup_time_ns: values[15],
             ..Default::default()
         };
+        let mut incremental_router_time_ns = 0;
         if self.rank_complete.load(Ordering::Acquire) {
             stats.routing = unsafe { *self.rank_metrics.get() };
-            stats.routing_time_ns += self.rank_time_ns.load(Ordering::Relaxed);
+            incremental_router_time_ns = self.rank_time_ns.load(Ordering::Relaxed);
+            stats.routing_time_ns += incremental_router_time_ns;
+            stats.routing_phases += unsafe { *self.rank_phases.get() };
         }
         let ranked_len = if self.route().incremental {
             self.ranked_len.load(Ordering::Acquire) as usize
@@ -586,7 +601,17 @@ impl ParallelVectorState {
                 stats.postings_skipped += 1;
             }
         }
+        let phases = stats.routing_phases;
+        let routing_other_time_ns = stats.routing_time_ns.saturating_sub(
+            phases.segment_metadata_time_ns
+                + phases.router_open_time_ns
+                + phases.centroid_precompute_time_ns
+                + phases.router_prefix_time_ns,
+        );
         let mut value = serde_json::to_value(stats).expect("vector statistics should serialize");
+        value["prepare_time_ns"] = self.route().routing_time_ns.into();
+        value["incremental_router_time_ns"] = incremental_router_time_ns.into();
+        value["routing_other_time_ns"] = routing_other_time_ns.into();
         value["heap_publish_time_ns"] = values[12].into();
         value["heap_publish_deferred"] = values[13].into();
         value["ranked_clusters"] = ranked_len.into();

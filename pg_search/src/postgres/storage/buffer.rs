@@ -783,6 +783,13 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PageReadMode {
+    Locked,
+    Published,
+    PublishedSequential,
+}
+
 #[derive(Debug)]
 pub struct BufferManager {
     rbufacc: RelationBufferAccess,
@@ -944,16 +951,16 @@ impl BufferManager {
     /// # Safety
     /// The page must remain immutable until all its pins are released.
     pub unsafe fn get_immutable_page(&self, blockno: pg_sys::BlockNumber) -> ImmutablePage {
-        self.get_immutable_page_for_chunks(blockno, false)
+        self.get_immutable_page_with_mode(blockno, PageReadMode::Locked)
     }
 
     /// # Safety
     /// A published page must be fully initialized and independently protected
     /// against logical reuse. Its contents must remain immutable while pinned.
-    pub(super) unsafe fn get_immutable_page_for_chunks(
+    pub(super) unsafe fn get_immutable_page_with_mode(
         &self,
         blockno: pg_sys::BlockNumber,
-        published: bool,
+        mode: PageReadMode,
     ) -> ImmutablePage {
         if cfg!(feature = "block_tracker") || blockno == pg_sys::InvalidBlockNumber {
             return self.get_buffer(blockno).into_immutable_page();
@@ -965,7 +972,9 @@ impl BufferManager {
         );
         let relation = self.rbufacc.rel().as_ptr();
         let fork = self.rbufacc.rel().fork_number();
-        let recent_buffer = if published {
+        let published = mode != PageReadMode::Locked;
+        let predict = mode == PageReadMode::PublishedSequential;
+        let recent_buffer = if predict {
             let hint = self.recent_buffer.load(Ordering::Relaxed);
             let previous_buffer = hint as u32 as pg_sys::Buffer;
             let previous_block = (hint >> 32) as pg_sys::BlockNumber;
@@ -1096,7 +1105,7 @@ impl BufferManager {
             }
             (buffer, page, recent_hit)
         });
-        if published && pg_buffer > 0 {
+        if predict && pg_buffer > 0 {
             self.recent_buffer.store(
                 (u64::from(blockno) << 32) | pg_buffer as u64,
                 Ordering::Relaxed,
@@ -1339,7 +1348,7 @@ mod tests {
             blocks.push(buffer.number());
         }
         let bman = BufferManager::new(&indexrel);
-        let fresh = bman.get_immutable_page_for_chunks(blocks[0], true);
+        let fresh = bman.get_immutable_page_with_mode(blocks[0], PageReadMode::PublishedSequential);
         assert_eq!(&*fresh, &[37; 32]);
         assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
         let first_buffer = fresh.pinned_buffer.pg_buffer();
@@ -1348,7 +1357,8 @@ mod tests {
             (u64::from(blocks[1]) << 32) | first_buffer as u64,
             Ordering::Relaxed,
         );
-        let unpinned_miss = bman.get_immutable_page_for_chunks(blocks[1], true);
+        let unpinned_miss =
+            bman.get_immutable_page_with_mode(blocks[1], PageReadMode::PublishedSequential);
         assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
         assert_eq!(&*unpinned_miss, &[83; 32]);
         drop(unpinned_miss);
@@ -1371,7 +1381,8 @@ mod tests {
         let counts_before = relation_counts();
         let hits_before = pg_sys::pgBufferUsage.shared_blks_hit;
         let reads_before = pg_sys::pgBufferUsage.shared_blks_read;
-        let retained = bman.get_immutable_page_for_chunks(blocks[0], true);
+        let retained =
+            bman.get_immutable_page_with_mode(blocks[0], PageReadMode::PublishedSequential);
         assert!(bman.recent_buffer_hit.load(Ordering::Relaxed));
         assert_eq!(
             relation_counts(),
@@ -1388,7 +1399,7 @@ mod tests {
 
         bman.recent_buffer
             .store(pack(blocks[1], first_buffer as u32), Ordering::Relaxed);
-        let other = bman.get_immutable_page_for_chunks(blocks[1], true);
+        let other = bman.get_immutable_page_with_mode(blocks[1], PageReadMode::PublishedSequential);
         assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
         assert_eq!(&*other, &[83; 32]);
         assert_ne!(other.pinned_buffer.pg_buffer(), first_buffer);
@@ -1402,7 +1413,7 @@ mod tests {
             ),
             Ordering::Relaxed,
         );
-        let other = bman.get_immutable_page_for_chunks(blocks[1], true);
+        let other = bman.get_immutable_page_with_mode(blocks[1], PageReadMode::PublishedSequential);
         assert!(bman.recent_buffer_hit.load(Ordering::Relaxed));
         assert_eq!(&*other, &[83; 32]);
         drop(other);
@@ -1413,7 +1424,8 @@ mod tests {
             pack(blocks[0], u32::MAX),
         ] {
             bman.recent_buffer.store(hint, Ordering::Relaxed);
-            let page = bman.get_immutable_page_for_chunks(blocks[0], true);
+            let page =
+                bman.get_immutable_page_with_mode(blocks[0], PageReadMode::PublishedSequential);
             assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
             assert_eq!(&*page, &[37; 32]);
             assert_eq!(
@@ -1422,14 +1434,46 @@ mod tests {
             );
         }
 
+        let mut unhinted_pages = Vec::new();
+        let unhinted_hint = pack(blocks[0], first_buffer as u32);
+        bman.recent_buffer.store(unhinted_hint, Ordering::Relaxed);
+        for (block, bytes) in [(blocks[0], [37; 32]), (blocks[1], [83; 32])] {
+            let counts_before = relation_counts();
+            let hits_before = pg_sys::pgBufferUsage.shared_blks_hit;
+            let reads_before = pg_sys::pgBufferUsage.shared_blks_read;
+            let page = bman.get_immutable_page_with_mode(block, PageReadMode::Published);
+            assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
+            assert_eq!(bman.recent_buffer.load(Ordering::Relaxed), unhinted_hint);
+            assert_eq!(
+                relation_counts(),
+                (counts_before.0 + 1, counts_before.1 + 1)
+            );
+            let hits_after = pg_sys::pgBufferUsage.shared_blks_hit;
+            let reads_after = pg_sys::pgBufferUsage.shared_blks_read;
+            assert_eq!(hits_after, hits_before + 1);
+            assert_eq!(reads_after, reads_before);
+            assert_eq!(&*page, &bytes);
+            let mut other_manager = BufferManager::new(&indexrel);
+            let exclusive = other_manager
+                .get_buffer_conditional(block)
+                .expect("published page must be unlocked");
+            drop(exclusive);
+            drop(other_manager);
+            assert_eq!(&*page, &bytes);
+            unhinted_pages.push(page);
+        }
+
         let disabled_hint = pack(blocks[1], first_buffer as u32);
         bman.recent_buffer.store(disabled_hint, Ordering::Relaxed);
-        let page = bman.get_immutable_page_for_chunks(blocks[0], false);
+        let page = bman.get_immutable_page_with_mode(blocks[0], PageReadMode::Locked);
         assert!(!bman.recent_buffer_hit.load(Ordering::Relaxed));
         assert_eq!(bman.recent_buffer.load(Ordering::Relaxed), disabled_hint);
         assert_eq!(&*page, &[37; 32]);
         drop(page);
         drop(bman);
+        assert_eq!(&*unhinted_pages[0], &[37; 32]);
+        assert_eq!(&*unhinted_pages[1], &[83; 32]);
+        drop(unhinted_pages);
         assert_eq!(retained.as_ptr(), retained_ptr);
         assert_eq!(&*retained, &[37; 32]);
         drop(retained);

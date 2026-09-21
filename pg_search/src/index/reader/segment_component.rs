@@ -31,19 +31,31 @@ use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
 
 #[derive(Debug)]
+pub(crate) enum ReadProtection {
+    Unpublished,
+    Segment {
+        _pins: Arc<Mutex<Option<PinCushion>>>,
+    },
+    IndexFile,
+}
+
+#[derive(Debug)]
 pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     entry: FileEntry,
     component: Option<tantivy::index::SegmentComponent>,
-    segment_pins: Option<Arc<Mutex<Option<PinCushion>>>>,
+    protection: ReadProtection,
 }
 
 impl SegmentComponentReader {
-    pub unsafe fn new(
+    /// # Safety
+    /// IndexFile requires a finalized registry entry and a relation lock covering all reads,
+    /// including escaped bytes. Registry payloads are never reclaimed within that lifetime.
+    pub(crate) unsafe fn new(
         indexrel: &PgSearchRelation,
         entry: FileEntry,
         component: Option<tantivy::index::SegmentComponent>,
-        segment_pins: Option<Arc<Mutex<Option<PinCushion>>>>,
+        protection: ReadProtection,
     ) -> Self {
         let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
 
@@ -51,7 +63,7 @@ impl SegmentComponentReader {
             block_list,
             entry,
             component,
-            segment_pins,
+            protection,
         }
     }
 
@@ -61,7 +73,9 @@ impl SegmentComponentReader {
             let range = range.start..end;
 
             // read one or more pages
-            Ok(self.block_list.get_bytes_range(range))
+            Ok(self
+                .block_list
+                .get_bytes_range(range, matches!(self.protection, ReadProtection::IndexFile)))
         }
     }
 }
@@ -85,7 +99,7 @@ impl FileHandle for SegmentComponentReader {
             Some(tantivy::index::SegmentComponent::Custom(ext)) if ext == VECTOR_VEC_EXT
         );
         if is_vector {
-            let published = self.segment_pins.is_some();
+            let published = matches!(self.protection, ReadProtection::Segment { .. });
             let mut chunks = unsafe {
                 self.block_list
                     .get_bytes_range_page_chunks(range, published)
@@ -102,7 +116,13 @@ impl FileHandle for SegmentComponentReader {
             }
             return Ok(());
         }
-        let mut chunks = unsafe { self.block_list.get_bytes_range_chunks(range, false) };
+        let mut chunks = unsafe {
+            self.block_list.get_bytes_range_chunks(
+                range,
+                false,
+                matches!(self.protection, ReadProtection::IndexFile),
+            )
+        };
         loop {
             let chunk = match &self.component {
                 Some(component) => io_stats::record(component, || chunks.next()),
@@ -163,7 +183,8 @@ mod tests {
         let file_entry = writer.file_entry();
         writer.terminate().unwrap();
 
-        let reader = SegmentComponentReader::new(&indexrel, file_entry, None, None);
+        let reader =
+            SegmentComponentReader::new(&indexrel, file_entry, None, ReadProtection::Unpublished);
 
         assert_eq!(reader.len(), bytes.len());
         assert_eq!(
@@ -187,7 +208,7 @@ mod tests {
             Some(tantivy::index::SegmentComponent::Custom(
                 VECTOR_VEC_EXT.to_owned(),
             )),
-            None,
+            ReadProtection::Unpublished,
         );
         assert_eq!(
             vector_reader.read_bytes(0..bytes.len()).unwrap().as_ref(),

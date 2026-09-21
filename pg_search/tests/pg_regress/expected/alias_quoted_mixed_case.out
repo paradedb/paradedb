@@ -21,6 +21,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_join_custom_scan TO on;
 SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_custom_scan_without_operator TO on;
 -- Test Data
 CREATE TABLE repro_5525_parent (
     id         bigint      PRIMARY KEY,
@@ -309,5 +310,6 @@ LIMIT 12;
 (8 rows)
 
 -- Cleanup
+RESET paradedb.enable_custom_scan_without_operator;
 DROP TABLE repro_5525_parent CASCADE;
 DROP TABLE repro_5525_child CASCADE;

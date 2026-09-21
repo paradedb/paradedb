@@ -750,6 +750,10 @@ impl VectorSearchControl for PgVectorSearchControl<'_> {
             == 0
     }
 
+    fn can_overlap_routing(&self) -> bool {
+        self.shared.is_some()
+    }
+
     fn extend_clusters(
         &mut self,
         start: usize,

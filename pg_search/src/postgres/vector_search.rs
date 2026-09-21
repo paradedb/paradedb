@@ -45,6 +45,7 @@ struct Candidate {
 #[repr(C)]
 struct RouteData {
     ranked_len: usize,
+    incremental: bool,
     num_centroids: usize,
     precomputed_centroids: usize,
     shareable: bool,
@@ -64,6 +65,12 @@ pub struct ParallelVectorState {
     route: UnsafeCell<RouteData>,
     route_status: AtomicU32,
     route_owner: AtomicU32,
+    rank_owner: AtomicU32,
+    ranked_len: AtomicU64,
+    rank_exhausted: AtomicBool,
+    rank_complete: AtomicBool,
+    rank_metrics: UnsafeCell<Option<tantivy::vector::RouterMetrics>>,
+    rank_time_ns: AtomicU64,
     leader_routes: bool,
     native_participants: AtomicU32,
     route_wait_ns: AtomicU64,
@@ -86,6 +93,7 @@ impl From<&PreparedVectorSearch> for RouteData {
     fn from(plan: &PreparedVectorSearch) -> Self {
         Self {
             ranked_len: plan.clusters.len(),
+            incremental: plan.incremental,
             num_centroids: plan.num_centroids,
             precomputed_centroids: plan.precomputed_centroids,
             shareable: plan.shareable,
@@ -151,6 +159,12 @@ impl ParallelVectorState {
                 } else {
                     0
                 }),
+                rank_owner: AtomicU32::new(0),
+                ranked_len: AtomicU64::new(0),
+                rank_exhausted: AtomicBool::new(false),
+                rank_complete: AtomicBool::new(false),
+                rank_metrics: UnsafeCell::new(None),
+                rank_time_ns: AtomicU64::new(0),
                 leader_routes,
                 native_participants: AtomicU32::new(0),
                 route_wait_ns: AtomicU64::new(0),
@@ -399,6 +413,7 @@ impl ParallelVectorState {
                 std::slice::from_raw_parts(self.ranked_ptr(), self.route().ranked_len)
             }
             .to_vec(),
+            incremental: self.route().incremental,
             num_centroids: self.route().num_centroids,
             precomputed_centroids: self.route().precomputed_centroids,
             shareable: self.route().shareable,
@@ -485,6 +500,12 @@ impl ParallelVectorState {
     }
 
     fn finish(&self, stats: &ProbeStats) {
+        if stats.routing.is_some() && self.route().incremental {
+            unsafe { self.rank_metrics.get().write(stats.routing) };
+            self.rank_time_ns
+                .store(stats.routing_time_ns, Ordering::Relaxed);
+            self.rank_complete.store(true, Ordering::Release);
+        }
         let values = [
             stats.candidates_scored as u64,
             stats.vectors_visited as u64,
@@ -540,7 +561,16 @@ impl ParallelVectorState {
             segment_setup_time_ns: values[15],
             ..Default::default()
         };
-        for i in 0..self.route().ranked_len {
+        if self.rank_complete.load(Ordering::Acquire) {
+            stats.routing = unsafe { *self.rank_metrics.get() };
+            stats.routing_time_ns += self.rank_time_ns.load(Ordering::Relaxed);
+        }
+        let ranked_len = if self.route().incremental {
+            self.ranked_len.load(Ordering::Acquire) as usize
+        } else {
+            self.route().ranked_len
+        };
+        for i in 0..ranked_len {
             let flags = unsafe { &*self.flags_ptr().add(i) }.load(Ordering::Relaxed);
             if flags & 2 != 0 {
                 stats.postings_row += 1;
@@ -551,7 +581,7 @@ impl ParallelVectorState {
         let mut value = serde_json::to_value(stats).expect("vector statistics should serialize");
         value["heap_publish_time_ns"] = values[12].into();
         value["heap_publish_deferred"] = values[13].into();
-        value["ranked_clusters"] = self.route().ranked_len.into();
+        value["ranked_clusters"] = ranked_len.into();
         value["budgeted_prefix"] = self.route().initial_wave.is_some().into();
         value["precomputed_centroids"] = self.route().precomputed_centroids.into();
         value["shared_heap_capacity"] = self.heap_capacity.into();
@@ -585,13 +615,12 @@ impl ParallelVectorState {
         value["authorized_clusters"] = self.wave_end.load(Ordering::Relaxed).into();
         value["work_budget"] = self.route().budget.limit.into();
         value["work_charged"] = f64::from_bits(self.spent.load(Ordering::Relaxed)).into();
-        value["termination"] =
-            if (self.wave_end.load(Ordering::Relaxed) as usize) < self.route().ranked_len {
-                "Ceiling"
-            } else {
-                "Exhausted"
-            }
-            .into();
+        value["termination"] = if (self.wave_end.load(Ordering::Relaxed) as usize) < ranked_len {
+            "Ceiling"
+        } else {
+            "Exhausted"
+        }
+        .into();
         value
     }
 }
@@ -642,6 +671,99 @@ impl PgVectorSearchControl<'_> {
 }
 
 impl VectorSearchControl for PgVectorSearchControl<'_> {
+    fn routes_clusters(&mut self) -> bool {
+        let Some(state) = self.shared else {
+            return true;
+        };
+        let state = unsafe { state.as_ref() };
+        let pid = unsafe { pgrx::pg_sys::MyProcPid as u32 };
+        state
+            .rank_owner
+            .compare_exchange(0, pid, Ordering::AcqRel, Ordering::Acquire)
+            .unwrap_or_else(|owner| owner)
+            == 0
+    }
+
+    fn extend_clusters(
+        &mut self,
+        start: usize,
+        clusters: &mut Vec<RankedCluster>,
+        next: &mut dyn FnMut() -> Option<RankedCluster>,
+    ) {
+        let target = start + PROBE_WAVE_SIZE + 1;
+        let Some(state) = self.shared else {
+            let remaining = target.saturating_sub(clusters.len());
+            clusters.extend(std::iter::from_fn(next).take(remaining));
+            return;
+        };
+        let state = unsafe { state.as_ref() };
+        if state.rank_owner.load(Ordering::Acquire) == unsafe { pgrx::pg_sys::MyProcPid as u32 } {
+            struct PublishGuard<'a>(&'a ParallelVectorState, bool);
+            impl Drop for PublishGuard<'_> {
+                fn drop(&mut self) {
+                    if !self.1 {
+                        self.0.route_status.store(3, Ordering::Release);
+                        unsafe { &mut *self.0.round_cv.get() }.broadcast();
+                    }
+                }
+            }
+            let mut guard = PublishGuard(state, false);
+            let previous = clusters.len();
+            clusters.extend(std::iter::from_fn(next).take(target.saturating_sub(previous)));
+            assert!(clusters.len() <= state.cluster_capacity);
+            unsafe {
+                state.ranked_ptr().add(previous).copy_from_nonoverlapping(
+                    clusters.as_ptr().add(previous),
+                    clusters.len() - previous,
+                );
+            }
+            state
+                .ranked_len
+                .store(clusters.len() as u64, Ordering::Release);
+            if clusters.len() < target {
+                state.rank_exhausted.store(true, Ordering::Release);
+            }
+            state.timeline_us[1].store(state.elapsed_us(), Ordering::Relaxed);
+            guard.1 = true;
+            unsafe { &mut *state.round_cv.get() }.broadcast();
+            return;
+        }
+        struct CancelSleep;
+        impl Drop for CancelSleep {
+            fn drop(&mut self) {
+                ConditionVariable::cancel_sleep();
+            }
+        }
+        let _cancel = CancelSleep;
+        let started = Instant::now();
+        let cv = unsafe { &mut *state.round_cv.get() };
+        let end = loop {
+            self.check_interrupt();
+            cv.prepare_to_sleep();
+            if state.route_status.load(Ordering::Acquire) == 3 {
+                pgrx::error!("vector routing failed");
+            }
+            let exhausted = state.rank_exhausted.load(Ordering::Acquire);
+            let end = state.ranked_len.load(Ordering::Acquire) as usize;
+            if end >= target || exhausted {
+                break end;
+            }
+            if cv.sleep_for(10) {
+                let owner = state.rank_owner.load(Ordering::Acquire);
+                if owner != 0 && unsafe { pgrx::pg_sys::BackendPidGetProc(owner as i32).is_null() }
+                {
+                    pgrx::error!("vector routing participant exited");
+                }
+            }
+        };
+        state
+            .route_wait_ns
+            .fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        clusters.extend_from_slice(unsafe {
+            std::slice::from_raw_parts(state.ranked_ptr().add(clusters.len()), end - clusters.len())
+        });
+    }
+
     fn work_sharing(&self) -> bool {
         self.shared.is_some()
     }

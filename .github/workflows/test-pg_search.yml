@@ -296,7 +296,17 @@ jobs:
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs 4 --no-default-features --package tests --package tokenizers -- --test-threads=4 --skip replication --skip ephemeral
+        run: |
+          set -euo pipefail
+          export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/pg_search
+          # Phase 1: everything except the two MPP-heavy binaries, with normal concurrency.
+          # (--skip matches test names; each of these binaries hosts a single test.)
+          RUST_BACKTRACE=1 cargo test --jobs 4 --no-default-features --package tests --package tokenizers -- --test-threads=4 --skip replication --skip ephemeral --skip mpp_signal_does_not_crash_backend --skip mpp_joinscan_survives_mutable_build_side_churn
+          # Phase 2: the MPP-heavy binaries serially (one binary at a time). They share
+          # one Postgres cluster, so concurrent MPP workloads starve parallel workers
+          # ("launched 1 of 2 requested workers") and destabilize signal timing.
+          RUST_BACKTRACE=1 cargo test --jobs 1 --no-default-features --package tests --test mpp_joinscan_concurrent -- --test-threads=1
+          RUST_BACKTRACE=1 cargo test --jobs 1 --no-default-features --package tests --test mpp_cancel -- --test-threads=1
 
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'

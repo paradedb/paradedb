@@ -156,10 +156,39 @@ async fn signal_running_mpp_backend(
         if let Some(pid) = pid {
             // Let execution get well inside the MPP join (senders live) before signalling.
             sleep(SIGNAL_DELAY).await;
-            sqlx::query(AssertSqlSafe(format!("SELECT {signal_fn}($1)")))
+            // The victim loops, so after the delay it may be between iterations (idle)
+            // rather than in-flight. A `pg_cancel_backend` on an idle backend is a
+            // silent no-op, and a `false` return means the signal never landed; either
+            // case would doom the victim loop to its 30s timeout if treated as success.
+            // Re-verify the same backend is still active on the MPP query, then check
+            // the signal result, retrying within the deadline on a miss.
+            let still_active: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity \
+                 WHERE pid = $1 AND application_name = $2 AND backend_type = 'client backend' \
+                 AND state = 'active' AND query LIKE '%mpp_users.age = mpp_products.age%')",
+            )
+            .bind(pid)
+            .bind(victim_app)
+            .fetch_one(&mut *killer)
+            .await?;
+            if !still_active {
+                if Instant::now() >= deadline {
+                    anyhow::bail!("victim backend left the MPP query before the signal landed");
+                }
+                sleep(Duration::from_millis(5)).await;
+                continue;
+            }
+            let sent: bool = sqlx::query_scalar(AssertSqlSafe(format!("SELECT {signal_fn}($1)")))
                 .bind(pid)
-                .execute(&mut *killer)
+                .fetch_one(&mut *killer)
                 .await?;
+            if !sent {
+                if Instant::now() >= deadline {
+                    anyhow::bail!("{signal_fn} returned false; the victim backend went away");
+                }
+                sleep(Duration::from_millis(5)).await;
+                continue;
+            }
             return Ok(pid);
         }
         if Instant::now() >= deadline {

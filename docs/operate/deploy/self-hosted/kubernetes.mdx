@@ -23,7 +23,7 @@ For local testing, we recommend [Minikube](https://minikube.sigs.k8s.io/docs/sta
 
 You need permission to install the CloudNativePG operator and ParadeDB Helm chart, plus a StorageClass that provisions persistent volumes suitable for PostgreSQL. For production, use SSD-backed block storage sized for your data and indexes.
 
-This guide also applies to clusters managed by platforms such as [Porter](https://docs.porter.run/addons/custom-helm-charts), which supports custom Helm charts. Configure access to your cluster before running the commands below. You remain responsible for database backups, upgrades, and monitoring.
+This guide also applies to clusters managed by platforms that support custom Helm charts, such as [Porter](https://docs.porter.run/addons/custom-helm-charts), [Qovery](https://www.qovery.com/docs/configuration/helm), and [Rancher](https://ranchermanager.docs.rancher.com/how-to-guides/new-user-guides/helm-charts-in-rancher). Configure access to your cluster before running the commands below. You remain responsible for database backups, upgrades, and monitoring.
 
 ## Install the Prometheus Stack
 

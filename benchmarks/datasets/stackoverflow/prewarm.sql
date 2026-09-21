@@ -7,7 +7,6 @@ SELECT pg_prewarm('users_idx');
 -- Prewarm standard Postgres companion indexes
 SELECT pg_prewarm('stackoverflow_posts_owner_user_id_idx');
 SELECT pg_prewarm('comments_post_id_idx');
-SELECT pg_prewarm('stackoverflow_posts_body_fts_idx');
 SELECT pg_prewarm('stackoverflow_posts_title_fts_idx');
 SELECT pg_prewarm('users_about_me_fts_idx');
 SELECT pg_prewarm('users_display_name_fts_idx');

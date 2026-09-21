@@ -62,7 +62,6 @@ CREATE INDEX stackoverflow_posts_owner_user_id_idx ON stackoverflow_posts (owner
 CREATE INDEX comments_post_id_idx ON comments (post_id);
 
 -- Full-Text Search Columns (GIN on tsvector)
-CREATE INDEX stackoverflow_posts_body_fts_idx ON stackoverflow_posts USING gin (to_tsvector('english', body));
 CREATE INDEX stackoverflow_posts_title_fts_idx ON stackoverflow_posts USING gin (to_tsvector('english', title));
 CREATE INDEX users_about_me_fts_idx ON users USING gin (to_tsvector('english', about_me));
 CREATE INDEX users_display_name_fts_idx ON users USING gin (to_tsvector('english', display_name));

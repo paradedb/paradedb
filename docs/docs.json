@@ -595,7 +595,18 @@
       "github": "https://github.com/paradedb/paradedb",
       "slack": "https://paradedb.com/slack",
       "twitter": "https://x.com/paradedb"
-    }
+    },
+    "links": [
+      {
+        "header": "Resources",
+        "items": [
+          {
+            "label": "System status",
+            "href": "https://status.paradedb.com/"
+          }
+        ]
+      }
+    ]
   },
   "integrations": {
     "gtm": {

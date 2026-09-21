@@ -624,7 +624,16 @@ impl ParallelVectorState {
         }
         value["authorized_clusters"] = self.wave_end.load(Ordering::Relaxed).into();
         value["work_budget"] = self.route().budget.limit.into();
-        value["work_charged"] = f64::from_bits(self.spent.load(Ordering::Relaxed)).into();
+        value["work_charged"] =
+            if self.route().incremental && self.route().shareable && ranked_len == 0 {
+                self.route().budget.charge(ClusterWork {
+                    opens: 0,
+                    rows: values[0],
+                })
+            } else {
+                f64::from_bits(self.spent.load(Ordering::Relaxed))
+            }
+            .into();
         value["termination"] = if (self.wave_end.load(Ordering::Relaxed) as usize) < ranked_len {
             "Ceiling"
         } else {

@@ -21,7 +21,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, IndexFileEntry, LinkedList, MVCCEntry, PgItem, STATS_EXT,
     SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryImmutable, VECTOR_CENTROIDS_EXT,
-    VECTOR_VEC_EXT,
+    VECTOR_META_EXT, VECTOR_VEC_EXT,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
@@ -188,6 +188,9 @@ pub unsafe fn save_new_metas(
                         .map(|e| e.0),
                     stats: files
                         .remove(&SegmentComponent::Custom(STATS_EXT.to_string()))
+                        .map(|e| e.0),
+                    vmeta: files
+                        .remove(&SegmentComponent::Custom(VECTOR_META_EXT.to_string()))
                         .map(|e| e.0),
                 },
             );

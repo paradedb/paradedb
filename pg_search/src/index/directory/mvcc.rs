@@ -24,7 +24,8 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
     FileEntry, MVCCEntry, SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryContent,
-    SegmentMetaEntryImmutable, SegmentMetaEntryMutable, VECTOR_VEC_EXT, bm25_max_free_space,
+    SegmentMetaEntryImmutable, SegmentMetaEntryMutable, VECTOR_META_EXT, VECTOR_VEC_EXT,
+    bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
@@ -416,7 +417,8 @@ impl MVCCDirectory {
                     .and_then(|ext| SegmentComponent::try_from(ext).ok());
                 let segment_pins = if matches!(
                     &component,
-                    Some(SegmentComponent::Custom(ext)) if ext == VECTOR_VEC_EXT
+                    Some(SegmentComponent::Custom(ext))
+                        if ext == VECTOR_VEC_EXT || ext == VECTOR_META_EXT
                 ) {
                     self.pin_cushion
                         .lock()

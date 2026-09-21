@@ -39,6 +39,7 @@ use tantivy::index::{SegmentComponent, SegmentId};
 /// `.centroids` only for IVF (clustered) segments.
 pub(crate) const VECTOR_VEC_EXT: &str = "vec";
 pub(crate) const VECTOR_CENTROIDS_EXT: &str = "centroids";
+pub(crate) const VECTOR_META_EXT: &str = "vmeta";
 /// Extension of the per-segment statistics component, see `crate::index::stats`.
 pub(crate) const STATS_EXT: &str = "stats";
 
@@ -281,9 +282,8 @@ impl SegmentMetaEntryMutable {
     }
 }
 
-/// Every trailing `Option` is written even as `None`. The decode in `From<PgItem>` tells the
-/// on-disk generations apart by the bytes left after the known prefix, so a field skipped on
-/// write would make a new entry read as an older one.
+/// Existing option markers retain their positions. The final `vmeta` extension is omitted
+/// when absent so updating an older entry in place does not change its serialized size.
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SegmentMetaEntryImmutable {
     pub postings: Option<FileEntry>,
@@ -297,6 +297,8 @@ pub struct SegmentMetaEntryImmutable {
     pub vec: Option<FileEntry>,
     pub centroids: Option<FileEntry>,
     pub stats: Option<FileEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vmeta: Option<FileEntry>,
 }
 
 /// The pre-vector on-disk layout of [`SegmentMetaEntryImmutable`]. Indexes built before vector
@@ -388,6 +390,11 @@ impl SegmentMetaEntryImmutable {
                 self.stats
                     .iter()
                     .map(|fe| (fe, SegmentComponent::Custom(STATS_EXT.to_string()))),
+            )
+            .chain(
+                self.vmeta
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::Custom(VECTOR_META_EXT.to_string()))),
             )
     }
 }
@@ -757,6 +764,11 @@ impl SegmentMetaEntry {
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
+        size += content
+            .vmeta
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
         size
     }
 
@@ -869,11 +881,22 @@ impl From<PgItem> for SegmentMetaEntry {
                     (None, None)
                 };
                 let stats: Option<FileEntry> = if content_bytes.len() > offset {
+                    let (entry, len) = bincode::serde::decode_from_slice(
+                        &content_bytes[offset..],
+                        bincode::config::legacy(),
+                    )
+                    .expect("expected to deserialize valid SegmentMetaEntry stats file entry");
+                    offset += len;
+                    entry
+                } else {
+                    None
+                };
+                let vmeta: Option<FileEntry> = if content_bytes.len() > offset {
                     bincode::serde::decode_from_slice(
                         &content_bytes[offset..],
                         bincode::config::legacy(),
                     )
-                    .expect("expected to deserialize valid SegmentMetaEntry stats file entry")
+                    .expect("expected to deserialize valid SegmentMetaEntry vmeta file entry")
                     .0
                 } else {
                     None
@@ -891,6 +914,7 @@ impl From<PgItem> for SegmentMetaEntry {
                     vec,
                     centroids,
                     stats,
+                    vmeta,
                 })
             }
             SegmentMetaEntryTag::Mutable => {
@@ -1036,6 +1060,134 @@ mod tests {
 
     fn decoded(bytes: &[u8]) -> SegmentMetaEntry {
         PgItem(bytes.as_ptr() as pg_sys::Item, bytes.len()).into()
+    }
+
+    fn encoded_before_vmeta(entry: SegmentMetaEntry) -> Vec<u8> {
+        let SegmentMetaEntryContent::Immutable(content) = entry.content else {
+            unreachable!()
+        };
+        bincode::serde::encode_to_vec(
+            (
+                entry.header,
+                (
+                    content.postings,
+                    content.positions,
+                    content.fast_fields,
+                    content.field_norms,
+                    content.terms,
+                    content.store,
+                    content.temp_store,
+                    content.delete,
+                    content.vec,
+                    content.centroids,
+                    content.stats,
+                ),
+            ),
+            bincode::config::legacy(),
+        )
+        .unwrap()
+    }
+
+    #[pg_test]
+    fn immutable_entry_without_vmeta_preserves_wire_size() {
+        let file = Some(FileEntry {
+            starting_block: 8,
+            total_bytes: 800,
+        });
+        for entry in [entry_with(None, None, None), entry_with(file, file, file)] {
+            let old_bytes = encoded_before_vmeta(entry);
+            assert_eq!(encoded(entry), old_bytes);
+
+            let mut changed = decoded(&old_bytes);
+            changed.set_xmax(pg_sys::FrozenTransactionId);
+            assert_eq!(encoded(changed).len(), old_bytes.len());
+            assert_eq!(encoded(changed), encoded_before_vmeta(changed));
+            assert_eq!(decoded(encoded(changed)), changed);
+        }
+    }
+
+    #[pg_test]
+    fn immutable_entry_vmeta_roundtrip_and_paths() {
+        let vmeta = FileEntry {
+            starting_block: 11,
+            total_bytes: 1100,
+        };
+        let mut entry = entry_with(None, None, None);
+        let old_bytes = encoded(entry);
+        let old_size = entry.byte_size();
+        let SegmentMetaEntryContent::Immutable(content) = &mut entry.content else {
+            unreachable!()
+        };
+        content.vmeta = Some(vmeta);
+
+        let bytes = encoded(entry);
+        assert_eq!(&bytes[..old_bytes.len()], old_bytes);
+        assert_eq!(
+            &bytes[old_bytes.len()..],
+            bincode::serde::encode_to_vec(Some(vmeta), bincode::config::legacy()).unwrap()
+        );
+        assert_eq!(decoded(bytes), entry);
+        assert_eq!(entry.byte_size(), old_size + vmeta.total_bytes as u64);
+
+        let uuid = entry.segment_id().uuid_string();
+        let path = PathBuf::from(format!("{uuid}.{VECTOR_META_EXT}"));
+        let SegmentMetaEntryContent::Immutable(content) = entry.content else {
+            unreachable!()
+        };
+        assert_eq!(content.file_entry(&uuid, &path), Some(vmeta));
+        assert!(
+            entry
+                .get_component_paths()
+                .any(|component| component == path)
+        );
+        assert_eq!(content.pintest_blockno(), 7);
+
+        let (_, read): ((SegmentMetaEntryHeader, SegmentMetaEntryImmutableV1), usize) =
+            bincode::serde::decode_from_slice(bytes, bincode::config::legacy()).unwrap();
+        let (_, trailing): (
+            (Option<FileEntry>, Option<FileEntry>, Option<FileEntry>),
+            usize,
+        ) = bincode::serde::decode_from_slice(&bytes[read..], bincode::config::legacy()).unwrap();
+        assert_eq!(read + trailing, old_bytes.len());
+    }
+
+    #[pg_test]
+    fn immutable_entry_delete_updates_preserve_vmeta() {
+        let file = |block| FileEntry {
+            starting_block: block,
+            total_bytes: 100,
+        };
+        for vmeta in [None, Some(file(11))] {
+            let mut entry = entry_with(None, None, None);
+            let SegmentMetaEntryContent::Immutable(content) = &mut entry.content else {
+                unreachable!()
+            };
+            content.vmeta = vmeta;
+            assert!(
+                entry
+                    .replace_deletes(DeleteEntry {
+                        file_entry: file(12),
+                        num_deleted_docs: 1,
+                    })
+                    .is_none()
+            );
+            let size = encoded(entry).len();
+            let orphan = entry
+                .replace_deletes(DeleteEntry {
+                    file_entry: file(13),
+                    num_deleted_docs: 2,
+                })
+                .unwrap();
+            assert!(orphan.is_orphaned_delete());
+            assert_eq!(encoded(entry).len(), size);
+            for item in [entry, orphan] {
+                let item = decoded(encoded(item));
+                let SegmentMetaEntryContent::Immutable(content) = item.content else {
+                    unreachable!()
+                };
+                assert_eq!(content.vmeta, vmeta);
+            }
+        }
     }
 
     /// Entries written before a trailing component existed are shorter by that component's

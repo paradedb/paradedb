@@ -32,6 +32,7 @@ use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, SchemaRef, SortOptions};
+use bytes::Bytes;
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -61,7 +62,7 @@ use tantivy::Score;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
@@ -393,7 +394,7 @@ impl PgSearchScanPlan {
 
         let new_state = {
             let state_guard = self.state.lock().unwrap();
-            let new_state = match &*state_guard {
+            match &*state_guard {
                 ExecutionState::Shared {
                     parallel_state,
                     scan_state,
@@ -417,9 +418,7 @@ impl PgSearchScanPlan {
                         "Cannot repartition a consumed PgSearchScanPlan".to_string(),
                     ));
                 }
-            };
-
-            new_state
+            }
         };
 
         let partitioning = declared_partitioning(
@@ -692,9 +691,11 @@ impl PgSearchScanPlan {
         };
         let payload = ScanDispatchPayload {
             segment_view: state.0.reader.segment_view().entries().to_vec(),
-            descriptor: serde_json::to_vec(&descriptor).map_err(|e| {
-                DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
-            })?,
+            descriptor: serde_json::to_vec(&descriptor)
+                .map_err(|e| {
+                    DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
+                })?
+                .into(),
             segment_stats: state
                 .0
                 .reader
@@ -704,7 +705,10 @@ impl PgSearchScanPlan {
                     DataFusionError::Internal(format!(
                         "PgSearchScan dispatch: statistics encode: {e}"
                     ))
-                })?,
+                })?
+                .into_iter()
+                .map(|(id, bytes)| (id, bytes.map(Bytes::from)))
+                .collect(),
         };
         postcard::to_allocvec(&payload).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: payload encode: {e}"))
@@ -723,6 +727,7 @@ impl PgSearchScanPlan {
         buf: &[u8],
         parallel_state: Option<*mut ParallelScanState>,
         expr_context: Option<*mut pg_sys::ExprContext>,
+        source_manifests: &[SearchIndexManifest],
         ctx: &TaskContext,
         proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -780,7 +785,6 @@ impl PgSearchScanPlan {
                 ));
             }
         }
-        let mvcc = MvccSatisfies::ParallelWorker(view);
 
         let query = descriptor.scan_mode.query().clone();
         let needs_tokenizer = descriptor.scan_mode.needs_tokenizer();
@@ -794,27 +798,63 @@ impl PgSearchScanPlan {
         };
         let effective_expr_context =
             expr_context.or_else(|| fallback_guard.as_ref().map(|g| g.as_ptr()));
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query.clone(),
-            descriptor.score_needed,
-            mvcc,
-            effective_expr_context.and_then(std::ptr::NonNull::new),
-            // TODO: MPP is currently disabled when a scan requires parameter solving: see
-            // https://github.com/paradedb/paradedb/issues/5445.
-            None,
-            needs_tokenizer,
-        )
-        .map_err(|e| {
-            DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
-        })?;
-
-        reader
-            .segment_stats_snapshot()
-            .restore_stats(payload.segment_stats)
+        let reader = if source_manifests.is_empty() {
+            let reader = SearchIndexReader::open_with_context(
+                &index_rel,
+                query.clone(),
+                descriptor.score_needed,
+                MvccSatisfies::ParallelWorker(view),
+                effective_expr_context.and_then(std::ptr::NonNull::new),
+                // MPP currently excludes parameter solving (#5445).
+                None,
+                needs_tokenizer,
+            )
             .map_err(|e| {
-                DataFusionError::Internal(format!("PgSearchScan dispatch: statistics decode: {e}"))
+                DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
             })?;
+            reader
+                .segment_stats_snapshot()
+                .restore_stats(
+                    payload
+                        .segment_stats
+                        .into_iter()
+                        .map(|(id, bytes)| (id, bytes.map(Vec::from)))
+                        .collect(),
+                )
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "PgSearchScan dispatch: statistics decode: {e}"
+                    ))
+                })?;
+            reader
+        } else {
+            let manifest = match descriptor.source_idx {
+                Some(position) => source_manifests.get(position),
+                None => source_manifests
+                    .iter()
+                    .find(|manifest| manifest.indexrelid() == index_rel.oid()),
+            }
+            .ok_or_else(|| {
+                DataFusionError::Internal("PgSearchScan dispatch: missing source manifest".into())
+            })?;
+            if manifest.indexrelid() != index_rel.oid() || manifest.segment_view() != view {
+                return Err(DataFusionError::Internal("PgSearchScan dispatch: source manifest differs from dispatched index or segment view".into()));
+            }
+            // Leader task copies share the original execution's components and statistics.
+            // The transferred bytes are for fresh worker readers, not this existing snapshot.
+            SearchIndexReader::from_manifest(
+                manifest,
+                &index_rel,
+                query.clone(),
+                descriptor.score_needed,
+                effective_expr_context.and_then(std::ptr::NonNull::new),
+                needs_tokenizer,
+            )
+            .map_err(|e| {
+                DataFusionError::Internal(format!("PgSearchScan dispatch: manifest reader: {e}"))
+            })?
+        };
+
         let ffhelper = Arc::new(FFHelper::with_fields(
             &reader,
             &descriptor.which_fast_fields,
@@ -925,13 +965,14 @@ struct ScanDispatchDescriptor {
 }
 
 /// Keep the query descriptor's JSON encoding, but send statistics as binary component bytes
-/// so dispatch does not expand and parse every byte as a JSON number.
+/// so dispatch does not expand and parse every byte as a JSON number. `Bytes` uses Serde's
+/// bulk byte operations instead of visiting each element of a `Vec<u8>`.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ScanDispatchPayload {
     segment_view: Vec<crate::index::mvcc::SegmentViewEntry>,
-    descriptor: Vec<u8>,
+    descriptor: Bytes,
     /// An empty list preserves the no-statistics path for unrelated predicates.
-    segment_stats: Vec<(tantivy::index::SegmentId, Option<Vec<u8>>)>,
+    segment_stats: Vec<(tantivy::index::SegmentId, Option<Bytes>)>,
 }
 
 /// The output partitioning a scan declares to DataFusion.
@@ -1289,12 +1330,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                 let partition_segments = assigned_partition_segments
                     .unwrap_or_else(|| segments_for_partition(&reader, range_boundaries, target_partition));
 
-                let constrained_reader =
-                    reader.and_query_input(&range_boundaries.partition_bounds(target_partition));
-
                 reader.search_segments_with_range_filter(
                     partition_segments.included.into_iter(),
-                    &constrained_reader,
+                    &range_boundaries.partition_bounds(target_partition),
                     partition_segments.partially_included.into_iter(),
                 )
             } else {
@@ -1701,6 +1739,89 @@ mod tests {
 
     fn empty_schema() -> SchemaRef {
         Arc::new(Schema::empty())
+    }
+
+    #[pg_test]
+    fn dispatch_payload_preserves_byte_encoding() {
+        use crate::index::mvcc::{SegmentViewDocs, SegmentViewEntry};
+        use bytes::Bytes;
+        use tantivy::index::SegmentId;
+
+        // Pin compatibility with the previous sequence-of-u8 transport, including the
+        // distinction between an absent component and a present empty component.
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct PreviousPayload {
+            segment_view: Vec<SegmentViewEntry>,
+            descriptor: Vec<u8>,
+            segment_stats: Vec<(SegmentId, Option<Vec<u8>>)>,
+        }
+        let ids = [
+            SegmentId::generate_random(),
+            SegmentId::generate_random(),
+            SegmentId::generate_random(),
+        ];
+        let view: Vec<_> = ids
+            .iter()
+            .map(|id| SegmentViewEntry {
+                id: *id,
+                docs: SegmentViewDocs::Immutable {
+                    max_doc: 10,
+                    num_deleted_docs: 0,
+                },
+            })
+            .collect();
+        for len in [0, 1, 127, 128, 16_383, 16_384, 65_536] {
+            let data: Vec<u8> = (0..len).map(|i| (i % 256) as u8).collect();
+            for stats in [
+                vec![],
+                vec![
+                    (ids[0], Some(data.clone())),
+                    (ids[1], None),
+                    (ids[2], Some(vec![])),
+                ],
+            ] {
+                let previous = PreviousPayload {
+                    segment_view: view.clone(),
+                    descriptor: data.clone(),
+                    segment_stats: stats,
+                };
+                let payload = super::ScanDispatchPayload {
+                    segment_view: previous.segment_view.clone(),
+                    descriptor: Bytes::from(previous.descriptor.clone()),
+                    segment_stats: previous
+                        .segment_stats
+                        .iter()
+                        .map(|(id, bytes)| (*id, bytes.clone().map(Bytes::from)))
+                        .collect(),
+                };
+                let old_wire = postcard::to_allocvec(&previous).unwrap();
+                let new_wire = postcard::to_allocvec(&payload).unwrap();
+                assert_eq!(new_wire, old_wire, "payload length {len}");
+                let old_reader: PreviousPayload = postcard::from_bytes(&new_wire).unwrap();
+                assert_eq!(old_reader, previous);
+                let new_reader: super::ScanDispatchPayload =
+                    postcard::from_bytes(&old_wire).unwrap();
+                assert_eq!(new_reader.segment_view, previous.segment_view);
+                assert_eq!(
+                    new_reader.descriptor.as_ref(),
+                    previous.descriptor.as_slice()
+                );
+                assert_eq!(
+                    new_reader
+                        .segment_stats
+                        .into_iter()
+                        .map(|(id, bytes)| (id, bytes.map(Vec::from)))
+                        .collect::<Vec<_>>(),
+                    previous.segment_stats
+                );
+                assert!(
+                    postcard::from_bytes::<super::ScanDispatchPayload>(
+                        &new_wire[..new_wire.len() - 1]
+                    )
+                    .is_err()
+                );
+            }
+        }
     }
 
     /// #5667: `DistributedLeafExec::children()` is empty, and after `repartition()` its

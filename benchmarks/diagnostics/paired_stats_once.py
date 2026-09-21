@@ -3,6 +3,8 @@
 import hashlib
 import getpass
 import json
+import math
+import statistics
 import os
 from pathlib import Path
 import re
@@ -54,14 +56,9 @@ def queries():
         settings, query = groups[alternative]
         name = f"{stem}-alt{alternative}"
         selected[name] = (settings, query)
-    subset = directory / "bm25"
-    assert not subset.exists(), "do not replace an existing index-specific suite"
-    subset.mkdir()
+    assert not (directory / "bm25").exists(), "the full flat suite must remain selected"
     for name, (settings, query) in selected.items():
-        # The benchmark parser splits on semicolon-newline; keep GUCs in this query group.
-        sql = "; ".join([*settings, query]) + ";\n"
-        (subset / f"{name}.sql").write_text(sql)
-        (OUT / f"{name}.sql").write_text(sql)
+        (OUT / f"{name}.sql").write_text("; ".join([*settings, query]) + ";\n")
     return selected
 
 
@@ -84,7 +81,7 @@ def identity():
 def benchmark(size, label, *, initialize=False):
     args = [str(ROOT / "target/release/benchmarks"), "benchmark", "--url", URL,
             "--dataset", "stackoverflow", "--index", "bm25", "--size", size,
-            "--runs", "1" if initialize else "10", "--output", "json",
+            "--runs", "10", "--output", "json",
             "--fail-on-error", "true"]
     if not initialize:
         args += ["--skip-index", "--vacuum", "false"]
@@ -93,47 +90,122 @@ def benchmark(size, label, *, initialize=False):
         subprocess.run(args, cwd=ROOT / "benchmarks", stdout=log,
                        stderr=subprocess.STDOUT, check=True)
     (OUT / f"{label}-results.json").write_bytes((ROOT / "benchmarks/results.json").read_bytes())
-    print(f"Completed {label}", flush=True)
+    log_text = (OUT / f"{label}-benchmark.log").read_text()
+    observed = {}
+    for name, samples, rows in re.findall(
+        r"Query Type: ([^\n]+).*?Results: \[cold: [^\]]*\] \[([^\]]*)\] \| Rows Returned: (\d+)",
+        log_text, re.S,
+    ):
+        assert name not in observed, f"duplicate result: {name}"
+        samples = json.loads("[" + samples + "]")
+        assert len(samples) == 10 and all(math.isfinite(x) and x >= 0 for x in samples)
+        observed[name] = {"samples_ms": samples, "rows": int(rows)}
+    assert set(observed) == set(suite_inventory()), f"incomplete suite in {label}"
+    assert "EXPLAIN failed:" not in log_text, f"missing executed plan in {label}"
+    (OUT / f"{label}-samples.json").write_text(json.dumps(observed, indent=2))
+    print(f"Completed {label}: {len(observed)} query alternatives", flush=True)
+    return observed
+
+
+def suite_inventory():
+    """Match the repository parser's group boundaries; the Rust runner executes the SQL."""
+    directory = ROOT / "benchmarks/datasets/stackoverflow/queries"
+    assert not (directory / "bm25").exists()
+    result = {}
+    for path in sorted(directory.glob("*.sql")):
+        groups = []
+        for group in path.read_text().split(";\n"):
+            parts = group.split("$$")
+            group = "$$".join(
+                part if i % 2 else " ".join(line.split("--", 1)[0].strip() for line in part.split("\n"))
+                for i, part in enumerate(parts)
+            ).strip()
+            if group:
+                groups.append(group)
+        for alternative, group in enumerate(groups):
+            name = path.stem + (f" - alternative {alternative}" if alternative else "")
+            result[name] = group
+    assert result
+    return result
 
 
 def main():
     size = sys.argv[1]
-    assert size in {"1m", "20m"}
+    assert size in {"100k", "1m", "20m"}
     OUT.mkdir(exist_ok=True)
     selected = queries()
-    benchmark(size, "initialize", initialize=True)
-    expected = identity()
-    (OUT / "index-identity.json").write_text(json.dumps(expected, indent=2))
+    inventory = suite_inventory()
+    (OUT / "suite-inventory.json").write_text(json.dumps(inventory, indent=2))
     pkglibdir = Path(run(["/usr/lib/postgresql/18/bin/pg_config", "--pkglibdir"], capture=True).strip())
     manifest = {"size": size, "baseline_sha": os.environ["BASELINE_SHA"],
-                "fixed_sha": os.environ["FIXED_SHA"], "rounds": []}
-    for number, version in enumerate(["baseline", "fixed", "fixed", "baseline"], 1):
-        label = f"r{number}-{version}"
+                "fixed_sha": os.environ["FIXED_SHA"], "query_alternatives": len(inventory),
+                "samples_per_query_per_round": 10, "rounds": []}
+    expected = None
+    expected_rows = None
+    results = {"baseline": {}, "fixed": {}}
+    try:
+        for number, version in enumerate(["baseline", "fixed", "fixed", "baseline"], 1):
+            label = f"r{number}-{version}"
+            run(["cargo", "pgrx", "stop", "pg18"], cwd=ROOT / "pg_search")
+            library = OUT / f"{version}.so"
+            run(["sudo", "install", "-m", "755", str(library), str(pkglibdir / "pg_search.so")])
+            run(["cargo", "pgrx", "start", "pg18"], cwd=ROOT / "pg_search")
+            if expected is not None:
+                assert identity() == expected, f"physical data changed before {label}"
+            observed = benchmark(size, label, initialize=expected is None)
+            if expected is None:
+                expected = identity()
+                (OUT / "index-identity.json").write_text(json.dumps(expected, indent=2))
+            assert identity() == expected, f"physical data changed after {label}"
+            rows = {name: item["rows"] for name, item in observed.items()}
+            if expected_rows is None:
+                expected_rows = rows
+            assert rows == expected_rows, f"returned row counts changed in {label}"
+            for name, item in observed.items():
+                results[version].setdefault(name, []).extend(item["samples_ms"])
+            # The full suite logs an executed plan for every alternative. These selected
+            # extra profiles retain buffers and total time, outside ordinary SELECT timing.
+            for name, (settings, query) in selected.items():
+                statements = [*settings, "SET track_io_timing = on",
+                              f"EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, BUFFERS, SUMMARY ON) {query}"]
+                sql = ";\n".join(statements) + ";"
+                for repeat in range(6):
+                    output = psql(sql)
+                    assert "Execution Time:" in output, output
+                    # Preserve native/serial fallbacks in the evidence; small datasets may
+                    # legitimately decline MPP. The actual plan records workers and mode.
+                    (OUT / f"{label}-{name}-plan-{repeat}.txt").write_text(output)
+            assert identity() == expected, f"physical data changed after profiles for {label}"
+            manifest["rounds"].append({"round": number, "version": version,
+                                       "library_sha256": hashlib.sha256(library.read_bytes()).hexdigest(),
+                                       "index_initialized": number == 1,
+                                       "matches_first_round_index_identity": True,
+                                       "row_counts_match": True})
+            (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
+            print(f"Recorded all plans for {label}; physical data unchanged", flush=True)
+        comparison = []
+        for name in sorted(inventory):
+            baseline = statistics.mean(results["baseline"][name])
+            fixed = statistics.mean(results["fixed"][name])
+            comparison.append({"query": name, "main_ms": baseline, "fixed_ms": fixed,
+                               "change_percent": (fixed / baseline - 1) * 100 if baseline else None})
+        comparison.sort(key=lambda r: r["change_percent"] or 0, reverse=True)
+        (OUT / "comparison.json").write_text(json.dumps(comparison, indent=2))
+        report = [f"Stack Overflow {size}: pinned main vs latest local fixes", "",
+                  "Twenty ordinary SELECT samples per version/query; four rounds in main/fixed/fixed/main order.",
+                  "Identical physical indexes and returned row counts verified. Row counts do not prove full result-content equality.",
+                  "Positive percentages are slower; the 15% threshold flags candidates for investigation, not statistical significance.", "",
+                  "| Query | Main ms | Fixed ms | Change |", "|---|---:|---:|---:|"]
+        for item in comparison:
+            change = f"{item['change_percent']:+.1f}%" if item['change_percent'] is not None else "n/a"
+            report.append(f"| {item['query']} | {item['main_ms']:.3f} | {item['fixed_ms']:.3f} | {change} |")
+        report = "\n".join(report) + "\n"
+        (OUT / "comparison.md").write_text(report)
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                summary.write(report)
+    finally:
         run(["cargo", "pgrx", "stop", "pg18"], cwd=ROOT / "pg_search")
-        library = OUT / f"{version}.so"
-        run(["sudo", "install", "-m", "755", str(library), str(pkglibdir / "pg_search.so")])
-        run(["cargo", "pgrx", "start", "pg18"], cwd=ROOT / "pg_search")
-        assert identity() == expected, f"physical data changed before {label}"
-        benchmark(size, label)
-        # These are additional diagnostic executions, separate from ordinary SELECT timings.
-        # Every plan has its own total time and worker/task metrics, so imbalance is measurable.
-        for name, (settings, query) in selected.items():
-            statements = [*settings, "SET track_io_timing = on",
-                          f"EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, BUFFERS, SUMMARY ON) {query}"]
-            sql = ";\n".join(statements) + ";"
-            for repeat in range(6):
-                output = psql(sql)
-                assert "Execution Time:" in output, output
-                if name.startswith("join_"):
-                    assert "DistributedExec" in output and "workers=7" in output, output
-                (OUT / f"{label}-{name}-plan-{repeat}.txt").write_text(output)
-        assert identity() == expected, f"physical data changed after {label}"
-        manifest["rounds"].append({"round": number, "version": version,
-                                   "library_sha256": hashlib.sha256(library.read_bytes()).hexdigest(),
-                                   "physical_data_unchanged": True})
-        (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
-        print(f"Recorded all plans for {label}; physical data unchanged", flush=True)
-    run(["cargo", "pgrx", "stop", "pg18"], cwd=ROOT / "pg_search")
 
 
 if __name__ == "__main__":

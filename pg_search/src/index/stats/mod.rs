@@ -431,6 +431,9 @@ impl SegmentStats {
     }
 
     fn from_component(opened: Result<FileSlice, OpenReadError>) -> io::Result<Option<Self>> {
+        #[cfg(any(test, feature = "pg_test"))]
+        crate::index::segment_pruning::STATS_OPENS
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         match opened {
             Ok(slice) => Self::open(slice).map(Some),
             Err(OpenReadError::FileDoesNotExist(_)) => Ok(None),

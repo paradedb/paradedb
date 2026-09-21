@@ -963,19 +963,28 @@ mod tests {
     #[pg_test]
     #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioned_assigned_execution() {
+        use crate::index::reader::index::{
+            SearchIndexManifest, test_support::INDEX_COMPONENT_OPENS,
+        };
+        use crate::scan::physical_codec::PgSearchPhysicalExtensionCodec;
         use arrow_array::Int64Array;
         use datafusion::physical_plan::Partitioning;
-        use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
+        use datafusion_proto::physical_plan::{
+            DefaultPhysicalProtoConverter, PhysicalExtensionCodec,
+        };
 
         let (heap_oid, index_oid) = get_relation_oids();
         let heap_rel = PgSearchRelation::open(heap_oid);
         let index_rel = PgSearchRelation::open(index_oid);
 
-        let reader = SearchIndexReader::open(
+        let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();
+        let reader = SearchIndexReader::from_manifest(
+            &manifest,
             &index_rel,
             SearchQueryInput::All,
             false,
-            MvccSatisfies::Snapshot,
+            None,
+            false,
         )
         .unwrap();
 
@@ -1092,10 +1101,54 @@ mod tests {
         .unwrap();
         assert_ne!(fresh.segment_view(), reader.segment_view());
         let task_context = TaskContext::default();
+        let codec = PgSearchPhysicalExtensionCodec::with_source_manifests(vec![manifest.clone()]);
+        let mut tagged = Vec::new();
+        codec
+            .try_encode(plan, &mut tagged, &proto_converter)
+            .unwrap();
+        let opens_before = INDEX_COMPONENT_OPENS.load(Relaxed);
+        let mut decoded = Vec::new();
+        for _ in 0..4 {
+            decoded.push(
+                codec
+                    .try_decode(&tagged, &[], &task_context, &proto_converter)
+                    .unwrap(),
+            );
+        }
+        assert_eq!(
+            INDEX_COMPONENT_OPENS.load(Relaxed),
+            opens_before,
+            "leader task copies must not reopen index components"
+        );
+        let newer = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();
+        let wrong_view = PgSearchPhysicalExtensionCodec::with_source_manifests(vec![newer]);
+        assert!(
+            wrong_view
+                .try_decode(&tagged, &[], &task_context, &proto_converter)
+                .unwrap_err()
+                .to_string()
+                .contains("source manifest differs")
+        );
+        Spi::run("CREATE TABLE other_source (id int); CREATE INDEX other_source_idx ON other_source USING paradedb(id)").unwrap();
+        let other_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'other_source_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let other = SearchIndexManifest::capture(
+            &PgSearchRelation::open(other_oid),
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let wrong_index = PgSearchPhysicalExtensionCodec::with_source_manifests(vec![other]);
+        assert!(
+            wrong_index
+                .try_decode(&tagged, &[], &task_context, &proto_converter)
+                .is_err()
+        );
         let plan = PgSearchScanPlan::decode_for_dispatch(
             &encoded,
             None,
             None,
+            &[],
             &task_context,
             &proto_converter,
         )
@@ -1106,43 +1159,46 @@ mod tests {
             "physical-plan decoding must reuse captured statistics"
         );
 
-        assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
-        assert!(matches!(
-            plan.properties().output_partitioning(),
-            Partitioning::UnknownPartitioning(1)
-        ));
+        decoded.push(plan);
+        for plan in decoded {
+            assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
+            assert!(matches!(
+                plan.properties().output_partitioning(),
+                Partitioning::UnknownPartitioning(1)
+            ));
 
-        // The specialized plan exposes only local partition 0. Rejecting another local
-        // partition must not consume the assigned global partition's execution state.
-        assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
+            // The specialized plan exposes only local partition 0. Rejecting another local
+            // partition must not consume the assigned global partition's execution state.
+            assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        let collect_ids = |partition: usize| {
-            let mut stream = plan
-                .execute(partition, Arc::new(TaskContext::default()))
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
                 .unwrap();
-            let mut ids = Vec::new();
-            runtime.block_on(async {
-                while let Some(batch) = stream.next().await {
-                    let batch = batch.unwrap();
-                    let id_array = batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .expect("id should be an Int64Array");
-                    ids.extend(id_array.values().iter().copied());
-                }
-            });
-            ids.sort_unstable();
-            ids
-        };
+            let collect_ids = |partition: usize| {
+                let mut stream = plan
+                    .execute(partition, Arc::new(TaskContext::default()))
+                    .unwrap();
+                let mut ids = Vec::new();
+                runtime.block_on(async {
+                    while let Some(batch) = stream.next().await {
+                        let batch = batch.unwrap();
+                        let id_array = batch
+                            .column(1)
+                            .as_any()
+                            .downcast_ref::<Int64Array>()
+                            .expect("id should be an Int64Array");
+                        ids.extend(id_array.values().iter().copied());
+                    }
+                });
+                ids.sort_unstable();
+                ids
+            };
 
-        // Local partition 0 must map to global partition 1, not merely any 25-row range.
-        assert_eq!(collect_ids(0), (25_i64..50).collect::<Vec<_>>());
+            // Local partition 0 must map to global partition 1, not merely any 25-row range.
+            assert_eq!(collect_ids(0), (25_i64..50).collect::<Vec<_>>());
 
-        // The state is consumed exactly once.
-        assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());
+            // The state is consumed exactly once.
+            assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());
+        }
     }
 }

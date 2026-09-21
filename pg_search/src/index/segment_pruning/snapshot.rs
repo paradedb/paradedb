@@ -117,31 +117,6 @@ impl SegmentStatsSnapshot {
         Ok(())
     }
 
-    /// Join range selection shares the execution snapshot instead of opening another index.
-    pub(crate) fn split_points(
-        &self,
-        field: tantivy::schema::Field,
-    ) -> io::Result<Option<Vec<crate::postgres::pdb_owned_value::PdbOwnedValue>>> {
-        use std::ops::Bound;
-        let mut points = Vec::new();
-        for ord in 0..self.segments.len() {
-            let Some(stats) = self.stats(ord) else {
-                continue;
-            };
-            let Some(bounds) = stats.logical(field)? else {
-                continue;
-            };
-            for bound in [bounds.lower, bounds.upper] {
-                if let Bound::Included(value) | Bound::Excluded(value) = bound {
-                    points.push(value);
-                }
-            }
-        }
-        points.sort_unstable_by(crate::postgres::pdb_owned_value::PdbOwnedValue::total_cmp);
-        points.dedup_by(|a, b| a.total_cmp(b).is_eq());
-        Ok((!points.is_empty()).then_some(points))
-    }
-
     #[cfg(any(test, feature = "pg_test"))]
     pub(crate) fn len(&self) -> usize {
         self.segments.len()
@@ -176,8 +151,6 @@ impl SegmentStatsSnapshot {
             .stats
             .get_or_init(|| {
                 let reader = self.searcher.segment_reader(ord as SegmentOrdinal);
-                #[cfg(any(test, feature = "pg_test"))]
-                test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let opened = SegmentStats::of_reader(reader);
                 #[cfg(any(test, feature = "pg_test"))]
                 let opened = test_support::maybe_fail(
@@ -332,7 +305,8 @@ pub(crate) mod test_support {
     use std::sync::atomic::AtomicUsize;
     use std::sync::{LazyLock, Mutex};
 
-    /// Number of `.stats` open attempts, including ones that fail.
+    /// Directory `.stats` open attempts from planning or execution, including failures.
+    /// Restoring already captured bytes does not open the component again.
     pub(crate) static STATS_OPENS: AtomicUsize = AtomicUsize::new(0);
     pub(crate) static EMPIRICAL_READS: AtomicUsize = AtomicUsize::new(0);
 

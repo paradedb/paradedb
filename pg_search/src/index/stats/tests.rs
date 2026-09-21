@@ -61,6 +61,105 @@ mod tests {
     }
 
     #[pg_test]
+    fn planning_opens_statistics_only_for_join_boundaries() {
+        use crate::index::segment_pruning::{EMPIRICAL_READS, STATS_OPENS};
+        use std::ffi::{CStr, CString};
+        use std::sync::atomic::Ordering::Relaxed;
+
+        Spi::run(
+            "SET LOCAL max_parallel_maintenance_workers = 0;
+             SET LOCAL max_parallel_workers_per_gather = 2;
+             SET LOCAL min_parallel_table_scan_size = 0;
+             SET LOCAL parallel_setup_cost = 0;
+             SET LOCAL parallel_tuple_cost = 0;
+             SET LOCAL paradedb.mpp_min_rows = 0;
+             SET LOCAL paradedb.enable_join_custom_scan = on;
+             SET LOCAL paradedb.enable_range_partitioned_join = on;",
+        )
+        .unwrap();
+        for name in ["planning_stats_left", "planning_stats_right"] {
+            Spi::run(&format!(
+                "CREATE TABLE {name} AS SELECT g::bigint AS id, g::bigint AS other,
+                     'searchable text'::text AS body FROM generate_series(1, 10000) g;
+                 CREATE INDEX {name}_idx ON {name} USING bm25
+                     (id, other, (body::pdb.unicode_words('columnar=true')))
+                     WITH (key_field='id', partition_by='id', target_segment_count=4,
+                           background_layer_sizes='0');
+                 ANALYZE {name};"
+            ))
+            .unwrap();
+            let index_rel = open_index(&format!("{name}_idx"));
+            let (_, stats) = segment_stats(&index_rel, "id");
+            assert_eq!(stats.len(), 4);
+        }
+        unsafe { pg_sys::CommandCounterIncrement() };
+
+        for join_field in ["other", "id"] {
+            let sql = CString::new(format!(
+                "SELECT l.id, pdb.score(l.id) AS relevance FROM planning_stats_left l JOIN planning_stats_right r
+                 ON l.{join_field}=r.{join_field}
+                 WHERE l.body ||| 'searchable' AND r.id @@@ pdb.all()
+                 ORDER BY relevance DESC LIMIT 10"
+            ))
+            .unwrap();
+            STATS_OPENS.store(0, Relaxed);
+            EMPIRICAL_READS.store(0, Relaxed);
+            // Run the PostgreSQL planner directly. EXPLAIN also builds a physical display
+            // plan, which would mix execution-side reads into this planning assertion.
+            let plan = unsafe {
+                let raw =
+                    pgrx::PgList::<pg_sys::RawStmt>::from_pg(pg_sys::pg_parse_query(sql.as_ptr()));
+                assert_eq!(raw.len(), 1);
+                let queries = pg_sys::pg_analyze_and_rewrite_fixedparams(
+                    raw.get_ptr(0).unwrap(),
+                    sql.as_ptr(),
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null_mut(),
+                );
+                let plans = pg_sys::pg_plan_queries(
+                    queries,
+                    sql.as_ptr(),
+                    pg_sys::CURSOR_OPT_PARALLEL_OK as i32,
+                    std::ptr::null_mut(),
+                );
+                CStr::from_ptr(pg_sys::nodeToString(plans.cast()))
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            pgrx::info!(
+                "planning stats: field={join_field}, opens={}, empirical={}, join_scan={}",
+                STATS_OPENS.load(Relaxed),
+                EMPIRICAL_READS.load(Relaxed),
+                plan.contains("Join\\ Scan")
+            );
+            assert!(
+                plan.contains("Join\\ Scan"),
+                "expected a ParadeDB join scan: {plan}"
+            );
+            assert_eq!(
+                EMPIRICAL_READS.load(Relaxed),
+                0,
+                "boundary selection must not perform query-pruning empirical reads"
+            );
+            let opens = STATS_OPENS.load(Relaxed);
+            if join_field == "id" {
+                // Pinned main opens 24 components while planning this join over two
+                // four-segment indexes. Allow fewer opens, but no added pruning reads.
+                assert!(
+                    opens > 0 && opens <= 24,
+                    "unexpected boundary reads: {opens}"
+                );
+            } else {
+                assert_eq!(
+                    opens, 0,
+                    "neither the join nor its filters use partition bounds"
+                );
+            }
+        }
+    }
+
+    #[pg_test]
     fn empirical_stats_match_the_table() {
         Spi::run(
             r#"

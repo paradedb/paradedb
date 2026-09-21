@@ -14,9 +14,9 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-//! Logical split points stamped by a partitioned build, and the execution segments a range
-//! partition has to search. Join range selection and segment ownership are resolved from
-//! execution-visible statistics when the physical plan is built.
+//! What the planner and executor take from the component: logical split points stamped
+//! by a partitioned build, and the execution segments a range partition has to search. The
+//! planner keeps only the values; segment ownership is resolved at execution.
 
 use std::cmp::Ordering;
 use std::ops::Bound;

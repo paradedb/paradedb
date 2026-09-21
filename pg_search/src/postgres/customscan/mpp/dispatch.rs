@@ -188,7 +188,7 @@ pub fn fragments_for_worker(
             "mpp dispatch: unexpected worker plan tag {tag}"
         )));
     }
-    let session = build_mpp_session_context(seed, Some(mesh));
+    let session = build_mpp_session_context(seed, Some(mesh), Vec::new());
     let fragments = expand_to_assignments(body, this_proc, n_workers)?;
     Ok((fragments, session))
 }

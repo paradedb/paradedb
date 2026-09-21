@@ -508,6 +508,9 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
 
     builder = builder
         .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new()))
+        .with_optimizer_rule(Arc::new(
+            super::range_partitioning_rule::RangePartitioningRule::new(),
+        ))
         .with_optimizer_rule(Arc::new(PropagateEmptyUnnestRule));
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
@@ -628,22 +631,14 @@ pub async fn register_source_table(
 
 /// Build a DataFusion physical plan from a logical plan.
 ///
-/// The input has already undergone logical optimization. After runtime decode injects
-/// execution manifests, choose join range boundaries from those manifests and lower the
-/// plan with the session's query planner. Wrap multi-partition output with
-/// `CoalescePartitionsExec`. Shared by JoinScan and AggregateScan.
+/// The input has already undergone logical optimization, including range-boundary
+/// selection. Lower it with the session's query planner and wrap multi-partition output
+/// with `CoalescePartitionsExec`. Shared by JoinScan and AggregateScan.
 pub async fn build_physical_plan(
     ctx: &SessionContext,
     plan: datafusion::logical_expr::LogicalPlan,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let state = ctx.state();
-    // Range boundaries depend on segment statistics. Resolve them after the runtime codec
-    // injects the execution manifests, so repeated logical optimization neither opens stats
-    // nor retains decisions about a planning-time segment view.
-    let plan = super::range_partitioning_rule::RangePartitioningRule::new()
-        .rewrite(plan, &state)?
-        .data;
-
     let plan = state
         .query_planner()
         .create_physical_plan(&plan, &state)

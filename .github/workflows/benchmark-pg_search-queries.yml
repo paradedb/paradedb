@@ -6,11 +6,11 @@ permissions:
 jobs:
   paired:
     name: Same-index comparison (${{ matrix.size }})
-    timeout-minutes: 100
+    timeout-minutes: 720
     strategy:
       fail-fast: false
       matrix:
-        size: [1m, 20m]
+        size: [100k, 1m, 20m]
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
@@ -19,8 +19,8 @@ jobs:
       - extras=s3-cache
     env:
       pg_version: 18
-      BASELINE_SHA: 8cd5d6730a895f12e9349e0bb3a4c4fd8516bd02
-      FIXED_SHA: c9ac9b13cc4381567b0c53711671cda0db7fcec1
+      BASELINE_SHA: 44544cdcf5305ae3f3ebdad6f087ddd7652269d2
+      FIXED_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -39,10 +39,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p diagnostic-output
+          test "$(git rev-parse HEAD)" = "$FIXED_SHA"
+          printf 'main=%s\nfixed=%s\n' "$BASELINE_SHA" "$FIXED_SHA" > diagnostic-output/source-commits.txt
           pkglibdir=$(/usr/lib/postgresql/18/bin/pg_config --pkglibdir)
           cp "$pkglibdir/pg_search.so" diagnostic-output/fixed.so
           (cd pg_search && cargo pgrx stop pg18)
           git checkout --detach "$BASELINE_SHA"
+          test "$(git rev-parse HEAD)" = "$BASELINE_SHA"
           cargo pgrx install -p pg_search --sudo --release --pg-config /usr/lib/postgresql/18/bin/pg_config --features=pg18 --no-default-features
           cp "$pkglibdir/pg_search.so" diagnostic-output/baseline.so
           git checkout --detach "$GITHUB_SHA"
@@ -69,4 +72,5 @@ jobs:
             diagnostic-output/*.txt
             diagnostic-output/*.sql
             diagnostic-output/*.sha256
+            diagnostic-output/*.md
           if-no-files-found: error

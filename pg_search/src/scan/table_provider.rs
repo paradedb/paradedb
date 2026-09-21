@@ -35,7 +35,6 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
 use crate::postgres::ParallelScanState;
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
@@ -288,20 +287,6 @@ impl PgSearchTableProvider {
 
     pub(crate) fn set_manifest(&mut self, manifest: SearchIndexManifest) {
         self.manifest = Some(manifest);
-    }
-
-    pub(crate) fn persisted_split_points(
-        &self,
-        partition_by: &str,
-    ) -> anyhow::Result<Option<Vec<PdbOwnedValue>>> {
-        let index_rel = PgSearchRelation::open(self.scan_info.indexrelid);
-        if index_rel.options().partition_by().is_empty() {
-            return Ok(None);
-        }
-        match &self.manifest {
-            Some(manifest) => manifest.persisted_split_points(partition_by),
-            None => crate::index::stats::persisted_split_points(&index_rel, partition_by),
-        }
     }
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {

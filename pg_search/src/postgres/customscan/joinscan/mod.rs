@@ -902,10 +902,12 @@ impl JoinScan {
     /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
     fn build_mpp_session_context(
         mesh: Option<Arc<MppMesh>>,
+        source_manifests: Vec<SearchIndexManifest>,
     ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
             create_datafusion_session_context(),
             mesh,
+            source_manifests,
         )
     }
 
@@ -1464,7 +1466,10 @@ impl CustomScan for JoinScan {
                 state.custom_state().parallel_mode_ok,
                 &state.custom_state().join_clause.plan,
             ) {
-                let mpp_plan = build_with(&Self::build_mpp_session_context(None), logical_plan);
+                let mpp_plan = build_with(
+                    &Self::build_mpp_session_context(None, Vec::new()),
+                    logical_plan,
+                );
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
                 } else {
@@ -1640,7 +1645,7 @@ impl CustomScan for JoinScan {
                 // planner's ceiling. The mesh and the dispatch source are execute-time
                 // concerns; the exec session below carries them once the workers are committed.
                 let plan_ctx = if mpp_pending {
-                    Self::build_mpp_session_context(None)
+                    Self::build_mpp_session_context(None, Vec::new())
                 } else {
                     create_datafusion_session_context()
                 };
@@ -1655,9 +1660,10 @@ impl CustomScan for JoinScan {
                     match Self::launch_mpp(state, &plan) {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                            let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
-                                &leader.session.mesh,
-                            )))
+                            let exec_ctx = Self::build_mpp_session_context(
+                                Some(Arc::clone(&leader.session.mesh)),
+                                source_manifests.clone(),
+                            )
                             .with_distributed_dispatch_plan_source(source);
                             launch_us.prepare_us = leader.timing.prepare_us;
                             launch_us.payload_us = leader.timing.payload_us;

@@ -1243,10 +1243,12 @@ impl AggregateScan {
     /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
     fn build_mpp_session_context(
         mesh: Option<Arc<MppMesh>>,
+        source_manifests: Vec<SearchIndexManifest>,
     ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
             create_aggregate_session_context(),
             mesh,
+            source_manifests,
         )
     }
 
@@ -1309,7 +1311,7 @@ impl AggregateScan {
             let plan_result = if mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
                 // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
                 // Plan against the cap first; fall back to serial when launch would not run (#5784).
-                match build_with(&Self::build_mpp_session_context(None)) {
+                match build_with(&Self::build_mpp_session_context(None, Vec::new())) {
                     Ok(mpp_plan) if mpp_plan_has_data_parallelism(&mpp_plan) => Ok(mpp_plan),
                     Ok(_) => build_with(&create_aggregate_session_context()),
                     Err(e) => Err(e),
@@ -1958,7 +1960,7 @@ impl AggregateScan {
             // once the workers are committed.
             let is_mpp = mpp_pending;
             let plan_ctx = if is_mpp {
-                Self::build_mpp_session_context(None)
+                Self::build_mpp_session_context(None, Vec::new())
             } else {
                 create_aggregate_session_context()
             };
@@ -2005,9 +2007,11 @@ impl AggregateScan {
                     Some(leader) => {
                         let source =
                             crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                        let exec_ctx =
-                            Self::build_mpp_session_context(Some(Arc::clone(&leader.session.mesh)))
-                                .with_distributed_dispatch_plan_source(source);
+                        let exec_ctx = Self::build_mpp_session_context(
+                            Some(Arc::clone(&leader.session.mesh)),
+                            source_manifests.clone(),
+                        )
+                        .with_distributed_dispatch_plan_source(source);
                         let mut timing = leader.timing;
                         timing.plan_us = plan_us;
                         df_state.launch_timing = Some(timing);

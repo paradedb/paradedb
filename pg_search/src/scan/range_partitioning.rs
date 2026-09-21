@@ -100,7 +100,13 @@ impl RangePartitioning {
         } else {
             SearchQueryInput::FieldedQuery {
                 field: self.partition_by.clone(),
-                query: Query::Range {
+                // The split points were sampled and stored by the build in the index's
+                // stored form, so the query must take them as given: `Query::Range`
+                // would convert them the way it converts values a user typed, scaling
+                // a `Numeric64` bound a second time and rejecting a `NumericBytes`
+                // bound's `Bytes`. `Query::StoredRange` builds the terms directly, so
+                // the partition searches exactly the range the build declared.
+                query: Query::StoredRange {
                     lower_bound: lower,
                     upper_bound: upper,
                 },

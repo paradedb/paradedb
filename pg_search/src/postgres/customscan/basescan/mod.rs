@@ -2704,6 +2704,7 @@ fn base_query_has_search_predicates(
 
         // These are NOT search predicates (they're range/exists/other predicates)
         SearchQueryInput::FieldedQuery { query: pdb::Query::Range { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::StoredRange { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeContains { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeIntersects { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeTerm { .. }, .. }

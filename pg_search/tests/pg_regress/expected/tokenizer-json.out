@@ -16,18 +16,18 @@ SELECT * FROM paradedb.schema('idxindex_json') ORDER BY name;
  jb   | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
 (4 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"j.key1","query_string":"value1","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"j.key1","value":"value1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (6 rows)
 
-SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
+SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
  id |         j          |         jb         
 ----+--------------------+--------------------
   1 | {"key1": "value1"} | {"key2": "value2"}
@@ -101,18 +101,18 @@ SELECT * FROM index_json WHERE j->'key1' === 'value1';
   1 | {"key1": "value1"} | {"key2": "value2"}
 (1 row)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"jb.key2","query_string":"value2","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"jb.key2","value":"value2","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (6 rows)
 
-SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
+SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
  id |         j          |         jb         
 ----+--------------------+--------------------
   1 | {"key1": "value1"} | {"key2": "value2"}
@@ -197,18 +197,18 @@ SELECT * FROM paradedb.schema('idxindex_json') ORDER BY name;
  jb   | JsonObject | f      | t       | f    | f          | t           | whitespace                                 | position | 
 (4 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"j.key1","query_string":"value1","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"j.key1","value":"value1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (6 rows)
 
-SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
+SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
  id |         j          |         jb         
 ----+--------------------+--------------------
   1 | {"key1": "value1"} | {"key2": "value2"}
@@ -268,18 +268,18 @@ SELECT * FROM index_json WHERE j->'key1' === 'value1';
 ----+---+----
 (0 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"jb.key2","query_string":"value2","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"jb.key2","value":"value2","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (6 rows)
 
-SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
+SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
  id |         j          |         jb         
 ----+--------------------+--------------------
   1 | {"key1": "value1"} | {"key2": "value2"}

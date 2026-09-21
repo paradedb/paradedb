@@ -36,9 +36,9 @@ SET paradedb.explain_recursive_estimates = ON;
 -- Expected: Each query should show estimated_docs for single term
 -- ============================================================================
 -- Test 1.1: Simple parse query (single term)
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| 'shoes';
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -46,7 +46,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":3}},"estimated_docs":3}
 (8 rows)
 
 -- Test 1.2: Simple phrase query
@@ -935,9 +935,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM recursive_test.estimate_items WHERE descriptio
 -- Expected: Handle edge cases gracefully
 -- ============================================================================
 -- Test 8.1: Empty result query
-EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'nonexistentterm123456';
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| 'nonexistentterm123456';
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -945,7 +945,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistentterm123456","lenient":null,"conjunction_mode":null},"estimated_docs":0}},"estimated_docs":0}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"nonexistentterm123456","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":0}},"estimated_docs":0}
 (8 rows)
 
 -- Test 8.2: Match all query (very broad)
@@ -966,12 +966,12 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 -- Test 8.3: Many AND clauses (wide tree)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ 'running'
-  AND description @@@ 'shoes'
-  AND description @@@ 'athletic'
-  AND description @@@ 'footwear';
-                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'running'
+  AND description ||| 'shoes'
+  AND description ||| 'athletic'
+  AND description ||| 'footwear';
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -979,18 +979,18 @@ WHERE description @@@ 'running'
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"athletic","lenient":null,"conjunction_mode":null},"estimated_docs":0}},"estimated_docs":0},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"footwear","lenient":null,"conjunction_mode":null},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":3}},"estimated_docs":3},{"with_index":{"query":{"match":{"field":"description","value":"athletic","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":0}},"estimated_docs":0},{"with_index":{"query":{"match":{"field":"description","value":"footwear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0}
 (8 rows)
 
 -- Test 8.4: Many OR clauses (wide tree)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE description @@@ 'running'
-   OR description @@@ 'walking'
-   OR description @@@ 'hiking'
-   OR description @@@ 'jogging';
-                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'running'
+   OR description ||| 'walking'
+   OR description ||| 'hiking'
+   OR description ||| 'jogging';
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -998,7 +998,7 @@ WHERE description @@@ 'running'
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"walking","lenient":null,"conjunction_mode":null},"estimated_docs":0}},"estimated_docs":0},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hiking","lenient":null,"conjunction_mode":null},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jogging","lenient":null,"conjunction_mode":null},"estimated_docs":1}},"estimated_docs":1}]},"estimated_docs":3}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"match":{"field":"description","value":"walking","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":0}},"estimated_docs":0},{"with_index":{"query":{"match":{"field":"description","value":"hiking","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"match":{"field":"description","value":"jogging","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":1}},"estimated_docs":1}]},"estimated_docs":3}
 (8 rows)
 
 -- ============================================================================
@@ -1091,29 +1091,29 @@ RESET statement_timeout;
 -- ============================================================================
 -- Test 10.1: Simple query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
-SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                       +
-   {                                                                                                                                                                                                                     +
-     "Plan": {                                                                                                                                                                                                           +
-       "Node Type": "Custom Scan",                                                                                                                                                                                       +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                     +
-       "Parallel Aware": false,                                                                                                                                                                                          +
-       "Async Capable": false,                                                                                                                                                                                           +
-       "Relation Name": "estimate_items",                                                                                                                                                                                +
-       "Schema": "recursive_test",                                                                                                                                                                                       +
-       "Alias": "estimate_items",                                                                                                                                                                                        +
-       "Disabled": false,                                                                                                                                                                                                +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
-       "Table": "estimate_items",                                                                                                                                                                                        +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                               +
-       "Worker Selection": "Cost model",                                                                                                                                                                                 +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                             +
-       "Scores": false,                                                                                                                                                                                                  +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
-     }                                                                                                                                                                                                                   +
-   }                                                                                                                                                                                                                     +
+SELECT * FROM recursive_test.estimate_items WHERE description ||| 'shoes';
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                          +
+   {                                                                                                                                                                                                                                                                        +
+     "Plan": {                                                                                                                                                                                                                                                              +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                          +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                        +
+       "Parallel Aware": false,                                                                                                                                                                                                                                             +
+       "Async Capable": false,                                                                                                                                                                                                                                              +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                   +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                          +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                           +
+       "Disabled": false,                                                                                                                                                                                                                                                   +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                           +
+       "Table": "estimate_items",                                                                                                                                                                                                                                           +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                  +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                    +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                +
+       "Scores": false,                                                                                                                                                                                                                                                     +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"match\":{\"field\":\"description\",\"value\":\"shoes\",\"tokenizer\":null,\"distance\":null,\"transposition_cost_one\":null,\"prefix\":null,\"conjunction_mode\":false},\"estimated_docs\":3}},\"estimated_docs\":3}"+
+     }                                                                                                                                                                                                                                                                      +
+   }                                                                                                                                                                                                                                                                        +
  ]
 (1 row)
 
@@ -1258,130 +1258,130 @@ WHERE description @@@ paradedb.fuzzy_term(
 -- Test 10.6: JSON format with GUC OFF (verify no estimates shown)
 SET paradedb.explain_recursive_estimates = OFF;
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
-SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                             +
-   {                                                                                                                                                                           +
-     "Plan": {                                                                                                                                                                 +
-       "Node Type": "Custom Scan",                                                                                                                                             +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                           +
-       "Parallel Aware": false,                                                                                                                                                +
-       "Async Capable": false,                                                                                                                                                 +
-       "Relation Name": "estimate_items",                                                                                                                                      +
-       "Schema": "recursive_test",                                                                                                                                             +
-       "Alias": "estimate_items",                                                                                                                                              +
-       "Disabled": false,                                                                                                                                                      +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],              +
-       "Table": "estimate_items",                                                                                                                                              +
-       "Index": "idx_recursive_estimates",                                                                                                                                     +
-       "Worker Selection": "Cost model",                                                                                                                                       +
-       "Exec Method": "NormalScanExecState",                                                                                                                                   +
-       "Scores": false,                                                                                                                                                        +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null}}}}"+
-     }                                                                                                                                                                         +
-   }                                                                                                                                                                           +
+SELECT * FROM recursive_test.estimate_items WHERE description ||| 'shoes';
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                +
+   {                                                                                                                                                                                                                              +
+     "Plan": {                                                                                                                                                                                                                    +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                              +
+       "Parallel Aware": false,                                                                                                                                                                                                   +
+       "Async Capable": false,                                                                                                                                                                                                    +
+       "Relation Name": "estimate_items",                                                                                                                                                                                         +
+       "Schema": "recursive_test",                                                                                                                                                                                                +
+       "Alias": "estimate_items",                                                                                                                                                                                                 +
+       "Disabled": false,                                                                                                                                                                                                         +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                 +
+       "Table": "estimate_items",                                                                                                                                                                                                 +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                        +
+       "Worker Selection": "Cost model",                                                                                                                                                                                          +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                      +
+       "Scores": false,                                                                                                                                                                                                           +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"match\":{\"field\":\"description\",\"value\":\"shoes\",\"tokenizer\":null,\"distance\":null,\"transposition_cost_one\":null,\"prefix\":null,\"conjunction_mode\":false}}}}"+
+     }                                                                                                                                                                                                                            +
+   }                                                                                                                                                                                                                              +
  ]
 (1 row)
 
 -- Test 10.7: JSON format with GUC back ON
 SET paradedb.explain_recursive_estimates = ON;
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
-SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                       +
-   {                                                                                                                                                                                                                     +
-     "Plan": {                                                                                                                                                                                                           +
-       "Node Type": "Custom Scan",                                                                                                                                                                                       +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                     +
-       "Parallel Aware": false,                                                                                                                                                                                          +
-       "Async Capable": false,                                                                                                                                                                                           +
-       "Relation Name": "estimate_items",                                                                                                                                                                                +
-       "Schema": "recursive_test",                                                                                                                                                                                       +
-       "Alias": "estimate_items",                                                                                                                                                                                        +
-       "Disabled": false,                                                                                                                                                                                                +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
-       "Table": "estimate_items",                                                                                                                                                                                        +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                               +
-       "Worker Selection": "Cost model",                                                                                                                                                                                 +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                             +
-       "Scores": false,                                                                                                                                                                                                  +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
-     }                                                                                                                                                                                                                   +
-   }                                                                                                                                                                                                                     +
+SELECT * FROM recursive_test.estimate_items WHERE description ||| 'shoes';
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                          +
+   {                                                                                                                                                                                                                                                                        +
+     "Plan": {                                                                                                                                                                                                                                                              +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                          +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                        +
+       "Parallel Aware": false,                                                                                                                                                                                                                                             +
+       "Async Capable": false,                                                                                                                                                                                                                                              +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                   +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                          +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                           +
+       "Disabled": false,                                                                                                                                                                                                                                                   +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                           +
+       "Table": "estimate_items",                                                                                                                                                                                                                                           +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                  +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                    +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                +
+       "Scores": false,                                                                                                                                                                                                                                                     +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"match\":{\"field\":\"description\",\"value\":\"shoes\",\"tokenizer\":null,\"distance\":null,\"transposition_cost_one\":null,\"prefix\":null,\"conjunction_mode\":false},\"estimated_docs\":3}},\"estimated_docs\":3}"+
+     }                                                                                                                                                                                                                                                                      +
+   }                                                                                                                                                                                                                                                                        +
  ]
 (1 row)
 
 -- Test 10.8: YAML format (verify it works with estimates)
 EXPLAIN (FORMAT YAML, VERBOSE, COSTS OFF)
-SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- - Plan:                                                                                                                                                                                                             +
-     Node Type: "Custom Scan"                                                                                                                                                                                        +
-     Custom Plan Provider: "ParadeDB Base Scan"                                                                                                                                                                      +
-     Parallel Aware: false                                                                                                                                                                                           +
-     Async Capable: false                                                                                                                                                                                            +
-     Relation Name: "estimate_items"                                                                                                                                                                                 +
-     Schema: "recursive_test"                                                                                                                                                                                        +
-     Alias: "estimate_items"                                                                                                                                                                                         +
-     Disabled: false                                                                                                                                                                                                 +
-     Output:                                                                                                                                                                                                         +
-       - "id"                                                                                                                                                                                                        +
-       - "description"                                                                                                                                                                                               +
-       - "rating"                                                                                                                                                                                                    +
-       - "category"                                                                                                                                                                                                  +
-       - "in_stock"                                                                                                                                                                                                  +
-       - "metadata"                                                                                                                                                                                                  +
-       - "created_at"                                                                                                                                                                                                +
-       - "last_updated_date"                                                                                                                                                                                         +
-       - "latest_available_time"                                                                                                                                                                                     +
-       - "weight_range"                                                                                                                                                                                              +
-     Table: "estimate_items"                                                                                                                                                                                         +
-     Index: "idx_recursive_estimates"                                                                                                                                                                                +
-     Worker Selection: "Cost model"                                                                                                                                                                                  +
-     Exec Method: "NormalScanExecState"                                                                                                                                                                              +
-     Scores: false                                                                                                                                                                                                   +
-     Tantivy Query: "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"
+SELECT * FROM recursive_test.estimate_items WHERE description ||| 'shoes';
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ - Plan:                                                                                                                                                                                                                                                                +
+     Node Type: "Custom Scan"                                                                                                                                                                                                                                           +
+     Custom Plan Provider: "ParadeDB Base Scan"                                                                                                                                                                                                                         +
+     Parallel Aware: false                                                                                                                                                                                                                                              +
+     Async Capable: false                                                                                                                                                                                                                                               +
+     Relation Name: "estimate_items"                                                                                                                                                                                                                                    +
+     Schema: "recursive_test"                                                                                                                                                                                                                                           +
+     Alias: "estimate_items"                                                                                                                                                                                                                                            +
+     Disabled: false                                                                                                                                                                                                                                                    +
+     Output:                                                                                                                                                                                                                                                            +
+       - "id"                                                                                                                                                                                                                                                           +
+       - "description"                                                                                                                                                                                                                                                  +
+       - "rating"                                                                                                                                                                                                                                                       +
+       - "category"                                                                                                                                                                                                                                                     +
+       - "in_stock"                                                                                                                                                                                                                                                     +
+       - "metadata"                                                                                                                                                                                                                                                     +
+       - "created_at"                                                                                                                                                                                                                                                   +
+       - "last_updated_date"                                                                                                                                                                                                                                            +
+       - "latest_available_time"                                                                                                                                                                                                                                        +
+       - "weight_range"                                                                                                                                                                                                                                                 +
+     Table: "estimate_items"                                                                                                                                                                                                                                            +
+     Index: "idx_recursive_estimates"                                                                                                                                                                                                                                   +
+     Worker Selection: "Cost model"                                                                                                                                                                                                                                     +
+     Exec Method: "NormalScanExecState"                                                                                                                                                                                                                                 +
+     Scores: false                                                                                                                                                                                                                                                      +
+     Tantivy Query: "{\"with_index\":{\"query\":{\"match\":{\"field\":\"description\",\"value\":\"shoes\",\"tokenizer\":null,\"distance\":null,\"transposition_cost_one\":null,\"prefix\":null,\"conjunction_mode\":false},\"estimated_docs\":3}},\"estimated_docs\":3}"
 (1 row)
 
 -- Test 10.9: XML format (verify it works with estimates)
 EXPLAIN (FORMAT XML, VERBOSE, COSTS OFF)
-SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- <explain xmlns="http://www.postgresql.org/2009/explain">                                                                                                                                                      +
-   <Query>                                                                                                                                                                                                     +
-     <Plan>                                                                                                                                                                                                    +
-       <Node-Type>Custom Scan</Node-Type>                                                                                                                                                                      +
-       <Custom-Plan-Provider>ParadeDB Base Scan</Custom-Plan-Provider>                                                                                                                                         +
-       <Parallel-Aware>false</Parallel-Aware>                                                                                                                                                                  +
-       <Async-Capable>false</Async-Capable>                                                                                                                                                                    +
-       <Relation-Name>estimate_items</Relation-Name>                                                                                                                                                           +
-       <Schema>recursive_test</Schema>                                                                                                                                                                         +
-       <Alias>estimate_items</Alias>                                                                                                                                                                           +
-       <Disabled>false</Disabled>                                                                                                                                                                              +
-       <Output>                                                                                                                                                                                                +
-         <Item>id</Item>                                                                                                                                                                                       +
-         <Item>description</Item>                                                                                                                                                                              +
-         <Item>rating</Item>                                                                                                                                                                                   +
-         <Item>category</Item>                                                                                                                                                                                 +
-         <Item>in_stock</Item>                                                                                                                                                                                 +
-         <Item>metadata</Item>                                                                                                                                                                                 +
-         <Item>created_at</Item>                                                                                                                                                                               +
-         <Item>last_updated_date</Item>                                                                                                                                                                        +
-         <Item>latest_available_time</Item>                                                                                                                                                                    +
-         <Item>weight_range</Item>                                                                                                                                                                             +
-       </Output>                                                                                                                                                                                               +
-       <Table>estimate_items</Table>                                                                                                                                                                           +
-       <Index>idx_recursive_estimates</Index>                                                                                                                                                                  +
-       <Worker-Selection>Cost model</Worker-Selection>                                                                                                                                                         +
-       <Exec-Method>NormalScanExecState</Exec-Method>                                                                                                                                                          +
-       <Scores>false</Scores>                                                                                                                                                                                  +
-       <Tantivy-Query>{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}</Tantivy-Query>+
-     </Plan>                                                                                                                                                                                                   +
-   </Query>                                                                                                                                                                                                    +
+SELECT * FROM recursive_test.estimate_items WHERE description ||| 'shoes';
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ <explain xmlns="http://www.postgresql.org/2009/explain">                                                                                                                                                                                                   +
+   <Query>                                                                                                                                                                                                                                                  +
+     <Plan>                                                                                                                                                                                                                                                 +
+       <Node-Type>Custom Scan</Node-Type>                                                                                                                                                                                                                   +
+       <Custom-Plan-Provider>ParadeDB Base Scan</Custom-Plan-Provider>                                                                                                                                                                                      +
+       <Parallel-Aware>false</Parallel-Aware>                                                                                                                                                                                                               +
+       <Async-Capable>false</Async-Capable>                                                                                                                                                                                                                 +
+       <Relation-Name>estimate_items</Relation-Name>                                                                                                                                                                                                        +
+       <Schema>recursive_test</Schema>                                                                                                                                                                                                                      +
+       <Alias>estimate_items</Alias>                                                                                                                                                                                                                        +
+       <Disabled>false</Disabled>                                                                                                                                                                                                                           +
+       <Output>                                                                                                                                                                                                                                             +
+         <Item>id</Item>                                                                                                                                                                                                                                    +
+         <Item>description</Item>                                                                                                                                                                                                                           +
+         <Item>rating</Item>                                                                                                                                                                                                                                +
+         <Item>category</Item>                                                                                                                                                                                                                              +
+         <Item>in_stock</Item>                                                                                                                                                                                                                              +
+         <Item>metadata</Item>                                                                                                                                                                                                                              +
+         <Item>created_at</Item>                                                                                                                                                                                                                            +
+         <Item>last_updated_date</Item>                                                                                                                                                                                                                     +
+         <Item>latest_available_time</Item>                                                                                                                                                                                                                 +
+         <Item>weight_range</Item>                                                                                                                                                                                                                          +
+       </Output>                                                                                                                                                                                                                                            +
+       <Table>estimate_items</Table>                                                                                                                                                                                                                        +
+       <Index>idx_recursive_estimates</Index>                                                                                                                                                                                                               +
+       <Worker-Selection>Cost model</Worker-Selection>                                                                                                                                                                                                      +
+       <Exec-Method>NormalScanExecState</Exec-Method>                                                                                                                                                                                                       +
+       <Scores>false</Scores>                                                                                                                                                                                                                               +
+       <Tantivy-Query>{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":3}},"estimated_docs":3}</Tantivy-Query>+
+     </Plan>                                                                                                                                                                                                                                                +
+   </Query>                                                                                                                                                                                                                                                 +
  </explain>
 (1 row)
 

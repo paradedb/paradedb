@@ -11,17 +11,16 @@ INSERT INTO whole_row_search VALUES
     ('SKU-2', 'wireless keyboard', 'shoes'),
     ('SKU-3', 'cotton shirt', 'apparel');
 CREATE INDEX whole_row_search_idx ON whole_row_search
-USING paradedb (sku, description, category)
-WITH (text_fields = '{"sku": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+USING paradedb ((sku::pdb.literal), description, category);
 -- Bare terms search across indexed fields instead of the key field.
-SELECT sku FROM whole_row_search AS t WHERE t @@@ 'shoes' ORDER BY sku;
+SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.parse('shoes') ORDER BY sku;
   sku  
 -------
  SKU-1
  SKU-2
 (2 rows)
 
-SELECT sku FROM whole_row_search AS t WHERE t @@@ 'shoes'::pdb.query ORDER BY sku;
+SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.parse('shoes')::pdb.query ORDER BY sku;
   sku  
 -------
  SKU-1
@@ -217,7 +216,7 @@ EXECUTE whole_row_query(pdb.all());
 
 DEALLOCATE whole_row_query;
 PREPARE whole_row_text(text) AS
-SELECT sku FROM whole_row_search AS t WHERE t @@@ $1 ORDER BY sku;
+SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.parse($1) ORDER BY sku;
 EXECUTE whole_row_text('shoes');
   sku  
 -------

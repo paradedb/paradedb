@@ -960,7 +960,11 @@ impl MVCCEntry for SegmentMetaEntry {
         // recyclable if we've deleted it
         let is_recyclable = self.is_deleted()
 
-        // and there's no pin on our pintest buffer, assuming we have a valid buffer
+        // and there's no pin on our pintest buffer, assuming we have a valid buffer.
+        //
+        // The test has to stay conditional. A backend that is replacing its own reader holds a
+        // pin on the outgoing reader's segments while the replacement runs `load_metas`, so a
+        // blocking cleanup lock here would make it wait on itself.
         && (self.pintest_blockno() == pg_sys::InvalidBlockNumber || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some());
 
         // [dst correctness] a recyclable segment must never be visible: recycling implies

@@ -42,32 +42,9 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path,
-    file_size
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb ((id::pdb.literal), (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
+CREATE INDEX files_search ON files USING paradedb ((id::pdb.literal), (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')), file_size);
+CREATE INDEX pages_search ON pages USING paradedb ((id::pdb.literal), (fileid::pdb.literal), (content::pdb.simple('columnar=true')), page_number);
 -- Insert sample data for documents
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -121,15 +98,7 @@ SELECT
     (ARRAY['red', 'green', 'blue', 'orange', 'purple', 'pink', 'yellow'])[1 + mod(s.a, 7)],
     (20 + mod(s.a, 80))::text
 FROM generate_series(1, 10000) as s(a);
-CREATE INDEX idxusers ON users USING paradedb (id, name, color, age)
-WITH (
-text_fields = '
-            {
-                "name": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "color": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "age": { "tokenizer": { "type": "keyword" }, "fast": true }
-            }'
-);
+CREATE INDEX idxusers ON users USING paradedb (id, (name::pdb.literal), (color::pdb.literal), (age::pdb.literal));
 CREATE INDEX idxusers_name ON users (name);
 CREATE INDEX idxusers_color ON users (color);
 CREATE INDEX idxusers_age ON users (age);
@@ -151,15 +120,7 @@ SELECT
     (ARRAY['red', 'green', 'blue', 'orange', 'purple', 'pink', 'yellow'])[1 + mod(s.a, 7)],
     (20 + mod(s.a, 80))::text
 FROM generate_series(1, 10000) as s(a);
-CREATE INDEX idxproducts ON products USING paradedb (id, name, color, age)
-WITH (
-text_fields = '
-            {
-                "name": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "color": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "age": { "tokenizer": { "type": "keyword" }, "fast": true }
-            }'
-);
+CREATE INDEX idxproducts ON products USING paradedb (id, (name::pdb.literal), (color::pdb.literal), (age::pdb.literal));
 CREATE INDEX idxproducts_name ON products (name);
 CREATE INDEX idxproducts_color ON products (color);
 CREATE INDEX idxproducts_age ON products (age);
@@ -181,15 +142,7 @@ SELECT
     (ARRAY['red', 'green', 'blue', 'orange', 'purple', 'pink', 'yellow'])[1 + mod(s.a, 7)],
     (20 + mod(s.a, 80))::text
 FROM generate_series(1, 10000) as s(a);
-CREATE INDEX idxorders ON orders USING paradedb (id, name, color, age)
-WITH (
-text_fields = '
-            {
-                "name": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "color": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "age": { "tokenizer": { "type": "keyword" }, "fast": true }
-            }'
-);
+CREATE INDEX idxorders ON orders USING paradedb (id, (name::pdb.literal), (color::pdb.literal), (age::pdb.literal));
 CREATE INDEX idxorders_name ON orders (name);
 CREATE INDEX idxorders_color ON orders (color);
 CREATE INDEX idxorders_age ON orders (age);
@@ -202,9 +155,9 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 
 vacuum;
 SET paradedb.enable_columnar_exec = false;
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
-                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
+                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: users INNER orders
    Join Cond: users.id = orders.id
@@ -216,21 +169,21 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
      :           CooperativeExec
-     :             PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+     :             PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :           CooperativeExec
      :             PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
 (14 rows)
 
-SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
  color 
 -------
  blue
 (1 row)
 
 SET paradedb.enable_columnar_exec = true;
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
-                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
+                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: users INNER orders
    Join Cond: users.id = orders.id
@@ -242,12 +195,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
      :           CooperativeExec
-     :             PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+     :             PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :           CooperativeExec
      :             PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
 (14 rows)
 
-SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
  color 
 -------
  blue

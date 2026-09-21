@@ -26,6 +26,7 @@ pub enum Expr {
     Atom {
         name: String,
         value: String,
+        sql_type: String,
         is_indexed: bool,
     },
     All {
@@ -42,13 +43,12 @@ pub enum Expr {
 impl Expr {
     pub fn to_sql(&self, indexed_op: &str) -> String {
         match self {
-            Expr::Atom {
-                name,
-                value,
-                is_indexed,
-            } => {
-                let op = if *is_indexed { indexed_op } else { " = " };
-                format!("{name} {op} {value}")
+            Expr::Atom { name, value, .. } => {
+                if indexed_op == "@@@" && self.has_search_operator() {
+                    format!("{name} === {value}")
+                } else {
+                    format!("{name} = {value}")
+                }
             }
             Expr::All { table, key_col } => {
                 if indexed_op == "@@@" {
@@ -99,10 +99,20 @@ impl Expr {
         }
     }
 
-    /// Check if this expression contains at least one search operator (`@@@`).
+    /// Check if this expression contains at least one ParadeDB search operator.
     pub fn has_search_operator(&self) -> bool {
         match self {
-            Expr::Atom { is_indexed, .. } => *is_indexed,
+            Expr::Atom {
+                is_indexed,
+                sql_type,
+                ..
+            } => {
+                *is_indexed
+                    && matches!(
+                        sql_type.as_str(),
+                        "TEXT" | "VARCHAR" | "TEXT[]" | "VARCHAR[]"
+                    )
+            }
             Expr::All { .. } => true,
             Expr::IsNull(_) | Expr::IsNotNull(_) => false,
             Expr::Not(e) => e.has_search_operator(),
@@ -159,6 +169,7 @@ pub fn arb_wheres<S: AsRef<str>>(
             (
                 c.name.to_owned(),
                 c.sample_value.to_owned(),
+                c.sql_type.to_owned(),
                 c.is_indexed,
                 c.is_primary_key,
             )
@@ -176,7 +187,7 @@ pub fn arb_wheres<S: AsRef<str>>(
         ],
     )
         .prop_map(
-            move |(table, (col, val, is_indexed, is_primary_key), kind)| {
+            move |(table, (col, val, sql_type, is_indexed, is_primary_key), kind)| {
                 let name = format!("{table}.{col}");
                 // Primary key columns are NOT NULL, so IS NULL is constant FALSE and IS NOT NULL is constant TRUE.
                 // Inside an OR branch, `(search_op) OR (pk IS NOT NULL)` simplifies to TRUE, causing PostgreSQL
@@ -187,6 +198,7 @@ pub fn arb_wheres<S: AsRef<str>>(
                     _ => Expr::Atom {
                         name,
                         value: val,
+                        sql_type,
                         is_indexed,
                     },
                 }
@@ -271,6 +283,7 @@ mod tests {
         let atom = Expr::Atom {
             name: "users.name".to_string(),
             value: "'alice'".to_string(),
+            sql_type: "TEXT".to_string(),
             is_indexed: false,
         };
         let all = Expr::All {
@@ -295,14 +308,19 @@ mod tests {
     proptest! {
         #[test]
         fn test_arb_wheres_generates_null_checks(
-            expr in arb_wheres(vec!["users", "products"], &[Column::new("color", "VARCHAR", "'blue'").whereable(true)])
+            expr in arb_wheres(vec!["users", "products"], &[
+                Column::new("color", "VARCHAR", "'blue'").whereable(true),
+                Column::new("quantity", "INTEGER", "4").whereable(true),
+                Column::new("active", "BOOLEAN", "true").whereable(true),
+            ])
         ) {
             let sql_pg = expr.to_sql(" = ");
             let sql_bm25 = expr.to_sql("@@@");
             assert!(!sql_pg.is_empty());
             assert!(!sql_bm25.is_empty());
             assert!(expr.has_search_operator());
-            assert!(sql_bm25.contains("@@@"));
+            assert!(sql_bm25.contains("@@@") || sql_bm25.contains("==="));
+            assert!(!sql_bm25.contains("pdb.term"));
         }
     }
 }

@@ -23,7 +23,7 @@ use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    FileEntry, MVCCEntry, SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryContent,
+    FileEntry, MVCCEntry, STATS_EXT, SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryContent,
     SegmentMetaEntryImmutable, SegmentMetaEntryMutable, bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
@@ -344,6 +344,25 @@ impl MVCCDirectory {
         }
     }
 
+    /// Take over this directory's pins on the segments it loaded. See [`SegmentPins`].
+    pub fn segment_pins(&self) -> SegmentPins {
+        SegmentPins {
+            _pin_cushion: self.pin_cushion.clone(),
+        }
+    }
+
+    /// A short name for the visibility style, for diagnostics that must not print a whole
+    /// [`SegmentView`].
+    pub fn mvcc_style_name(&self) -> &'static str {
+        match &*self.mvcc_style {
+            MvccSatisfies::ParallelWorker(_) => "parallel-worker replay",
+            MvccSatisfies::LargestSegment => "largest segment",
+            MvccSatisfies::Snapshot => "snapshot",
+            MvccSatisfies::Vacuum => "vacuum",
+            MvccSatisfies::Mergeable => "mergeable",
+        }
+    }
+
     /// The bound each loaded mutable segment was materialized from.
     pub fn mutable_bounds(&self) -> HashMap<SegmentId, MutableSegmentBound> {
         self.all_entries
@@ -372,6 +391,19 @@ impl MVCCDirectory {
                 LoadedSegmentMetaEntry::Memory { .. } => true,
             })
             .unwrap_or(false)
+    }
+
+    /// Whether a mutable segment's in-memory index has been built. `None` for a persisted
+    /// segment or an unknown id.
+    #[cfg(any(test, feature = "pg_test"))]
+    pub(crate) fn mutable_segment_materialized(&self, segment_id: &SegmentId) -> Option<bool> {
+        self.all_entries
+            .lock()
+            .get(segment_id)
+            .and_then(|entry| match entry {
+                LoadedSegmentMetaEntry::Memory { directory, .. } => Some(directory.get().is_some()),
+                LoadedSegmentMetaEntry::Persisted { .. } => None,
+            })
     }
 
     fn file_entry(&self, path: &Path) -> tantivy::Result<Arc<dyn FileHandle>> {
@@ -421,6 +453,13 @@ impl MVCCDirectory {
                 directory,
                 ..
             } => {
+                // A mutable segment is indexed without the stats plugin, so it never has
+                // `.stats`. Answer here rather than materialize the whole segment for a probe.
+                if path.extension().and_then(|ext| ext.to_str()) == Some(STATS_EXT) {
+                    return Err(TantivyError::OpenDirectoryError(
+                        OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+                    ));
+                }
                 let file_handle = directory
                     .get_or_init(|| {
                         let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
@@ -891,6 +930,19 @@ impl Directory for MVCCDirectory {
 #[repr(transparent)]
 pub struct PinCushion(HashMap<pg_sys::BlockNumber, PinnedBuffer>);
 
+/// Keeps one reader's pins on its segments alive after that reader is gone.
+///
+/// A merge marks the segments it consumed as deleted and leaves their blocks in place;
+/// [`SegmentMetaEntry::recyclable`] then reports them recyclable as soon as nothing pins them, and
+/// a [`MvccSatisfies::ParallelWorker`] replay skips a recyclable segment. So a scan that replaces
+/// its reader while the shared work queue still hands out those segments holds this until the
+/// replacement reader has taken its own pins. Dropping it releases them.
+#[must_use]
+pub struct SegmentPins {
+    // Held for its `Drop`, never read: releasing the `PinnedBuffer`s is the whole point.
+    _pin_cushion: Arc<Mutex<Option<PinCushion>>>,
+}
+
 impl PinCushion {
     pub fn push(&mut self, bman: &BufferManager, entry: &SegmentMetaEntry) {
         let blockno = entry.pintest_blockno();
@@ -1026,6 +1078,7 @@ pub fn index_memory_segment(
 mod tests {
     use super::*;
 
+    use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::SegmentMetaEntryContent;
 
@@ -1119,8 +1172,6 @@ mod tests {
     /// the readers a JoinScan opens in different processes.
     #[pg_test]
     unsafe fn test_segment_view_replays_origin_reader() {
-        use crate::index::reader::index::SearchIndexReader;
-
         Spi::run("CREATE TABLE t (id SERIAL8, data TEXT);").unwrap();
         // Two immutable segments of unequal size, then a small batch that lands in the
         // mutable segment.
@@ -1194,5 +1245,102 @@ mod tests {
                 o.segment_id()
             );
         }
+    }
+
+    /// A parallel scan publishes its segment view before any participant reads from it, and a
+    /// merge can retire those segments while the claims for them are still outstanding. Two
+    /// things then keep a participant able to resolve its claims, and this test pins both: the
+    /// replay itself, because a plain [`MvccSatisfies::Snapshot`] open lists only what is
+    /// undeleted at that moment, and the origin reader's pins, because a retired segment reads
+    /// as recyclable the moment nothing holds them.
+    #[pg_test]
+    unsafe fn test_segment_view_replays_retired_segments() {
+        // `target_segment_count = 1` keeps the merge policy engaged and `layer_sizes` puts a
+        // foreground layer in reach, so the merge below is synchronous with the insert that
+        // triggers it. No background layers keeps the background merger out of it.
+        Spi::run(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, title TEXT NOT NULL);
+             CREATE INDEX t_idx ON t USING paradedb (id, title)
+             WITH (target_segment_count = 1, layer_sizes = '1kb', background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO t SELECT g, 'silver dragon ' || g FROM generate_series(1, 10) g;
+             SET paradedb.global_mutable_segment_rows = 10000;
+             INSERT INTO t SELECT g, 'mutable ' || g FROM generate_series(11, 15) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .expect("fixture setup");
+        pg_sys::CommandCounterIncrement();
+
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        let origin =
+            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open origin");
+        let view = origin.segment_view();
+        let published = view.ids().collect::<Vec<_>>();
+        assert_eq!(published.len(), 2, "one sealed and one mutable segment");
+
+        // What a scan keeps when it replaces its reader: the reader goes, its pins stay.
+        let pins = origin.segment_pins();
+        drop(origin);
+
+        // A mutable segment is mergeable once the index stops collecting rows into one, and it
+        // is then a merge candidate on its own. This insert creates a segment, so its cleanup
+        // runs the foreground merge that retires the published ones.
+        Spi::run(
+            "SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO t SELECT g, 'quiet river ' || g FROM generate_series(16, 25) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .expect("merge trigger");
+        pg_sys::CommandCounterIncrement();
+
+        let fresh =
+            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open fresh");
+        let live = fresh.segment_ids();
+        let retired = published
+            .iter()
+            .filter(|id| !live.contains(id))
+            .collect::<Vec<_>>();
+        assert!(
+            !retired.is_empty(),
+            "the merge must retire at least one published segment: published={published:?}, live={live:?}"
+        );
+
+        let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(view))
+            .expect("open replay");
+        assert_eq!(
+            replay.segment_ids(),
+            published,
+            "the published view still resolves every segment it pinned"
+        );
+        drop(replay);
+
+        // The pins are load-bearing, not belt and braces: with nothing holding them the same
+        // entries report recyclable, and a replay drops a recyclable segment.
+        assert_eq!(count_recyclable(&retired), 0, "held pins block recycling");
+        drop(pins);
+        assert_eq!(
+            count_recyclable(&retired),
+            retired.len() as i64,
+            "released pins let every retired segment become recyclable"
+        );
+    }
+
+    fn count_recyclable(segment_ids: &[&SegmentId]) -> i64 {
+        let list = segment_ids
+            .iter()
+            .map(|id| format!("'{}'", id.short_uuid_string()))
+            .collect::<Vec<_>>()
+            .join(",");
+        Spi::get_one(&format!(
+            "SELECT count(*) FROM paradedb.index_info('t_idx', show_invisible => true) \
+             WHERE recyclable AND segno IN ({list})"
+        ))
+        .expect("spi should succeed")
+        .unwrap()
     }
 }

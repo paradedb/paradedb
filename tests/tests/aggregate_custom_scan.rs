@@ -56,7 +56,7 @@ fn test_count(mut conn: PgConnection) {
     for enabled in [true, false] {
         format!("SET paradedb.enable_aggregate_custom_scan TO {enabled};").execute(&mut conn);
 
-        let query = "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description @@@ 'keyboard'";
+        let query = "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description ||| 'keyboard'";
 
         assert_uses_custom_scan(&mut conn, enabled, query);
 
@@ -87,8 +87,7 @@ fn test_coalesce_default_precision(
             (2, NULL, '{"value": null}'),
             (3, NULL, '{}'),
             (4, NULL, NULL);
-        CREATE INDEX ON coalesce_defaults USING paradedb (id, value, metadata)
-            WITH (json_fields = '{"metadata": {"fast": true}}');
+        CREATE INDEX ON coalesce_defaults USING paradedb (id, value, (metadata::pdb.unicode_words('columnar=true')));
     "#
     .execute(&mut conn);
 
@@ -97,6 +96,9 @@ fn test_coalesce_default_precision(
         "SELECT COUNT({argument}), MIN({argument}), MAX({argument})
          FROM coalesce_defaults WHERE id @@@ pdb.all()"
     );
+    // The planner can't know a JSON path's column type in each segment, and a segment without the
+    // path reads it as unsigned, so a negative default doesn't push down.
+    let pushdown = pushdown && (field == "value" || default >= 0);
     assert_uses_custom_scan(&mut conn, pushdown, &query);
     assert_eq!(
         query.fetch_one::<(i64, i64, i64)>(&mut conn),
@@ -123,7 +125,7 @@ fn test_count_with_group_by(mut conn: PgConnection) {
 
     // Test COUNT(*) with WHERE clause (like the working test)
     let count_with_where =
-        "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description @@@ 'keyboard'";
+        "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description ||| 'keyboard'";
     eprintln!("\nTesting COUNT(*) with WHERE clause");
     let (plan,) =
         format!("EXPLAIN (FORMAT JSON) {count_with_where}").fetch_one::<(Value,)>(&mut conn);
@@ -153,7 +155,7 @@ fn test_count_with_group_by(mut conn: PgConnection) {
     let query = r#"
         SELECT rating, COUNT(*) 
         FROM paradedb.bm25_search 
-        WHERE description @@@ 'shoes' 
+        WHERE description ||| 'shoes'
         GROUP BY rating 
         ORDER BY rating
     "#;
@@ -182,7 +184,7 @@ fn test_group_by(mut conn: PgConnection) {
         r#"
         SELECT rating, COUNT(*)
         FROM paradedb.bm25_search WHERE
-        description @@@ 'keyboard'
+        description ||| 'keyboard'
         GROUP BY rating
         ORDER BY rating
         "#,
@@ -201,7 +203,7 @@ fn test_group_by_null_bucket(mut conn: PgConnection) {
         r#"
         SELECT rating, COUNT(*)
         FROM paradedb.bm25_search
-        WHERE description @@@ 'keyboard'
+        WHERE description ||| 'keyboard'
         GROUP BY rating
         ORDER BY rating NULLS FIRST
     "#,
@@ -233,7 +235,7 @@ fn test_other_aggregates(mut conn: PgConnection) {
                 r#"
                 SELECT {aggregate_func}
                 FROM paradedb.bm25_search WHERE
-                description @@@ 'keyboard'
+                description ||| 'keyboard'
                 "#
             ),
         );
@@ -308,6 +310,30 @@ fn test_group_by_date_function(mut conn: PgConnection) {
         "DataFusion TopK must retain the NULL date group"
     );
 
+    // ORDER BY the transformed DATE group key should resolve the post-aggregate
+    // UDF output and apply the limit inside DataFusion.
+    let group_key_topk_query = "SELECT DATE(created_at) AS day, COUNT(*) AS cnt \
+                                FROM date_pushdown_events \
+                                WHERE id @@@ pdb.all() \
+                                GROUP BY DATE(created_at) \
+                                ORDER BY DATE(created_at) DESC \
+                                LIMIT 2";
+
+    let plan_lines: Vec<String> =
+        format!("EXPLAIN (COSTS OFF, VERBOSE) {group_key_topk_query}").fetch_scalar(&mut conn);
+    let plan = plan_lines.join("\n");
+    assert!(
+        plan.contains("SortExec: TopK(fetch=2)"),
+        "expected transformed group-key TopK in DataFusion plan:\n{plan}"
+    );
+
+    let group_key_topk_rows = group_key_topk_query.fetch::<(Option<Date>, i64)>(&mut conn);
+    assert_eq!(
+        group_key_topk_rows,
+        vec![(None, 2), (Some(date!(2024 - 01 - 05)), 1)],
+        "DATE group-key TopK must preserve descending NULL ordering"
+    );
+
     // Parity: the same query planned by Postgres must give the same answer.
     "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
     assert_uses_custom_scan(&mut conn, false, query);
@@ -323,6 +349,47 @@ fn test_group_by_date_function(mut conn: PgConnection) {
         topk_rows, topk_fallback,
         "DataFusion TopK must match Postgres exactly"
     );
+
+    let group_key_topk_fallback =
+        format!("{group_key_topk_query} -- fallback").fetch::<(Option<Date>, i64)>(&mut conn);
+    assert_eq!(
+        group_key_topk_rows, group_key_topk_fallback,
+        "DATE group-key TopK must match Postgres exactly"
+    );
+}
+
+#[rstest]
+fn test_group_by_date_topk_quoted_column(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE quoted_date_events (id INT PRIMARY KEY, "created""at" TIMESTAMP);
+    INSERT INTO quoted_date_events VALUES
+        (1, '2024-01-01 08:00:00'),
+        (2, '2024-01-01 12:00:00'),
+        (3, '2024-01-02 09:00:00'),
+        (4, '2024-01-03 10:00:00');
+    CREATE INDEX quoted_date_events_idx ON quoted_date_events
+        USING paradedb (id, "created""at");
+    SET paradedb.enable_aggregate_custom_scan TO on;
+    "#
+    .execute(&mut conn);
+
+    let query = r#"SELECT DATE("created""at") AS day, COUNT(*)
+                   FROM quoted_date_events WHERE id @@@ pdb.all()
+                   GROUP BY DATE("created""at") ORDER BY day DESC LIMIT 2"#;
+    let plan: Vec<String> = format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(&mut conn);
+    assert!(
+        plan.join("\n").contains("SortExec: TopK(fetch=2)"),
+        "expected DataFusion TopK for the quoted column: {plan:?}"
+    );
+    let rows = query.fetch::<(Date, i64)>(&mut conn);
+    assert_eq!(
+        rows,
+        vec![(date!(2024 - 01 - 03), 1), (date!(2024 - 01 - 02), 1)]
+    );
+
+    "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
+    let fallback = format!("{query} -- fallback").fetch::<(Date, i64)>(&mut conn);
+    assert_eq!(rows, fallback);
 }
 
 #[rstest]
@@ -449,8 +516,7 @@ fn test_group_by_date_multi_column(mut conn: PgConnection) {
         (NULL, 'east'),
         (NULL, 'west');
     CREATE INDEX date_pushdown_multi_idx ON date_pushdown_multi
-        USING paradedb (id, created_at, region)
-        WITH (text_fields = '{"region": {"fast": true}}');
+        USING paradedb (id, created_at, (region::pdb.unicode_words('columnar=true')));
     "#
     .execute(&mut conn);
 
@@ -516,8 +582,7 @@ fn test_group_by_date_over_cast_falls_back(mut conn: PgConnection) {
           ('2024-01-02 09:00:00'),
           (NULL);
       CREATE INDEX date_pushdown_cast_idx ON date_pushdown_cast
-          USING paradedb (id, timestamp_text)
-          WITH (text_fields = '{"timestamp_text": {"fast": true}}');
+          USING paradedb (id, (timestamp_text::pdb.unicode_words('columnar=true')));
       "#
     .execute(&mut conn);
 

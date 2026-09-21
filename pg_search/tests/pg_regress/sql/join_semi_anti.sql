@@ -30,27 +30,13 @@ SELECT
 FROM generate_series(1, 2000) as i;
 
 CREATE INDEX table_a_idx ON table_a
-USING paradedb (id, category)
-WITH (
-    text_fields = '{
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
-    }'
-);
+USING paradedb (id, (category::pdb.literal_normalized('lowercase=false', 'normalizer=lowercase')));
 
 CREATE INDEX table_b_group_id_idx ON table_b USING btree (group_id);
 CREATE INDEX table_b_group_id_a_id_idx ON table_b USING btree (group_id, a_id);
 
 CREATE INDEX table_b_idx ON table_b
-USING paradedb (id, group_id, a_id, category)
-WITH (
-    text_fields = '{
-        "group_id": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
-    }',
-    numeric_fields = '{
-        "a_id": {"fast": true}
-    }'
-);
+USING paradedb (id, (group_id::pdb.literal), a_id, (category::pdb.literal_normalized('lowercase=false', 'normalizer=lowercase')));
 
 -- Query execution
 SET paradedb.enable_join_custom_scan TO on;
@@ -66,7 +52,7 @@ WHERE id IN (
     FROM table_b
     WHERE group_id IN ('group_1')
 )
-AND id @@@ 'category:"target_category"'
+AND category ### 'target_category'
 ORDER BY id ASC
 LIMIT 10;
 
@@ -83,7 +69,7 @@ WHERE id NOT IN (
     FROM table_b
     WHERE group_id IN ('group_3', 'group_4')
 )
-AND id @@@ 'category:"target_category"'
+AND category ### 'target_category'
 ORDER BY id ASC
 LIMIT 10;
 
@@ -100,7 +86,7 @@ WHERE NOT EXISTS (
     WHERE table_b.a_id = table_a.id
     AND table_b.group_id IN ('group_3', 'group_4')
 )
-AND table_a.id @@@ 'category:"target_category"'
+AND table_a.category ### 'target_category'
 ORDER BY table_a.id ASC
 LIMIT 10;
 
@@ -120,7 +106,7 @@ AND id NOT IN (
     FROM table_b
     WHERE group_id IN ('group_3', 'group_4')
 )
-AND id @@@ 'category:"target_category"'
+AND category ### 'target_category'
 ORDER BY id ASC
 LIMIT 10;
 
@@ -136,7 +122,7 @@ AND id NOT IN (
     FROM table_b
     WHERE group_id IN ('group_3', 'group_4')
 )
-AND id @@@ 'category:"target_category"'
+AND category ### 'target_category'
 ORDER BY id ASC
 LIMIT 10;
 
@@ -177,7 +163,7 @@ WHERE id IN (
     FROM table_b
     WHERE group_id IN ('group_1')
 )
-AND id @@@ 'category:"target_category"'
+AND category ### 'target_category'
 ORDER BY category ASC, id ASC
 LIMIT 10;
 
@@ -188,7 +174,7 @@ WHERE id IN (
     FROM table_b
     WHERE group_id IN ('group_1')
 )
-AND id @@@ 'category:"target_category"'
+AND category ### 'target_category'
 ORDER BY category ASC, id ASC
 LIMIT 10;
 
@@ -204,7 +190,7 @@ WHERE id IN (
     SELECT a_id
     FROM table_b
 )
-AND id @@@ 'id:1'
+AND id @@@ pdb.all() AND id = 1
 ORDER BY id ASC
 LIMIT 10;
 
@@ -214,7 +200,7 @@ WHERE id IN (
     SELECT a_id
     FROM table_b
 )
-AND id @@@ 'id:1'
+AND id @@@ pdb.all() AND id = 1
 ORDER BY id ASC
 LIMIT 10;
 

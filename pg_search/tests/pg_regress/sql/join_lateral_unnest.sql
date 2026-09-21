@@ -94,7 +94,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
-WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+WHERE p.title ||| 'Smart' OR b.brand_name ||| 'Electronics'
 ORDER BY p.id, c
 LIMIT 5;
 
@@ -106,7 +106,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
-WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+WHERE p.title ||| 'Smart' OR b.brand_name ||| 'Electronics'
 ORDER BY p.id, c
 LIMIT 5;
 
@@ -125,9 +125,9 @@ JOIN jlu_brands b ON p.id = b.product_id
 LEFT JOIN jlu_stores s ON b.id = s.brand_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
 WHERE (
-    p.title @@@ 'Smart'
-    OR b.brand_name @@@ 'Electronics'
-    OR s.store_name @@@ 'Electronics'
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
 )
 ORDER BY p.id, t
 LIMIT 10;
@@ -143,9 +143,9 @@ JOIN jlu_brands b ON p.id = b.product_id
 LEFT JOIN jlu_stores s ON b.id = s.brand_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
 WHERE (
-    p.title @@@ 'Smart'
-    OR b.brand_name @@@ 'Electronics'
-    OR s.store_name @@@ 'Electronics'
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
 )
 ORDER BY p.id, t
 LIMIT 10;
@@ -162,7 +162,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 LEFT JOIN LATERAL unnest(b.tags) AS t ON true
-WHERE p.title @@@ 'Smart OR Mystery OR Empty' OR b.brand_name @@@ 'Electronics'
+WHERE (p.title ||| 'Smart' OR p.title ||| 'Mystery' OR p.title ||| 'Empty') OR b.brand_name ||| 'Electronics'
 ORDER BY p.id, t NULLS LAST
 LIMIT 10;
 
@@ -174,7 +174,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 LEFT JOIN LATERAL unnest(b.tags) AS t ON true
-WHERE p.title @@@ 'Smart OR Mystery OR Empty' OR b.brand_name @@@ 'Electronics'
+WHERE (p.title ||| 'Smart' OR p.title ||| 'Mystery' OR p.title ||| 'Empty') OR b.brand_name ||| 'Electronics'
 ORDER BY p.id, t NULLS LAST
 LIMIT 10;
 
@@ -192,7 +192,7 @@ JOIN jlu_brands b ON p.id = b.product_id
 JOIN jlu_stores s ON b.id = s.brand_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
 CROSS JOIN LATERAL unnest(s.regions) AS r
-WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+WHERE p.title ||| 'Smart' OR b.brand_name ||| 'Electronics'
 ORDER BY p.id, c, r
 LIMIT 10;
 
@@ -206,7 +206,7 @@ JOIN jlu_brands b ON p.id = b.product_id
 JOIN jlu_stores s ON b.id = s.brand_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
 CROSS JOIN LATERAL unnest(s.regions) AS r
-WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+WHERE p.title ||| 'Smart' OR b.brand_name ||| 'Electronics'
 ORDER BY p.id, c, r
 LIMIT 10;
 
@@ -222,7 +222,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
-WHERE (p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics')
+WHERE (p.title ||| 'Smart' OR b.brand_name ||| 'Electronics')
   AND t = 'bestseller'
 ORDER BY p.id, t
 LIMIT 10;
@@ -235,7 +235,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
-WHERE (p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics')
+WHERE (p.title ||| 'Smart' OR b.brand_name ||| 'Electronics')
   AND t = 'bestseller'
 ORDER BY p.id, t
 LIMIT 10;
@@ -251,7 +251,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
-WHERE (p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics')
+WHERE (p.title ||| 'Smart' OR b.brand_name ||| 'Electronics')
   AND t = 'bestseller'
 ORDER BY p.id
 LIMIT 10;
@@ -263,7 +263,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
-WHERE (p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics')
+WHERE (p.title ||| 'Smart' OR b.brand_name ||| 'Electronics')
   AND t = 'bestseller'
 ORDER BY p.id
 LIMIT 10;
@@ -280,9 +280,9 @@ JOIN jlu_brands b ON p.id = b.product_id
 LEFT JOIN jlu_stores s ON b.id = s.brand_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
 WHERE (
-    p.title @@@ 'Smart'
-    OR b.brand_name @@@ 'Electronics'
-    OR s.store_name @@@ 'Electronics'
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
 )
 GROUP BY t
 ORDER BY product_count DESC, t
@@ -296,9 +296,9 @@ JOIN jlu_brands b ON p.id = b.product_id
 LEFT JOIN jlu_stores s ON b.id = s.brand_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
 WHERE (
-    p.title @@@ 'Smart'
-    OR b.brand_name @@@ 'Electronics'
-    OR s.store_name @@@ 'Electronics'
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
 )
 GROUP BY t
 ORDER BY product_count DESC, t
@@ -314,7 +314,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
-WHERE p.title @@@ 'Smart'
+WHERE p.title ||| 'Smart'
 ORDER BY p.id, c ASC
 LIMIT 2;
 
@@ -324,7 +324,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
-WHERE p.title @@@ 'Smart'
+WHERE p.title ||| 'Smart'
 ORDER BY p.id, c ASC
 LIMIT 2;
 
@@ -338,7 +338,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
-WHERE p.title @@@ 'Smart'
+WHERE p.title ||| 'Smart'
 ORDER BY c DESC
 LIMIT 3;
 
@@ -348,7 +348,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
-WHERE p.title @@@ 'Smart'
+WHERE p.title ||| 'Smart'
 ORDER BY c DESC
 LIMIT 3;
 
@@ -363,7 +363,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
-WHERE (p.title @@@ 'Category' OR b.brand_name @@@ 'Brand')
+WHERE (p.title ||| 'Category' OR b.brand_name ||| 'Brand')
 ORDER BY p.id, t
 LIMIT 10;
 
@@ -374,7 +374,7 @@ SELECT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(b.tags) AS t
-WHERE (p.title @@@ 'Category' OR b.brand_name @@@ 'Brand')
+WHERE (p.title ||| 'Category' OR b.brand_name ||| 'Brand')
 ORDER BY p.id, t
 LIMIT 10;
 
@@ -392,7 +392,7 @@ SELECT
 FROM jlu_products p
 LEFT JOIN jlu_brands b ON p.id = b.product_id
 LEFT JOIN LATERAL unnest(b.tags) AS t ON true
-WHERE p.title @@@ 'Smart' AND b.product_id IS NULL
+WHERE p.title ||| 'Smart' AND b.product_id IS NULL
 ORDER BY p.id, t
 LIMIT 5;
 
@@ -403,7 +403,7 @@ SELECT
 FROM jlu_products p
 LEFT JOIN jlu_brands b ON p.id = b.product_id
 LEFT JOIN LATERAL unnest(b.tags) AS t ON true
-WHERE p.title @@@ 'Smart' AND b.product_id IS NULL
+WHERE p.title ||| 'Smart' AND b.product_id IS NULL
 ORDER BY p.id, t
 LIMIT 5;
 
@@ -417,7 +417,7 @@ SELECT DISTINCT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
-WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+WHERE p.title ||| 'Smart' OR b.brand_name ||| 'Electronics'
 ORDER BY p.id, c
 LIMIT 10;
 
@@ -427,7 +427,7 @@ SELECT DISTINCT
 FROM jlu_products p
 JOIN jlu_brands b ON p.id = b.product_id
 CROSS JOIN LATERAL unnest(p.categories) AS c
-WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+WHERE p.title ||| 'Smart' OR b.brand_name ||| 'Electronics'
 ORDER BY p.id, c
 LIMIT 10;
 
@@ -440,4 +440,3 @@ DROP TABLE jlu_products CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_range_partitioned_join;
-

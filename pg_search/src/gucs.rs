@@ -249,6 +249,15 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
     GucSetting::<i32>::new(20_000);
 
+/// Row count threshold below which DataFusion converts a partitioned HashJoinExec
+/// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
+static HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS: GucSetting<i32> =
+    GucSetting::<i32>::new(128 * 1024);
+
+/// Byte size threshold below which DataFusion converts a partitioned HashJoinExec
+/// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
+static HASH_JOIN_SINGLE_PARTITION_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(1024 * 1024);
+
 /// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
 /// sorted segments. When `false`, the planner never returns the gallop
 /// strategy regardless of density, and pushed-down InList filters fall
@@ -677,6 +686,28 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_single_partition_threshold_rows",
+        c"Row count threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        c"Row count threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        &HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_single_partition_threshold",
+        c"Byte size threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        c"Byte size threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        &HASH_JOIN_SINGLE_PARTITION_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     // TermSet strategy density thresholds (issue #4895). The kill-switch
     // (paradedb.term_set_gallop_enabled) is the safety override if the
     // gallop optimization regresses unexpectedly; the three density
@@ -1047,6 +1078,14 @@ pub fn hash_join_inlist_pushdown_max_size() -> i32 {
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn hash_join_single_partition_threshold_rows() -> i32 {
+    HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS.get()
+}
+
+pub fn hash_join_single_partition_threshold() -> i32 {
+    HASH_JOIN_SINGLE_PARTITION_THRESHOLD.get()
 }
 
 pub fn term_set_gallop_enabled() -> bool {

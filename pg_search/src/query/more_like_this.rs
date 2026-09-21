@@ -20,7 +20,7 @@ use crate::postgres::deparse::deparse_expr;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::{FieldSource, strip_tokenizer_cast, unwrap_alias_datum};
+use crate::postgres::utils::{FieldSource, unwrap_alias_datum};
 use crate::query::numeric::convert_value_for_field;
 use crate::schema::SearchFieldType;
 use pgrx::spi::SpiError;
@@ -148,22 +148,9 @@ impl MoreLikeThisQueryBuilder {
             .unwrap_or_else(|| {
                 panic!("more_like_this: lookup field '{lookup_field}' does not exist")
             });
-        let attno = match source {
-            FieldSource::Heap { attno } => Some(attno),
-            // Tokenizer casts can name a heap column; computed expressions cannot.
-            FieldSource::Expression { att_idx } => unsafe {
-                index_relation
-                    .index_expressions()
-                    .get_ptr(att_idx)
-                    .and_then(|expr| {
-                        crate::nodecast!(Var, T_Var, strip_tokenizer_cast(expr.cast()))
-                            .filter(|var| (**var).varattno > 0)
-                            .map(|var| ((*var).varattno - 1) as usize)
-                    })
-            },
-            FieldSource::CompositeField { .. } => None,
-        }
-        .expect("more_like_this(key_value => ...) requires a heap column on the left-hand side");
+        let attno = source.heap_attno(&index_relation).expect(
+            "more_like_this(key_value => ...) requires a heap column on the left-hand side",
+        );
         let tuple_desc = heap_relation.tuple_desc();
         let attribute = tuple_desc.get(attno).expect("lookup column should exist");
         let lookup_field = attribute.name();

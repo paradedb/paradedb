@@ -27,18 +27,7 @@ CREATE TABLE mixed_numeric_string_test (
     string_field3 TEXT NOT NULL,
     content TEXT
 );
-CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
-    id,
-    numeric_field1,
-    numeric_field2,
-    string_field1,
-    string_field2,
-    string_field3,
-    content
-) WITH (
-    text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
-);
+CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (id, numeric_field1, numeric_field2, (string_field1::pdb.simple('columnar=true')), (string_field2::pdb.simple('columnar=true')), (string_field3::pdb.simple('columnar=true')), (content::pdb.simple));
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -100,31 +89,9 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path
-) WITH (
-    text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb (id, (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
+CREATE INDEX files_search ON files USING paradedb (id, (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')));
+CREATE INDEX pages_search ON pages USING paradedb (id, (fileid::pdb.literal), (content::pdb.simple), page_number);
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -149,13 +116,7 @@ CREATE TABLE categories (
     description TEXT,
     parent_id INTEGER REFERENCES categories(id)
 );
-CREATE INDEX category_search ON categories USING paradedb (
-    id,
-    name,
-    description
-) WITH (
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
+CREATE INDEX category_search ON categories USING paradedb (id, (name::pdb.simple('columnar=true')), (description::pdb.simple('columnar=true')));
 INSERT INTO categories (name, description, parent_id) VALUES
 ('Electronics', 'Electronic devices and accessories', NULL),
 ('Computers', 'Desktop and laptop computers', 1),
@@ -173,15 +134,7 @@ CREATE TABLE products (
     category_id INTEGER REFERENCES categories(id),
     price FLOAT NOT NULL
 );
-CREATE INDEX product_search ON products USING paradedb (
-    id,
-    name,
-    category_id,
-    price
-) WITH (
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"category_id": {"fast": true}, "price": {"fast": true}}'
-);
+CREATE INDEX product_search ON products USING paradedb (id, (name::pdb.simple('columnar=true')), category_id, price);
 INSERT INTO products (name, category_id, price) VALUES
 ('Laptop Pro', 2, 1299.99),
 ('Smartphone X', 3, 899.99),
@@ -202,29 +155,7 @@ CREATE TABLE conversion_test (
     timestamp_field TIMESTAMP,
     content TEXT
 );
-CREATE INDEX conversion_search ON conversion_test USING paradedb (
-    id, 
-    smallint_field, 
-    integer_field, 
-    bigint_field, 
-    numeric_field, 
-    real_field, 
-    double_field, 
-    bool_from_int,
-    timestamp_field,
-    content
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{
-        "smallint_field": {"fast": true}, 
-        "integer_field": {"fast": true}, 
-        "bigint_field": {"fast": true}, 
-        "numeric_field": {"fast": true}, 
-        "real_field": {"fast": true}, 
-        "double_field": {"fast": true}
-    }',
-    boolean_fields = '{"bool_from_int": {"fast": true}}'
-);
+CREATE INDEX conversion_search ON conversion_test USING paradedb ((id::pdb.literal), smallint_field, integer_field, bigint_field, numeric_field, real_field, double_field, bool_from_int, timestamp_field, (content::pdb.simple));
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
 ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
@@ -276,19 +207,9 @@ FROM generate_series(1, 50) i;
 DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 CREATE INDEX union_test_a_idx ON union_test_a
-USING paradedb (id, title, author, rating, year, price, is_published)
-WITH (
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
-);
+USING paradedb (id, (title::pdb.simple('columnar=true')), (author::pdb.simple('columnar=true')), rating, year, price, is_published);
 CREATE INDEX union_test_b_idx ON union_test_b
-USING paradedb (id, title, author, rating, year, price, is_published)
-WITH (
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
-);
+USING paradedb (id, (title::pdb.simple('columnar=true')), (author::pdb.simple('columnar=true')), rating, year, price, is_published);
 -- Update statistics for consistent query planning
 ANALYZE mixed_numeric_string_test;
 ANALYZE documents;
@@ -399,37 +320,23 @@ DROP INDEX IF EXISTS products_idx;
 DROP INDEX IF EXISTS categories_idx;
 DROP INDEX IF EXISTS reviews_idx;
 CREATE INDEX products_idx ON products
-USING paradedb (id, name, description, price, stock_count, is_available)
-WITH (
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"price": {"fast": true}, "stock_count": {"fast": true}}',
-    boolean_fields = '{"is_available": {"fast": true}}'
-);
+USING paradedb (id, (name::pdb.simple('columnar=true')), (description::pdb.simple), price, stock_count, is_available);
 CREATE INDEX categories_idx ON categories
-USING paradedb (id, name, description, product_count, is_active)
-WITH (
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"product_count": {"fast": true}}',
-    boolean_fields = '{"is_active": {"fast": true}}'
-);
+USING paradedb (id, (name::pdb.simple('columnar=true')), (description::pdb.simple('columnar=true')), product_count, is_active);
 CREATE INDEX reviews_idx ON reviews
-USING paradedb (id, reviewer_name, content, rating, helpful_votes)
-WITH (
-    text_fields = '{"reviewer_name": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"rating": {"fast": true}, "helpful_votes": {"fast": true}}'
-);
+USING paradedb (id, (reviewer_name::pdb.simple('columnar=true')), (content::pdb.simple), rating, helpful_votes);
 -- Test 1: Join between products and categories with search
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product' AND c.is_active = true
+WHERE p.name ||| 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc)
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: p.price DESC
@@ -448,14 +355,14 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                            Exec Method: ColumnarExecState
                            Columnar: id, name, price
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"Product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product' AND c.is_active = true
+WHERE p.name ||| 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc)
@@ -478,12 +385,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, r.rating, r.content
 FROM products p
 JOIN reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'product' AND r.rating >= 4
+WHERE p.description ||| 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, r)
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: r.helpful_votes DESC
@@ -498,13 +405,13 @@ WARNING:  JoinScan not used: join conditions must reference columnar indexed fie
                            Exec Method: ColumnarExecState
                            Columnar: id, name
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT p.name, r.rating, r.content
 FROM products p
 JOIN reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'product' AND r.rating >= 4
+WHERE p.description ||| 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, r)
@@ -524,7 +431,7 @@ FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 JOIN reviews r ON p.id = r.product_id
-WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
+WHERE p.price < 500 AND c.product_count > 10 AND p.name ||| 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
 ORDER BY avg_rating, pdb.score(p.id) DESC;
@@ -534,7 +441,7 @@ FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 JOIN reviews r ON p.id = r.product_id
-WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
+WHERE p.price < 500 AND c.product_count > 10 AND p.name ||| 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
 ORDER BY avg_rating, pdb.score(p.id) DESC;
@@ -546,7 +453,7 @@ WITH top_products AS (
     FROM products p
     WHERE p.price BETWEEN 100 AND 800
       AND p.is_available = true
-      AND p.name @@@ 'Product'
+      AND p.name ||| 'Product'
     ORDER BY p.price DESC
     LIMIT 50
 ),
@@ -566,8 +473,8 @@ WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
 WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: reviews)
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, pc)
-                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: pr.avg_rating DESC, (pdb.score(tp.id)), tp.price DESC
    ->  Hash Join
@@ -597,7 +504,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                                  Scores: false
                                     TopK Order By: price desc
                                     TopK Limit: 50
-                                 Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0}}},{"term":{"field":"is_available","value":true}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
+                                 Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0}}},{"term":{"field":"is_available","value":true}},{"with_index":{"query":{"match":{"field":"name","value":"Product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (30 rows)
 
 WITH top_products AS (
@@ -605,7 +512,7 @@ WITH top_products AS (
     FROM products p
     WHERE p.price BETWEEN 100 AND 800
       AND p.is_available = true
-      AND p.name @@@ 'Product'
+      AND p.name ||| 'Product'
     ORDER BY p.price DESC
     LIMIT 50
 ),
@@ -630,18 +537,18 @@ ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/pa
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 'Product' as type, name as item_name, description as content
 FROM products
-WHERE name @@@ '10' OR description @@@ 'feature'
+WHERE name ||| '10' OR description ||| 'feature'
 UNION ALL
 SELECT 'Category' as type, name as item_name, description as content
 FROM categories
-WHERE name @@@ 'e'
+WHERE name ||| 'e'
 UNION ALL
 SELECT 'Review' as type, reviewer_name as item_name, content
 FROM reviews
-WHERE content @@@ 'great'
+WHERE content ||| 'great'
 ORDER BY type, item_name;
-                                                                                                                                                      QUERY PLAN                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ('Product'::text), products.name
    ->  Append
@@ -650,32 +557,32 @@ ORDER BY type, item_name;
                Index: products_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"10","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"feature","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"10","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"feature","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
          ->  Custom Scan (ParadeDB Base Scan) on categories
                Table: categories
                Index: categories_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"e","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"e","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Custom Scan (ParadeDB Base Scan) on reviews
                Table: reviews
                Index: reviews_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"great","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"great","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (21 rows)
 
 SELECT 'Product' as type, name as item_name, description as content
 FROM products
-WHERE name @@@ '10' OR description @@@ 'feature'
+WHERE name ||| '10' OR description ||| 'feature'
 UNION ALL
 SELECT 'Category' as type, name as item_name, description as content
 FROM categories
-WHERE name @@@ 'e'
+WHERE name ||| 'e'
 UNION ALL
 SELECT 'Review' as type, reviewer_name as item_name, content
 FROM reviews
-WHERE content @@@ 'great'
+WHERE content ||| 'great'
 ORDER BY type, item_name;
   type   |  item_name  |                                      content                                      
 ---------+-------------+-----------------------------------------------------------------------------------
@@ -730,14 +637,14 @@ WHERE p.id IN (
     SELECT pc.product_id
     FROM product_categories pc
     JOIN categories c ON pc.category_id = c.id
-    WHERE c.name @@@ 'electronics OR clothing'
+    WHERE (c.name ||| 'electronics' OR c.name ||| 'clothing')
 )
 AND p.stock_count > 50
 AND p.price < 500
 ORDER BY p.price;
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc)
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.price
    ->  Nested Loop Semi Join
@@ -756,7 +663,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                            Exec Method: ColumnarExecState
                            Columnar: id
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"electronics OR clothing","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"clothing","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (19 rows)
 
 SELECT p.name, p.price, p.stock_count
@@ -765,7 +672,7 @@ WHERE p.id IN (
     SELECT pc.product_id
     FROM product_categories pc
     JOIN categories c ON pc.category_id = c.id
-    WHERE c.name @@@ 'electronics OR clothing'
+    WHERE (c.name ||| 'electronics' OR c.name ||| 'clothing')
 )
 AND p.stock_count > 50
 AND p.price < 500
@@ -799,7 +706,7 @@ LEFT JOIN (
 ) r ON p.id = r.product_id
 WHERE p.is_available = true
   AND p.price BETWEEN 200 AND 600
-  AND p.name @@@ 'Product'
+  AND p.name ||| 'Product'
 ORDER BY 
     CASE 
         WHEN r.rating IS NULL THEN 0
@@ -808,8 +715,8 @@ ORDER BY
     pdb.score(p.id),
     p.price;
 WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: reviews)
-                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (CASE WHEN ((avg(reviews.rating)) IS NULL) THEN '0'::numeric ELSE (avg(reviews.rating)) END) DESC, (pdb.score(p.id)), p.price
    ->  Hash Right Join
@@ -823,7 +730,7 @@ WARNING:  Aggregate Scan not used: grouping column product_id is missing from in
                      Index: products_idx
                      Exec Method: NormalScanExecState
                      Scores: true
-                     Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_available","value":true}},{"range":{"field":"price","lower_bound":{"included":200.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":600.0}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
+                     Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_available","value":true}},{"range":{"field":"price","lower_bound":{"included":200.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":600.0}}},{"with_index":{"query":{"match":{"field":"name","value":"Product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (14 rows)
 
 SELECT 
@@ -843,7 +750,7 @@ LEFT JOIN (
 ) r ON p.id = r.product_id
 WHERE p.is_available = true
   AND p.price BETWEEN 200 AND 600
-  AND p.name @@@ 'Product'
+  AND p.name ||| 'Product'
 ORDER BY 
     CASE 
         WHEN r.rating IS NULL THEN 0
@@ -895,14 +802,14 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product'
+WHERE p.name ||| 'Product'
   AND r.rating > 3
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, p, pc, r)
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: r.rating DESC, p.price DESC
    ->  Hash Join
@@ -926,7 +833,7 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                                  Exec Method: ColumnarExecState
                                  Columnar: id, name, price
                                  Scores: false
-                                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true}}]}}
+                                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"Product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"term":{"field":"is_available","value":true}}]}}
 (24 rows)
 
 SELECT p.name, p.price, r.content, r.rating
@@ -934,7 +841,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product'
+WHERE p.name ||| 'Product'
   AND r.rating > 3
   AND c.name = 'Electronics'
   AND p.is_available = true
@@ -949,7 +856,7 @@ SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product 1'
+WHERE p.name ||| 'Product 1'
   AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 5;
@@ -971,7 +878,7 @@ DROP TABLE IF EXISTS product_categories;
 DROP TABLE IF EXISTS reviews;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories; 
-\i common/columnar_advanced_cleanup.sql 
+\i common/columnar_advanced_cleanup.sql
 -- Cleanup for advanced features tests (13-21)
 -- Drop the tables used in these tests (in reverse order to handle dependencies)
 DROP TABLE IF EXISTS conversion_test CASCADE;

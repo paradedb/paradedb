@@ -47,15 +47,12 @@ pub extern "C-unwind" fn ambuild(
     let mut index_relation = unsafe { PgSearchRelation::from_pg(indexrel) };
     index_relation.set_is_create_index();
 
-    // Capture the relation's inherent WAL-needed flag before any deferred-WAL override.
+    // Capture the relation's inherent WAL-needed flag before suppressing WAL during build.
     let needs_wal = index_relation.need_wal();
 
-    let deferred_wal = cfg!(feature = "deferred_wal");
-    if deferred_wal {
-        // we don't need to WAL log if our deferred_wal feature is turned on
-        // otherwise we'll let Postgres decide for us if this new index needs WAL or not
-        index_relation.set_need_wal(false);
-    }
+    // Do not emit WAL records inside the tuple insertion/page building loop.
+    // Instead, log all pages to the WAL at the end of the build via log_newpage_range.
+    index_relation.set_need_wal(false);
 
     unsafe {
         // Vector fields require centroids at index CREATION (tantivy's V3
@@ -89,8 +86,8 @@ pub extern "C-unwind" fn ambuild(
 
     pgrx::debug1!("build_index: flushing buffers");
 
-    // if we're configured to defer WAL logging, now is the time to do it
-    if deferred_wal && needs_wal {
+    // At the conclusion of the build, log all pages to the WAL if required.
+    if needs_wal {
         let nblocks = unsafe {
             pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM)
         };
@@ -634,10 +631,8 @@ mod tests {
     fn a_non_fast_partition_key_is_rejected() {
         Spi::run(
             r#"
-            CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX unroutable_key_idx ON unroutable_key USING bm25 (id, tenant_id, name)
-                WITH (partition_by = 'tenant_id', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": false}}');
+            CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id TEXT, name TEXT);
+            CREATE INDEX unroutable_key_idx ON unroutable_key USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 4);
             "#,
         )
         .unwrap();
@@ -652,9 +647,7 @@ mod tests {
         Spi::run(
             r#"
             CREATE TABLE mixed_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX mixed_key_idx ON mixed_key USING bm25 (id, tenant_id, name)
-                WITH (partition_by = 'tenant_id, name', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": true}}');
+            CREATE INDEX mixed_key_idx ON mixed_key USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id, name', target_segment_count = 4);
             "#,
         )
         .unwrap();
@@ -667,9 +660,7 @@ mod tests {
         Spi::run(
             r#"
             CREATE TABLE normalized_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
-            CREATE INDEX normalized_sort_idx ON normalized_sort USING bm25 (id, name)
-                WITH (sort_by = 'name ASC NULLS FIRST',
-                      text_fields = '{"name": {"fast": true, "normalizer": "lowercase"}}');
+            CREATE INDEX normalized_sort_idx ON normalized_sort USING paradedb (id, (name::pdb.unicode_words('normalizer=lowercase', 'columnar=true'))) WITH (sort_by = 'name ASC NULLS FIRST');
             INSERT INTO normalized_sort (name)
             SELECT 'Lorem Ipsum ' || i FROM generate_series(1, 500) i;
             "#,

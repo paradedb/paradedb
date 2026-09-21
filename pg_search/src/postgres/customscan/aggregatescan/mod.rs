@@ -48,7 +48,6 @@ use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, get_plan_with_merged_metrics,
 };
-use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 
 use datafusion_distributed::{DistributedExt, DistributedTaskContext};
@@ -107,7 +106,9 @@ use crate::postgres::customscan::exec::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
-use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
+use crate::postgres::customscan::joinscan::scan_state::{
+    build_physical_plan, build_task_context, clone_task_context_with_config,
+};
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
@@ -2062,11 +2063,7 @@ impl AggregateScan {
                         task_count: 1,
                     },
                 ));
-                Arc::new(
-                    TaskContext::default()
-                        .with_session_config(cfg)
-                        .with_runtime(task_ctx.runtime_env().clone()),
-                )
+                Arc::new(clone_task_context_with_config(&task_ctx, cfg))
             };
             let stream = {
                 let _guard = runtime.enter();
@@ -2638,9 +2635,24 @@ unsafe fn detect_join_aggregate_topk(
 
     // Try group column: ORDER BY category, ORDER BY name, etc.
     if let Some(gc_idx) = extracted_target.group_index(sort_expr) {
-        // The sort expression must be a simple Var (group column reference).
-        if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
-            return None;
+        let gc = &targetlist.group_columns[gc_idx];
+        match gc.transform {
+            GroupingTransform::Identity => {
+                // The sort expression must be a simple Var (group column reference).
+                if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
+                    return None;
+                }
+            }
+            GroupingTransform::TimestampToDate => {
+                if (*sort_expr).type_ != pg_sys::NodeTag::T_FuncExpr {
+                    return None;
+                }
+
+                let func_expr = sort_expr.cast::<pg_sys::FuncExpr>();
+                if (*func_expr).funcid.to_u32() != pg_sys::F_DATE_TIMESTAMP {
+                    return None;
+                }
+            }
         }
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering

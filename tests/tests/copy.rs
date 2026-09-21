@@ -37,7 +37,7 @@ async fn test_copy_to_table(mut conn: PgConnection) {
     copyin.send("one\ntwo\nthree".as_bytes()).await.unwrap();
     copyin.finish().await.unwrap();
 
-    let (count,) = "SELECT COUNT(*) FROM test_copy_to_table WHERE name @@@ 'one'"
+    let (count,) = "SELECT COUNT(*) FROM test_copy_to_table WHERE name ||| 'one'"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }

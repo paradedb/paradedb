@@ -71,6 +71,9 @@ pub struct ParallelVectorState {
     rank_complete: AtomicBool,
     rank_metrics: UnsafeCell<Option<tantivy::vector::RouterMetrics>>,
     rank_time_ns: AtomicU64,
+    rank_precomputed_centroids: AtomicU64,
+    capacity_opens: AtomicU64,
+    capacity_rows: AtomicU64,
     leader_routes: bool,
     native_participants: AtomicU32,
     route_wait_ns: AtomicU64,
@@ -165,6 +168,9 @@ impl ParallelVectorState {
                 rank_complete: AtomicBool::new(false),
                 rank_metrics: UnsafeCell::new(None),
                 rank_time_ns: AtomicU64::new(0),
+                rank_precomputed_centroids: AtomicU64::new(0),
+                capacity_opens: AtomicU64::new(0),
+                capacity_rows: AtomicU64::new(0),
                 leader_routes,
                 native_participants: AtomicU32::new(0),
                 route_wait_ns: AtomicU64::new(0),
@@ -504,6 +510,8 @@ impl ParallelVectorState {
             unsafe { self.rank_metrics.get().write(stats.routing) };
             self.rank_time_ns
                 .store(stats.routing_time_ns, Ordering::Relaxed);
+            self.rank_precomputed_centroids
+                .store(stats.precomputed_centroids as u64, Ordering::Relaxed);
             self.rank_complete.store(true, Ordering::Release);
         }
         let values = [
@@ -583,7 +591,9 @@ impl ParallelVectorState {
         value["heap_publish_deferred"] = values[13].into();
         value["ranked_clusters"] = ranked_len.into();
         value["budgeted_prefix"] = self.route().initial_wave.is_some().into();
-        value["precomputed_centroids"] = self.route().precomputed_centroids.into();
+        value["precomputed_centroids"] = (self.route().precomputed_centroids as u64
+            + self.rank_precomputed_centroids.load(Ordering::Relaxed))
+        .into();
         value["shared_heap_capacity"] = self.heap_capacity.into();
         value["probe_rounds"] = values[16].into();
         value["work_claims"] = values[18].into();
@@ -671,6 +681,28 @@ impl PgVectorSearchControl<'_> {
 }
 
 impl VectorSearchControl for PgVectorSearchControl<'_> {
+    fn add_capacity(&mut self, capacity: ClusterWork) {
+        if let Some(state) = self.shared {
+            let state = unsafe { state.as_ref() };
+            state
+                .capacity_opens
+                .fetch_add(capacity.opens, Ordering::Relaxed);
+            state
+                .capacity_rows
+                .fetch_add(capacity.rows, Ordering::Relaxed);
+        }
+    }
+
+    fn capacity(&self) -> Option<ClusterWork> {
+        self.shared.map(|state| {
+            let state = unsafe { state.as_ref() };
+            ClusterWork {
+                opens: state.capacity_opens.load(Ordering::Relaxed),
+                rows: state.capacity_rows.load(Ordering::Relaxed),
+            }
+        })
+    }
+
     fn routes_clusters(&mut self) -> bool {
         let Some(state) = self.shared else {
             return true;

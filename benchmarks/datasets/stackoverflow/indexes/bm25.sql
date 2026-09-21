@@ -70,6 +70,7 @@ CREATE INDEX comments_text_fts_idx ON comments USING gin (to_tsvector('english',
 -- Common Scalar Filter, Grouping, and Sort Columns (B-tree)
 CREATE INDEX stackoverflow_posts_creation_date_idx ON stackoverflow_posts (creation_date DESC);
 CREATE INDEX users_reputation_idx ON users (reputation);
+CREATE INDEX users_display_name_idx ON users (display_name);
 CREATE INDEX comments_score_idx ON comments (score);
 CREATE INDEX comments_creation_date_id_idx ON comments (creation_date DESC, id DESC);
 

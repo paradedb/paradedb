@@ -210,14 +210,6 @@ jobs:
         run: |
           sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
           sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
-
-          cat >> postgresql.conf <<'EOF'
-          max_worker_processes = 64
-          max_parallel_workers = 16
-          max_parallel_workers_per_gather = 2
-          dynamic_shared_memory_type = posix
-          EOF
-
           echo "citus.node_conninfo = 'sslmode=prefer'" >> postgresql.conf
 
       - name: Compile & install pg_search extension (system)
@@ -277,7 +269,7 @@ jobs:
           export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
-            RUST_BACKTRACE=1 cargo test --jobs 4 --package tests --package tokenizers -- --test-threads=4
+            RUST_BACKTRACE=1 cargo test --jobs $(nproc) --package tests --package tokenizers
           else
             RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --package tests --package tokenizers --lcov --output-path coverage-integration-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
           fi
@@ -296,17 +288,7 @@ jobs:
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
-        run: |
-          set -euo pipefail
-          export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/pg_search
-          # Phase 1: everything except the two MPP-heavy binaries, with normal concurrency.
-          # (--skip matches test names; each of these binaries hosts a single test.)
-          RUST_BACKTRACE=1 cargo test --jobs 4 --no-default-features --package tests --package tokenizers -- --test-threads=4 --skip replication --skip ephemeral --skip mpp_signal_does_not_crash_backend --skip mpp_joinscan_survives_mutable_build_side_churn
-          # Phase 2: the MPP-heavy binaries serially (one binary at a time). They share
-          # one Postgres cluster, so concurrent MPP workloads starve parallel workers
-          # ("launched 1 of 2 requested workers") and destabilize signal timing.
-          RUST_BACKTRACE=1 cargo test --jobs 1 --no-default-features --package tests --test mpp_joinscan_concurrent -- --test-threads=1
-          RUST_BACKTRACE=1 cargo test --jobs 1 --no-default-features --package tests --test mpp_cancel -- --test-threads=1
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
 
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'

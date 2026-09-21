@@ -33,30 +33,24 @@ def psql(sql):
 def queries():
     selected = {}
     directory = ROOT / "benchmarks/datasets/stackoverflow/queries"
-    # These three existing files contain no semicolons or SQL comments within literals.
-    for stem, alternative in [
-        ("join_aggregate_topk_count", 2),
-        ("join_semi_filter", 1),
-        ("regex-and-heap", 0),
-    ]:
-        sql = re.sub(r"--[^\n]*", "", (directory / f"{stem}.sql").read_text())
-        groups = []
-        prefix = []
-        for statement in sql.split(";"):
-            statement = statement.strip()
-            if not statement:
-                continue
-            if statement.upper().startswith("SET "):
-                prefix.append(statement)
-            else:
-                assert statement.split()[0].upper() == "SELECT", statement
-                groups.append((prefix, statement))
-                prefix = []
-        assert not prefix
-        settings, query = groups[alternative]
-        name = f"{stem}-alt{alternative}"
+    # These selected files contain no semicolons or SQL comments within literals.
+    paths = [
+        "join_permissioned_search/hash_partitioned.sql",
+        "join_permissioned_search/range_partitioned.sql",
+        "join_semi_filter/hash_partitioned.sql",
+        "join_semi_filter/range_partitioned.sql",
+        "join_aggregate_topk_count/aggregate_scan_late_materialized.sql",
+        "regex_and_heap.sql",
+    ]
+    for relative in paths:
+        path = directory / relative
+        sql = re.sub(r"--[^\n]*", "", path.read_text())
+        statements = [statement.strip() for statement in sql.split(";") if statement.strip()]
+        settings, query = statements[:-1], statements[-1]
+        assert all(statement.upper().startswith("SET ") for statement in settings)
+        assert query.upper().startswith("SELECT")
+        name = relative.removesuffix(".sql").replace("/", "-")
         selected[name] = (settings, query)
-    assert not (directory / "bm25").exists(), "the full flat suite must remain selected"
     for name, (settings, query) in selected.items():
         (OUT / f"{name}.sql").write_text("; ".join([*settings, query]) + ";\n")
     return selected
@@ -108,23 +102,21 @@ def benchmark(size, label, *, initialize=False):
 
 
 def suite_inventory():
-    """Match the repository parser's group boundaries; the Rust runner executes the SQL."""
+    """Match #6421's file labels; the Rust runner executes the SQL."""
     directory = ROOT / "benchmarks/datasets/stackoverflow/queries"
     assert not (directory / "bm25").exists()
     result = {}
-    for path in sorted(directory.glob("*.sql")):
-        groups = []
-        for group in path.read_text().split(";\n"):
-            parts = group.split("$$")
-            group = "$$".join(
-                part if i % 2 else " ".join(line.split("--", 1)[0].strip() for line in part.split("\n"))
-                for i, part in enumerate(parts)
-            ).strip()
-            if group:
-                groups.append(group)
-        for alternative, group in enumerate(groups):
-            name = path.stem + (f" - alternative {alternative}" if alternative else "")
-            result[name] = group
+    for path in sorted(directory.iterdir()):
+        if path.is_dir():
+            files = sorted(path.glob("*.sql"))
+            for sql_path in files:
+                stem = sql_path.stem
+                name = path.name
+                if len(files) > 1 or stem not in {"default", "query", name}:
+                    name += f" - {stem}"
+                result[name] = sql_path.read_text()
+        elif path.suffix == ".sql" and not path.with_suffix("").is_dir():
+            result[path.stem] = path.read_text()
     assert result
     return result
 

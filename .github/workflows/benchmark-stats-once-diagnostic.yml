@@ -1,0 +1,76 @@
+name: Diagnostic paired Stack Overflow comparison
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  paired:
+    name: Same-index comparison (${{ matrix.size }})
+    timeout-minutes: 720
+    strategy:
+      fail-fast: false
+      matrix:
+        size: [100k, 1m, 20m]
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=m8gd.metal-24xl
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
+    env:
+      pg_version: 18
+      BASELINE_SHA: 4ae747815f6031ab8d47a443da1d261515e41b96
+      FIXED_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: runs-on/action@v2
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - uses: ./.github/actions/setup-benchmark-cluster
+        with:
+          pg_version: 18
+      - name: Preserve both release builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostic-output
+          test "$(git rev-parse HEAD)" = "$FIXED_SHA"
+          printf 'main=%s\nfixed=%s\n' "$BASELINE_SHA" "$FIXED_SHA" > diagnostic-output/source-commits.txt
+          pkglibdir=$(/usr/lib/postgresql/18/bin/pg_config --pkglibdir)
+          cp "$pkglibdir/pg_search.so" diagnostic-output/fixed.so
+          (cd pg_search && cargo pgrx stop pg18)
+          git checkout --detach "$BASELINE_SHA"
+          test "$(git rev-parse HEAD)" = "$BASELINE_SHA"
+          cargo pgrx install -p pg_search --sudo --release --pg-config /usr/lib/postgresql/18/bin/pg_config --features=pg18 --no-default-features
+          cp "$pkglibdir/pg_search.so" diagnostic-output/baseline.so
+          git checkout --detach "$GITHUB_SHA"
+          sha256sum diagnostic-output/*.so | tee diagnostic-output/binaries.sha256
+          cargo build --release -p benchmarks
+      - name: Restore heap once
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd benchmarks && ../target/release/benchmarks restore-heap --dataset stackoverflow --size '${{ matrix.size }}' --pgdata /home/runner/.pgrx/data-18 --stanza bench --repo-bucket paradedb-ci-benchmarks --repo-path-prefix /snapshots --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com --repo-s3-key-type shared)
+          (cd pg_search && cargo pgrx start pg18)
+          psql postgresql://localhost:28818/postgres -v ON_ERROR_STOP=1 --single-transaction -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+      - name: Compare both builds on unchanged indexes
+        shell: bash
+        run: python3 benchmarks/diagnostics/paired_stats_once.py '${{ matrix.size }}'
+      - name: Upload measurements and plans
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-once-paired-${{ matrix.size }}
+          path: |
+            diagnostic-output/*.json
+            diagnostic-output/*.log
+            diagnostic-output/*.txt
+            diagnostic-output/*.sql
+            diagnostic-output/*.sha256
+            diagnostic-output/*.md
+          if-no-files-found: error

@@ -1,76 +1,545 @@
+# workflows/benchmark-pg_search-queries.yml
+#
+# Benchmark pg_search (Queries)
+# Run our queries benchmark suite (stackoverflow and/or cohere) against pg_search.
+
 name: Benchmark pg_search (Queries)
+
+# We run benchmarks on push to `main` and on benchmark-labeled PRs. stackoverflow runs by default;
+# cohere is opt-in via the benchmark-cohere-{hnsw,ivfflat} labels (or a manual run).
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/actions/benchmark-queries/**"
+      - ".github/actions/benchmarks-from-main/**"
+      - ".github/actions/setup-benchmark-cluster/**"
+      - ".github/actions/setup-pg-search-build-environment/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/actions/setup-postgres/**"
+      - ".github/workflows/benchmark-pg_search-queries.yml"
+      - "benchmarks/**"
+      - "**/*.rs"
+      - "**/*.toml"
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
+    inputs:
+      dataset:
+        description: "Dataset to benchmark on a manual run. Ignored otherwise: push and the benchmarks/benchmark-stackoverflow labels run stackoverflow; benchmark-cohere-{hnsw,ivfflat} labels run cohere."
+        required: true
+        type: choice
+        options:
+          - all
+          - stackoverflow
+          - cohere
+      cohere_index:
+        description: "Which cohere index to benchmark (applies when dataset is cohere/all). For label-triggered runs the index comes from the label instead (benchmark-cohere-hnsw / -ivfflat / -vchord / -pg_search / -pgvectorscale)."
+        required: false
+        default: hnsw
+        type: choice
+        options:
+          - hnsw
+          - ivfflat
+          - vchord
+          - pg_search
+          - pgvectorscale
+      commit:
+        description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
+        required: false
+        default: ""
+      fail_on_error:
+        description: "Whether to fail on query errors. Set to false for backfills against older versions."
+        required: false
+        type: boolean
+        default: true
+      use_benchmarks_from_ref:
+        description: "Whether to use actions and benchmark code from the specified commit. By default, the stuff from main will be used."
+        required: false
+        type: boolean
+        default: false
+      publish_baseline:
+        description: "Whether to write the results to the gh-pages baseline that later runs are diffed against. Ignored unless this run is on main. Untick for an exploratory run you do not want recorded."
+        required: false
+        type: boolean
+        default: true
+
 permissions:
-  contents: read
+  actions: write
+  contents: write
+  deployments: write
+  pull-requests: write
+
+# We don't specify a concurrency group here, as we want all jobs to complete.
+
 jobs:
-  paired:
-    name: Same-index comparison (${{ matrix.size }})
-    timeout-minutes: 720
-    strategy:
-      fail-fast: false
-      matrix:
-        size: [100k, 1m, 20m]
+  benchmark-pg_search-queries:
+    name: Run Benchmark Jobs
+    # pgvectorscale sweeps query_search_list_size to its 10000 maximum on the filtered arms, and
+    # post-filter streaming at 1% selectivity makes the top of that ladder enormously more expensive
+    # per point than any other index here. Its first run died at the 360m default. A day is enough
+    # to measure it rather than truncate the sweep; every other arm keeps the default it fits in.
+    timeout-minutes: ${{ (inputs.cohere_index == 'pgvectorscale' || github.event.label.name == 'benchmark-cohere-pgvectorscale') && 1440 || 360 }}
     runs-on:
+      # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m8gd.metal-24xl
+      - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu24-full-arm64
-      - extras=s3-cache
+      - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
+      # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
+      # using EBS would cause
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
+      )
     env:
       pg_version: 18
-      BASELINE_SHA: 44544cdcf5305ae3f3ebdad6f087ddd7652269d2
-      FIXED_SHA: ${{ github.sha }}
+      BACKREST_STANZA: bench
+      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
+      BACKREST_REPO_PATH_PREFIX: /snapshots
+      BACKREST_REPO_REGION: us-east-1
+      BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
+      BACKREST_REPO_S3_KEY_TYPE: shared
+      # Which datasets this run benchmarks, resolved once.
+      # stackoverflow: push to main, the benchmarks/benchmark-stackoverflow PR labels, or a manual run.
+      # cohere: opt-in only -- the benchmark-cohere-{hnsw,ivfflat} PR labels, or a manual run. The
+      # chosen index comes from the dispatch input or the label name (no default).
+      RUN_STACKOVERFLOW: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackoverflow')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)) }}
+      RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)) }}
+      # Only main writes the baseline. Every other run still fetches it and diffs against it,
+      # so a PR gets its comparison without being able to move the reference point.
+      PUBLISH_BASELINE: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}
+      COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-vchord' && 'vchord') || (github.event.label.name == 'benchmark-cohere-pg_search' && 'pg_search') || (github.event.label.name == 'benchmark-cohere-pgvectorscale' && 'pgvectorscale') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
+
     steps:
-      - uses: actions/checkout@v7
+      # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
+      # removes the label once the job has started, so it can be applied again if needed.
+      - name: Maybe Remove Label
+        if: >-
+          github.event_name == 'pull_request' &&
+          contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label benchmarks \
+            --remove-label benchmark-stackoverflow \
+            --remove-label benchmark-cohere-hnsw \
+            --remove-label benchmark-cohere-ivfflat \
+            --remove-label benchmark-cohere-vchord \
+            --remove-label benchmark-cohere-pg_search \
+            --remove-label benchmark-cohere-pgvectorscale || true
+
+      - name: Determine Ref to Benchmark
+        id: determine-ref
+        run: |
+          # If a specific commit was provided via workflow_dispatch, use that.
+          # For pull_request events, benchmark the PR merge commit (github.sha),
+          # which exists in the base repo even for forks.
+          # Otherwise, default to main.
+          if [ -n "${{ inputs.commit }}" ]; then
+            echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from workflow_dispatch input: ${{ inputs.commit }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from pull_request event: ${{ github.sha }}"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "Determined ref as default: main"
+          fi
+
+      - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
+        uses: actions/checkout@v7
         with:
+          ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
-      - uses: runs-on/action@v2
-      - uses: aws-actions/configure-aws-credentials@v6
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
-      - uses: ./.github/actions/setup-benchmark-cluster
+
+      - name: Derive Short Commit
+        id: commit_info
+        run: |
+          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
+          echo "Deriving short commit: $short_commit"
+
+      # always fetch the actions from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
+      - name: Fetch the Latest Composite Actions
+        if: >-
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
+        uses: actions/checkout@v7
         with:
-          pg_version: 18
-      - name: Preserve both release builds
-        shell: bash
+          repository: ${{ github.repository }}
+          path: actions-temp
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+          ref: main
+
+      - name: Copy latest actions into place
+        if: >-
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
+        run: cp -rv actions-temp/.github/actions .github/
+
+      - name: Cleanup temporary checkout
+        if: >-
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
+        run: rm -rf actions-temp
+
+      # always fetch the code from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
+      - name: Fetch latest benchmark code, suites
+        if: >-
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
+        uses: ./.github/actions/benchmarks-from-main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve git ref to PR
+        id: pr_label
+        uses: actions/github-script@v9
+        env:
+          # ← Set this to whatever ref you’re resolving:
+          # • a SHA:            ${{ github.sha }}
+          # • a branch name:    ${{ github.ref_name }}
+          # • a tag:            ${{ github.ref_name }}
+          # • a PR number:      e.g. “123”
+          TARGET_REF: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const { owner, repo } = context.repo;
+            const ref = process.env.TARGET_REF;
+
+            let pr = null;
+
+            // If the ref is purely numeric, treat it as a PR number
+            if (/^\d+$/.test(ref)) {
+              try {
+                const { data } = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: parseInt(ref, 10)
+                });
+                pr = data;
+              } catch (e) {
+                // not a valid PR number → fall through
+              }
+            }
+
+            // Otherwise, try to find any PR associated with this commit SHA
+            if (!pr) {
+              const res = await github.request(
+                'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls',
+                {
+                  owner,
+                  repo,
+                  commit_sha: ref,
+                  headers: {
+                    accept: 'application/vnd.github.groot-preview+json'
+                  }
+                }
+              );
+              if (res.data.length) {
+                pr = res.data[0];
+              }
+            }
+
+            // Return “PR #123: Title” or the raw ref
+            return pr
+              ? `PR #${pr.number}: ${pr.title}`
+              : ref;
+
+      - name: Running for ${{ steps.pr_label.outputs.result }}
+        run: echo ${{ steps.pr_label.outputs.result }}
+
+      - name: Set Up Benchmark Cluster
+        uses: ./.github/actions/setup-benchmark-cluster
+        with:
+          pg_version: ${{ env.pg_version }}
+
+      # Benchmark "stackoverflow" dataset at multiple scales (100K, 1M, 20M). Each size restores its
+      # heap snapshot from S3 (replacing the whole cluster), then the benchmark builds the index and
+      # runs queries against it.
+      - name: Restore "stackoverflow" Heap Snapshot (100K)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
         run: |
           set -euo pipefail
-          mkdir -p diagnostic-output
-          test "$(git rev-parse HEAD)" = "$FIXED_SHA"
-          printf 'main=%s\nfixed=%s\n' "$BASELINE_SHA" "$FIXED_SHA" > diagnostic-output/source-commits.txt
-          pkglibdir=$(/usr/lib/postgresql/18/bin/pg_config --pkglibdir)
-          cp "$pkglibdir/pg_search.so" diagnostic-output/fixed.so
-          (cd pg_search && cargo pgrx stop pg18)
-          git checkout --detach "$BASELINE_SHA"
-          test "$(git rev-parse HEAD)" = "$BASELINE_SHA"
-          cargo pgrx install -p pg_search --sudo --release --pg-config /usr/lib/postgresql/18/bin/pg_config --features=pg18 --no-default-features
-          cp "$pkglibdir/pg_search.so" diagnostic-output/baseline.so
-          git checkout --detach "$GITHUB_SHA"
-          sha256sum diagnostic-output/*.so | tee diagnostic-output/binaries.sha256
-          cargo build --release -p benchmarks
-      - name: Restore heap once
-        shell: bash
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset stackoverflow \
+            --size 100k \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+
+      - name: Benchmark "stackoverflow" Dataset (100K)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: stackoverflow
+          index: bm25
+          size: 100k
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+
+      - name: Restore "stackoverflow" Heap Snapshot (1M)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
         run: |
           set -euo pipefail
-          (cd benchmarks && ../target/release/benchmarks restore-heap --dataset stackoverflow --size '${{ matrix.size }}' --pgdata /home/runner/.pgrx/data-18 --stanza bench --repo-bucket paradedb-ci-benchmarks --repo-path-prefix /snapshots --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com --repo-s3-key-type shared)
-          (cd pg_search && cargo pgrx start pg18)
-          psql postgresql://localhost:28818/postgres -v ON_ERROR_STOP=1 --single-transaction -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
-      - name: Compare both builds on unchanged indexes
-        shell: bash
-        run: python3 benchmarks/diagnostics/paired_stats_once.py '${{ matrix.size }}'
-      - name: Upload measurements and plans
-        if: always()
-        uses: actions/upload-artifact@v7
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset stackoverflow \
+            --size 1m \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+
+      - name: Benchmark "stackoverflow" Dataset (1M)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
+        uses: ./.github/actions/benchmark-queries
         with:
-          name: stats-once-paired-${{ matrix.size }}
-          path: |
-            diagnostic-output/*.json
-            diagnostic-output/*.log
-            diagnostic-output/*.txt
-            diagnostic-output/*.sql
-            diagnostic-output/*.sha256
-            diagnostic-output/*.md
-          if-no-files-found: error
+          dataset: stackoverflow
+          index: bm25
+          size: 1m
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+
+      - name: Restore "stackoverflow" Heap Snapshot (20M)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
+        run: |
+          set -euo pipefail
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset stackoverflow \
+            --size 20m \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+
+      - name: Benchmark "stackoverflow" Dataset (20M)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: stackoverflow
+          index: bm25
+          size: 20m
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+
+      - name: Restore "cohere" Heap Snapshot (1M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        run: |
+          set -euo pipefail
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset cohere \
+            --size 1m \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+
+      # vchord requires `shared_preload_libraries = ...,vchord`, but the restore above overwrote
+      # postgresql.auto.conf with the snapshot's config (snapshots are captured without vchord
+      # preloaded, so they stay shared with the hnsw/ivfflat runs). Re-apply the preload and restart
+      # before the vchordrq index is built.
+      - name: Preload vchord after restore (cohere/vchord, 1M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'vchord' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements,vchord;"
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
+
+      # pgvectorscale needs no shared_preload_libraries, so unlike vchord this only creates the
+      # extension the restored snapshot does not carry -- no restart required.
+      - name: Create vectorscale extension after restore (cohere/pgvectorscale, 1M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pgvectorscale' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "CREATE EXTENSION IF NOT EXISTS vectorscale CASCADE;"
+
+      - name: Benchmark "cohere" Dataset (1M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: cohere
+          index: ${{ env.COHERE_INDEX }}
+          size: 1m
+          # paired-bootstrap owns real alerting; the point threshold stays only as a
+          # catastrophic-regression backstop in case the overlap step is skipped.
+          alert_strategy: paired-bootstrap
+          alert_threshold: 200%
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+
+      - name: Restore "cohere" Heap Snapshot (10M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        run: |
+          set -euo pipefail
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset cohere \
+            --size 10m \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+
+      - name: Preload vchord after restore (cohere/vchord, 10M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'vchord' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements,vchord;"
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
+
+      - name: Create vectorscale extension after restore (cohere/pgvectorscale, 10M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pgvectorscale' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "CREATE EXTENSION IF NOT EXISTS vectorscale CASCADE;"
+
+      - name: Benchmark "cohere" Dataset (10M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: cohere
+          index: ${{ env.COHERE_INDEX }}
+          size: 10m
+          # paired-bootstrap owns real alerting; the point threshold stays only as a
+          # catastrophic-regression backstop in case the overlap step is skipped.
+          alert_strategy: paired-bootstrap
+          alert_threshold: 200%
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+
+      # Renders the operating points the benchmark selected. The benchmark step measures recall
+      # across each query's swept values and keeps the cheapest one reaching each target, writing
+      # sweep_summary_{size}.tsv (query, target, param, value, recall, reached, p50, p95, p99).
+      # Latency for those same points is published as `{query}@r90|r95|r99 - p50|p95|p99` series.
+      - name: Comment cohere recall
+        if: ${{ !cancelled() && env.RUN_COHERE == 'true' }}
+        working-directory: benchmarks/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # A size that was skipped/failed leaves its .tsv missing; touch both so `cat` (and thus
+          # pipefail) doesn't abort when only one size ran.
+          touch sweep_summary_1m.tsv sweep_summary_10m.tsv
+          if [ ! -s sweep_summary_1m.tsv ] && [ ! -s sweep_summary_10m.tsv ]; then
+            echo "No sweep summaries -- nothing to comment."
+            exit 0
+          fi
+          # One row per (query, target) measured at either size, so queries added to
+          # datasets/cohere/queries/ appear automatically.
+          rows=$(cat sweep_summary_1m.tsv sweep_summary_10m.tsv | cut -f1,2 | sort -u | \
+            while IFS=$'\t' read -r q t; do
+              [ -n "$q" ] || continue
+              # `value` → recall · p50/p95/p99, flagged when no swept value reached the target.
+              fmt='$1==q && $2==t { printf "`%s` → %s%s · %s / %s / %s ms", $4, $5, ($6=="false" ? " ⚠️" : ""), $7, $8, $9 }'
+              c1=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_1m.tsv)
+              c10=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_10m.tsv)
+              printf '| `%s` | %s%% | %s | %s |\n' "$q" "${t#r}" "${c1:-n/a}" "${c10:-n/a}"
+            done)
+          {
+            printf '### Cohere recall — `%s` index\n\n' "${{ env.COHERE_INDEX }}"
+            printf '| query | target | 1m | 10m |\n|-------|--------|----|----|\n'
+            printf '%s\n' "$rows"
+            printf '\n<sub>Each cell is the swept parameter value the benchmark selected — the cheapest one whose measured recall@10 reaches the target — followed by the recall it achieved and the p50 / p95 / p99 latency at that point. Latency is measured once per held-out query vector (the same set recall uses), not by repeating a single vector. ⚠️ means no swept value reached that target, so the best available point is shown; widen the range in `[sweeps]`.</sub>\n'
+          } > recall_body.md
+          cat recall_body.md
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file recall_body.md
+          else
+            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@recall_body.md
+          fi
+
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [benchmark-pg_search-queries]
+    if: always() && needs.benchmark-pg_search-queries.result == 'failure' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: read
+    steps:
+      - name: Notify Slack on Failure (push only)
+        uses: paradedb/actions/slack-alert@v14
+        with:
+          suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
+          job_results: ${{ toJSON(needs) }}
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.workflow }} Failed"

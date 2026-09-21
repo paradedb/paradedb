@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789891037092,
+  "lastUpdate": 1789978057291,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -5082,6 +5082,53 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.096,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e85216119a6f853de73fcdfbbe57e503360a6ec6",
+          "message": "chore: update Django ORM used by docs tests (#6426)\n\nUpdate the docs snippet test runner from `django-paradedb==0.12.0` to\n`0.13.0`, matching the version already used in Connect Your App.\n\nValidation: `bash -n .github/scripts/smoke_test_code_snippets.sh` and\n`git diff --check` passed. Database execution is covered by the existing\ndocs CI workflow.",
+          "timestamp": "2026-09-20T21:38:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e85216119a6f853de73fcdfbbe57e503360a6ec6"
+        },
+        "date": 1789978052950,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6581242685984758,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.593,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.92,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.015,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.109,
             "unit": "ms"
           }
         ]

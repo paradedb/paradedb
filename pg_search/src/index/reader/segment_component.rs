@@ -98,8 +98,11 @@ impl FileHandle for SegmentComponentReader {
             &self.component,
             Some(tantivy::index::SegmentComponent::Custom(ext)) if ext == VECTOR_VEC_EXT
         );
-        if is_vector {
-            let published = matches!(self.protection, ReadProtection::Segment { .. });
+        if is_vector || matches!(self.protection, ReadProtection::IndexFile) {
+            let published = matches!(
+                self.protection,
+                ReadProtection::Segment { .. } | ReadProtection::IndexFile
+            );
             let mut chunks = unsafe {
                 self.block_list
                     .get_bytes_range_page_chunks(range, published)
@@ -156,6 +159,8 @@ impl HasLen for SegmentComponentReader {
 mod tests {
     use super::*;
 
+    use crate::api::HashMap;
+    use crate::index::directory::utils::save_index_files;
     use crate::index::writer::segment_component::SegmentComponentWriter;
     use crate::postgres::rel::PgSearchRelation;
     use pgrx::*;
@@ -171,7 +176,7 @@ mod tests {
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
-        let indexrel = PgSearchRelation::open(relation_oid);
+        let indexrel = PgSearchRelation::with_lock(relation_oid, pg_sys::AccessShareLock as _);
 
         let page_size = crate::postgres::storage::block::bm25_max_free_space();
         let bytes: Vec<u8> = (1..=251).cycle().take(page_size * 24 + 13).collect();
@@ -214,9 +219,25 @@ mod tests {
             vector_reader.read_bytes(0..bytes.len()).unwrap().as_ref(),
             &bytes
         );
+        let index_path = Path::new("reader-test.bin");
+        let mut writer = SegmentComponentWriter::new(&indexrel, index_path);
+        writer.write_all(&bytes).unwrap();
+        let mut entries = HashMap::default();
+        entries.insert(index_path.to_path_buf(), writer.file_entry());
+        writer.terminate().unwrap();
+        save_index_files(&indexrel, &mut entries).unwrap();
+        let entry = indexrel.index_file(index_path).unwrap().unwrap();
+        let index_reader = SegmentComponentReader::new(
+            &indexrel,
+            entry.file_entry,
+            None,
+            ReadProtection::IndexFile,
+        );
         let retained = vector_reader.read_bytes(1..33).unwrap();
         let retained_clone = retained.clone();
-        for reader in [&reader, &vector_reader] {
+        let index_retained = index_reader.read_bytes(1..33).unwrap();
+        let index_retained_clone = index_retained.clone();
+        for reader in [&reader, &vector_reader, &index_reader] {
             for range in [
                 0..0,
                 0..bytes.len(),
@@ -270,5 +291,8 @@ mod tests {
         drop(vector_reader);
         assert_eq!(retained.as_ref(), &bytes[1..33]);
         assert_eq!(retained_clone.as_ref(), &bytes[1..33]);
+        drop(index_reader);
+        assert_eq!(index_retained.as_ref(), &bytes[1..33]);
+        assert_eq!(index_retained_clone.as_ref(), &bytes[1..33]);
     }
 }

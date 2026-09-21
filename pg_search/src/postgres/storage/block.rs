@@ -1144,10 +1144,8 @@ mod tests {
 
         let (_, read): ((SegmentMetaEntryHeader, SegmentMetaEntryImmutableV1), usize) =
             bincode::serde::decode_from_slice(bytes, bincode::config::legacy()).unwrap();
-        let (_, trailing): (
-            (Option<FileEntry>, Option<FileEntry>, Option<FileEntry>),
-            usize,
-        ) = bincode::serde::decode_from_slice(&bytes[read..], bincode::config::legacy()).unwrap();
+        let (_, trailing): ([Option<FileEntry>; 3], usize) =
+            bincode::serde::decode_from_slice(&bytes[read..], bincode::config::legacy()).unwrap();
         assert_eq!(read + trailing, old_bytes.len());
     }
 

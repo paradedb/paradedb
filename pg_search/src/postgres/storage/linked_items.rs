@@ -753,19 +753,56 @@ mod tests {
         SegmentId::generate_random()
     }
 
-    /// Runs `garbage_collect` until a pass removes nothing.
+    /// The number of `garbage_collect` passes a test will wait through before giving up.
+    ///
+    /// Each pass walks the whole list and takes buffer locks, so a pin has to survive real work
+    /// to outlast the budget rather than a tight spin.
+    const GC_PASSES: usize = 16;
+
+    /// Runs `garbage_collect` until every id in `expected_absent` is gone from the list.
     ///
     /// One pass is not guaranteed to collect every dead entry. `recyclable()` takes a
     /// conditional cleanup lock on the entry's pintest block, which fails whenever another
     /// backend holds a pin, and the bgwriter or checkpointer routinely holds one while writing
     /// out a page these tests just dirtied. Deferring that entry to a later pass is the intended
-    /// behavior, so a test that wants everything collected has to keep passing.
+    /// behavior, so a test that wants an entry collected has to keep passing.
+    ///
+    /// Retrying until a pass collects nothing is not enough: a pass that defers the last pinned
+    /// entry and finds nothing else also returns empty, so the loop would stop with that entry
+    /// still present. The condition has to be the caller's, not the pass's.
     /// See https://github.com/paradedb/paradedb/issues/6334.
-    unsafe fn garbage_collect_fully(
+    unsafe fn garbage_collect_until_absent(
         list: &mut LinkedItemList<SegmentMetaEntry>,
         when_recyclable: pg_sys::FullTransactionId,
+        expected_absent: &[SegmentId],
     ) {
-        while !list.garbage_collect(when_recyclable).is_empty() {}
+        // One walk per pass, rather than one per expected id: the multi-page test deletes 199 of
+        // 1999 entries, and a lookup each would walk the list 199 times over.
+        let present = |list: &LinkedItemList<SegmentMetaEntry>| {
+            let ids = list
+                .list(None)
+                .into_iter()
+                .map(|entry| entry.segment_id())
+                .collect::<HashSet<_>>();
+            expected_absent
+                .iter()
+                .filter(|id| ids.contains(id))
+                .copied()
+                .collect::<Vec<_>>()
+        };
+
+        for _ in 0..GC_PASSES {
+            list.garbage_collect(when_recyclable);
+            if present(list).is_empty() {
+                return;
+            }
+        }
+
+        panic!(
+            "{} entries still present after {GC_PASSES} garbage collection passes: {:?}",
+            present(list).len(),
+            present(list)
+        );
     }
 
     fn linked_list_block_numbers(
@@ -812,11 +849,15 @@ mod tests {
 
         list.add_items(&entries_to_delete, None);
         list.add_items(&entries_to_keep, None);
-        garbage_collect_fully(
+        garbage_collect_until_absent(
             &mut list,
             pg_sys::FullTransactionId {
                 value: delete_xid.into_inner() as u64,
             },
+            &entries_to_delete
+                .iter()
+                .map(|entry| entry.segment_id())
+                .collect::<Vec<_>>(),
         );
 
         assert!(
@@ -859,11 +900,16 @@ mod tests {
                 .collect::<Vec<_>>();
 
             list.add_items(&entries, None);
-            garbage_collect_fully(
+            garbage_collect_until_absent(
                 &mut list,
                 pg_sys::FullTransactionId {
                     value: deleted_xid.into_inner() as u64,
                 },
+                &entries
+                    .iter()
+                    .filter(|entry| entry.xmax() != not_deleted_xid)
+                    .map(|entry| entry.segment_id())
+                    .collect::<Vec<_>>(),
             );
 
             for entry in entries {
@@ -930,11 +976,17 @@ mod tests {
             list.add_items(&entries_3, None);
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
-            garbage_collect_fully(
+            garbage_collect_until_absent(
                 &mut list,
                 pg_sys::FullTransactionId {
                     value: deleted_xid.into_inner() as u64,
                 },
+                &[&entries_1, &entries_2, &entries_3]
+                    .into_iter()
+                    .flatten()
+                    .filter(|entry| entry.xmax() != not_deleted_xid)
+                    .map(|entry| entry.segment_id())
+                    .collect::<Vec<_>>(),
             );
 
             for entries in [entries_1, entries_2, entries_3] {
@@ -1013,13 +1065,9 @@ mod tests {
             );
         }
 
-        // Dropping the pin releases it, and the next pass collects the entry.
+        // Dropping the pin releases it, and a later pass collects the entry.
         drop(pin);
-        garbage_collect_fully(&mut list, when_recyclable);
-        assert!(
-            list.lookup(|el| el.segment_id() == entries[0].segment_id())
-                .is_err()
-        );
+        garbage_collect_until_absent(&mut list, when_recyclable, &[entries[0].segment_id()]);
     }
 
     #[pg_test]

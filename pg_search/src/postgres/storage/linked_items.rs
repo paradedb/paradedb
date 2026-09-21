@@ -1050,20 +1050,25 @@ mod tests {
             .get_buffer(entries[0].pintest_blockno())
             .into_immutable_page();
 
-        assert!(!list.garbage_collect(when_recyclable).is_empty());
+        // The entries that were not pinned are collected. They get the same bounded retry as
+        // anywhere else: the deliberate pin is not the only pin these pages can attract, and a
+        // bgwriter holding one of these two would otherwise fail the assertion below.
+        garbage_collect_until_absent(
+            &mut list,
+            when_recyclable,
+            &entries[1..]
+                .iter()
+                .map(|entry| entry.segment_id())
+                .collect::<Vec<_>>(),
+        );
 
-        // The pinned entry is still there, deferred rather than collected.
+        // The deliberately pinned entry is still there, deferred rather than collected. This is
+        // the claim the test exists to make, and it is deterministic: the pin is held across
+        // every pass above, and that entry is never in the set those passes wait on.
         assert!(
             list.lookup(|el| el.segment_id() == entries[0].segment_id())
                 .is_ok()
         );
-        // The entries that were not pinned went in the same pass.
-        for entry in &entries[1..] {
-            assert!(
-                list.lookup(|el| el.segment_id() == entry.segment_id())
-                    .is_err()
-            );
-        }
 
         // Dropping the pin releases it, and a later pass collects the entry.
         drop(pin);

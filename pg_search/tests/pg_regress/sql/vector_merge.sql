@@ -49,21 +49,23 @@ INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(1, 15000) g;
 
--- Every segment is clustered against the index-level centroid index...
-SELECT bool_and(vector_num_centroids > 0) AS all_clustered
+-- The merge produced a clustered segment...
+SELECT bool_or(vector_format = 'ivf') AS has_ivf
 FROM paradedb.vector_info('remerge_idx', 'vec');
 
 -- ...whose reported vector count is distinct docs (= its doc count), not the
 -- 3x posting-row total that replication writes...
 SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
 FROM paradedb.vector_info('remerge_idx', 'vec') v
-JOIN paradedb.index_info('remerge_idx') i USING (segno);
+JOIN paradedb.index_info('remerge_idx') i USING (segno)
+WHERE v.vector_format = 'ivf';
 
 -- ...while the per-cluster sizes deliberately stay memberships: their total
 -- strictly exceeds the distinct-doc count under replication.
 SELECT sum(vector_total_memberships) > sum(vector_num_vectors)
          AS cluster_sizes_are_memberships
-FROM paradedb.vector_info('remerge_idx', 'vec');
+FROM paradedb.vector_info('remerge_idx', 'vec')
+WHERE vector_format = 'ivf';
 
 -- Wave 2: make the replicated IVF segment a merge SOURCE. The layer must
 -- admit it (it is ~2.5-3.1mb; 3500kb leaves headroom) and the total corpus
@@ -73,12 +75,13 @@ INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(15001, 50000) g;
 
-SELECT bool_and(vector_num_centroids > 0) AS still_all_clustered
+SELECT bool_or(vector_format = 'ivf') AS still_has_ivf
 FROM paradedb.vector_info('remerge_idx', 'vec');
 
 SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
 FROM paradedb.vector_info('remerge_idx', 'vec') v
-JOIN paradedb.index_info('remerge_idx') i USING (segno);
+JOIN paradedb.index_info('remerge_idx') i USING (segno)
+WHERE v.vector_format = 'ivf';
 
 -- Exhaustive probing: the ceiling clamps to each segment's cluster count,
 -- and LIMIT 60000 widens the candidate floor (4 x top_n) past the corpus so

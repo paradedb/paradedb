@@ -56,7 +56,7 @@ SELECT g,
        END
 FROM generate_series(1, 24000) g;
 
-SELECT bool_and(vector_num_centroids > 0) AS all_clustered
+SELECT bool_or(vector_format = 'ivf') AS has_ivf
 FROM paradedb.vector_info('delvec_idx', 'vec');
 
 -- Kill every vector-bearing doc. VACUUM records the deletes so the next

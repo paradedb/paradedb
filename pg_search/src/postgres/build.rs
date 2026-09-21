@@ -275,7 +275,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         check_single_valued(&partition_field, "partition_by");
     }
     // The stored schema does not exist yet, so the checks read the one this build will write.
-    let schema = build_index_schema(index_relation);
+    let schema = planned_schema(index_relation);
     let partition_by = options.partition_by();
     for (dims, reloption) in [(&sort_by, "sort_by"), (&partition_by, "partition_by")] {
         if let Err(e) = check_fast_dims(&schema, dims, reloption) {
@@ -337,7 +337,7 @@ fn create_index(
     index_relation: &PgSearchRelation,
     heap_scan: Option<(&PgSearchRelation, *mut pg_sys::IndexInfo)>,
 ) -> Result<()> {
-    let schema = build_index_schema(index_relation);
+    let schema = planned_schema(index_relation);
     let options = index_relation.options();
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
@@ -364,7 +364,9 @@ fn create_index(
     Ok(())
 }
 
-fn build_index_schema(index_relation: &PgSearchRelation) -> Schema {
+/// The tantivy schema this index will carry, from its reloptions and heap attributes. The
+/// stored copy exists only after [`create_index`], so validation reads the schema from here.
+fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
     let options = index_relation.options();
     let mut builder = Schema::builder();
 

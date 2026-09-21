@@ -2334,6 +2334,12 @@ impl JoinScan {
             datafusion_build::extract_join_tree_from_parse(root, &sources, path_info)
                 .map_err(|e| warn(JoinDeclineReason::new(format!("JoinScan not used: {e}"))))?;
 
+        // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
+        // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
+        if !crate::gucs::enable_custom_scan_without_operator() && !plan.has_search_predicate() {
+            return Err(JoinPathDecline::Quiet);
+        }
+
         let unsupported = plan.unsupported_join_types();
         if !unsupported.is_empty() {
             return Err(warn(
@@ -2357,11 +2363,6 @@ impl JoinScan {
 
         let (join_clause, limit_offset) =
             Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
-
-        // Need at least one search predicate in the plan.
-        if !join_clause.plan.has_search_predicate() {
-            return Err(JoinPathDecline::Quiet);
-        }
 
         let path = Self::finalize_clause_into_path(
             root,

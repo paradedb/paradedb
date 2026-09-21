@@ -1,4 +1,4 @@
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SELECT
     p.id,
     p.title,
     p.creation_date,
@@ -7,9 +7,8 @@ SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
 FROM stackoverflow_posts p
 JOIN users u ON p.owner_user_id = u.id
 WHERE
-    u.id @@@ pdb.all()
-    AND u.reputation > 100
-    AND p.title ||| 'error'
+    u.reputation > 100
+    AND to_tsvector('english', p.title) @@ plainto_tsquery('english', 'error')
 ORDER BY
-    p.creation_date DESC              -- Single Feature Sort (Local Fast Field)
+    p.creation_date DESC
 LIMIT 20;

@@ -1,18 +1,19 @@
--- NOTE: It is not possible to execute this query without the joinscan today, because
--- Postgres takes over execution of the entire score-sum expression, which triggers an
--- "unsupported query shape". We leave it here as a duplicate of the query below it, as
--- having our own queries starting from the second position is the convention, and it would
--- be confusing to do otherwise here.
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SELECT
   users.id,
   stackoverflow_posts.id,
   comments.id,
-  pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score
+  ts_rank(to_tsvector('english', users.about_me), plainto_tsquery('english', 'python'))
+  + ts_rank(to_tsvector('english', stackoverflow_posts.title), plainto_tsquery('english', 'python'))
+  + ts_rank(to_tsvector('english', comments.text), plainto_tsquery('english', 'python')) AS score
 FROM
-  users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id
+  users
+  JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id
+  JOIN comments ON comments.post_id = stackoverflow_posts.id
 WHERE
-  users.about_me ||| 'python' OR stackoverflow_posts.title ||| 'python' OR comments.text ||| 'python'
+  to_tsvector('english', users.about_me) @@ plainto_tsquery('english', 'python')
+  OR to_tsvector('english', stackoverflow_posts.title) @@ plainto_tsquery('english', 'python')
+  OR to_tsvector('english', comments.text) @@ plainto_tsquery('english', 'python')
 ORDER BY
-  pdb_score DESC,
+  score DESC,
   comments.id DESC
 LIMIT 20;

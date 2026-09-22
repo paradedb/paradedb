@@ -16,11 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Physical optimizer rule that wires FFHelper instances from PgSearchScanPlan
-//! into the TantivyFetchExec that resolves ctid columns.
+//! into the VisibilityFilterExec that resolves ctid columns.
 //!
 //! Visibility checking needs real ctids, but when deferred visibility is enabled
 //! the ctid columns hold packed DocAddresses. This rule finds the PgSearchScanPlan
-//! that owns each ctid column and wires its FFHelper into the `TantivyFetchExec` that
+//! that owns each ctid column and wires its FFHelper into the `VisibilityFilterExec` that
 //! resolves them.
 //!
 //! This is interior mutation only (Mutex-based wiring), with no structural plan changes.
@@ -35,14 +35,12 @@ use datafusion::physical_plan::ExecutionPlan;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
-use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
 /// The index relation OID and [`FFHelper`] needed to resolve deferred packed `DocAddress` values
 /// into real CTIDs for a specific table in a multi-table or deferred scan.
 ///
 /// Wired by [`VisibilityCtidResolverRule`] from the source [`PgSearchScanPlan`] into the physical
-/// execution node performing visibility checking or CTID materialization ([`VisibilityFilterExec`],
-/// [`SegmentedTopKExec`], or [`TantivyFetchExec`]).
+/// execution node performing visibility checking ([`VisibilityFilterExec`]).
 pub type CtidResolver = (u32, Arc<FFHelper>);
 
 #[derive(Debug)]
@@ -68,26 +66,9 @@ impl PhysicalOptimizerRule for VisibilityCtidResolverRule {
     }
 }
 
-/// Walk the plan tree. When we find a ctid-resolving TantivyFetchExec,
+/// Walk the plan tree. When we find a VisibilityFilterExec,
 /// wire FFHelpers from matching PgSearchScanPlans in the subtree.
 fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
-    // The ctid-resolving TantivyFetchExec below a VisibilityFilterExec turns packed
-    // doc-addresses into real ctids. A fetch that only resolves string ordinals
-    // carries no ctid columns and is skipped.
-    if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
-        for ctid_column in fetch.ctid_columns() {
-            let plan_pos = ctid_column.plan_position;
-            let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
-                .ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "VisibilityCtidResolverRule: no PgSearchScanPlan found \
-                     for deferred ctid plan_position {plan_pos}"
-                ))
-            })?;
-            fetch.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
-        }
-    }
-
     // VisibilityFilterExec owns ctid resolution for its plan positions.
     if let Some(vf) = plan.downcast_ref::<VisibilityFilterExec>() {
         for &(plan_pos, _) in vf.plan_pos_oids() {

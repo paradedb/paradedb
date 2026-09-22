@@ -511,7 +511,17 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
         .iter()
         .position(|r| r.name() == "optimize_projections")
         .expect("optimize_projections optimizer rule not found");
-    optimizer_rules.insert(pos, Arc::new(VisibilityFilterOptimizerRule::new()));
+    // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
+    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below barriers
+    // have unused columns projected out before `VisibilityFilterNode` is inserted (working around
+    // DataFusion dropping `projection_beneficial` across extension nodes).
+    // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
+    // above `VisibilityFilterNode`.
+    optimizer_rules.insert(
+        pos,
+        Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
+    );
+    optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
     optimizer_rules.push(Arc::new(
         super::range_partitioning_rule::RangePartitioningRule::new(),
     ));

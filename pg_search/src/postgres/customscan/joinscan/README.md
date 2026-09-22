@@ -52,7 +52,7 @@ When MPP is eligible, `DistributedPlanner` builds an MPP execution tree (`Distri
 
 String columns are emitted as a [packed `UInt64`](../../../scan/deferred_encode.rs) (doc_address | term_ordinal) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../../scan/table_provider.rs) is made in [`configure_deferred_outputs()`][defer-decision].
 
-The lookup has two halves with different access patterns, so they are separate nodes. [`TantivyFetchExec`][fetch-exec] reads the columnar field (doc_address → term_ordinal, and packed ctid → real ctid); it wants doc order, which a join above the scan no longer keeps. [`TantivyDecodeExec`][decode-exec] reads the segment dictionary (term_ordinal → string); it is random access either way, and ordinals are much narrower than strings, so it can move above joins and shuffles at the same cost per row. The planner places the two next to each other and [`DeferredPlacementRule`](../../../scan/deferred_placement_rule.rs) then moves either half into the scan when the path above would run it out of doc order or on multiplied rows. `paradedb.defer_column_fetch` and `paradedb.defer_string_decode` pin each half instead.
+The lookup has two halves with different access patterns, so they are separate nodes. [`TantivyFetchExec`][fetch-exec] reads the columnar field (doc_address → term_ordinal); it wants doc order, which a join above the scan no longer keeps. [`TantivyDecodeExec`][decode-exec] reads the segment dictionary (term_ordinal → string); it is random access either way, and ordinals are much narrower than strings, so it can move above joins and shuffles at the same cost per row. The planner places the two next to each other and [`DeferredPlacementRule`](../../../scan/deferred_placement_rule.rs) then moves either half into the scan when the path above would run it out of doc order or on multiplied rows. `paradedb.defer_column_fetch` and `paradedb.defer_string_decode` pin each half instead.
 
 ### 5. Pruning Path
 
@@ -96,8 +96,8 @@ Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
 | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | [`segmented_topk_exec.rs`][topk-exec]                                                | [`SegmentedTopKExec`][topk-exec] — per-segment buffers, global threshold publishing |
 | [`segmented_topk_rule.rs`][topk-rule]                                                | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                              |
-| [`visibility_ctid_resolver_rule.rs`](../../../scan/visibility_ctid_resolver_rule.rs) | Wires scan-side FFHelper into `TantivyFetchExec` for ctid resolution                |
-| [`tantivy_fetch_exec.rs`][fetch-exec]                                                | Columnar field fetch: doc address → term ordinal, packed ctid → ctid                |
+| [`visibility_ctid_resolver_rule.rs`](../../../scan/visibility_ctid_resolver_rule.rs) | Wires scan-side FFHelper into `VisibilityFilterExec` for ctid resolution            |
+| [`tantivy_fetch_exec.rs`][fetch-exec]                                                | Columnar field fetch: doc address → term ordinal                                    |
 | [`tantivy_decode_exec.rs`][decode-exec]                                              | Dictionary decode: term ordinal → string/bytes                                      |
 | [`filter_passthrough_exec.rs`][filter-passthrough]                                   | Transparent wrapper enabling filter pushdown through blocking nodes                 |
 | [`batch_scanner.rs`](../../../scan/batch_scanner.rs)                                 | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility         |

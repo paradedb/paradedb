@@ -70,9 +70,20 @@ crate::impl_safe_drop!(HeapBufferPin, |self| {
 /// the old tuple is marked dead and a new tuple is created at a new ctid, but the
 /// index still has the old ctid until VACUUM runs.
 ///
-/// The visibility checker uses `table_index_fetch_tuple` which:
-/// - Verifies the tuple exists and is visible (following HOT chains if needed)
-/// - Returns the tuple at its current heap location
+/// The visibility checker supports two operational modes:
+/// 1. Fast-path visibility confirmation ([`VisibilityChecker::check_segment_docs`]):
+///    Checks the PostgreSQL visibility map first. On all-visible blocks, visibility is
+///    guaranteed for all active snapshots, so heap page access is bypassed entirely.
+///    The returned CTID is the raw index CTID, which may be an index root pointing to
+///    a HOT redirect (`LP_REDIRECT`). This is safe and optimal for execution plan nodes
+///    like `VisibilityFilterExec` and `BatchScanner` whose downstream tuple fetcher
+///    (e.g. `JoinScanState::build_result_tuple` or `BaseScan`) uses `table_index_fetch_tuple`
+///    to resolve the HOT redirect to the physical tuple at final output time.
+/// 2. Full physical HOT resolution ([`VisibilityChecker::resolve_segment_docs`]):
+///    Forces a heap check for every tuple, bypassing the visibility map all-visible check,
+///    and resolves the CTID to the exact current physical heap location of the tuple visible
+///    under this snapshot. This is required only when the caller cannot resolve HOT chains
+///    later (e.g. in `collect_ctidset` for bitmap index scans).
 pub struct VisibilityChecker {
     scan: *mut pg_sys::IndexFetchTableData,
     snapshot: pg_sys::Snapshot,
@@ -299,8 +310,17 @@ impl VisibilityChecker {
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from
-    /// the configured [`FFHelper`]. For all-visible blocks, the raw index CTID is returned
-    /// without resolving a possible HOT redirect.
+    /// the configured [`FFHelper`].
+    ///
+    /// For all-visible blocks, visibility is confirmed via the visibility map fast-path without
+    /// reading heap buffers. The returned CTID for an all-visible block is the raw index CTID,
+    /// which may be an index root pointing to a HOT redirect (`LP_REDIRECT`).
+    ///
+    /// This is safe and optimal when callers (such as `VisibilityFilterExec` or `BatchScanner`)
+    /// pass the CTID to a downstream tuple fetcher (such as `JoinScanState::build_result_tuple`
+    /// or `BaseScan::check_visibility`) that follows HOT redirects via `table_index_fetch_tuple`
+    /// (`exec_if_visible`) for the final surviving rows, avoiding heap page reads for candidate
+    /// rows discarded during query execution.
     pub fn check_segment_docs(
         &mut self,
         segment_ord: SegmentOrdinal,
@@ -313,6 +333,14 @@ impl VisibilityChecker {
     /// Checks if a slice of `DocId`s within a segment are visible and resolves each CTID to the
     /// physical HOT member visible under this checker's snapshot, fetching ctids directly from
     /// the configured [`FFHelper`].
+    ///
+    /// Unlike [`Self::check_segment_docs`], this forces a heap buffer read and executes `heap_hot_search_buffer`
+    /// for every tuple even on all-visible blocks, guaranteeing that the returned CTID is the exact
+    /// physical heap location of the visible tuple (never an index root redirect).
+    ///
+    /// NOTE: This touches shared buffers for every block and is significantly more expensive than
+    /// [`Self::check_segment_docs`]. Use this only when the caller requires the physical heap CTID directly
+    /// and will not perform an index-based heap fetch (e.g. in `SearchIndexReader::collect_ctidset`).
     pub fn resolve_segment_docs(
         &mut self,
         segment_ord: SegmentOrdinal,

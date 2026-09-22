@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789978057291,
+  "lastUpdate": 1790063966791,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -5129,6 +5129,53 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.109,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "3daab419734854b0b705124a090dd2e02393fbb1",
+          "message": "fix: avoid reading positions for term queries (#6429)\n\n# Ticket(s) Closed\n\nNone.\n\n## What\n\nAvoid unnecessary positions reads for scored term queries, including\nsingle-term `===` searches ordered by BM25 score.\n\n## Why\n\nThe term builder requested `WithFreqsAndPositions`, which makes Tantivy\nopen positional postings when constructing the scorer even though term\nscoring does not use them. The reported single-term top-10 benchmark\nattributed 71 extra buffer hits to these reads.\n\n## How\n\nRequest `WithFreqs` for exact terms, array matches, single-token phrase\narrays, and numeric parser terms. Tantivy still downgrades term queries\nto `Basic` when scoring is disabled. Multi-token phrase and proximity\nqueries retain their positional postings.\n\n## Tests\n\n- Added `term_scoring_does_not_open_positions`: remove the positions\nfile from an in-memory index and verify five single-term query forms\nreturn identical BM25 scores. A control query requesting positions fails\nagainst the same index.\n- Passed on current `main`: `cargo test -p pg_search --lib\nterm_scoring_does_not_open_positions -- --nocapture`.\n- PostgreSQL 18 regression suites `operators`, `phrase_tokenization`,\nand `proximity` passed on the original checkout.\n- `cargo fmt --all --check` and `git diff --check`.\n- Commit hooks passed on current `main`, including workspace Clippy,\n`cargo check --workspace --all-targets`, and documentation generation.",
+          "timestamp": "2026-09-22T04:28:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3daab419734854b0b705124a090dd2e02393fbb1"
+        },
+        "date": 1790063962523,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6665261860751546,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.588,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.847,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.056,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.256,
             "unit": "ms"
           }
         ]

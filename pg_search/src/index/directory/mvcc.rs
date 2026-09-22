@@ -1302,7 +1302,7 @@ mod tests {
         use crate::postgres::storage::LinkedBytesList;
 
         let (indexrel, files, bytes, sentinel) = published_component_fixture();
-        Spi::run("CREATE OR REPLACE FUNCTION tests.published_component_read_raise(oid,text) RETURNS void LANGUAGE c AS '$libdir/pg_search', 'published_component_read_raise_wrapper'").unwrap();
+        Spi::run("CREATE OR REPLACE FUNCTION tests.published_component_read_raise(index_oid oid, path text) RETURNS void LANGUAGE c AS '$libdir/pg_search', 'published_component_read_raise_wrapper'").unwrap();
         let oid = indexrel.oid();
         let mut manager = BufferManager::new(&indexrel);
         for (path, header) in files {

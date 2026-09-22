@@ -257,6 +257,7 @@ impl Buffer {
         block_tracker::forget!(pg_sys::BufferGetBlockNumber(pg_buffer));
         ImmutablePage {
             pinned_buffer: PinnedBuffer::new(pg_buffer),
+            _segment_pins: None,
         }
     }
 
@@ -912,10 +913,29 @@ impl BufferManager {
         PinnedBuffer::new(self.rbufacc.get_buffer(blockno, None))
     }
 
+    /// # Safety
+    /// The payload must be immutable. Provided pins must protect its segment from reclamation.
+    pub(super) unsafe fn get_immutable_page(
+        &self,
+        blockno: pg_sys::BlockNumber,
+        segment_pins: Option<&crate::index::mvcc::SegmentPins>,
+    ) -> ImmutablePage {
+        match segment_pins {
+            Some(pins) => ImmutablePage {
+                pinned_buffer: self.pinned_buffer(blockno),
+                _segment_pins: Some(pins.clone()),
+            },
+            None => self.get_buffer(blockno).into_immutable_page(),
+        }
+    }
+
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {
         let pg_buffer = self
             .rbufacc
             .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+
+        #[cfg(any(test, feature = "pg_test"))]
+        SHARED_BUFFER_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         block_tracker::track!(Read, blockno);
         Buffer::new(pg_buffer)
@@ -1096,6 +1116,15 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
 #[derive(Debug)]
 pub struct ImmutablePage {
     pinned_buffer: PinnedBuffer,
+    _segment_pins: Option<crate::index::mvcc::SegmentPins>,
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+static SHARED_BUFFER_READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) fn shared_buffer_reads() -> usize {
+    SHARED_BUFFER_READS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 impl Deref for ImmutablePage {

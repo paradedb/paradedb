@@ -133,10 +133,10 @@ LIMIT 10;
      :     ┌───── Stage 3 ── tasks=4, partitions=16
      :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=1
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-     :     │     t1: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-     :     │     t2: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-     :     │     t3: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t0: PgSearchScan: table=p, segments=20, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t1: PgSearchScan: table=p, segments=20, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t2: PgSearchScan: table=p, segments=20, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t3: PgSearchScan: table=p, segments=20, dynamic_filters=1, visibility=eager, query="all"
      :     └──────────────────────────────────────────────────
 (42 rows)
 

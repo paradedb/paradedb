@@ -398,7 +398,9 @@ impl Weight for HeapFilterWeight {
 
         // Get ctid fast field for heap access
         let fast_fields_reader = reader.fast_fields();
-        let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(fast_fields_reader);
+        let ctid_ff =
+            crate::index::fast_fields_helper::TidReader::open(reader.schema(), fast_fields_reader)
+                .expect("ctid columns should be present");
 
         // Claim this (consumer, segment) stream's cursor. No cell installed means
         // no bitmap was planned (or this is an estimation clone): evaluate filters
@@ -441,7 +443,8 @@ struct HeapFilterScorer {
     /// Evaluated only for lossy/recheck probes, or when no bitmap cursor is attached.
     recheck_filters: Vec<HeapFieldFilter>,
     bitmap_cursor: Option<BitmapCursor>,
-    ctid_ff: crate::index::fast_fields_helper::FFType,
+    // TODO: Rename ctid -> tid
+    ctid_ff: crate::index::fast_fields_helper::TidReader,
     heaprel: PgSearchRelation,
     current_doc: DocId,
     expr_context: NonNull<pg_sys::ExprContext>,
@@ -459,7 +462,7 @@ impl HeapFilterScorer {
         always_filters: Vec<HeapFieldFilter>,
         recheck_filters: Vec<HeapFieldFilter>,
         bitmap_cursor: Option<BitmapCursor>,
-        ctid_ff: crate::index::fast_fields_helper::FFType,
+        ctid_ff: crate::index::fast_fields_helper::TidReader,
         rel_oid: pg_sys::Oid,
         expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
@@ -497,6 +500,8 @@ impl HeapFilterScorer {
 
     fn passes_heap_filters(&mut self, doc_id: DocId) -> bool {
         // Extract ctid from the current document
+        // TODO: Migrate from as_u64 point lookup to as_u64s batching
+        #[allow(deprecated)]
         let Some(ctid_value) = self.ctid_ff.as_u64(doc_id) else {
             panic!("Could not get ctid for doc_id: {doc_id}");
         };

@@ -681,6 +681,10 @@ impl PartitionSpill {
             .iter()
             .map(|dim_field| match dim_field {
                 PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
+                PartitionField::TidBlock => {
+                    let block = crate::postgres::utils::u64_ctid_block_number(ctid);
+                    Ok(PdbOwnedValue::U64(block as u64))
+                }
                 PartitionField::Categorized(categorized) => {
                     let (datum, is_null) = get_field_value(
                         &categorized.categorized.source,

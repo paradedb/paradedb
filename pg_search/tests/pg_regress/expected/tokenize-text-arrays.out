@@ -12,12 +12,13 @@ CREATE TABLE index_text_array(
 INSERT INTO index_text_array (arr) VALUES (ARRAY['red', 'blue', 'blue green']), (ARRAY['blue green']);
 CREATE INDEX idxindex_text_array ON index_text_array USING paradedb (id, arr);
 SELECT * FROM paradedb.schema('idxindex_text_array') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
- arr  | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
- ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
- id   | I64        | f      | t       | t    | f          |             |                                  |          | 
-(3 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ arr        | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ id         | I64        | f      | t       | t    | f          |             |                                  |          | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                                  |          | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                                  |          | 
+(4 rows)
 
 SELECT * FROM index_text_array WHERE arr === 'red';
  id |           arr           
@@ -40,12 +41,13 @@ SELECT * FROM index_text_array WHERE arr === 'blue green';
 DROP INDEX idxindex_text_array;
 CREATE INDEX idxindex_text_array ON index_text_array USING paradedb (id, (arr::pdb.literal));
 SELECT * FROM paradedb.schema('idxindex_text_array') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
-------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
- arr  | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | raw
- ctid | U64        | f      | t       | t    | f          |             |                          |        | 
- id   | I64        | f      | t       | t    | f          |             |                          |        | 
-(3 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
+------------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
+ arr        | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | raw
+ id         | I64        | f      | t       | t    | f          |             |                          |        | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                          |        | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                          |        | 
+(4 rows)
 
 SELECT * FROM index_text_array WHERE arr === 'red';
  id |           arr           
@@ -74,12 +76,13 @@ CREATE TABLE index_varchar_array(
 INSERT INTO index_varchar_array (arr) VALUES (ARRAY['red', 'blue', 'blue green']), (ARRAY['blue green']);
 CREATE INDEX idxindex_varchar_array ON index_varchar_array USING paradedb (id, (arr::pdb.literal));
 SELECT * FROM paradedb.schema('idxindex_varchar_array') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
-------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
- arr  | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | raw
- ctid | U64        | f      | t       | t    | f          |             |                          |        | 
- id   | I64        | f      | t       | t    | f          |             |                          |        | 
-(3 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
+------------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
+ arr        | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | raw
+ id         | I64        | f      | t       | t    | f          |             |                          |        | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                          |        | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                          |        | 
+(4 rows)
 
 SELECT * FROM index_varchar_array WHERE arr === 'red';
  id |           arr           

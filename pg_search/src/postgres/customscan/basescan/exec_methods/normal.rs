@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::fast_fields_helper::{FFType, resolve_ctid};
+use crate::index::fast_fields_helper::{TidCache, resolve_ctid};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
@@ -33,7 +33,8 @@ pub struct NormalScanExecState {
 
     did_query: bool,
     /// Cached per-segment ctid fast-field reader.
-    ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
+    // TODO: Rename ctid -> tid
+    ctid_cache: TidCache,
 }
 
 impl Default for NormalScanExecState {

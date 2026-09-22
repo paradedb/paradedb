@@ -27,7 +27,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{resolve_field_value, row_to_search_document};
 use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
-use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
+use crate::schema::{CategorizedFieldData, FieldSource, SearchField, TidFields};
 use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
 use std::ptr::NonNull;
 use std::sync::OnceLock;
@@ -35,7 +35,6 @@ use tantivy::directory::{ManagedDirectory, RamDirectory};
 use tantivy::index::SegmentReader;
 use tantivy::indexer::{AddOperation, SegmentWriter};
 use tantivy::query::Weight;
-use tantivy::schema::Field;
 use tantivy::{Index, TantivyDocument};
 
 /// An expression that materializes a row if the index scan fast path cannot be taken.
@@ -298,7 +297,7 @@ impl MaybeInlineRow {
 /// Evaluates a row as a one-document search corpus.
 pub(super) struct RowMatcher {
     empty_index: Index,
-    ctid_field: Field,
+    tid_fields: TidFields,
     slot: *mut pg_sys::TupleTableSlot,
     expression_state: ExpressionState,
     required_expressions: HashSet<usize>,
@@ -402,7 +401,7 @@ impl RowMatcher {
             empty_index: index_relation
                 .create_in_memory_index(RamDirectory::create())
                 .expect("row matcher should create an in-memory index"),
-            ctid_field: schema.ctid_field(),
+            tid_fields: schema.tid_fields(),
             _index_relation_guard: index_relation,
             slot,
         }
@@ -476,7 +475,15 @@ impl RowMatcher {
         let segment = index.new_segment();
         let mut writer = SegmentWriter::for_segment(usize::MAX, segment.clone(), true)
             .expect("row matcher should create a segment writer");
-        document.add_u64(self.ctid_field, 1);
+        match self.tid_fields {
+            TidFields::Legacy(field) => {
+                document.add_u64(field, 1);
+            }
+            TidFields::Split { block, offset } => {
+                document.add_u64(block, 0);
+                document.add_u64(offset, 1);
+            }
+        }
         writer
             .add_document(AddOperation {
                 opstamp: 1,

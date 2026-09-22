@@ -16,11 +16,12 @@ CREATE INDEX alias_idx ON alias_json USING paradedb (id, metadata, (metadata::pd
 SELECT * FROM paradedb.schema('alias_idx');
       name       | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
 -----------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
- ctid            | U64        | f      | t       | t    | f          |             |                                  |          | 
  id              | I64        | f      | t       | t    | f          |             |                                  |          | 
  metadata        | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
  metadata_simple | JsonObject | f      | t       | f    | f          | t           | default                          | position | 
-(4 rows)
+ tid_block       | U64        | f      | f       | t    | f          |             |                                  |          | 
+ tid_offset      | U64        | f      | f       | t    | f          |             |                                  |          | 
+(5 rows)
 
 SELECT * FROM alias_json WHERE id @@@ pdb.parse('metadata_simple.name:red');
  id |                     metadata                     

@@ -1445,14 +1445,29 @@ fn cant_name_a_field_ctid(mut conn: PgConnection) {
     );"
     .execute(&mut conn);
 
+    // Naming a field `ctid` is allowed now that internal tuple identifiers are split.
     let result = r#"CREATE INDEX missing_source_idx ON missing_source
     USING paradedb (id, text_field, (text_field::pdb.simple('alias=ctid')));"#
         .execute_result(&mut conn);
+    assert!(result.is_ok());
 
+    // But our internal `tid_block` and `tid_offset` columns are reserved and disallowed.
+    let result = r#"CREATE INDEX missing_source_idx_block ON missing_source
+    USING paradedb (id, text_field, (text_field::pdb.simple('alias=tid_block')));"#
+        .execute_result(&mut conn);
     assert!(result.is_err());
     assert_eq!(
         db_error_message(&result.unwrap_err()),
-        "error returned from database: Field already exists in schema ctid"
+        "error returned from database: Field already exists in schema tid_block"
+    );
+
+    let result = r#"CREATE INDEX missing_source_idx_offset ON missing_source
+    USING paradedb (id, text_field, (text_field::pdb.simple('alias=tid_offset')));"#
+        .execute_result(&mut conn);
+    assert!(result.is_err());
+    assert_eq!(
+        db_error_message(&result.unwrap_err()),
+        "error returned from database: Field already exists in schema tid_offset"
     );
 }
 

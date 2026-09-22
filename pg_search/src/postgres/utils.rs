@@ -217,6 +217,10 @@ mod tests {
     }
 }
 
+pub type TidBlock = pg_sys::BlockNumber;
+pub type TidOffset = pg_sys::OffsetNumber;
+
+// TODO: Rename ctid -> tid
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Ctid(u64);
 
@@ -230,7 +234,7 @@ impl Ctid {
     }
 
     pub fn is_valid(self) -> bool {
-        self.0 as pg_sys::OffsetNumber != pg_sys::InvalidOffsetNumber
+        self.0 as TidOffset != pg_sys::InvalidOffsetNumber
     }
 }
 
@@ -268,29 +272,51 @@ pub fn item_pointer_to_u64(ctid: pg_sys::ItemPointerData) -> u64 {
 #[inline(always)]
 pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
     let blockno = u64_ctid_block_number(value);
-    let offno = value as pg_sys::OffsetNumber;
+    let offno = u64_ctid_offset_number(value);
     item_pointer_set_all(tid, blockno, offno);
 }
 
 /// The block number packed into a ctid by [`item_pointer_to_u64`].
+// TODO: Rename ctid -> tid
 #[inline(always)]
-pub fn u64_ctid_block_number(value: u64) -> pg_sys::BlockNumber {
+pub fn u64_ctid_block_number(value: u64) -> TidBlock {
     // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
     // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
-    (value >> 16) as pg_sys::BlockNumber
+    (value >> 16) as TidBlock
+}
+
+/// The offset number packed into a ctid by [`item_pointer_to_u64`].
+// TODO: Rename ctid -> tid
+#[inline(always)]
+pub fn u64_ctid_offset_number(value: u64) -> TidOffset {
+    value as TidOffset
+}
+
+/// Combines block and offset into a packed `u64` tuple identifier (TID).
+#[inline(always)]
+pub fn tid_from_components(block: TidBlock, offset: TidOffset) -> u64 {
+    ((block as u64) << 16) | (offset as u64)
+}
+
+/// Extracts block and offset from a packed `u64` tuple identifier (TID).
+#[inline(always)]
+pub fn tid_to_components(tid: u64) -> (TidBlock, TidOffset) {
+    (u64_ctid_block_number(tid), u64_ctid_offset_number(tid))
 }
 
 /// Formats a packed `u64` ctid as a Postgres tuple string `"(block,offset)"`.
 ///
 /// TODO: introduce a newtype for packed ctids to encapsulate packing and formatting.
+// TODO: Rename ctid -> tid
 pub fn format_u64_ctid(value: u64) -> String {
     let blockno = u64_ctid_block_number(value);
-    let offno = value as pg_sys::OffsetNumber;
+    let offno = u64_ctid_offset_number(value);
     format!("({blockno},{offno})")
 }
 
 /// Returns `true` if the block referenced by `ctid` (u64-packed form) exists
 /// in `rel`. A `false` result means VACUUM has truncated the page.
+// TODO: Rename ctid -> tid
 #[inline(always)]
 pub unsafe fn ctid_satisfies_nblocks(
     ctid: u64,

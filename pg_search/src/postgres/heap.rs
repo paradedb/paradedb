@@ -176,6 +176,7 @@ pub struct VisibilityChecker {
     // TODO: Make this non-optional in the future once all call sites provide an FFHelper.
     ffhelper: Option<Arc<FFHelper>>,
     raw_ctids_scratch: Vec<Option<u64>>,
+    split_ctids_scratch: Vec<Option<u64>>,
     dirty_blocks: HashMap<SegmentId, Arc<[Range<BlockNumber>]>>,
     /// Caches whether each segment has been proven all-visible under this checker's snapshot.
     segment_visibility: HashMap<SegmentOrdinal, bool>,
@@ -229,6 +230,7 @@ impl VisibilityChecker {
                 check_visibility: true,
                 ffhelper: None,
                 raw_ctids_scratch: Vec::new(),
+                split_ctids_scratch: Vec::new(),
                 dirty_blocks: HashMap::default(),
                 segment_visibility: HashMap::default(),
                 segment_checks: HashMap::default(),
@@ -704,6 +706,7 @@ impl VisibilityChecker {
             .clone()
             .expect("FFHelper must be configured to check segment doc visibility");
         let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
+        let mut split_scratch = std::mem::take(&mut self.split_ctids_scratch);
         let mut ctids = Vec::new();
         let mut check = |start: usize, end: usize| {
             if start == end {
@@ -711,9 +714,11 @@ impl VisibilityChecker {
             }
             raw_ctids.resize(end - start, None);
             ctids.resize(end - start, None);
-            ffhelper
-                .ctid(segment_ord)
-                .as_u64s(&doc_ids[start..end], &mut raw_ctids);
+            ffhelper.ctid(segment_ord).as_u64s(
+                &doc_ids[start..end],
+                &mut raw_ctids,
+                &mut split_scratch,
+            );
             self.check_raw_ctids_impl(&raw_ctids, &mut ctids, false);
             for (visible, ctid) in mask[start..end].iter_mut().zip(&ctids) {
                 *visible = ctid.is_some();
@@ -744,6 +749,7 @@ impl VisibilityChecker {
             check(0, doc_ids.len());
         }
         self.raw_ctids_scratch = raw_ctids;
+        self.split_ctids_scratch = split_scratch;
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from
@@ -806,7 +812,11 @@ impl VisibilityChecker {
 
         let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
         raw_ctids.resize(doc_ids.len(), None);
-        ffhelper.ctid(segment_ord).as_u64s(doc_ids, &mut raw_ctids);
+        let mut split_scratch = std::mem::take(&mut self.split_ctids_scratch);
+        ffhelper
+            .ctid(segment_ord)
+            .as_u64s(doc_ids, &mut raw_ctids, &mut split_scratch);
+        self.split_ctids_scratch = split_scratch;
 
         if !self.check_visibility {
             results.copy_from_slice(&raw_ctids);

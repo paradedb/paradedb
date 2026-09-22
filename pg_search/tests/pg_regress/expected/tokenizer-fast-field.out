@@ -22,14 +22,15 @@ CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING paradedb (
     (metadata::pdb.literal_normalized('stopwords_language=English'))
 );
 SELECT * FROM paradedb.schema('idxtokenizer_fast') ORDER BY name;
-   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |                   tokenizer                    | record | normalizer 
-----------+------------+--------+---------+------+------------+-------------+------------------------------------------------+--------+------------
- ctid     | U64        | f      | t       | t    | f          |             |                                                |        | 
- id       | I64        | f      | t       | t    | f          |             |                                                |        | 
- metadata | JsonObject | f      | t       | t    | f          | t           | literal_normalized[stopwords_language=English] | basic  | raw
- t        | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                       | basic  | raw
- t_long   | Str        | f      | t       | t    | f          |             | literal_normalized[stopwords_language=English] | basic  | raw
-(5 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |                   tokenizer                    | record | normalizer 
+------------+------------+--------+---------+------+------------+-------------+------------------------------------------------+--------+------------
+ id         | I64        | f      | t       | t    | f          |             |                                                |        | 
+ metadata   | JsonObject | f      | t       | t    | f          | t           | literal_normalized[stopwords_language=English] | basic  | raw
+ t          | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                       | basic  | raw
+ t_long     | Str        | f      | t       | t    | f          |             | literal_normalized[stopwords_language=English] | basic  | raw
+ tid_block  | U64        | f      | f       | t    | f          |             |                                                |        | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                                                |        | 
+(6 rows)
 
 -- Top K over literal
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

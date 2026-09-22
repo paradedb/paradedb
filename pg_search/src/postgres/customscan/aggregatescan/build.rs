@@ -17,7 +17,9 @@
 
 use crate::api::SortDirection;
 use crate::api::version::Version;
-use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, MvccVisibility, OrderByFeature};
+use crate::api::{
+    CTID_FIELD_NAME, FieldName, HashSet, MvccVisibility, OrderByFeature, TID_OFFSET_FIELD_NAME,
+};
 use crate::gucs;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
@@ -36,7 +38,7 @@ use crate::postgres::customscan::explain::cleanup_json_for_explain;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::sort_json_keys;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchIndexSchema, TidFields};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use anyhow::Result;
@@ -96,6 +98,8 @@ pub struct AggregateCSClause {
     index_created_by_version: Option<Version>,
     is_execution_time: bool,
     aggregate_orderby: Option<AggregateOrderBy>,
+    #[serde(default)]
+    doc_count_field: String,
 }
 
 trait CollectNested<Key: AggregationKey> {
@@ -193,11 +197,16 @@ impl CollectAggregations for AggregateCSClause {
                 .collect::<Aggregations>();
 
             if gucs::add_doc_count_to_aggs() {
+                let field = if !self.doc_count_field.is_empty() {
+                    self.doc_count_field.clone()
+                } else {
+                    CTID_FIELD_NAME.to_string()
+                };
                 aggs.insert(
                     DocCountKey::NAME.to_string(),
                     Aggregation {
                         agg: AggregationVariants::Count(CountAggregation {
-                            field: CTID_FIELD_NAME.to_string(),
+                            field,
                             missing: None,
                         }),
                         sub_aggregation: Default::default(),
@@ -321,7 +330,7 @@ impl AggregateCSClause {
 
     /// True when this clause is a single doc-count aggregate with no GROUP BY,
     /// FILTER, or ORDER BY: the shape answerable by `Weight::count` alone.
-    /// Matches `COUNT(*)` and pdb.agg value_count over the internal ctid field,
+    /// Matches `COUNT(*)` and pdb.agg value_count over the internal ctid or tid_offset field,
     /// which is present exactly once per doc.
     pub fn is_bare_doc_count(&self) -> bool {
         if self.has_groupby() || self.has_filter() || self.orderby.has_orderby() {
@@ -333,6 +342,11 @@ impl AggregateCSClause {
         };
         match aggregate {
             AggregateType::CountAny { filter: None, .. } => true,
+            AggregateType::Count {
+                field,
+                filter: None,
+                ..
+            } if field == CTID_FIELD_NAME => true,
             AggregateType::Custom {
                 agg_json,
                 filter: None,
@@ -342,8 +356,8 @@ impl AggregateCSClause {
         }
     }
 
-    /// True for `{"value_count": {"field": "ctid"}}`, whose value count is
-    /// equivalent to the document count.
+    /// True for `{"value_count": {"field": "ctid"}}` or `{"value_count": {"field": "tid_offset"}}`,
+    /// whose value count is equivalent to the document count.
     fn is_doc_count_json(agg_json: &serde_json::Value) -> bool {
         let Some(aggs) = agg_json.as_object() else {
             return false;
@@ -363,7 +377,7 @@ impl AggregateCSClause {
         {
             return false;
         }
-        field == CTID_FIELD_NAME
+        field == CTID_FIELD_NAME || field == TID_OFFSET_FIELD_NAME
     }
 
     pub fn planner_should_replace_aggrefs(&self) -> bool {
@@ -514,6 +528,15 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             None
         };
 
+        let doc_count_field = if let Ok(schema) = index.schema() {
+            match schema.tid_fields() {
+                TidFields::Legacy(_) => CTID_FIELD_NAME.to_string(),
+                TidFields::Split { .. } => TID_OFFSET_FIELD_NAME.to_string(),
+            }
+        } else {
+            CTID_FIELD_NAME.to_string()
+        };
+
         Ok(Self {
             targetlist,
             orderby,
@@ -523,6 +546,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             index_created_by_version: index.created_by_version(),
             is_execution_time: false,
             aggregate_orderby,
+            doc_count_field,
         })
     }
 }

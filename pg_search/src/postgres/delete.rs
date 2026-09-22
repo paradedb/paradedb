@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::fast_fields_helper::FFType;
+use crate::index::fast_fields_helper::TidReader;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::locks::AdvisoryLock;
@@ -217,10 +217,13 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
                     .expect("is_mutable() guarantees this is a mutable segment");
                 Box::new(ctids.into_iter().map(|ctid| DeleteTarget::Ctid { ctid }))
             } else {
-                let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+                let tid_ff = TidReader::open(segment_reader.schema(), segment_reader.fast_fields())
+                    .expect("tid columns should be present");
+                // TODO: Migrate from as_u64 point lookup to as_u64s batching
+                #[allow(deprecated)]
                 Box::new(
                     (0..segment_reader.max_doc()).map(move |doc_id| DeleteTarget::DocId {
-                        ctid: ctid_ff.as_u64(doc_id).expect("ctid should be present"),
+                        ctid: tid_ff.as_u64(doc_id).expect("tid should be present"),
                         doc_id,
                     }),
                 )

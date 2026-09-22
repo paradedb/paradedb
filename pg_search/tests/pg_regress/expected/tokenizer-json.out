@@ -8,13 +8,14 @@ CREATE TABLE index_json(
 INSERT INTO index_json (j, jb) VALUES ('{"key1": "value1"}', '{"key2": "value2"}');
 CREATE INDEX idxindex_json ON index_json USING paradedb (id, j, jb);
 SELECT * FROM paradedb.schema('idxindex_json') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
- ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
- id   | I64        | f      | t       | t    | f          |             |                                  |          | 
- j    | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
- jb   | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
-(4 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ id         | I64        | f      | t       | t    | f          |             |                                  |          | 
+ j          | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
+ jb         | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                                  |          | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                                  |          | 
+(5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
                                                                                           QUERY PLAN                                                                                           
@@ -189,13 +190,14 @@ SELECT * FROM index_json WHERE jb->'key2' === 'value2';
 DROP INDEX idxindex_json;
 CREATE INDEX idxindex_json ON index_json USING paradedb (id, (j::pdb.ngram(2, 3)), (jb::pdb.whitespace));
 SELECT * FROM paradedb.schema('idxindex_json') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
- ctid | U64        | f      | t       | t    | f          |             |                                            |          | 
- id   | I64        | f      | t       | t    | f          |             |                                            |          | 
- j    | JsonObject | f      | t       | f    | f          | t           | ngram_mingram:2_maxgram:3_prefixonly:false | position | 
- jb   | JsonObject | f      | t       | f    | f          | t           | whitespace                                 | position | 
-(4 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
+------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
+ id         | I64        | f      | t       | t    | f          |             |                                            |          | 
+ j          | JsonObject | f      | t       | f    | f          | t           | ngram_mingram:2_maxgram:3_prefixonly:false | position | 
+ jb         | JsonObject | f      | t       | f    | f          | t           | whitespace                                 | position | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                                            |          | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                                            |          | 
+(5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
                                                                                           QUERY PLAN                                                                                           

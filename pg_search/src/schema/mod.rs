@@ -20,7 +20,9 @@ mod config;
 pub mod range;
 
 use crate::api::version::{Version, VersionInfo};
-use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
+use crate::api::{
+    CTID_FIELD_NAME, FieldName, HashMap, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME,
+};
 use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
@@ -406,6 +408,22 @@ pub struct CategorizedFieldData {
     pub is_json: bool,
 }
 
+/// The Tantivy schema fields representing the Postgres tuple identifier.
+///
+/// Legacy indexes store the tuple identifier in a single `ctid` column.
+/// Newer indexes split the identifier across `tid_block` and `tid_offset` columns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TidFields {
+    Legacy(Field),
+    Split { block: Field, offset: Field },
+}
+
+impl TidFields {
+    pub fn is_legacy(&self) -> bool {
+        matches!(self, Self::Legacy(_))
+    }
+}
+
 #[derive(Clone)]
 pub struct SearchIndexSchema {
     schema: Schema,
@@ -453,63 +471,171 @@ impl SearchIndexSchema {
         &self.schema
     }
 
-    pub fn ctid_field(&self) -> Field {
-        self.schema
-            .get_field(CTID_FIELD_NAME)
-            .expect("ctid field should be present in the index")
+    #[cfg(any(test, feature = "pg_test"))]
+    pub fn for_test(schema: Schema) -> Self {
+        Self {
+            schema,
+            bm25_options: BM25IndexOptions::for_test(),
+            categorized: Default::default(),
+        }
+    }
+
+    /// Returns the tuple identifier field representation for this schema.
+    pub fn tid_fields(&self) -> TidFields {
+        Self::tid_fields_for_schema(&self.schema)
+    }
+
+    /// Determines the tuple identifier fields present in the given Tantivy schema.
+    pub fn tid_fields_for_schema(schema: &Schema) -> TidFields {
+        if let (Ok(block), Ok(offset)) = (
+            schema.get_field(TID_BLOCK_FIELD_NAME),
+            schema.get_field(TID_OFFSET_FIELD_NAME),
+        ) {
+            TidFields::Split { block, offset }
+        } else {
+            let field = schema
+                .get_field(CTID_FIELD_NAME)
+                .expect("legacy ctid field should be present in the index schema");
+            TidFields::Legacy(field)
+        }
+    }
+
+    // TODO: Rename ctid -> tid
+    pub fn ctid_field(&self) -> Option<Field> {
+        match self.tid_fields() {
+            TidFields::Legacy(field) => Some(field),
+            TidFields::Split { .. } => None,
+        }
     }
 
     pub fn index_search_tokenizer(&self) -> Option<SearchTokenizer> {
         self.bm25_options.search_tokenizer()
     }
 
-    /// Convert sort_by configuration to Tantivy's IndexSortByField.
+    /// Returns the segment sorting configuration for the index.
     ///
-    /// Validates that the sort field exists in the schema and is columnar.
-    /// Returns None if sort_by is empty (no segment sorting).
+    /// Validates that sort fields exist in the schema and are columnar.
+    /// Returns an empty list if sort_by is empty (no segment sorting).
+    ///
+    /// For legacy schemas with a single `ctid` column, sorting by `ctid` uses `[ctid]`.
+    /// For newer schemas with split `tid_block` and `tid_offset` columns, compound segment
+    /// sorting orders by `[tid_block, tid_offset]`.
     ///
     /// This is an associated function (not a method) because it's also used during
     /// index creation when only the Tantivy Schema is available.
+    pub fn build_sort_by_fields(sort_by: &[SortByField], schema: &Schema) -> Vec<IndexSortByField> {
+        let mut sort_by_fields = Vec::with_capacity(sort_by.len());
+
+        for sort_field in sort_by {
+            let field_name = sort_field.field_name.as_ref();
+            let order = match sort_field.direction {
+                SortByDirection::Asc => Order::Asc,
+                SortByDirection::Desc => Order::Desc,
+            };
+
+            // TODO: Consider what we want to support in terms of partitioning (and segment sorting).
+            // It's possible that for both partitioning and sorting, we want to still expose ctid/tid
+            // as the user-facing name.
+            if sort_field.field_name.is_ctid() {
+                if let (Ok(block_field), Ok(offset_field)) = (
+                    schema.get_field(TID_BLOCK_FIELD_NAME),
+                    schema.get_field(TID_OFFSET_FIELD_NAME),
+                ) {
+                    assert!(
+                        schema.get_field_entry(block_field).is_fast(),
+                        "`{TID_BLOCK_FIELD_NAME}` must be columnar"
+                    );
+                    assert!(
+                        schema.get_field_entry(offset_field).is_fast(),
+                        "`{TID_OFFSET_FIELD_NAME}` must be columnar"
+                    );
+                    sort_by_fields.push(IndexSortByField::new(TID_BLOCK_FIELD_NAME, order));
+                    sort_by_fields.push(IndexSortByField::new(TID_OFFSET_FIELD_NAME, order));
+                } else {
+                    let ctid_field = schema.get_field(CTID_FIELD_NAME).unwrap_or_else(|_| {
+                        panic!(
+                            "sort_by field 'ctid' requested, but neither `{CTID_FIELD_NAME}` nor `{TID_BLOCK_FIELD_NAME}` exist in schema"
+                        )
+                    });
+                    assert!(
+                        schema.get_field_entry(ctid_field).is_fast(),
+                        "`{CTID_FIELD_NAME}` must be columnar"
+                    );
+                    sort_by_fields.push(IndexSortByField::new(CTID_FIELD_NAME, order));
+                }
+                continue;
+            }
+
+            if field_name == TID_BLOCK_FIELD_NAME || field_name == TID_OFFSET_FIELD_NAME {
+                panic!(
+                    "sorting directly by `{field_name}` is not supported; use `ctid` or `tid` instead"
+                );
+            }
+
+            // Validate field exists in schema
+            let field = schema.get_field(field_name).unwrap_or_else(|_| {
+                panic!(
+                    "sort_by field '{}' does not exist in the index schema",
+                    field_name
+                )
+            });
+
+            // Validate field is columnar
+            let field_entry = schema.get_field_entry(field);
+            if !field_entry.is_fast() {
+                panic!(
+                    "sort_by field '{}' must be columnar. Add it to the index with 'columnar=true'",
+                    field_name
+                );
+            }
+
+            sort_by_fields.push(IndexSortByField::new(field_name, order));
+        }
+
+        sort_by_fields
+    }
+
+    #[deprecated(note = "use build_sort_by_fields instead")]
     pub fn build_sort_by_field(
         sort_by: &[SortByField],
         schema: &Schema,
     ) -> Option<IndexSortByField> {
-        // Empty sort_by means no segment sorting
-        if sort_by.is_empty() {
-            return None;
-        }
+        Self::build_sort_by_fields(sort_by, schema)
+            .into_iter()
+            .next()
+    }
 
-        // Multi-field validation is done in options.rs during parsing
-        let sort_field = &sort_by[0];
-        let field_name = sort_field.field_name.as_ref();
-
-        // Validate field exists in schema
-        let field = schema.get_field(field_name).unwrap_or_else(|_| {
-            panic!(
-                "sort_by field '{}' does not exist in the index schema",
-                field_name
-            )
-        });
-
-        // Validate field is columnar
-        let field_entry = schema.get_field_entry(field);
-        if !field_entry.is_fast() {
-            panic!(
-                "sort_by field '{}' must be columnar. Add it to the index with 'columnar=true'",
-                field_name
-            );
-        }
-
-        // Convert direction
-        let order = match sort_field.direction {
-            SortByDirection::Asc => Order::Asc,
-            SortByDirection::Desc => Order::Desc,
-        };
-
-        Some(IndexSortByField {
-            field: field_name.to_string(),
-            order,
-        })
+    /// Returns the effective partitioning dimensions for the index.
+    ///
+    /// When partitioning by `ctid`:
+    /// - For legacy schemas with a single `ctid` column, returns `ctid`.
+    /// - For newer split schemas with `tid_block` and `tid_offset`, implicitly returns
+    ///   only `tid_block`. Partitioning by `tid_block` is sufficient to achieve the goal,
+    ///   since `tid_block` is a prefix of the tuple identifier. Meanwhile, we sort by
+    ///   both `tid_block` and `tid_offset` because sorting by both maximizes compression.
+    pub fn build_partition_by_fields(
+        partition_by: &[FieldName],
+        schema: &Schema,
+    ) -> Vec<FieldName> {
+        partition_by
+            .iter()
+            .map(|dim| {
+                if dim.is_ctid() {
+                    if schema.get_field(TID_BLOCK_FIELD_NAME).is_ok() {
+                        // In split mode, implicitly only partition by tid_block.
+                        // Partitioning by tid_block is sufficient to achieve the goal,
+                        // since tid_block is a prefix of the tuple identifier.
+                        // Meanwhile, we sort by both tid_block and tid_offset because
+                        // sorting by both maximizes compression.
+                        FieldName::from(TID_BLOCK_FIELD_NAME)
+                    } else {
+                        dim.clone()
+                    }
+                } else {
+                    dim.clone()
+                }
+            })
+            .collect()
     }
 
     pub fn get_field_type(&self, name: impl AsRef<str>) -> Option<SearchFieldType> {
@@ -582,12 +708,18 @@ impl SearchIndexSchema {
 
     /// Check if a field supports aggregate pushdown on the Tantivy backend.
     ///
+    /// The tuple identifier field (`ctid`) is always supported, backed by either the legacy
+    /// `ctid` fast field or the split `tid_block` and `tid_offset` fast fields.
     /// Returns `false` for NUMERIC fields: Tantivy aggregations compute in f64
     /// (losing precision and mishandling NaN/Infinity sentinels) and cannot read
     /// the decimal-bytes storage at all. Standard SQL aggregates over NUMERIC
     /// route to the DataFusion backend instead; `pdb.agg()` has no such backend
     /// and declines. Returns `false` if the field doesn't exist.
     pub fn supports_tantivy_aggregate(&self, name: impl AsRef<str>) -> bool {
+        let name = name.as_ref();
+        if name == CTID_FIELD_NAME {
+            return true;
+        }
         self.search_field(name)
             .is_some_and(|f| !f.field_type().is_numeric())
     }

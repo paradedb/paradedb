@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{
-    CTID_FIELD_NAME, FieldName, HashSet, MvccVisibility, is_agg_funcoid, pdb_agg_spec,
+    CTID_FIELD_NAME, FieldName, HashSet, MvccVisibility, TID_BLOCK_FIELD_NAME,
+    TID_OFFSET_FIELD_NAME, is_agg_funcoid, pdb_agg_spec,
 };
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
@@ -31,7 +32,7 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
 use crate::query::SearchQueryInput;
-use crate::schema::{SearchFieldType, SearchIndexSchema};
+use crate::schema::{SearchFieldType, SearchIndexSchema, TidFields};
 use anyhow::{Context, bail};
 use pgrx::PgList;
 use pgrx::pg_sys::{
@@ -161,6 +162,8 @@ impl AggregateType {
             )
             .context("pdb.agg argument must be a constant for aggregate pushdown")?;
             let schema = bm25_index.schema().expect("could not get index schema");
+
+            rewrite_ctid_to_tid_offset(&mut json_value, &schema);
 
             // A spec written for a join names its fields `alias.field`, and the
             // planner can reduce that join to this one relation. A qualifier
@@ -462,6 +465,12 @@ impl AggregateType {
             None
         }
     }
+
+    pub fn rewrite_ctid_to_tid_offset(&mut self, schema: &SearchIndexSchema) {
+        if let AggregateType::Custom { agg_json, .. } = self {
+            rewrite_ctid_to_tid_offset(agg_json, schema);
+        }
+    }
 }
 
 /// Validate that all fields referenced in a JSON aggregation request exist in the
@@ -493,7 +502,11 @@ pub(crate) fn validate_agg_json_fields(
         if !indexed_fields.contains(field) {
             let mut available: Vec<_> = indexed_fields
                 .iter()
-                .filter(|f| *f != CTID_FIELD_NAME)
+                .filter(|f| {
+                    *f != CTID_FIELD_NAME
+                        && *f != TID_BLOCK_FIELD_NAME
+                        && *f != TID_OFFSET_FIELD_NAME
+                })
                 .cloned()
                 .collect();
             available.sort();
@@ -672,6 +685,42 @@ fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<S
     }
 }
 
+/// Rewrite every `"field": "ctid"` to `"tid_offset"` when the schema splits `ctid` into
+/// `tid_block` and `tid_offset`.
+// TODO: Consider changing the public API at some point rather than transparently
+// rewriting `ctid` to `tid_offset` on split schemas.
+pub(crate) fn rewrite_ctid_to_tid_offset(json: &mut serde_json::Value, schema: &SearchIndexSchema) {
+    if !matches!(schema.tid_fields(), TidFields::Split { .. }) {
+        return;
+    }
+    rewrite_ctid_to_tid_offset_rec(json);
+}
+
+fn rewrite_ctid_to_tid_offset_rec(json: &mut serde_json::Value) {
+    match json {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(f)) = map.get_mut("field") {
+                if f == CTID_FIELD_NAME {
+                    *f = TID_OFFSET_FIELD_NAME.to_string();
+                } else if let Some((prefix, rest)) = f.split_once('.')
+                    && rest == CTID_FIELD_NAME
+                {
+                    *f = format!("{prefix}.{TID_OFFSET_FIELD_NAME}");
+                }
+            }
+            for value in map.values_mut() {
+                rewrite_ctid_to_tid_offset_rec(value);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                rewrite_ctid_to_tid_offset_rec(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 impl std::fmt::Display for AggregateType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -708,7 +757,11 @@ impl From<AggregateType> for AggregationVariants {
                 AggregationVariants::Filter(FilterAggregation::new("*".to_string()))
             }
             AggregateType::Count { field, missing, .. } => {
-                AggregationVariants::Count(CountAggregation { field, missing })
+                if field == CTID_FIELD_NAME {
+                    AggregationVariants::Filter(FilterAggregation::new("*".to_string()))
+                } else {
+                    AggregationVariants::Count(CountAggregation { field, missing })
+                }
             }
             AggregateType::Sum { field, missing, .. } => AggregationVariants::Sum(SumAggregation {
                 field,
@@ -1011,5 +1064,68 @@ mod tests {
         for value in [(1_i64 << 53) + 1, -((1 << 53) + 1), i64::MAX] {
             assert_eq!(value.to_f64_lossless(), None);
         }
+    }
+
+    #[test]
+    fn test_rewrite_ctid_to_tid_offset() {
+        use super::rewrite_ctid_to_tid_offset;
+        use crate::api::{CTID_FIELD_NAME, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
+        use crate::schema::SearchIndexSchema;
+        use tantivy::schema::{FAST, Schema};
+
+        // Split schema
+        let mut split_builder = Schema::builder();
+        split_builder.add_u64_field(TID_BLOCK_FIELD_NAME, FAST);
+        split_builder.add_u64_field(TID_OFFSET_FIELD_NAME, FAST);
+        let split_schema = SearchIndexSchema::for_test(split_builder.build());
+
+        // Legacy schema
+        let mut legacy_builder = Schema::builder();
+        legacy_builder.add_u64_field(CTID_FIELD_NAME, FAST);
+        let legacy_schema = SearchIndexSchema::for_test(legacy_builder.build());
+
+        // Simple value_count on split schema
+        let mut json = serde_json::json!({"value_count": {"field": "ctid"}});
+        rewrite_ctid_to_tid_offset(&mut json, &split_schema);
+        assert_eq!(
+            json,
+            serde_json::json!({"value_count": {"field": "tid_offset"}})
+        );
+
+        // Simple value_count on legacy schema
+        let mut json = serde_json::json!({"value_count": {"field": "ctid"}});
+        rewrite_ctid_to_tid_offset(&mut json, &legacy_schema);
+        assert_eq!(json, serde_json::json!({"value_count": {"field": "ctid"}}));
+
+        // Qualified field on split schema
+        let mut json = serde_json::json!({"value_count": {"field": "posts.ctid"}});
+        rewrite_ctid_to_tid_offset(&mut json, &split_schema);
+        assert_eq!(
+            json,
+            serde_json::json!({"value_count": {"field": "posts.tid_offset"}})
+        );
+
+        // Nested sub-aggregation on split schema
+        let mut json = serde_json::json!({
+            "terms": {"field": "category"},
+            "aggs": {
+                "count": {"value_count": {"field": "ctid"}}
+            }
+        });
+        rewrite_ctid_to_tid_offset(&mut json, &split_schema);
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "terms": {"field": "category"},
+                "aggs": {
+                    "count": {"value_count": {"field": "tid_offset"}}
+                }
+            })
+        );
+
+        // Non-ctid fields remain unchanged
+        let mut json = serde_json::json!({"value_count": {"field": "price"}});
+        rewrite_ctid_to_tid_offset(&mut json, &split_schema);
+        assert_eq!(json, serde_json::json!({"value_count": {"field": "price"}}));
     }
 }

@@ -14,10 +14,11 @@ USING paradedb (
 SELECT * FROM paradedb.schema('test_bm25');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |               tokenizer                | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+----------------------------------------+--------+------------
- ctid        | U64        | f      | t       | t    | f          |             |                                        |        | 
  description | Str        | f      | t       | t    | f          |             | literal_normalized[ascii_folding=true] | basic  | lowercase
  id          | I64        | f      | t       | t    | f          |             |                                        |        | 
-(3 rows)
+ tid_block   | U64        | f      | f       | t    | f          |             |                                        |        | 
+ tid_offset  | U64        | f      | f       | t    | f          |             |                                        |        | 
+(4 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM test

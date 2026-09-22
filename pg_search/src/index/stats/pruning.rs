@@ -24,7 +24,7 @@ use std::ops::Bound;
 use tantivy::index::SegmentId;
 
 use super::SegmentStats;
-use crate::api::HashSet;
+use crate::api::{CTID_FIELD_NAME, HashSet, TID_BLOCK_FIELD_NAME};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -42,7 +42,15 @@ pub(crate) fn persisted_split_points(
         return Ok(None);
     }
     let index = crate::index::open_index(MvccSatisfies::Snapshot.directory(indexrel))?;
-    let Ok(field) = index.schema().get_field(partition_by) else {
+    let field = if partition_by == CTID_FIELD_NAME {
+        index
+            .schema()
+            .get_field(TID_BLOCK_FIELD_NAME)
+            .or_else(|_| index.schema().get_field(CTID_FIELD_NAME))
+    } else {
+        index.schema().get_field(partition_by)
+    };
+    let Ok(field) = field else {
         return Ok(None);
     };
     let mut points = Vec::new();

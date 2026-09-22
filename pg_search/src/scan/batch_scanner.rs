@@ -577,7 +577,7 @@ impl Scanner {
                 if need_ctid {
                     let mut ctids_scratch = std::mem::take(&mut self.visibility_results);
                     ctids_scratch.resize(ids.len(), None);
-                    ffhelper.ctid(segment_ord).as_u64s(&ids, &mut ctids_scratch);
+                    visibility.check_segment_docs(segment_ord, &ids, &mut ctids_scratch);
                     let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
                     for ctid in ctids_scratch.drain(..) {
                         ctids_builder

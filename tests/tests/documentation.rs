@@ -2119,12 +2119,13 @@ fn schema(mut conn: PgConnection) {
     let expected = vec![
         ("category".to_string(), "Str".to_string()),
         ("created_at".to_string(), "I64".to_string()),
-        ("ctid".to_string(), "U64".to_string()),
         ("description".to_string(), "Str".to_string()),
         ("id".to_string(), "I64".to_string()),
         ("in_stock".to_string(), "Bool".to_string()),
         ("metadata".to_string(), "JsonObject".to_string()),
         ("rating".to_string(), "I64".to_string()),
+        ("tid_block".to_string(), "U64".to_string()),
+        ("tid_offset".to_string(), "U64".to_string()),
     ];
 
     assert_eq!(rows, expected);

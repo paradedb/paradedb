@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
 use crate::api::version::Version;
-use crate::api::{CTID_FIELD_NAME, HashSet};
+use crate::api::{CTID_FIELD_NAME, HashSet, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
 use crate::index::directory::utils::load_index_settings;
 use crate::index::setup_tokenizers;
 use crate::postgres::catalog::OidExt;
@@ -529,10 +529,18 @@ impl PgSearchRelation {
         let Ok(settings) = self.settings() else {
             return false;
         };
-        matches!(
-            settings.sort_by_field.as_ref(),
-            Some(sort) if sort.field == CTID_FIELD_NAME && sort.order == Order::Asc
-        )
+        match settings.sort_by_fields() {
+            [sort] if sort.field == CTID_FIELD_NAME && sort.order == Order::Asc => true,
+            [block, offset]
+                if block.field == TID_BLOCK_FIELD_NAME
+                    && block.order == Order::Asc
+                    && offset.field == TID_OFFSET_FIELD_NAME
+                    && offset.order == Order::Asc =>
+            {
+                true
+            }
+            _ => false,
+        }
     }
 
     /// This opens the MetaPage on every call, so use it carefully

@@ -1518,10 +1518,11 @@ pub(crate) fn materialize_and_check_deferred_ctid(
             if !is_pruned {
                 state.segment_ctids.clear();
                 state.segment_ctids.resize(rows.len(), None);
-                let ffhelper = checker.ffhelper().expect("FFHelper must be configured");
-                ffhelper
-                    .ctid(seg_ord)
-                    .as_u64s(&state.segment_doc_ids, &mut state.segment_ctids);
+                checker.check_segment_docs(
+                    seg_ord,
+                    &state.segment_doc_ids,
+                    &mut state.segment_ctids,
+                );
                 for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
                     state.resolved_ctids[*row_idx] = *value;
                 }

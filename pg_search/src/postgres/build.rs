@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::version::VersionInfo;
-use crate::api::{CTID_FIELD_NAME, FieldName};
+use crate::api::{FieldName, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
@@ -31,6 +31,7 @@ use crate::schema::{MIN_QUANTIZATION_DIMENSIONS, SearchFieldConfig, SearchFieldT
 use anyhow::Result;
 use pgrx::*;
 use tantivy::Index;
+use tantivy::schema::FAST;
 use tantivy::schema::Schema;
 use tantivy::vector::VectorOptions;
 
@@ -261,8 +262,8 @@ fn validate_field_config(
     options: &BM25IndexOptions,
     matches: fn(&SearchFieldType) -> bool,
 ) {
-    if field_name.is_ctid() {
-        panic!("the name `ctid` is reserved by pg_search");
+    if field_name.as_ref() == TID_BLOCK_FIELD_NAME || field_name.as_ref() == TID_OFFSET_FIELD_NAME {
+        panic!("the name `{field_name}` is reserved by pg_search");
     }
 
     if let Some(alias) = config.alias() {
@@ -358,11 +359,10 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
         builder.add_json_field(name.as_ref(), config.clone());
     }
 
-    // Add ctid field
-    builder.add_u64_field(
-        CTID_FIELD_NAME,
-        options.field_config_or_default(&FieldName::from(CTID_FIELD_NAME)),
-    );
+    // Add tid_block and tid_offset fields (replacing the legacy single ctid column)
+    // TODO: Double check with reviewers during code review whether FAST only is sufficient (no INDEXED needed).
+    builder.add_u64_field(TID_BLOCK_FIELD_NAME, FAST);
+    builder.add_u64_field(TID_OFFSET_FIELD_NAME, FAST);
 
     builder.build()
 }
@@ -371,7 +371,7 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::api::FieldName;
+    use crate::api::{CTID_FIELD_NAME, FieldName};
     use crate::postgres::options::{SortByDirection, SortByField};
     use crate::schema::SearchIndexSchema;
     use pgrx::pg_test;
@@ -382,8 +382,8 @@ mod tests {
     #[pg_test]
     fn test_build_sort_by_field_empty() {
         let schema = Schema::builder().build();
-        let result = SearchIndexSchema::build_sort_by_field(&[], &schema);
-        assert!(result.is_none());
+        let result = SearchIndexSchema::build_sort_by_fields(&[], &schema);
+        assert!(result.is_empty());
     }
 
     #[pg_test]
@@ -397,11 +397,10 @@ mod tests {
             SortByDirection::Asc,
         )];
 
-        let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
-        assert!(result.is_some());
-        let sort_field = result.unwrap();
-        assert_eq!(sort_field.field, "score");
-        assert_eq!(sort_field.order, Order::Asc);
+        let result = SearchIndexSchema::build_sort_by_fields(&sort_by, &schema);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].field, "score");
+        assert_eq!(result[0].order, Order::Asc);
     }
 
     #[pg_test]
@@ -415,11 +414,10 @@ mod tests {
             SortByDirection::Desc,
         )];
 
-        let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
-        assert!(result.is_some());
-        let sort_field = result.unwrap();
-        assert_eq!(sort_field.field, "score");
-        assert_eq!(sort_field.order, Order::Desc);
+        let result = SearchIndexSchema::build_sort_by_fields(&sort_by, &schema);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].field, "score");
+        assert_eq!(result[0].order, Order::Desc);
     }
 
     #[pg_test]
@@ -432,7 +430,7 @@ mod tests {
             SortByDirection::Asc,
         )];
 
-        SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
+        SearchIndexSchema::build_sort_by_fields(&sort_by, &schema);
     }
 
     #[pg_test]
@@ -448,7 +446,7 @@ mod tests {
             SortByDirection::Asc,
         )];
 
-        SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
+        SearchIndexSchema::build_sort_by_fields(&sort_by, &schema);
     }
 
     #[pg_test]
@@ -463,11 +461,47 @@ mod tests {
             SortByDirection::Asc,
         )];
 
-        let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
-        assert!(result.is_some());
-        let sort_field = result.unwrap();
-        assert_eq!(sort_field.field, CTID_FIELD_NAME);
-        assert_eq!(sort_field.order, Order::Asc);
+        let result = SearchIndexSchema::build_sort_by_fields(&sort_by, &schema);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].field, CTID_FIELD_NAME);
+        assert_eq!(result[0].order, Order::Asc);
+    }
+
+    #[pg_test]
+    fn test_build_sort_by_fields_split_ctid() {
+        let mut builder = Schema::builder();
+        builder.add_u64_field(TID_BLOCK_FIELD_NAME, FAST);
+        builder.add_u64_field(TID_OFFSET_FIELD_NAME, FAST);
+        let schema = builder.build();
+
+        // ctid sort_by on split schema returns both tid_block and tid_offset
+        let sort_by = vec![SortByField::new(
+            FieldName::from(CTID_FIELD_NAME),
+            SortByDirection::Asc,
+        )];
+
+        let result = SearchIndexSchema::build_sort_by_fields(&sort_by, &schema);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].field, TID_BLOCK_FIELD_NAME);
+        assert_eq!(result[0].order, Order::Asc);
+        assert_eq!(result[1].field, TID_OFFSET_FIELD_NAME);
+        assert_eq!(result[1].order, Order::Asc);
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "sorting directly by `tid_block` is not supported")]
+    fn test_build_sort_by_field_split_tid_panic() {
+        let mut builder = Schema::builder();
+        builder.add_u64_field(TID_BLOCK_FIELD_NAME, FAST);
+        builder.add_u64_field(TID_OFFSET_FIELD_NAME, FAST);
+        let schema = builder.build();
+
+        let sort_by = vec![SortByField::new(
+            FieldName::from(TID_BLOCK_FIELD_NAME),
+            SortByDirection::Asc,
+        )];
+
+        SearchIndexSchema::build_sort_by_fields(&sort_by, &schema);
     }
 
     // Note: Multi-field validation test moved to options.rs (parse_sort_by_string)
@@ -484,14 +518,11 @@ mod tests {
         let schema = builder.build();
 
         // Create sort_by configuration
-        let sort_by_field = Some(IndexSortByField {
-            field: "score".to_string(),
-            order: Order::Desc,
-        });
+        let sort_by_fields = vec![IndexSortByField::new("score", Order::Desc)];
 
         // Create index with sort settings
         let settings = IndexSettings {
-            sort_by_field,
+            sort_by_fields,
             docstore_compress_dedicated_thread: false,
             ..IndexSettings::default()
         };
@@ -501,10 +532,50 @@ mod tests {
 
         // Verify settings were stored
         let stored_settings = index.settings();
-        assert!(stored_settings.sort_by_field.is_some());
-        let sort_field = stored_settings.sort_by_field.as_ref().unwrap();
+        assert_eq!(stored_settings.sort_by_fields().len(), 1);
+        let sort_field = stored_settings.primary_sort_by_field().unwrap();
         assert_eq!(sort_field.field, "score");
         assert_eq!(sort_field.order, Order::Desc);
+    }
+
+    #[pg_test]
+    fn test_tantivy_index_receives_compound_sort_settings() {
+        use tantivy::directory::RamDirectory;
+
+        let mut builder = Schema::builder();
+        builder.add_u64_field(TID_BLOCK_FIELD_NAME, FAST);
+        builder.add_u64_field(TID_OFFSET_FIELD_NAME, FAST);
+        let schema = builder.build();
+
+        let sort_by = vec![SortByField::new(
+            FieldName::from(CTID_FIELD_NAME),
+            SortByDirection::Asc,
+        )];
+
+        let sort_by_fields = SearchIndexSchema::build_sort_by_fields(&sort_by, &schema);
+        assert_eq!(sort_by_fields.len(), 2);
+
+        let settings = IndexSettings {
+            sort_by_fields,
+            docstore_compress_dedicated_thread: false,
+            ..IndexSettings::default()
+        };
+
+        let directory = RamDirectory::create();
+        let index = Index::create(directory, schema, settings).unwrap();
+
+        let stored_settings = index.settings();
+        assert_eq!(stored_settings.sort_by_fields().len(), 2);
+        assert_eq!(
+            stored_settings.sort_by_fields()[0].field,
+            TID_BLOCK_FIELD_NAME
+        );
+        assert_eq!(stored_settings.sort_by_fields()[0].order, Order::Asc);
+        assert_eq!(
+            stored_settings.sort_by_fields()[1].field,
+            TID_OFFSET_FIELD_NAME
+        );
+        assert_eq!(stored_settings.sort_by_fields()[1].order, Order::Asc);
     }
 
     #[pg_test]

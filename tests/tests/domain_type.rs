@@ -68,11 +68,12 @@ mod domain_types {
         let rows: Vec<(String, String)> =
             "SELECT name, field_type FROM paradedb.schema('idx_employees')".fetch(&mut conn);
 
-        assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-        assert_eq!(rows[1], ("id".into(), "I64".into()));
-        assert_eq!(rows[2], ("ratings".into(), "I64".into()));
-        assert_eq!(rows[3], ("salary_range".into(), "JsonObject".into()));
-        assert_eq!(rows[4], ("status_history".into(), "Str".into()));
+        assert_eq!(rows[0], ("id".into(), "I64".into()));
+        assert_eq!(rows[1], ("ratings".into(), "I64".into()));
+        assert_eq!(rows[2], ("salary_range".into(), "JsonObject".into()));
+        assert_eq!(rows[3], ("status_history".into(), "Str".into()));
+        assert_eq!(rows[4], ("tid_block".into(), "U64".into()));
+        assert_eq!(rows[5], ("tid_offset".into(), "U64".into()));
     }
 
     #[rstest]

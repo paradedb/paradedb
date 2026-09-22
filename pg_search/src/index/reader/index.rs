@@ -27,7 +27,10 @@ use std::time::Instant;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{
+    CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection,
+    TID_BLOCK_FIELD_NAME,
+};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -560,7 +563,14 @@ impl SearchIndexReader {
     pub(crate) fn block_bounds(
         segment: &SegmentReader,
     ) -> Result<Option<RangeInclusive<BlockNumber>>> {
-        let field = segment.schema().get_field(CTID_FIELD_NAME)?;
+        let (field, is_split) = if let Ok(field) = segment.schema().get_field(TID_BLOCK_FIELD_NAME)
+        {
+            (field, true)
+        } else if let Ok(field) = segment.schema().get_field(CTID_FIELD_NAME) {
+            (field, false)
+        } else {
+            return Ok(None);
+        };
         let stats = SegmentStats::of_reader(segment)?;
         let empirical = stats
             .map(|stats| stats.empirical(field))
@@ -574,17 +584,28 @@ impl SearchIndexReader {
         {
             (min, max)
         } else {
-            let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+            let field_name = if is_split {
+                TID_BLOCK_FIELD_NAME
+            } else {
+                CTID_FIELD_NAME
+            };
+            let ctids = segment.fast_fields().u64(field_name)?;
             if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc()
             {
                 return Ok(None);
             }
             (ctids.min_value(), ctids.max_value())
         };
-        let first =
-            BlockNumber::try_from(min >> 16).context("heap block number exceeds BlockNumber")?;
-        let last =
-            BlockNumber::try_from(max >> 16).context("heap block number exceeds BlockNumber")?;
+        let first = if is_split {
+            BlockNumber::try_from(min).context("heap block number exceeds BlockNumber")?
+        } else {
+            BlockNumber::try_from(min >> 16).context("heap block number exceeds BlockNumber")?
+        };
+        let last = if is_split {
+            BlockNumber::try_from(max).context("heap block number exceeds BlockNumber")?
+        } else {
+            BlockNumber::try_from(max >> 16).context("heap block number exceeds BlockNumber")?
+        };
         Ok(Some(first..=last))
     }
 
@@ -1068,19 +1089,38 @@ impl SearchIndexReader {
         &self.segment_stats_snapshot
     }
 
-    /// Returns the sort order of the index segments, if the index was created with `sort_by`.
+    /// Returns the primary sort order of the index segments, if the index was created with `sort_by`.
     ///
     /// This reads from the Tantivy index settings stored in the index metadata.
     /// Returns `None` if the index was not created with segment sorting.
     pub fn sort_order(&self) -> Option<SortByField> {
         let settings = self.underlying_index.settings();
-        settings.sort_by_field.as_ref().map(|sort_field| {
+        settings.primary_sort_by_field().map(|sort_field| {
             let direction = match sort_field.order {
                 Order::Asc => SortByDirection::Asc,
                 Order::Desc => SortByDirection::Desc,
             };
             SortByField::new(FieldName::from(sort_field.field.clone()), direction)
         })
+    }
+
+    /// Returns all sort orders of the index segments, if the index was created with `sort_by`.
+    ///
+    /// This reads from the Tantivy index settings stored in the index metadata.
+    /// Returns an empty list if the index was not created with segment sorting.
+    pub fn sort_orders(&self) -> Vec<SortByField> {
+        let settings = self.underlying_index.settings();
+        settings
+            .sort_by_fields()
+            .iter()
+            .map(|sort_field| {
+                let direction = match sort_field.order {
+                    Order::Asc => SortByDirection::Asc,
+                    Order::Desc => SortByDirection::Desc,
+                };
+                SortByField::new(FieldName::from(sort_field.field.clone()), direction)
+            })
+            .collect()
     }
 
     pub fn validate_checksum(&self) -> Result<std::collections::HashSet<PathBuf>> {

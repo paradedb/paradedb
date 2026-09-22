@@ -175,9 +175,9 @@ WITH (training_sample_ratio=0.32, max_leaf_size=100);
 
 <ParamField body="training_sample_ratio" default={0.32}>
   The fraction of indexed vectors sampled to train the clustering at build time.
-  Must be between `0.000001` and `1.0`; `1.0` trains on every vector. The default
-  samples 32% of the vectors. Larger samples can improve centroid quality at the
-  cost of a slower, more memory-intensive build.
+  Must be between `0.000001` and `1.0`; `1.0` trains on every vector. The
+  default samples 32% of the vectors. Larger samples can improve centroid
+  quality at the cost of a slower, more memory-intensive build.
 </ParamField>
 <ParamField body="max_leaf_size" default={100}>
   The maximum number of sampled training vectors in a leaf of the hierarchical

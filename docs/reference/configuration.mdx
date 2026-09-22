@@ -28,17 +28,17 @@ ALTER ROLE app_user SET paradedb.vector_cluster_max_probe = 0.05;
 
 These settings control whether ParadeDB proposes custom plans for eligible queries.
 
-| Setting                                        | Default       | Context | Description                                                                                         |
-| ---------------------------------------------- | ------------- | ------- | --------------------------------------------------------------------------------------------------- |
-| `paradedb.enable_custom_scan`                  | `on`          | user    | Enables ParadeDB's base custom scan, which replaces table scans with ParadeDB index scans.          |
-| `paradedb.enable_aggregate_custom_scan`        | `on`          | user    | Enables the aggregate custom scan for eligible `pdb.agg` and `GROUP BY` queries.                    |
-| `paradedb.enable_join_custom_scan`             | `on`          | user    | Enables the join custom scan, which pushes eligible joins into the ParadeDB executor.               |
-| `paradedb.enable_custom_scan_without_operator` | `off`         | user    | Allows custom scans without a ParadeDB search operator when the whole `WHERE` clause can push down. |
-| `paradedb.enable_filter_pushdown`              | `on`          | user    | Allows non-indexed predicates to use heap filtering after the ParadeDB scan.                        |
-| `paradedb.enable_range_partitioned_join`       | `off`         | user    | Enables range co-partitioned joins for indexes configured with `partition_by`.                      |
-| `paradedb.enable_heuristic_selectivity`        | `on`          | user    | Uses cheap planner selectivity estimates for expensive fuzzy, regex, and range query shapes.        |
-| `paradedb.per_tuple_cost`                      | `100000000.0` | user    | Planner cost multiplier that discourages using ParadeDB operators outside a supported index plan.   |
-| `paradedb.explain_recursive_estimates`         | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.              |
+| Setting                                        | Default       | Context | Description                                                                                                                |
+| ---------------------------------------------- | ------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `paradedb.enable_custom_scan`                  | `on`          | user    | Enables ParadeDB's base custom scan, which replaces table scans with ParadeDB index scans.                                 |
+| `paradedb.enable_aggregate_custom_scan`        | `on`          | user    | Enables the aggregate custom scan for eligible `pdb.agg` and `GROUP BY` queries.                                           |
+| `paradedb.enable_join_custom_scan`             | `on`          | user    | Enables the join custom scan, which pushes eligible joins into the ParadeDB executor.                                      |
+| `paradedb.enable_custom_scan_without_operator` | `off`         | user    | Allows custom scans without a ParadeDB search operator when the whole `WHERE` clause can push down.                        |
+| `paradedb.enable_filter_pushdown`              | `on`          | user    | Allows non-indexed predicates to use heap filtering after the ParadeDB scan.                                               |
+| `paradedb.enable_range_partitioned_join`       | `off`         | user    | Enables range co-partitioned joins and asymmetric range alignment for MPP joins on indexes configured with `partition_by`. |
+| `paradedb.enable_heuristic_selectivity`        | `on`          | user    | Uses cheap planner selectivity estimates for expensive fuzzy, regex, and range query shapes.                               |
+| `paradedb.per_tuple_cost`                      | `100000000.0` | user    | Planner cost multiplier that discourages using ParadeDB operators outside a supported index plan.                          |
+| `paradedb.explain_recursive_estimates`         | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                     |
 
 ## Top K
 

@@ -974,12 +974,12 @@ impl JoinScan {
     /// Re-bake with `mpp_source_idx` forced to `None` on every source after a short-launch
     /// decline. Physical replanning does not rewrite provider metadata already serialized in
     /// the logical plan, so the serial fallback needs its own logical shape.
-    unsafe fn rebake_for_mpp_fallback(state: &mut CustomScanStateWrapper<Self>) -> Vec<u8> {
+    unsafe fn rebake_for_mpp_fallback(state: &CustomScanStateWrapper<Self>) -> Vec<u8> {
         Self::rebake_from_custom_exprs_string(state, true)
     }
 
     unsafe fn rebake_from_custom_exprs_string(
-        state: &mut CustomScanStateWrapper<Self>,
+        state: &CustomScanStateWrapper<Self>,
         force_serial: bool,
     ) -> Vec<u8> {
         let custom_exprs: *mut pg_sys::List = match &state.custom_state().custom_exprs_string {
@@ -1442,9 +1442,9 @@ impl CustomScan for JoinScan {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
-            let build_with = |ctx: &datafusion::prelude::SessionContext| {
+            let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
                 let logical_plan = deserialize_logical_plan_with_runtime(
-                    logical_plan,
+                    bytes,
                     &ctx.task_ctx(),
                     None,
                     Some(expr_context.as_ptr()),
@@ -1460,14 +1460,15 @@ impl CustomScan for JoinScan {
                 state.custom_state().parallel_mode_ok,
                 &state.custom_state().join_clause.plan,
             ) {
-                let mpp_plan = build_with(&Self::build_mpp_session_context(None));
+                let mpp_plan = build_with(&Self::build_mpp_session_context(None), logical_plan);
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
                 } else {
-                    build_with(&create_datafusion_session_context())
+                    let fallback_bytes = unsafe { Self::rebake_for_mpp_fallback(state) };
+                    build_with(&create_datafusion_session_context(), &fallback_bytes)
                 }
             } else {
-                build_with(&create_datafusion_session_context())
+                build_with(&create_datafusion_session_context(), logical_plan)
             };
             explain_physical_plan(&physical_plan, explainer);
         }
@@ -2145,14 +2146,18 @@ unsafe fn build_output_projection(
 /// `force_serial`: when `true`, every source is baked with `mpp_source_idx = None`
 /// regardless of the global `mpp_is_active()` budget check. A short-launch decline must rebuild
 /// this logical metadata because choosing a serial physical planner does not rewrite it. A
-/// parallel-unsafe statement (`private_data.parallel_mode_ok == false`, #6157) is baked serially
-/// regardless of this flag.
+/// parallel-unsafe statement (`private_data.parallel_mode_ok == false`, #6157) or a query
+/// ineligible for MPP (`!mpp_eligible`, #5784) is baked serially regardless of this flag.
 fn bake_logical_plan(
     private_data: &mut PrivateData,
     custom_exprs: *mut pg_sys::List,
     force_serial: bool,
 ) {
-    let force_serial = force_serial || !private_data.parallel_mode_ok;
+    let force_serial = force_serial
+        || !mpp_eligible(
+            private_data.parallel_mode_ok,
+            &private_data.join_clause.plan,
+        );
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("Failed to create tokio runtime");
@@ -2329,6 +2334,12 @@ impl JoinScan {
             datafusion_build::extract_join_tree_from_parse(root, &sources, path_info)
                 .map_err(|e| warn(JoinDeclineReason::new(format!("JoinScan not used: {e}"))))?;
 
+        // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
+        // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
+        if !crate::gucs::enable_custom_scan_without_operator() && !plan.has_search_predicate() {
+            return Err(JoinPathDecline::Quiet);
+        }
+
         let unsupported = plan.unsupported_join_types();
         if !unsupported.is_empty() {
             return Err(warn(
@@ -2352,11 +2363,6 @@ impl JoinScan {
 
         let (join_clause, limit_offset) =
             Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
-
-        // Need at least one search predicate in the plan.
-        if !join_clause.plan.has_search_predicate() {
-            return Err(JoinPathDecline::Quiet);
-        }
 
         let path = Self::finalize_clause_into_path(
             root,

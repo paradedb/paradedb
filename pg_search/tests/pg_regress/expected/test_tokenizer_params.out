@@ -44,6 +44,10 @@ DROP INDEX idx_unicode;
 CREATE INDEX idx_jieba ON test_tokenizer_params
 USING paradedb (id, (content::pdb.jieba('chinese_convert=t2s')));
 DROP INDEX idx_jieba;
+-- jieba: search_mode
+CREATE INDEX idx_jieba ON test_tokenizer_params
+USING paradedb (id, (content::pdb.jieba('search_mode=false')));
+DROP INDEX idx_jieba;
 -------------------------------------------------------------
 -- Tokenizer-specific params rejected by wrong tokenizer
 -------------------------------------------------------------
@@ -74,7 +78,7 @@ ERROR:  Option '[a-z]+' is not allowed at position 0
 -- prefix_only rejected by jieba
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.jieba('prefix_only=true')));
-ERROR:  Invalid option: 'prefix_only'. Allowed options: alias, alpha_num_only, ascii_folding, b, chinese_convert, columnar, fieldnorms, k1, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'prefix_only'. Allowed options: alias, alpha_num_only, ascii_folding, b, chinese_convert, columnar, fieldnorms, k1, lowercase, normalizer, remove_long, remove_short, search_mode, stemmer, stopwords, stopwords_language, trim.
 -- language rejected by ngram
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.ngram(2, 4, 'language=chinese')));

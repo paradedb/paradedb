@@ -25,7 +25,9 @@ use std::sync::OnceLock;
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, bm25_max_free_space};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
-use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods, init_new_buffer};
+use crate::postgres::storage::buffer::{
+    BufferManager, ImmutablePage, PageHeaderMethods, PageReadMode, init_new_buffer,
+};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 
 use std::cell::UnsafeCell;
@@ -43,6 +45,20 @@ const BLOCK_CACHE_SIZE: usize = 16;
 struct CacheEntry {
     block_ord: usize,
     block_bytes: OwnedBytes,
+}
+
+pub(crate) enum PageChunk {
+    Cached(OwnedBytes),
+    Uncached(ImmutablePage, Range<usize>),
+}
+
+impl AsRef<[u8]> for PageChunk {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Cached(bytes) => bytes.as_ref(),
+            Self::Uncached(page, range) => &page[range.clone()],
+        }
+    }
 }
 
 /// UnsafeCell-based cache. SAFETY: Postgres backends are single-threaded.
@@ -407,7 +423,14 @@ impl LinkedBytesList {
         byte
     }
 
-    pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> OwnedBytes {
+    /// # Safety
+    /// Published payloads require an independent guard preventing logical reuse.
+    pub unsafe fn get_bytes_range(&self, range: Range<usize>, published: bool) -> OwnedBytes {
+        let mode = if published {
+            PageReadMode::Published
+        } else {
+            PageReadMode::Locked
+        };
         if range.is_empty() {
             return OwnedBytes::empty();
         }
@@ -420,7 +443,7 @@ impl LinkedBytesList {
 
         if start_block_ord == end_block_ord {
             // Single block read
-            let block_bytes = self.get_bytes_range_block(start_block_ord);
+            let block_bytes = self.get_bytes_range_block(start_block_ord, false, mode);
             let slice_start = range.start % ITEM_SIZE;
             let slice_end = slice_start + range.len();
             return block_bytes.slice(slice_start..slice_end);
@@ -433,7 +456,7 @@ impl LinkedBytesList {
         let mut remaining = range.len();
 
         for block_ord in start_block_ord..=end_block_ord {
-            let block_bytes = self.get_bytes_range_block(block_ord);
+            let block_bytes = self.get_bytes_range_block(block_ord, false, mode);
             let slice_start = if block_ord == start_block_ord {
                 range.start % ITEM_SIZE
             } else {
@@ -447,23 +470,102 @@ impl LinkedBytesList {
         OwnedBytes::new(data)
     }
 
-    unsafe fn get_bytes_range_block(&self, start_block_ord: usize) -> OwnedBytes {
+    /// # Safety
+    /// Published payloads require an independent guard preventing logical reuse.
+    pub unsafe fn get_bytes_range_chunks(
+        &self,
+        range: Range<usize>,
+        retain_one_page: bool,
+        published: bool,
+    ) -> impl Iterator<Item = OwnedBytes> + '_ {
+        const ITEM_SIZE: usize = bm25_max_free_space();
+        let mode = if published {
+            PageReadMode::PublishedSequential
+        } else {
+            PageReadMode::Locked
+        };
+        let mut offset = range.start;
+        std::iter::from_fn(move || {
+            if offset >= range.end {
+                return None;
+            }
+            let block_bytes = self.get_bytes_range_block(offset / ITEM_SIZE, retain_one_page, mode);
+            let start = offset % ITEM_SIZE;
+            let len = (ITEM_SIZE - start).min(range.end - offset);
+            offset += len;
+            Some(block_bytes.slice(start..start + len))
+        })
+    }
+
+    /// # Safety
+    /// Published payloads require an independent guard preventing logical reuse.
+    pub(crate) unsafe fn get_bytes_range_page_chunks(
+        &self,
+        range: Range<usize>,
+        published: bool,
+    ) -> impl Iterator<Item = PageChunk> + '_ {
+        const ITEM_SIZE: usize = bm25_max_free_space();
+        let mode = if published {
+            PageReadMode::PublishedSequential
+        } else {
+            PageReadMode::Locked
+        };
+        let mut offset = range.start;
+        std::iter::from_fn(move || {
+            if offset >= range.end {
+                return None;
+            }
+            let block_ord = offset / ITEM_SIZE;
+            let start = offset % ITEM_SIZE;
+            let len = (ITEM_SIZE - start).min(range.end - offset);
+            let cached = self
+                .cache
+                .get()
+                .iter()
+                .any(|entry| entry.block_ord == block_ord);
+            let chunk = if offset + len == range.end || cached {
+                PageChunk::Cached(
+                    self.get_bytes_range_block(block_ord, true, mode)
+                        .slice(start..start + len),
+                )
+            } else {
+                self.cache.get().clear();
+                let blockno = self.block_for_ord(block_ord).expect("block not found");
+                let page = self.bman.get_immutable_page_with_mode(blockno, mode);
+                PageChunk::Uncached(page, start..start + len)
+            };
+            offset += len;
+            Some(chunk)
+        })
+    }
+
+    unsafe fn get_bytes_range_block(
+        &self,
+        start_block_ord: usize,
+        retain_one_page: bool,
+        mode: PageReadMode,
+    ) -> OwnedBytes {
         // SAFETY: Postgres backends are single-threaded.
         let cache = self.cache.get();
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == start_block_ord) {
             // Cache hit: Arc clone, and promote to the back (LRU).
             let entry = cache.remove(pos).unwrap();
             let block_bytes = entry.block_bytes.clone();
+            if retain_one_page {
+                cache.clear();
+            }
             cache.push_back(entry);
             return block_bytes;
         }
 
+        if retain_one_page {
+            cache.clear();
+        }
         // Cache miss: read the block.
         let blockno = self
             .block_for_ord(start_block_ord)
             .expect("block not found");
-        let buffer = self.bman.get_buffer(blockno);
-        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
+        let block_bytes = OwnedBytes::new(self.bman.get_immutable_page_with_mode(blockno, mode));
 
         if cache.len() >= BLOCK_CACHE_SIZE {
             cache.pop_front();
@@ -485,6 +587,172 @@ mod tests {
     use crate::postgres::storage::block::BM25PageSpecialData;
     use crate::postgres::storage::utils::RelationBufferAccess;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    unsafe fn test_grouped_page_acquisition_keeps_evicted_pages_pinned() {
+        Spi::run("CREATE TABLE grouped_page_pins (id SERIAL, data TEXT)").unwrap();
+        Spi::run(
+            "CREATE INDEX grouped_page_pins_idx ON grouped_page_pins USING paradedb (id, data)",
+        )
+        .unwrap();
+        let relation_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'grouped_page_pins_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+        let page_size = bm25_max_free_space();
+        let bytes: Vec<u8> = (1..=251)
+            .cycle()
+            .take(page_size * (BLOCK_CACHE_SIZE + 5) + 37)
+            .collect();
+        let linked_list = LinkedBytesList::create_with_fsm(&indexrel);
+        let mut writer = linked_list.writer();
+        writer.write_all(&bytes).unwrap();
+        let linked_list = writer.finalize_and_write().unwrap();
+        let header = linked_list.header_blockno;
+        drop(linked_list);
+
+        for published in [false, true] {
+            let linked_list = LinkedBytesList::open(&indexrel, header);
+            let first_block = linked_list.block_for_ord(0).unwrap();
+            let last_block = linked_list.block_for_ord(2).unwrap();
+            let end = page_size * 2 + 13;
+            let mut chunks = linked_list.get_bytes_range_page_chunks(3..end, published);
+            let first = chunks.next().unwrap();
+            assert!(matches!(&first, PageChunk::Uncached(..)));
+            let first_ptr = first.as_ref().as_ptr();
+            let mut copied = first.as_ref().to_vec();
+            let nested = page_size * 3..page_size * (BLOCK_CACHE_SIZE + 4);
+            assert_eq!(
+                linked_list.get_bytes_range(nested.clone(), false).as_ref(),
+                &bytes[nested.clone()]
+            );
+            assert_eq!(linked_list.cache.get().len(), BLOCK_CACHE_SIZE);
+            assert_eq!(first.as_ref().as_ptr(), first_ptr);
+            assert_eq!(first.as_ref(), &bytes[3..page_size]);
+            let middle = chunks.next().unwrap();
+            copied.extend_from_slice(middle.as_ref());
+            let last = chunks.next().unwrap();
+            assert!(matches!(&last, PageChunk::Cached(..)));
+            copied.extend_from_slice(last.as_ref());
+            assert!(chunks.next().is_none());
+            assert_eq!(copied, bytes[3..end]);
+            let adjacent =
+                linked_list.get_bytes_range(page_size * 2 + 3..page_size * 2 + 11, false);
+            assert_eq!(adjacent.as_ptr(), last.as_ref().as_ptr().add(3));
+            linked_list.get_bytes_range(nested, false);
+            assert!(
+                linked_list
+                    .cache
+                    .get()
+                    .iter()
+                    .all(|entry| entry.block_ord > 2)
+            );
+            drop(chunks);
+            drop(linked_list);
+
+            let mut bman = BufferManager::new(&indexrel);
+            let exclusive = bman
+                .get_buffer_conditional(first_block)
+                .expect("immutable page must be unlocked");
+            drop(exclusive);
+            assert_eq!(first.as_ref(), &bytes[3..page_size]);
+            assert_eq!(middle.as_ref(), &bytes[page_size..page_size * 2]);
+            assert_eq!(last.as_ref(), &bytes[page_size * 2..end]);
+            assert_eq!(
+                adjacent.as_ref(),
+                &bytes[page_size * 2 + 3..page_size * 2 + 11]
+            );
+            drop((first, middle, last, adjacent));
+            for block in [first_block, last_block] {
+                let pin = bman.pinned_buffer(block);
+                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                pg_sys::CheckBufferIsPinnedOnce(pin.pg_buffer());
+                drop(pin);
+            }
+        }
+    }
+
+    #[pg_extern]
+    unsafe fn grouped_page_acquisition_raise(
+        index_oid: pg_sys::Oid,
+        block: i64,
+        fail_read: bool,
+        published: bool,
+    ) {
+        let indexrel = PgSearchRelation::open(index_oid);
+        let bman = BufferManager::new(&indexrel);
+        let mode = if published {
+            PageReadMode::PublishedSequential
+        } else {
+            PageReadMode::Locked
+        };
+        let page = bman.get_immutable_page_with_mode(block as pg_sys::BlockNumber, mode);
+        assert!(!page.is_empty());
+        let _repeat = published.then(|| {
+            bman.get_immutable_page_with_mode(
+                block as pg_sys::BlockNumber,
+                PageReadMode::PublishedSequential,
+            )
+        });
+        if fail_read {
+            let past_end = pg_sys::RelationGetNumberOfBlocksInFork(
+                indexrel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            );
+            let _missing = bman.get_immutable_page_with_mode(past_end, mode);
+        } else {
+            Spi::run("SELECT 1 / 0").unwrap();
+        }
+        panic!("expected PostgreSQL ERROR");
+    }
+
+    #[pg_test]
+    unsafe fn test_grouped_page_acquisition_subtransaction_rollback() {
+        Spi::run("SET LOCAL zero_damaged_pages = off").unwrap();
+        Spi::run("CREATE TABLE grouped_page_rollback (id SERIAL, data TEXT)").unwrap();
+        Spi::run("CREATE INDEX grouped_page_rollback_idx ON grouped_page_rollback USING paradedb (id, data)")
+            .unwrap();
+        let relation_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'grouped_page_rollback_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+        let bytes = vec![71u8; bm25_max_free_space() + 13];
+        let linked_list = LinkedBytesList::create_with_fsm(&indexrel);
+        let mut writer = linked_list.writer();
+        writer.write_all(&bytes).unwrap();
+        let linked_list = writer.finalize_and_write().unwrap();
+        let block = linked_list.block_for_ord(0).unwrap();
+        drop(linked_list);
+
+        for published in [false, true] {
+            for (fail_read, sqlstate) in [(false, "22012"), (true, "XX001")] {
+                Spi::run(&format!(
+                    "DO $$ BEGIN
+                       BEGIN
+                         PERFORM tests.grouped_page_acquisition_raise({relation_oid}::oid, {block}::bigint, {fail_read}, {published});
+                         RAISE EXCEPTION 'expected acquisition failure';
+                       EXCEPTION WHEN SQLSTATE '{sqlstate}' THEN NULL;
+                       END;
+                     END $$"
+                ))
+                .unwrap();
+                let mut bman = BufferManager::new(&indexrel);
+                let page = bman.get_immutable_page(block);
+                assert_eq!(&*page, &bytes[..bm25_max_free_space()]);
+                drop(page);
+                let pin = bman.pinned_buffer(block);
+                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                pg_sys::CheckBufferIsPinnedOnce(pin.pg_buffer());
+                drop(pin);
+                let exclusive = bman
+                    .get_buffer_conditional(block)
+                    .expect("rollback must release the content lock");
+                drop(exclusive);
+            }
+        }
+    }
 
     #[pg_test]
     unsafe fn test_linked_bytes_read_write() {
@@ -513,6 +781,145 @@ mod tests {
         let linked_list = LinkedBytesList::open(&indexrel, start_blockno);
         let read_bytes = linked_list.read_all();
         assert_eq!(bytes, read_bytes);
+
+        let page_size = bm25_max_free_space();
+        linked_list.get_bytes_range(0..page_size * 3, false);
+        let default_cache_len = linked_list.cache.get().len();
+        assert!(default_cache_len >= 3);
+        linked_list
+            .get_bytes_range_chunks(0..13, false, false)
+            .next()
+            .unwrap();
+        assert_eq!(linked_list.cache.get().len(), default_cache_len);
+
+        let mut chunks = linked_list.get_bytes_range_chunks(0..page_size + 13, true, false);
+        let first = chunks.next().unwrap();
+        assert_eq!(linked_list.cache.get().len(), 1);
+        assert_eq!(linked_list.cache.get().front().unwrap().block_ord, 0);
+        let second = chunks.next().unwrap();
+        assert!(chunks.next().is_none());
+        assert_eq!(linked_list.cache.get().len(), 1);
+        assert_eq!(linked_list.cache.get().front().unwrap().block_ord, 1);
+        assert_eq!(first.as_ref(), &bytes[..page_size]);
+        assert_eq!(second.as_ref(), &bytes[page_size..page_size + 13]);
+
+        let adjacent = linked_list
+            .get_bytes_range_chunks(page_size + 13..page_size + 29, true, false)
+            .next()
+            .unwrap();
+        assert_eq!(adjacent.as_ptr(), second.as_ptr().add(13));
+        assert_eq!(adjacent.as_ref(), &bytes[page_size + 13..page_size + 29]);
+        linked_list.get_bytes_range(page_size * 2..page_size * 2 + 13, false);
+        assert_eq!(linked_list.cache.get().len(), 2);
+        linked_list
+            .get_bytes_range_chunks(page_size + 29..page_size + 31, true, false)
+            .next()
+            .unwrap();
+        assert_eq!(linked_list.cache.get().len(), 1);
+        assert_eq!(linked_list.cache.get().front().unwrap().block_ord, 1);
+        assert_eq!(first.as_ref(), &bytes[..page_size]);
+
+        for end in [page_size * 3, page_size * 3 + 13] {
+            linked_list.cache.get().clear();
+            let mut chunks = linked_list.get_bytes_range_page_chunks(0..end, false);
+            let first = chunks.next().unwrap();
+            assert!(matches!(&first, PageChunk::Uncached(..)));
+            let mut copied = first.as_ref().to_vec();
+            linked_list.get_bytes_range(page_size * 4..page_size * 8, false);
+            assert_eq!(first.as_ref(), &bytes[..page_size]);
+            for chunk in chunks {
+                copied.extend_from_slice(chunk.as_ref());
+            }
+            assert_eq!(copied, bytes[..end]);
+            assert_eq!(linked_list.cache.get().len(), 1);
+            let last_block = (end - 1) / page_size;
+            let cached_ptr = {
+                let entry = linked_list.cache.get().back().unwrap();
+                assert_eq!(entry.block_ord, last_block);
+                entry.block_bytes.as_ptr()
+            };
+            let last = linked_list
+                .get_bytes_range_page_chunks(end - 1..end, false)
+                .next()
+                .unwrap();
+            assert_eq!(
+                last.as_ref().as_ptr(),
+                cached_ptr.add((end - 1) % page_size)
+            );
+            linked_list.get_bytes_range(page_size * 4..page_size * 8, false);
+            assert_eq!(last.as_ref(), &bytes[end - 1..end]);
+        }
+        assert!(
+            linked_list
+                .get_bytes_range_page_chunks(0..0, false)
+                .next()
+                .is_none()
+        );
+    }
+
+    #[pg_test]
+    unsafe fn test_copied_reads_preserve_cached_and_escaped_pages() {
+        Spi::run("CREATE TABLE copied_read_cache (id SERIAL, data TEXT)").unwrap();
+        Spi::run(
+            "CREATE INDEX copied_read_cache_idx ON copied_read_cache USING paradedb (id, data)",
+        )
+        .unwrap();
+        let relation_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'copied_read_cache_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+        let page_size = bm25_max_free_space();
+        let bytes: Vec<u8> = (1..=251)
+            .cycle()
+            .take(page_size * (BLOCK_CACHE_SIZE + 4) + 37)
+            .collect();
+        let linked_list = LinkedBytesList::create_with_fsm(&indexrel);
+        let mut writer = linked_list.writer();
+        writer.write_all(&bytes).unwrap();
+        let linked_list = writer.finalize_and_write().unwrap();
+        let header = linked_list.header_blockno;
+        drop(linked_list);
+        for published in [false, true] {
+            let linked_list = LinkedBytesList::open(&indexrel, header);
+            let escaped_range = page_size + 7..page_size + 53;
+            let escaped = linked_list.get_bytes_range(escaped_range.clone(), published);
+            let copied_range = page_size - 11..page_size * (BLOCK_CACHE_SIZE + 3) + 29;
+            let copied = linked_list.get_bytes_range(copied_range.clone(), published);
+            assert_eq!(copied.as_ref(), &bytes[copied_range.clone()]);
+            assert_eq!(linked_list.cache.get().len(), BLOCK_CACHE_SIZE);
+            assert!(
+                linked_list
+                    .cache
+                    .get()
+                    .iter()
+                    .all(|entry| entry.block_ord > 1)
+            );
+            assert_eq!(escaped.as_ref(), &bytes[escaped_range.clone()]);
+
+            let single = linked_list.get_bytes_range(7..53, published);
+            let adjacent = linked_list.get_bytes_range(11..17, published);
+            assert_eq!(adjacent.as_ptr(), single.as_ptr().add(4));
+            assert!(linked_list.get_bytes_range(0..0, published).is_empty());
+            let mut chunks = linked_list.get_bytes_range_chunks(
+                page_size * 2..page_size * 3 + 17,
+                false,
+                published,
+            );
+            let chunk = chunks.next().unwrap();
+            let nested_copy = linked_list.get_bytes_range(copied_range.clone(), published);
+            let tail = chunks.next().unwrap();
+            assert!(chunks.next().is_none());
+            drop(chunks);
+            drop(linked_list);
+            assert_eq!(chunk.as_ref(), &bytes[page_size * 2..page_size * 3]);
+            assert_eq!(tail.as_ref(), &bytes[page_size * 3..page_size * 3 + 17]);
+            assert_eq!(single.as_ref(), &bytes[7..53]);
+            assert_eq!(adjacent.as_ref(), &bytes[11..17]);
+            assert_eq!(escaped.as_ref(), &bytes[escaped_range]);
+            assert_eq!(copied.as_ref(), &bytes[copied_range.clone()]);
+            assert_eq!(nested_copy.as_ref(), &bytes[copied_range]);
+        }
     }
 
     #[pg_test]

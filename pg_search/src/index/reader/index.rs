@@ -887,6 +887,8 @@ impl SearchIndexReader {
     }
 
     pub fn weight(&self) -> Box<dyn Weight> {
+        #[cfg(feature = "io_stats")]
+        let _io = io_stats::trace::label(Some("weight"), None, None);
         self.query
             .weight(if self.need_scores {
                 tantivy::query::EnableScoring::Enabled {
@@ -2088,9 +2090,13 @@ impl SearchIndexReader {
         aux_collector: Option<TopKAuxiliaryCollector>,
     ) -> (C::Fruit, Option<IntermediateAggregationResults>) {
         let query = self.query();
-        let weight = query
-            .weight(enable_scoring(self.need_scores, &self.searcher))
-            .expect("creating a Weight from a Query should not fail");
+        let weight = {
+            #[cfg(feature = "io_stats")]
+            let _io = io_stats::trace::label(Some("weight"), None, None);
+            query
+                .weight(enable_scoring(self.need_scores, &self.searcher))
+                .expect("creating a Weight from a Query should not fail")
+        };
 
         let Some(aux_collector) = aux_collector else {
             // No auxiliary collector.
@@ -2236,6 +2242,8 @@ impl SearchIndexReader {
         collector: &C,
         weight: &dyn Weight,
     ) -> Vec<<<C as Collector>::Child as SegmentCollector>::Fruit> {
+        #[cfg(feature = "io_stats")]
+        let _io = io_stats::trace::label(Some("collect"), None, None);
         io_stats::reset();
         readers
             .map(|(segment_ord, segment_reader)| {

@@ -23,6 +23,11 @@
 //! Like `block_tracker`, this is compiled out unless the `io_stats` feature is
 //! enabled, in which case the per-segment counters are merged into the
 //! `Segment Info` JSON shown by `EXPLAIN (ANALYZE, VERBOSE)`.
+//! Base scans also expose an `IO Breakdown` for component buffer accesses during
+//! `ExecCustomScan`, including reader setup and heap visibility checks.
+
+#[cfg(feature = "io_stats")]
+pub mod trace;
 
 #[cfg(feature = "io_stats")]
 mod imp {
@@ -45,7 +50,12 @@ mod imp {
         static PER_SEGMENT: RefCell<Vec<(SegmentId, SegmentIo)>> = RefCell::default();
     }
 
-    pub fn record<R>(component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
+    pub fn record<R>(
+        component: &SegmentComponent,
+        access: &'static str,
+        read: impl FnOnce() -> R,
+    ) -> R {
+        let _component = super::trace::file_read(component.to_string(), access);
         let (hit0, read0) = snapshot();
         let result = read();
         let (hit1, read1) = snapshot();
@@ -96,7 +106,11 @@ mod imp {
     use tantivy::index::{SegmentComponent, SegmentId};
 
     #[inline(always)]
-    pub fn record<R>(_component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
+    pub fn record<R>(
+        _component: &SegmentComponent,
+        _access: &'static str,
+        read: impl FnOnce() -> R,
+    ) -> R {
         read()
     }
 

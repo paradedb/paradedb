@@ -23,7 +23,7 @@ pg_bench = ["dep:pgrx-bench"]
 dst = ["dst/enabled", "dep:antithesis-instrumentation"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released
-io_stats = [] # per-component buffer hit/read counts in EXPLAIN Segment Info
+io_stats = [] # per-component buffer accounting in EXPLAIN
 debug-logging = [
   "dep:env_logger",
 ] # enables env_logger for dependency debug output

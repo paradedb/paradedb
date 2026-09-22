@@ -33,8 +33,17 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 
 use crate::index::fast_fields_helper::FFHelper;
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
+
+/// The index relation OID and [`FFHelper`] needed to resolve deferred packed `DocAddress` values
+/// into real CTIDs for a specific table in a multi-table or deferred scan.
+///
+/// Wired by [`VisibilityCtidResolverRule`] from the source [`PgSearchScanPlan`] into the physical
+/// execution node performing visibility checking or CTID materialization ([`VisibilityFilterExec`],
+/// [`SegmentedTopKExec`], or [`TantivyFetchExec`]).
+pub type CtidResolver = (u32, Arc<FFHelper>);
 
 #[derive(Debug)]
 pub struct VisibilityCtidResolverRule;
@@ -79,6 +88,19 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
         }
     }
 
+    // VisibilityFilterExec owns ctid resolution for its plan positions.
+    if let Some(vf) = plan.downcast_ref::<VisibilityFilterExec>() {
+        for &(plan_pos, _) in vf.plan_pos_oids() {
+            let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
+                .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "VisibilityCtidResolverRule: no PgSearchScanPlan found \
+                     for VisibilityFilterExec deferred ctid plan_position {plan_pos}"
+                ))
+            })?;
+            vf.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+        }
+    }
     for child in plan.children() {
         walk_plan(child)?;
     }
@@ -90,7 +112,7 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
 fn find_ffhelper_for_plan_position(
     plan: &dyn ExecutionPlan,
     plan_position: usize,
-) -> Option<(u32, Arc<FFHelper>)> {
+) -> Option<CtidResolver> {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>()
         && scan.deferred_ctid_plan_position() == Some(plan_position)
     {
@@ -109,7 +131,7 @@ fn find_ffhelper_for_plan_position(
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::find_ffhelper_for_plan_position;
+    use super::{VisibilityCtidResolverRule, find_ffhelper_for_plan_position};
     use std::sync::Arc;
 
     use arrow_schema::{Schema, SchemaRef};
@@ -144,5 +166,58 @@ mod tests {
             .expect("matching plan_position should find ffhelper");
         assert!(Arc::ptr_eq(&found, &ffhelper));
         assert!(find_ffhelper_for_plan_position(&scan, 6).is_none());
+    }
+    fn sort_schema() -> SchemaRef {
+        use arrow_schema::{DataType, Field};
+        Arc::new(Schema::new(vec![Field::new(
+            "sort_col",
+            DataType::Int64,
+            true,
+        )]))
+    }
+
+    #[pg_test]
+    fn wires_ctid_resolver_to_visibility_filter_exec() {
+        use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+        use datafusion::physical_optimizer::PhysicalOptimizerRule;
+        use pgrx::pg_sys;
+
+        let plan_pos = 2_usize;
+        let schema = sort_schema();
+        let ffhelper_scan = Arc::new(FFHelper::empty());
+        let scan = Arc::new(PgSearchScanPlan::new(
+            None,
+            schema.clone(),
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            Some(ffhelper_scan.clone()),
+            42,
+            Some(plan_pos),
+            1,
+            None,
+            None,
+        ));
+
+        let vf = Arc::new(
+            VisibilityFilterExec::new(
+                scan,
+                vec![(plan_pos, pg_sys::Oid::INVALID)],
+                vec!["test_table".to_string()],
+            )
+            .expect("VisibilityFilterExec::new should succeed"),
+        );
+
+        let rule = VisibilityCtidResolverRule;
+        let config = datafusion::common::config::ConfigOptions::default();
+        let optimized = rule
+            .optimize(vf.clone(), &config)
+            .expect("optimize should succeed");
+
+        let vf_opt = optimized
+            .downcast_ref::<VisibilityFilterExec>()
+            .expect("optimized node should still be VisibilityFilterExec");
+        assert_eq!(vf_opt.plan_pos_oids().len(), 1);
+        assert_eq!(vf_opt.plan_pos_oids()[0].0, plan_pos);
     }
 }

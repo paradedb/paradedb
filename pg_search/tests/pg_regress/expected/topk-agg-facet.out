@@ -1726,8 +1726,8 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description ||| 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.rating, pc.description, (pdb.window_agg('count(*) OVER ()'::text))
    Relation Tree: p INNER pc
@@ -1739,13 +1739,12 @@ LIMIT 3;
      :   SortExec: TopK(fetch=3), expr=[rating@1 DESC], preserve_partitioning=[false]
      :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
      :       VisibilityFilterExec: tables=[p, pc]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@1)], projection=[ctid_0@2, category@3, rating@4, ctid_1@0, name@1]
-     :             CooperativeExec
-     :               PgSearchScan: table=pc, segments=1, query="all"
-     :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(17 rows)
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@1)], projection=[ctid_0@2, category@3, rating@4, ctid_1@0, name@1]
+     :           CooperativeExec
+     :             PgSearchScan: table=pc, segments=1, query="all"
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
 
 SELECT
     p.id,
@@ -1815,13 +1814,12 @@ LIMIT 3;
      :   SortExec: TopK(fetch=3), expr=[score@3 DESC], preserve_partitioning=[false]
      :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_1: Ok(Field { name: "window_agg_1", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_2: Ok(Field { name: "window_agg_2", data_type: Float64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_3: Ok(Field { name: "window_agg_3", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_4: Ok(Field { name: "window_agg_4", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
      :       VisibilityFilterExec: tables=[p, r]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
-     :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
-(17 rows)
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT
     p.id,
@@ -1873,13 +1871,12 @@ LIMIT 3;
      :   SortExec: TopK(fetch=3), expr=[score@3 DESC], preserve_partitioning=[false]
      :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_1: Ok(Field { name: "window_agg_1", data_type: Float64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_4: Ok(Field { name: "window_agg_4", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
      :       VisibilityFilterExec: tables=[p, r]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
-     :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
-(17 rows)
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT
     p.id,

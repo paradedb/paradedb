@@ -35,6 +35,7 @@ use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::visibility_filter::{
     DeferredCtidMaterializationState, materialize_deferred_ctid,
 };
+use crate::scan::CtidResolver;
 use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, open_rebuilt_ffhelper,
@@ -79,9 +80,6 @@ struct FetchDispatchPayload {
     /// behind a network boundary can rebuild the resolver from its index segment view.
     ctid_resolver_indexes: Vec<(usize, u32)>,
 }
-
-/// One wired ctid resolver: the index it reads and the fast-field helper over its segments.
-type CtidResolver = (u32, Arc<FFHelper>);
 
 pub struct TantivyFetchExec {
     input: Arc<dyn ExecutionPlan>,

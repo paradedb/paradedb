@@ -78,8 +78,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title
    Relation Tree: d INNER f
@@ -92,13 +92,12 @@ LIMIT 5;
      :     TantivyFetchExec: fetch=[title]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5
      :         VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :               CooperativeExec
-     :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
-(18 rows)
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -121,8 +120,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title
    Relation Tree: d INNER f
@@ -135,13 +134,12 @@ LIMIT 4;
      :     TantivyFetchExec: fetch=[title]
      :       SegmentedTopKExec: expr=[title@1 DESC, id@2 ASC NULLS LAST], k=4
      :         VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :               CooperativeExec
-     :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
-(18 rows)
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -163,8 +161,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
-                                                                                                                      QUERY PLAN                                                                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title, f.content
    Relation Tree: d INNER f
@@ -177,13 +175,12 @@ LIMIT 5;
      :     TantivyFetchExec: fetch=[title, content]
      :       SegmentedTopKExec: expr=[title@1 DESC, content@2 ASC NULLS LAST], k=5
      :         VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :               CooperativeExec
-     :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"GAMMA_DIVISION","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
-(18 rows)
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"GAMMA_DIVISION","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
+(17 rows)
 
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -206,8 +203,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.price
    Relation Tree: d INNER f
@@ -220,13 +217,12 @@ LIMIT 7;
      :     TantivyFetchExec: fetch=[price]
      :       SegmentedTopKExec: expr=[price@1 ASC, id@2 ASC NULLS LAST], k=7
      :         VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :               CooperativeExec
-     :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
-(18 rows)
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -252,8 +248,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title
    Relation Tree: d INNER f
@@ -266,13 +262,12 @@ LIMIT 5;
      :     TantivyDecodeExec: decode=[title]
      :       TantivyFetchExec: fetch=[title]
      :         VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :               CooperativeExec
-     :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
-(18 rows)
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -347,8 +342,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title
    Relation Tree: d INNER f
@@ -360,13 +355,12 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[title]
      :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :             CooperativeExec
-     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
-(17 rows)
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :           CooperativeExec
+     :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -388,8 +382,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title
    Relation Tree: d INNER f
@@ -401,13 +395,12 @@ LIMIT 4;
      :   TantivyDecodeExec: decode=[title]
      :     SegmentedTopKExec: expr=[title@1 DESC, id@2 ASC NULLS LAST], k=4
      :       VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :             CooperativeExec
-     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
-(17 rows)
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :           CooperativeExec
+     :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -428,8 +421,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title, f.content
    Relation Tree: d INNER f
@@ -441,13 +434,12 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[title, content]
      :     SegmentedTopKExec: expr=[title@1 DESC, content@2 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :             CooperativeExec
-     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"GAMMA_DIVISION","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=f, segments=2, fetch=[title, content], dynamic_filters=2, query="all"
-(17 rows)
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :           CooperativeExec
+     :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"GAMMA_DIVISION","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=f, segments=2, fetch=[title, content], dynamic_filters=2, query="all"
+(16 rows)
 
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -470,8 +462,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.price
    Relation Tree: d INNER f
@@ -483,13 +475,12 @@ LIMIT 7;
      :   TantivyDecodeExec: decode=[price]
      :     SegmentedTopKExec: expr=[price@1 ASC, id@2 ASC NULLS LAST], k=7
      :       VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :             CooperativeExec
-     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=f, segments=2, fetch=[price], dynamic_filters=1, query="all"
-(17 rows)
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :           CooperativeExec
+     :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=f, segments=2, fetch=[price], dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -514,8 +505,8 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title
    Relation Tree: d INNER f
@@ -527,13 +518,12 @@ LIMIT 5;
      :   SortExec: TopK(fetch=5), expr=[title@1 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     TantivyDecodeExec: decode=[title]
      :       VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :             CooperativeExec
-     :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
-(17 rows)
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :           CooperativeExec
+     :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -629,20 +619,19 @@ LIMIT 5;
      :   │   TantivyDecodeExec: decode=[title]
      :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5
      :   │       VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :   │         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :   │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :   │             CoalescePartitionsExec
-     :   │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
-     :   │             DistributedLeafExec:
-     :   │               t0: PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
-     :   │               t1: PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
+     :   │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :   │           CoalescePartitionsExec
+     :   │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
+     :   │           DistributedLeafExec:
+     :   │             t0: PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
+     :   │             t1: PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=1, partitions=2
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :     │   DistributedLeafExec:
      :     │     t0: PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :     └──────────────────────────────────────────────────
-(30 rows)
+(29 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -685,20 +674,19 @@ LIMIT 5;
      :   │     TantivyFetchExec: fetch=[title]
      :   │       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5
      :   │         VisibilityFilterExec: tables=[d, f], pruned=[d]
-     :   │           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :   │             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
-     :   │               CoalescePartitionsExec
-     :   │                 [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
-     :   │               DistributedLeafExec:
-     :   │                 t0: PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
-     :   │                 t1: PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
+     :   │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)]
+     :   │             CoalescePartitionsExec
+     :   │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
+     :   │             DistributedLeafExec:
+     :   │               t0: PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
+     :   │               t1: PgSearchScan: table=f, segments=2, dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=1, partitions=2
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :     │   DistributedLeafExec:
      :     │     t0: PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :     └──────────────────────────────────────────────────
-(31 rows)
+(30 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id

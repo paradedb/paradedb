@@ -56,8 +56,8 @@ JOIN strkey_probe p ON p.fk_uuid = b.id
 WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
-                                                                                                                                                                  QUERY PLAN                                                                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
    Relation Tree: b INNER p
    Join Cond: p.fk_uuid = b.id
@@ -67,13 +67,12 @@ LIMIT 10;
      : ProjectionExec: expr=[ordinal@1 as col_1, ctid_0@0 as ctid_0], metrics=[output_rows=10, output_bytes=160.0 B, output_batches=1]
      :   SortExec: TopK(fetch=10), expr=[ordinal@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@1 < 10], metrics=[output_rows=10, output_bytes=160.0 B, output_batches=1, row_replacements=10]
      :     VisibilityFilterExec: tables=[b, p], pruned=[p], metrics=[output_rows=20, output_bytes=64.2 KB, output_batches=1]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=322.6 KB, output_batches=1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk_uuid@1)], metrics=[output_rows=20, output_bytes=450.2 KB, output_batches=1, build_mem_used=2.3 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
-     :           CooperativeExec
-     :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1792.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1632.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
-(15 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk_uuid@1)], metrics=[output_rows=20, output_bytes=450.2 KB, output_batches=1, build_mem_used=2.3 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1792.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1632.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
+(14 rows)
 
 SELECT b.ordinal
 FROM strkey_build b
@@ -105,8 +104,8 @@ JOIN strkey_probe p ON p.fk_txt = b.id_txt
 WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;
-                                                                                                                                                                   QUERY PLAN                                                                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
    Relation Tree: b INNER p
    Join Cond: p.fk_txt = b.id_txt
@@ -116,13 +115,12 @@ LIMIT 10;
      : ProjectionExec: expr=[ordinal@1 as col_1, ctid_0@0 as ctid_0], metrics=[output_rows=10, output_bytes=160.0 B, output_batches=1]
      :   SortExec: TopK(fetch=10), expr=[ordinal@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@1 < 10], metrics=[output_rows=10, output_bytes=160.0 B, output_batches=1, row_replacements=10]
      :     VisibilityFilterExec: tables=[b, p], pruned=[p], metrics=[output_rows=20, output_bytes=64.2 KB, output_batches=1]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=322.3 KB, output_batches=1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id_txt@1, fk_txt@1)], metrics=[output_rows=20, output_bytes=450.0 KB, output_batches=1, build_mem_used=2.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
-     :           CooperativeExec
-     :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1664.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1504.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
-(15 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id_txt@1, fk_txt@1)], metrics=[output_rows=20, output_bytes=450.0 KB, output_batches=1, build_mem_used=2.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1664.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1504.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
+(14 rows)
 
 SELECT b.ordinal
 FROM strkey_build b

@@ -109,7 +109,13 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             // `DeferredLookupRebuild` instead.
             TAG_VISIBILITY_FILTER => {
                 let input = single_input(inputs)?;
-                VisibilityFilterExec::decode_for_dispatch(payload, input)
+                let resolvers = collect_ctid_resolvers(&input);
+                VisibilityFilterExec::decode_for_dispatch(
+                    payload,
+                    input,
+                    resolvers,
+                    &self.index_segment_views,
+                )
             }
             TAG_TANTIVY_FETCH => {
                 let input = single_input(inputs)?;

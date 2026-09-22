@@ -156,8 +156,8 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 vacuum;
 SET paradedb.enable_columnar_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
-                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: users INNER orders
    Join Cond: users.id = orders.id
@@ -166,13 +166,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
      : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[users, orders]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
-     :           CooperativeExec
-     :             PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :           CooperativeExec
-     :             PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
-(14 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
+     :         CooperativeExec
+     :           PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :         CooperativeExec
+     :           PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
+(13 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
  color 
@@ -182,8 +181,8 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 
 SET paradedb.enable_columnar_exec = true;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
-                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: users INNER orders
    Join Cond: users.id = orders.id
@@ -192,13 +191,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
      : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[users, orders]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
-     :           CooperativeExec
-     :             PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :           CooperativeExec
-     :             PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
-(14 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
+     :         CooperativeExec
+     :           PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :         CooperativeExec
+     :           PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
+(13 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
  color 

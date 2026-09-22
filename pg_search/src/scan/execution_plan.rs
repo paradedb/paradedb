@@ -811,7 +811,8 @@ impl PgSearchScanPlan {
         ));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
-            .with_check_visibility(descriptor.check_visibility);
+            .with_check_visibility(descriptor.check_visibility)
+            .with_ffhelper(Arc::clone(&ffhelper));
 
         let scanner_config = ScannerConfig {
             which_fast_fields: descriptor.which_fast_fields,

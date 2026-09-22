@@ -72,8 +72,8 @@ JOIN tags t ON i.tag_id = t.id
 WHERE i.description ||| 'wireless'
 ORDER BY i.id
 LIMIT 5;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, t.label
    Relation Tree: i INNER t
@@ -84,13 +84,12 @@ LIMIT 5;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[i, t]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@1, id@1)]
-     :           CooperativeExec
-     :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@1, id@1)]
+     :         CooperativeExec
+     :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+(15 rows)
 
 -- Verify results are correct
 SELECT i.id, i.name, t.label
@@ -123,8 +122,8 @@ WHERE (i.description ||| 'wireless' OR i.description ||| 'keyboard')
   )
 ORDER BY i.id
 LIMIT 5;
-                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name
    Relation Tree: (i INNER t) SEMI r
@@ -135,16 +134,15 @@ LIMIT 5;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[i, t], pruned=[t]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(item_id@0, id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(item_id@0, id@1)]
+     :         CooperativeExec
+     :           PgSearchScan: table=r, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"body","value":"great","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@2, id@1)], projection=[ctid_0@0, id@1, ctid_1@3]
      :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"body","value":"great","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@2, id@1)], projection=[ctid_0@0, id@1, ctid_1@3]
-     :             CooperativeExec
-     :               PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :             CooperativeExec
-     :               PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
-(19 rows)
+     :             PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           CooperativeExec
+     :             PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT i.id, i.name
 FROM items i
@@ -175,8 +173,8 @@ WHERE a.description ||| 'wireless'
   AND b.description ||| 'keyboard'
 ORDER BY a.id, b.id
 LIMIT 5;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: a.id, a.name, b.id, b.name
    Relation Tree: a INNER b
@@ -187,13 +185,12 @@ LIMIT 5;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@3 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[a, b]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@1, tag_id@1)], projection=[ctid_0@3, tag_id@4, id@5, ctid_1@0, tag_id@1, id@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=b, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@1, tag_id@1)], projection=[ctid_0@3, tag_id@4, id@5, ctid_1@0, tag_id@1, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT a.id, a.name AS wireless_name, b.id, b.name AS keyboard_name
 FROM items a
@@ -247,8 +244,8 @@ WHERE (i.description ||| 'wireless' OR i.description ||| 'mouse')
   )
 ORDER BY i.id
 LIMIT 5;
-                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name
    Relation Tree: (i INNER t) ANTI r
@@ -259,16 +256,15 @@ LIMIT 5;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[i, t], pruned=[t]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(item_id@0, id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(item_id@0, id@1)]
+     :         CooperativeExec
+     :           PgSearchScan: table=r, segments=1, visibility=eager, query={"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4}}}
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@2, id@1)], projection=[ctid_0@0, id@1, ctid_1@3]
      :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, visibility=eager, query={"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4}}}
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@2, id@1)], projection=[ctid_0@0, id@1, ctid_1@3]
-     :             CooperativeExec
-     :               PgSearchScan: table=i, segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :             CooperativeExec
-     :               PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
-(19 rows)
+     :             PgSearchScan: table=i, segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           CooperativeExec
+     :             PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT i.id, i.name
 FROM items i

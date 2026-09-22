@@ -26,7 +26,7 @@ use std::sync::{Arc, OnceLock};
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
 use crate::api::{FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::{FFType, resolve_ctid};
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
@@ -961,8 +961,13 @@ impl SearchIndexReader {
     pub fn collect_ctidset(&self, visibility: &mut VisibilityChecker) -> KeySet {
         const VISIBILITY_BATCH_SIZE: usize = 1024;
 
+        if visibility.ffhelper().is_none() {
+            visibility.set_ffhelper(Arc::new(FFHelper::for_ctid(self)));
+        }
+
         let mut search_results = self.search();
-        let mut ctid_cache: Option<(SegmentOrdinal, FFType)> = None;
+        let mut doc_ids = Vec::with_capacity(VISIBILITY_BATCH_SIZE);
+        let mut resolved = Vec::with_capacity(VISIBILITY_BATCH_SIZE);
         let mut visible_ctids = Vec::new().into_iter();
 
         KeySet::build_from(std::iter::from_fn(move || {
@@ -974,21 +979,29 @@ impl SearchIndexReader {
                     );
                 }
 
-                let ctids: Vec<_> = search_results
-                    .by_ref()
-                    .take(VISIBILITY_BATCH_SIZE)
-                    .map(|(_, doc_address)| {
-                        Some(resolve_ctid(&mut ctid_cache, self.searcher(), doc_address))
-                    })
-                    .collect();
-                if ctids.is_empty() {
-                    return None;
+                let seg = search_results.current_segment()?;
+                let seg_ord = seg.segment_ord();
+
+                doc_ids.clear();
+                while doc_ids.len() < VISIBILITY_BATCH_SIZE {
+                    if let Some((_, doc_addr)) = seg.next() {
+                        doc_ids.push(doc_addr.doc_id);
+                    } else {
+                        break;
+                    }
                 }
 
-                let mut resolved = vec![None; ctids.len()];
-                visibility.resolve_batch(&ctids, &mut resolved);
+                if doc_ids.is_empty() {
+                    search_results.current_segment_pop();
+                    continue;
+                }
+
+                resolved.clear();
+                resolved.resize(doc_ids.len(), None);
+                visibility.resolve_segment_docs(seg_ord, &doc_ids, &mut resolved);
                 visible_ctids = resolved
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .flatten()
                     .collect::<Vec<_>>()
                     .into_iter();

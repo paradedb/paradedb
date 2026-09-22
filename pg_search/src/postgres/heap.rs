@@ -17,8 +17,10 @@
 
 use std::collections::VecDeque;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use crate::api::version::Version;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
@@ -26,7 +28,7 @@ use crate::postgres::utils;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use pgrx::pg_sys;
 use pgrx::{PgList, PgTupleDesc};
-use tantivy::TantivyDocument;
+use tantivy::{DocId, SegmentOrdinal, TantivyDocument};
 
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
@@ -100,6 +102,10 @@ pub struct VisibilityChecker {
     /// False for a `visibility => 'raw'` aggregate, which trades snapshot
     /// accuracy for skipping the heap: every ctid then passes as-is.
     check_visibility: bool,
+
+    // TODO: Make this non-optional in the future once all call sites provide an FFHelper.
+    ffhelper: Option<Arc<FFHelper>>,
+    raw_ctids_scratch: Vec<Option<u64>>,
 }
 
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
@@ -107,6 +113,7 @@ impl Clone for VisibilityChecker {
     fn clone(&self) -> Self {
         let mut checker = Self::with_rel_and_snap(&self.heaprel, self.snapshot);
         checker.check_visibility = self.check_visibility;
+        checker.ffhelper = self.ffhelper.clone();
         checker
     }
 }
@@ -144,8 +151,24 @@ impl VisibilityChecker {
                 heap_tuple_check_count: 0,
                 invisible_tuple_count: 0,
                 check_visibility: true,
+                ffhelper: None,
+                raw_ctids_scratch: Vec::new(),
             }
         }
+    }
+
+    /// Attaches an [`FFHelper`] for resolving segment `DocId`s to ctids directly.
+    pub fn with_ffhelper(mut self, ffhelper: Arc<FFHelper>) -> Self {
+        self.ffhelper = Some(ffhelper);
+        self
+    }
+
+    pub fn set_ffhelper(&mut self, ffhelper: Arc<FFHelper>) {
+        self.ffhelper = Some(ffhelper);
+    }
+
+    pub fn ffhelper(&self) -> Option<&Arc<FFHelper>> {
+        self.ffhelper.as_ref()
     }
 
     /// Whether the heap is checked at all, the `solve_mvcc` decision of the
@@ -275,19 +298,61 @@ impl VisibilityChecker {
         !self.check_visibility || self.resolve_visible(ctid, None, false).is_some()
     }
 
-    /// Checks if a batch of rows are visible. For all-visible blocks, the input CTID is returned
+    /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from
+    /// the configured [`FFHelper`]. For all-visible blocks, the raw index CTID is returned
     /// without resolving a possible HOT redirect.
-    pub fn check_batch(&mut self, ctids: &[Option<u64>], results: &mut [Option<u64>]) {
-        self.check_batch_impl(ctids, results, false);
+    pub fn check_segment_docs(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+        doc_ids: &[DocId],
+        results: &mut [Option<u64>],
+    ) {
+        self.check_segment_docs_impl(segment_ord, doc_ids, results, false);
     }
 
-    /// Checks if a batch of rows are visible and resolves each CTID to the physical HOT member
-    /// visible under this checker's snapshot, including on all-visible blocks.
-    pub fn resolve_batch(&mut self, ctids: &[Option<u64>], results: &mut [Option<u64>]) {
-        self.check_batch_impl(ctids, results, true);
+    /// Checks if a slice of `DocId`s within a segment are visible and resolves each CTID to the
+    /// physical HOT member visible under this checker's snapshot, fetching ctids directly from
+    /// the configured [`FFHelper`].
+    pub fn resolve_segment_docs(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+        doc_ids: &[DocId],
+        results: &mut [Option<u64>],
+    ) {
+        self.check_segment_docs_impl(segment_ord, doc_ids, results, true);
     }
 
-    fn check_batch_impl(
+    fn check_segment_docs_impl(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+        doc_ids: &[DocId],
+        results: &mut [Option<u64>],
+        resolve_hot: bool,
+    ) {
+        if doc_ids.is_empty() {
+            return;
+        }
+        assert_eq!(doc_ids.len(), results.len());
+
+        let ffhelper = self
+            .ffhelper
+            .clone()
+            .expect("FFHelper must be configured to check segment doc visibility");
+
+        let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
+        raw_ctids.resize(doc_ids.len(), None);
+        ffhelper.ctid(segment_ord).as_u64s(doc_ids, &mut raw_ctids);
+
+        if !self.check_visibility {
+            results.copy_from_slice(&raw_ctids);
+        } else {
+            self.check_raw_ctids_impl(&raw_ctids, results, resolve_hot);
+        }
+
+        self.raw_ctids_scratch = raw_ctids;
+    }
+
+    fn check_raw_ctids_impl(
         &mut self,
         ctids: &[Option<u64>],
         results: &mut [Option<u64>],

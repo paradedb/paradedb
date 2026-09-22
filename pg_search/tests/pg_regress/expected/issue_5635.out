@@ -60,8 +60,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                               QUERY PLAN                                                                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title
    Relation Tree: f SEMI d
@@ -74,13 +74,12 @@ LIMIT 3;
      :     TantivyFetchExec: fetch=[title]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3
      :         VisibilityFilterExec: tables=[f]
-     :           TantivyFetchExec: fetch=[ctid_0]
-     :             HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)]
-     :               CooperativeExec
-     :                 PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
-(18 rows)
+     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
+(17 rows)
 
 SELECT f.id, f.title
 FROM issue5635_files f

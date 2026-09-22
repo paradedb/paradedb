@@ -477,7 +477,6 @@ impl ExecutionPlan for SegmentedTopKExec {
             &self.ffhelper,
             &input_schema,
         )?;
-
         let mut state = SegmentedTopKState {
             sort_exprs: self.sort_exprs.clone(),
             deferred_columns: self.deferred_columns.clone(),

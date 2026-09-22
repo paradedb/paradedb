@@ -57,8 +57,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'premium'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
@@ -69,13 +69,12 @@ LIMIT 3;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=3), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query="all"
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -103,8 +102,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region ||| 'wireless'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                                QUERY PLAN                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
@@ -115,13 +114,12 @@ LIMIT 3;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=3), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"region","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"region","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -147,8 +145,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region ||| 'wireless'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
@@ -158,13 +156,12 @@ LIMIT 3;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1]
      :   SortExec: TopK(fetch=3), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 14], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1, row_replacements=3]
      :     VisibilityFilterExec: tables=[p, s], metrics=[output_rows=6, output_bytes=64.1 KB, output_batches=1]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=6, output_bytes=192.1 KB, output_batches=1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1], metrics=[output_rows=6, output_bytes=320.0 KB, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"region","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=6, output_bytes=160.0 B, output_batches=1, rows_pruned=24, rows_scanned=30]
-(15 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1], metrics=[output_rows=6, output_bytes=320.0 KB, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"region","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=6, output_bytes=160.0 B, output_batches=1, rows_pruned=24, rows_scanned=30]
+(14 rows)
 
 -- =============================================================================
 -- TEST 3: ORDER BY DESC + LIMIT
@@ -176,8 +173,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'premium'
 ORDER BY p.id DESC
 LIMIT 2;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
@@ -188,13 +185,12 @@ LIMIT 2;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=2), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query="all"
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -218,8 +214,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'premium'
 ORDER BY p.price ASC
 LIMIT 2;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.price, s.name
    Relation Tree: p INNER s
@@ -230,13 +226,12 @@ LIMIT 2;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@1 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=2), expr=[price@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, price@4, ctid_1@0, id@1]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query="all"
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, price@4, ctid_1@0, id@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
@@ -261,8 +256,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'premium' AND s.region ||| 'global'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
@@ -273,13 +268,12 @@ LIMIT 5;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"region","value":"global","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"region","value":"global","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -314,8 +308,8 @@ WHERE p.supplier_id IN (
 )
 ORDER BY p.id ASC
 LIMIT 3;
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.price
    Relation Tree: p SEMI s
@@ -326,13 +320,12 @@ LIMIT 3;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=3), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"region","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"region","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
+(15 rows)
 
 SELECT p.id, p.name, p.price
 FROM products p
@@ -461,8 +454,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                        QUERY PLAN                                                                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                       QUERY PLAN                                                                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
    Relation Tree: f SEMI d
    Join Cond: f.document_id = d.id
@@ -474,13 +467,12 @@ LIMIT 3;
      :     TantivyFetchExec: fetch=[title], metrics=[output_rows=3, output_bytes=48.0 B, output_batches=1]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=70, rows_output=3, segments_seen=1]
      :         VisibilityFilterExec: tables=[f], metrics=[output_rows=70, output_bytes=64.5 KB, output_batches=1]
-     :           TantivyFetchExec: fetch=[ctid_0], metrics=[output_rows=70, output_bytes=192.5 KB, output_batches=1]
-     :             HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], metrics=[output_rows=70, output_bytes=256.0 KB, output_batches=1, build_mem_used=368.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
-     :               CooperativeExec
-     :                 PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=7, output_bytes=176.0 B, output_batches=1]
-     :               CooperativeExec
-     :                 PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=70, output_bytes=2.2 KB, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=70]
-(17 rows)
+     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], metrics=[output_rows=70, output_bytes=256.0 KB, output_batches=1, build_mem_used=368.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=7, output_bytes=176.0 B, output_batches=1]
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=70, output_bytes=2.2 KB, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=70]
+(16 rows)
 
 SELECT f.id, f.title
 FROM bench_files f
@@ -509,8 +501,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                       QUERY PLAN                                                                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
    Relation Tree: f SEMI d
    Join Cond: f.document_id = d.id
@@ -522,13 +514,12 @@ LIMIT 3;
      :     TantivyFetchExec: fetch=[title], metrics=[output_rows=3, output_bytes=48.0 B, output_batches=1]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=10, rows_output=3, segments_seen=1]
      :         VisibilityFilterExec: tables=[f], metrics=[output_rows=10, output_bytes=64.1 KB, output_batches=1]
-     :           TantivyFetchExec: fetch=[ctid_0], metrics=[output_rows=10, output_bytes=192.1 KB, output_batches=1]
-     :             HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1, build_mem_used=97.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
-     :               CooperativeExec
-     :                 PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"intro","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1, output_bytes=24.0 B, output_batches=1]
-     :               CooperativeExec
-     :                 PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=10, output_bytes=328.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=10]
-(17 rows)
+     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1, build_mem_used=97.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"intro","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1, output_bytes=24.0 B, output_batches=1]
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=10, output_bytes=328.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=10]
+(16 rows)
 
 SELECT f.id, f.title
 FROM bench_files f

@@ -31,6 +31,7 @@ use crate::postgres::storage::fsm::FreeSpaceManager;
 use std::cell::UnsafeCell;
 
 use anyhow::Result;
+use parking_lot::Mutex;
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::directory::OwnedBytes;
 
@@ -107,7 +108,9 @@ impl<T> UnsafeCache<T> {
 pub struct LinkedBytesList {
     bman: BufferManager,
     pub header_blockno: pg_sys::BlockNumber,
-    blocklist_reader: OnceLock<blocklist::reader::BlockList>,
+    metadata: OnceLock<LinkedListData>,
+    last_block_ord: Option<usize>,
+    blocklist_reader: OnceLock<Mutex<blocklist::reader::BlockList>>,
     cache: UnsafeCache<CacheEntry>,
 }
 
@@ -223,14 +226,22 @@ impl LinkedList for LinkedBytesList {
     }
 
     fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber> {
+        let metadata = self.metadata.get_or_init(|| self.get_linked_list_data());
+        if let Some(last_ord) = self.last_block_ord {
+            if ord > last_ord {
+                return None;
+            }
+            if ord == 0 {
+                return Some(metadata.start_blockno);
+            }
+            if ord == last_ord {
+                return Some(metadata.last_blockno);
+            }
+        }
         self.blocklist_reader
-            .get_or_init(|| {
-                blocklist::reader::BlockList::new(
-                    &self.bman,
-                    self.get_linked_list_data().blocklist_start,
-                )
-            })
-            .get(ord)
+            .get_or_init(|| Mutex::new(blocklist::reader::BlockList::new(metadata.blocklist_start)))
+            .lock()
+            .get(&self.bman, ord)
     }
 }
 
@@ -239,9 +250,19 @@ impl LinkedBytesList {
         Self {
             bman: BufferManager::new(rel),
             header_blockno,
+            metadata: Default::default(),
+            last_block_ord: None,
             blocklist_reader: Default::default(),
             cache: UnsafeCache::new(),
         }
+    }
+
+    /// The list must be finalized and `total_bytes` must be its complete file length.
+    pub fn with_length(mut self, total_bytes: usize) -> Self {
+        self.last_block_ord = total_bytes
+            .checked_sub(1)
+            .map(|last| last / bm25_max_free_space());
+        self
     }
 
     /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method
@@ -286,6 +307,8 @@ impl LinkedBytesList {
         Self {
             bman,
             header_blockno,
+            metadata: Default::default(),
+            last_block_ord: None,
             blocklist_reader: Default::default(),
             cache: UnsafeCache::new(),
         }
@@ -342,8 +365,9 @@ impl LinkedBytesList {
         // iterate the BlockList contents -- this is every block used by this LinkedBytesList
         self.blocklist_reader
             .take()
-            .unwrap_or_else(|| blocklist::reader::BlockList::new(&self.bman, blocklist_blockno))
-            .into_iter()
+            .map(Mutex::into_inner)
+            .unwrap_or_else(|| blocklist::reader::BlockList::new(blocklist_blockno))
+            .into_blocks(&self.bman)
             // include our header page
             .chain(std::iter::once(self.header_blockno))
             // the BlockList itself consumes one or more blocks -- make sure to include them too
@@ -485,6 +509,59 @@ mod tests {
     use crate::postgres::storage::block::BM25PageSpecialData;
     use crate::postgres::storage::utils::RelationBufferAccess;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    unsafe fn test_linked_bytes_endpoint_maps() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT)").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 't_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        let bytes: Vec<u8> = (1..=255).cycle().take(4 * bm25_max_free_space()).collect();
+        let mut writer = LinkedBytesList::create_with_fsm(&indexrel).writer();
+        writer.write(&bytes).unwrap();
+        let list = writer
+            .finalize_and_write()
+            .unwrap()
+            .with_length(bytes.len());
+        assert_eq!(list.get_byte(bytes.len() - 1), bytes[bytes.len() - 1]);
+        assert_eq!(list.get_byte(0), bytes[0]);
+        assert!(list.blocklist_reader.get().is_none());
+        assert_eq!(
+            list.get_byte(bm25_max_free_space()),
+            bytes[bm25_max_free_space()]
+        );
+        assert!(list.blocklist_reader.get().is_some());
+        assert_eq!(list.block_for_ord(4), None);
+
+        let mut list = LinkedBytesList::create_with_fsm(&indexrel);
+        let blocks: Vec<u32> = (1u32..10_074)
+            .map(|i| i.wrapping_mul(2_654_435_761))
+            .collect();
+        let mut builder = blocklist::builder::BlockList::default();
+        for &block in &blocks {
+            builder.push(block);
+        }
+        let start = builder.finish(&mut list.bman).unwrap();
+        {
+            let mut header = list.bman.get_buffer_mut(list.header_blockno);
+            header
+                .page_mut()
+                .contents_mut::<LinkedListData>()
+                .blocklist_start = start;
+        }
+        let mut expected = blocks.clone();
+        expected.push(list.header_blockno);
+        let mut block = start;
+        while block != pg_sys::InvalidBlockNumber {
+            expected.push(block);
+            block = list.bman.get_buffer(block).page().next_blockno();
+        }
+        assert!(expected.len() > blocks.len() + 2);
+        assert_eq!(list.block_for_ord(0), Some(blocks[0]));
+        assert_eq!(list.freeable_blocks().collect::<Vec<_>>(), expected);
+    }
 
     #[pg_test]
     unsafe fn test_linked_bytes_read_write() {

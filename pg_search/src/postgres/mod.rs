@@ -1322,6 +1322,28 @@ pub struct ClaimedSegmentData {
 }
 
 #[cfg(any(test, feature = "pg_test"))]
+pub(crate) mod test_support {
+    use super::*;
+
+    /// A leader-populated parallel state with one source holding `view`, palloc'd in the
+    /// current memory context, for tests that decode a dispatched scan as a worker would.
+    pub(crate) fn parallel_state_for_view(view: SegmentView) -> *mut ParallelScanState {
+        let args = ParallelScanArgs {
+            all_sources: vec![view],
+            query: Vec::new(),
+            with_aggregates: false,
+            with_segment_info: false,
+        };
+        let size = ParallelScanState::size_of(&args.all_nsegments(), &args.query, false, false);
+        unsafe {
+            let state = pg_sys::palloc0(size).cast::<ParallelScanState>();
+            (*state).create_and_populate(args);
+            state
+        }
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::*;

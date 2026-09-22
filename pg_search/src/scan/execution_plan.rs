@@ -474,6 +474,18 @@ impl PgSearchScanPlan {
     /// it as a single-partition plan, while `assigned_partition` records which partition's
     /// workload (range bounds or parallel state assignment) this variant executes.
     pub(crate) fn with_assigned_partition(&self, assigned: usize) -> Arc<Self> {
+        self.assign_partition(assigned, None)
+            .expect("assignment without a received classification cannot be rejected")
+    }
+
+    /// Like [`Self::with_assigned_partition`], but reuses a received classification when it
+    /// names exactly this reader's segment view; see [`ReceivedClassification`] for what a
+    /// mismatch means.
+    pub(crate) fn assign_partition(
+        &self,
+        assigned: usize,
+        classified: Option<ReceivedClassification>,
+    ) -> Result<Arc<Self>> {
         assert!(
             self.assigned_partition.is_none(),
             "PgSearchScanPlan is already task-specialized"
@@ -494,12 +506,25 @@ impl PgSearchScanPlan {
             let boundaries = range_split_points.build(self.global_partition_count);
             let state = self.state.lock().unwrap();
             if let ExecutionState::RangePartitioned { scan_state, .. } = &*state {
-                let partition_segments =
-                    segments_for_partition(&scan_state.0.reader, &boundaries, assigned);
+                let reader = &scan_state.0.reader;
+                let partition_segments = match classified {
+                    Some(
+                        ReceivedClassification::SharedView(segments)
+                        | ReceivedClassification::Snapshot(segments),
+                    ) if segments.covers_view(reader) => segments,
+                    Some(ReceivedClassification::SharedView(_)) => {
+                        return Err(DataFusionError::Internal(
+                            "PgSearchScan dispatch: partition classification does not match \
+                             the worker's segment view"
+                                .into(),
+                        ));
+                    }
+                    _ => segments_for_partition(reader, &boundaries, assigned),
+                };
                 variant.partition_segments = Some(partition_segments);
             }
         }
-        Arc::new(variant)
+        Ok(Arc::new(variant))
     }
 
     /// Late-bind the shared `ParallelScanState` into this scan's execution state (#5667).
@@ -682,6 +707,7 @@ impl PgSearchScanPlan {
             global_partition_count: self.global_partition_count,
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
+            partition_segments: self.partition_segments.clone(),
             scan_mode: scanner_config.scan_mode,
             check_visibility: state.0.visibility.checks_visibility(),
         };
@@ -843,7 +869,14 @@ impl PgSearchScanPlan {
         plan.eager_fields = descriptor.eager_fields;
         plan._expr_context_guard = fallback_guard;
         let final_plan = if let Some(assigned) = descriptor.assigned_partition {
-            plan.with_assigned_partition(assigned)
+            let classified = descriptor.partition_segments.map(|segments| {
+                if parallel_state.is_some() {
+                    ReceivedClassification::SharedView(segments)
+                } else {
+                    ReceivedClassification::Snapshot(segments)
+                }
+            });
+            plan.assign_partition(assigned, classified)?
         } else {
             Arc::new(plan)
         };
@@ -885,7 +918,20 @@ struct ScanDispatchDescriptor {
     /// leader; see `PgSearchTableProvider::scan_inner`.
     check_visibility: bool,
     assigned_partition: Option<usize>,
+    /// The leader's segment classification for `assigned_partition`, so a reconstructed task
+    /// neither reopens statistics nor classifies again. Absent for unassigned plans.
+    #[serde(default)]
+    partition_segments: Option<PartitionSegments>,
     scan_mode: crate::scan::ScanMode,
+}
+
+/// A classification received with a dispatched task, tagged by the view it is checked
+/// against. Under the shared parallel state the view is the leader's, so a mismatch is a
+/// view-identity bug and an error; without it, as for a display plan, the view may be newer,
+/// so a mismatch classifies again from local statistics.
+pub(crate) enum ReceivedClassification {
+    SharedView(PartitionSegments),
+    Snapshot(PartitionSegments),
 }
 
 /// The output partitioning a scan declares to DataFusion.
@@ -966,7 +1012,7 @@ impl DisplayAs for PgSearchScanPlan {
                 self.table_alias,
                 partition_segments.partially_included.len(),
                 partition_segments.included.len(),
-                partition_segments.pruned_count
+                partition_segments.pruned.len()
             )?;
         } else {
             write!(

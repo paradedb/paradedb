@@ -25,6 +25,7 @@ use tantivy::Index;
 use tantivy::index::SegmentId;
 
 use super::SegmentStats;
+use crate::api::HashSet;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -75,12 +76,34 @@ pub(crate) enum SegmentInclusion {
     Excluded,
 }
 
-/// The classified segments for a given partition.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The classified segments for a given partition. Pruned segments are listed by ID, not
+/// counted, so a receiver can prove the decisions were made over its own segment view.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PartitionSegments {
     pub(crate) included: Vec<SegmentId>,
     pub(crate) partially_included: Vec<SegmentId>,
-    pub(crate) pruned_count: usize,
+    pub(crate) pruned: Vec<SegmentId>,
+}
+
+impl PartitionSegments {
+    /// Whether these decisions were made over exactly `reader`'s segment view: the three lists
+    /// name every segment of the view once and nothing else. Mutable segments keep their ID
+    /// across views and are always partially included, so ID identity is sufficient.
+    pub(crate) fn covers_view(&self, reader: &SearchIndexReader) -> bool {
+        let snapshot = reader.segment_stats_snapshot();
+        let listed: HashSet<SegmentId> = self
+            .included
+            .iter()
+            .chain(&self.partially_included)
+            .chain(&self.pruned)
+            .copied()
+            .collect();
+        listed.len() == self.included.len() + self.partially_included.len() + self.pruned.len()
+            && listed.len() == reader.segment_readers().len()
+            && listed
+                .iter()
+                .all(|id| snapshot.segment_index(*id).is_some())
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -123,13 +146,13 @@ pub(crate) fn segments_for_partition(
     let all = || PartitionSegments {
         included: Vec::new(),
         partially_included: reader.segment_ids(),
-        pruned_count: 0,
+        pruned: Vec::new(),
     };
     let Some(range) = boundaries.partition_range(partition) else {
         return PartitionSegments {
             included: reader.segment_ids(),
             partially_included: Vec::new(),
-            pruned_count: 0,
+            pruned: Vec::new(),
         };
     };
     let Some(field) = reader

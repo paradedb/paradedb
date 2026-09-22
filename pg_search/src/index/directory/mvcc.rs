@@ -1177,6 +1177,7 @@ mod tests {
             let weak = Arc::downgrade(&directory.pin_cushion);
             let reader = directory.get_file_handle(&path).unwrap();
             assert_eq!(reader.read_byte(0).unwrap(), bytes[0]);
+            assert_eq!(reader.read_byte(page_size).unwrap(), bytes[page_size]);
             let before = shared_buffer_reads();
             assert_eq!(
                 reader.read_byte(page_size * 2 + 3).unwrap(),

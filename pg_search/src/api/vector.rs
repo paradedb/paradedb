@@ -156,7 +156,7 @@ fn vector_estimator_info_internal(
     reject_partitioned_index(index.oid(), PartitionedIndexOperation::EstimatorInfo)?;
     ensure!(
         unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX
-            && index.relam().is_paradedb_am(),
+            && unsafe { (*index.rd_rel).relam.is_paradedb_am() },
         "vector_estimator_info requires a ParadeDB index"
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
@@ -406,7 +406,7 @@ fn vector_error_audit_internal(
         "vector error audit requires a physical index"
     );
     ensure!(
-        index.relam().is_paradedb_am(),
+        unsafe { (*index.rd_rel).relam.is_paradedb_am() },
         "vector error audit requires a ParadeDB index"
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
@@ -660,7 +660,7 @@ fn vector_error_cone_audit_internal(
         "vector error cone audit requires a physical index"
     );
     ensure!(
-        index.relam().is_paradedb_am(),
+        unsafe { (*index.rd_rel).relam.is_paradedb_am() },
         "vector error cone audit requires a ParadeDB index"
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");

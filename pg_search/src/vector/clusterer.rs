@@ -100,7 +100,7 @@ impl SuperKMeansIvfClusterer {
     /// `training_sample_ratio * N` should still yield about
     /// `centroid_ratio * N` leaves.
     fn max_leaf_size(&self) -> usize {
-        let leaf = (self.training_sample_ratio / self.centroid_ratio).round() as usize;
+        let leaf = 2 * (self.training_sample_ratio / self.centroid_ratio).round() as usize;
         leaf.max(1)
     }
 }
@@ -305,12 +305,12 @@ mod tests {
         let clusterer = SuperKMeansIvfClusterer::new()
             .with_centroid_ratio(0.01)
             .with_training_sample_ratio(0.32);
-        assert_eq!(clusterer.max_leaf_size(), 32);
+        assert_eq!(clusterer.max_leaf_size(), 64);
 
         let full = SuperKMeansIvfClusterer::new()
             .with_centroid_ratio(0.01)
             .with_training_sample_ratio(1.0);
-        assert_eq!(full.max_leaf_size(), 100);
+        assert_eq!(full.max_leaf_size(), 200);
     }
 
     #[test]

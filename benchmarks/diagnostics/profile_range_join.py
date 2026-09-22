@@ -8,11 +8,14 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 
 from paired_stats_once import ROOT, OUT, URL, identity, psql, run
 
 
-GROUPS = ("join_semi_filter", "join_top_k_score_desc_high_selectivity")
+GROUPS = ("join_semi_filter", "join_permissioned_search", "join_top_k_score_desc_high_selectivity")
+SIZE = sys.argv[1] if len(sys.argv) > 1 else "20m"
+assert SIZE in ("1m", "20m")
 VARIANTS = ("hash_partitioned", "range_partitioned")
 
 
@@ -22,7 +25,7 @@ def selected_queries():
     for group in GROUPS:
         for variant in VARIANTS:
             source = directory / group / f"{variant}.sql"
-            # These four source files contain no semicolons or comments in literals.
+            # These six source files contain no semicolons or comments in literals.
             statements = [s.strip() for s in re.sub(r"--[^\n]*", "", source.read_text()).split(";") if s.strip()]
             assert all(s.upper().startswith("SET ") for s in statements[:-1])
             assert statements[-1].upper().startswith("SELECT")
@@ -32,8 +35,8 @@ def selected_queries():
 
 def benchmark(label, *, initialize):
     args = [str(ROOT / "target/release/benchmarks"), "benchmark", "--url", URL,
-            "--dataset", "stackoverflow", "--index", "bm25", "--size", "1m",
-            "--runs", "10", "--output", "json", "--fail-on-error", "true"]
+            "--dataset", "stackoverflow", "--index", "bm25", "--size", SIZE,
+            "--runs", "30", "--output", "json", "--fail-on-error", "true"]
     if not initialize:
         args += ["--skip-index", "--vacuum", "false"]
     with (OUT / f"{label}-unprofiled.log").open("w") as log:
@@ -45,7 +48,7 @@ def benchmark(label, *, initialize):
     ):
         assert name not in observed
         observed[name] = {"samples_ms": json.loads("[" + samples + "]"), "rows": int(rows)}
-        assert len(observed[name]["samples_ms"]) == 10
+        assert len(observed[name]["samples_ms"]) == 30
     assert set(observed) == set(selected_queries()), "missing benchmark result"
     assert "EXPLAIN failed:" not in text
     (OUT / f"{label}-samples.json").write_text(json.dumps(observed, indent=2))
@@ -61,6 +64,7 @@ def query_script(path, statements, repetitions):
 
 
 def record(label, statements, mode):
+    capability = json.loads((OUT / "perf-capability.json").read_text())
     repeats = 200 if mode == "cpu" else 10
     sql_path = OUT / f"{label}-{mode}.sql"
     query_script(sql_path, statements, repeats)
@@ -69,7 +73,7 @@ def record(label, statements, mode):
     # -a covers the already-running leader and newly forked MPP workers. Profiling
     # psql alone, or one backend PID, would miss most of the server execution.
     if mode == "cpu":
-        args = ["sudo", "perf", "record", "-a", "-e", "cpu-clock:u", "-F", "199",
+        args = ["sudo", "perf", "record", "-a", "-e", capability["event"], "-F", "199",
                 "--call-graph", "dwarf,16384", "-o", str(data), "--", *workload]
     else:
         args = ["sudo", "perf", "sched", "record", "-a", "-o", str(data), "--", *workload]
@@ -98,7 +102,7 @@ def record(label, statements, mode):
         with (OUT / f"{label}-scheduler.txt").open("w") as report:
             subprocess.run(["sudo", "perf", "sched", "timehist", "-i", str(data), "--summary"],
                            stdout=report, check=True)
-    return {"mode": mode, "repetitions": repeats, "command": args}
+    return {"mode": mode, "repetitions": repeats, "command": args, "event": capability["event"]}
 
 
 def main():
@@ -108,11 +112,11 @@ def main():
     assert not subset.exists(), "refuse to replace an existing query suite"
     pkglibdir = Path(run(["/usr/lib/postgresql/18/bin/pg_config", "--pkglibdir"], capture=True).strip())
     manifest = {"baseline": os.environ["BASELINE_SHA"], "branch": os.environ["FIXED_SHA"],
-                "size": "1m", "cpu_sample_hz": 199, "rounds": []}
+                "size": SIZE, "cpu_sample_hz": 199, "rounds": []}
     expected = expected_rows = None
     try:
         # Use the normal Rust benchmark runner for index creation and unprofiled
-        # timings. Its index-specific directory selects only these four queries.
+        # timings. Its index-specific directory selects only these six queries.
         for group in GROUPS:
             (subset / group).mkdir(parents=True)
             for variant in VARIANTS:
@@ -136,6 +140,9 @@ def main():
                 expected_rows = rows
             assert rows == expected_rows, "returned row counts differ"
             captures = []
+            manifest["rounds"].append({"label": label, "library_sha256": hashlib.sha256(library.read_bytes()).hexdigest(),
+                                       "captures": captures, "index_identity_unchanged": True, "row_counts_match": True})
+            (OUT / "profile-manifest.json").write_text(json.dumps(manifest, indent=2))
             for name, statements in selected.items():
                 prefix = label + "-" + name.replace(" - ", "-")
                 warmup = OUT / f"{prefix}-warmup.sql"
@@ -148,13 +155,12 @@ def main():
                 if name.endswith("range_partitioned"):
                     assert "partition=owner_user_id[" in plan, "range assignment did not execute"
                 captures.append({"query": name, **record(prefix, statements, "cpu")})
-                if name.startswith("join_semi_filter"):
+                if not name.startswith("join_top_k") and json.loads((OUT / "perf-capability.json").read_text())["scheduler"]:
                     captures.append({"query": name, **record(prefix, statements, "scheduler")})
+                (OUT / "profile-manifest.json").write_text(json.dumps(manifest, indent=2))
             assert identity() == expected
-            manifest["rounds"].append({"label": label, "library_sha256": hashlib.sha256(library.read_bytes()).hexdigest(),
-                                       "captures": captures, "index_identity_unchanged": True, "row_counts_match": True})
             (OUT / "profile-manifest.json").write_text(json.dumps(manifest, indent=2))
-            print(f"Finished {label}: unchanged indexes; four CPU profiles and two scheduler traces", flush=True)
+            print(f"Finished {label}: unchanged indexes; six CPU profiles plus supported scheduler traces", flush=True)
     finally:
         if subset.exists():
             shutil.rmtree(subset)

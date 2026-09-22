@@ -5,12 +5,12 @@ permissions:
   contents: read
 jobs:
   paired:
-    name: CPU and scheduler profiles (1M, main vs branch)
+    name: CPU and scheduler profiles (20M, main vs branch)
     timeout-minutes: 720
     strategy:
       fail-fast: false
       matrix:
-        size: [1m]
+        size: [20m]
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
@@ -38,12 +38,11 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)"
-          sudo perf record -a -e cpu-clock:u --call-graph dwarf,16384 -o /tmp/perf-check.data -- sleep 0.1
-          sudo perf sched record -a -o /tmp/perf-sched-check.data -- sleep 0.1
           mkdir -p diagnostic-output
           perf version > diagnostic-output/perf-version.txt
           uname -a > diagnostic-output/kernel.txt
           lscpu > diagnostic-output/cpu.txt
+          python3 benchmarks/diagnostics/probe_perf.py
       - uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: 18

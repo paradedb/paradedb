@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       profile_range_joins:
-        description: "Experimental branch only: profile main/branch on unchanged 1M indexes; do not publish benchmark results."
+        description: "Experimental branch only: profile main/branch on unchanged 20M indexes; do not publish benchmark results."
         required: false
         type: boolean
         default: false

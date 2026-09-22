@@ -1471,6 +1471,12 @@ impl CustomScan for BaseScan {
                 if let Some(explain_data) = state.custom_state().telemetry.parallel_explain() {
                     explainer.add_json("Parallel Workers", &explain_data.workers);
                 }
+                #[cfg(feature = "io_stats")]
+                explainer.add_group("Buffer Hits", |explainer| {
+                    for (component, hits) in state.custom_state().io_trace.hits() {
+                        explainer.add_unsigned_integer(&component, hits, None);
+                    }
+                });
                 let segment_info = state.custom_state().segment_info_for_explain();
                 if !segment_info.is_empty() {
                     explainer.add_json("Segment Info", &segment_info);
@@ -1677,6 +1683,8 @@ impl CustomScan for BaseScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        #[cfg(feature = "io_stats")]
+        let _io = state.custom_state().io_trace.enter();
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }
@@ -2307,6 +2315,8 @@ fn check_visibility(
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
+    #[cfg(feature = "io_stats")]
+    let _io = crate::index::reader::io_stats::trace::external("Heap");
     state
         .custom_state_mut()
         .visibility_checker()

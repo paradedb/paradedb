@@ -219,18 +219,18 @@ impl SegmentStatsSnapshot {
     ) -> PartitionSegments {
         let mut included = Vec::new();
         let mut partially_included = Vec::new();
-        let mut pruned_count = 0;
+        let mut pruned = Vec::new();
         for (ord, segment) in self.segments.iter().enumerate() {
             match self.classify_partition_segment(ord, field, range) {
                 SegmentInclusion::FullyIncluded => included.push(segment.id),
                 SegmentInclusion::PartiallyIncluded => partially_included.push(segment.id),
-                SegmentInclusion::Excluded => pruned_count += 1,
+                SegmentInclusion::Excluded => pruned.push(segment.id),
             }
         }
         PartitionSegments {
             included,
             partially_included,
-            pruned_count,
+            pruned,
         }
     }
 

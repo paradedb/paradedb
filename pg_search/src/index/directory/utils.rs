@@ -160,6 +160,9 @@ pub unsafe fn save_new_metas(
                     stats: files
                         .remove(&SegmentComponent::Custom(STATS_EXT.to_string()))
                         .map(|e| e.0),
+                    posting_norms: files
+                        .remove(&SegmentComponent::Custom("pnorm".into()))
+                        .map(|e| e.0),
                 },
             );
 

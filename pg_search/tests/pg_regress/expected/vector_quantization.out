@@ -56,7 +56,8 @@ CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_cosine_idx ON q_cosine
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    centroid_ratio = 0.2,
+    max_leaf_size = 5,
+    training_sample_ratio = 1.0,
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '400kb',

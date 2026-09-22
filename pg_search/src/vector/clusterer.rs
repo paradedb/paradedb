@@ -25,7 +25,9 @@ use tantivy::vector::{
 };
 use tantivy::{Index, TantivyError};
 
-use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::options::{
+    BM25IndexOptions, DEFAULT_MAX_LEAF_SIZE, DEFAULT_TRAINING_SAMPLE_RATIO,
+};
 
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
 
@@ -45,8 +47,7 @@ struct AssignClusterer {
 /// An IVF clusterer backed by hierarchical SuperKMeans.
 pub struct SuperKMeansIvfClusterer {
     config: HierarchicalSuperKMeansConfig,
-    centroid_ratio: f32,
-    training_samples_per_centroid: usize,
+    training_sample_ratio: f32,
     assign_batch_size: usize,
     assign_cache: Arc<Mutex<Option<AssignClusterer>>>,
 }
@@ -55,11 +56,7 @@ impl std::fmt::Debug for SuperKMeansIvfClusterer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SuperKMeansIvfClusterer")
             .field("config", &self.config)
-            .field("centroid_ratio", &self.centroid_ratio)
-            .field(
-                "training_samples_per_centroid",
-                &self.training_samples_per_centroid,
-            )
+            .field("training_sample_ratio", &self.training_sample_ratio)
             .field("assign_batch_size", &self.assign_batch_size)
             .finish_non_exhaustive()
     }
@@ -69,10 +66,10 @@ impl Default for SuperKMeansIvfClusterer {
     fn default() -> Self {
         let mut config = HierarchicalSuperKMeansConfig::default();
         config.base.suppress_warnings = true;
+        config.max_leaf_size = DEFAULT_MAX_LEAF_SIZE as usize;
         Self {
             config,
-            centroid_ratio: 0.01,
-            training_samples_per_centroid: 32,
+            training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO as f32,
             assign_batch_size: DEFAULT_ASSIGN_BATCH_SIZE,
             assign_cache: Arc::new(Mutex::new(None)),
         }
@@ -85,25 +82,22 @@ impl SuperKMeansIvfClusterer {
         Self::default()
     }
 
-    /// Sets the number of centroids relative to the vector count.
-    pub fn with_centroid_ratio(mut self, centroid_ratio: f32) -> Self {
-        self.centroid_ratio = centroid_ratio;
+    /// Sets the maximum number of training vectors per clustering leaf.
+    pub fn with_max_leaf_size(mut self, max_leaf_size: usize) -> Self {
+        self.config.max_leaf_size = max_leaf_size;
         self
     }
 
-    /// Sets the training samples used per centroid.
-    pub fn with_training_samples_per_centroid(
-        mut self,
-        training_samples_per_centroid: usize,
-    ) -> Self {
-        self.training_samples_per_centroid = training_samples_per_centroid;
+    /// Sets the fraction of vectors sampled for training, independently of leaf size.
+    pub fn with_training_sample_ratio(mut self, training_sample_ratio: f32) -> Self {
+        self.training_sample_ratio = training_sample_ratio;
         self
     }
 }
 
 impl IvfClusterer for SuperKMeansIvfClusterer {
     fn training_sample_ratio(&self) -> f32 {
-        (self.centroid_ratio * self.training_samples_per_centroid as f32).min(1.0)
+        self.training_sample_ratio
     }
 
     fn assign_batch_size(&self) -> usize {
@@ -142,9 +136,6 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
         if matches!(options.metric(), Metric::Cosine | Metric::Dot) {
             config.base.angular = true;
         }
-        let training_sample_ratio = self.training_sample_ratio();
-        config.max_leaf_size =
-            ((training_sample_ratio / self.centroid_ratio).ceil() as usize).max(1);
         let mut clusterer = HierarchicalSuperKMeans::with_config(dim, config);
         let rows = vectors.matrix.rows;
         let centroids = clusterer.train_owned(vectors.matrix.values, rows);
@@ -259,10 +250,54 @@ pub fn set_ivf_router(index: &mut Index) -> tantivy::Result<()> {
 /// Installs the configured IVF clusterer on an index.
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
     let clusterer = SuperKMeansIvfClusterer::new()
-        .with_centroid_ratio(options.centroid_ratio())
-        .with_training_samples_per_centroid(options.training_samples_per_centroid());
+        .with_max_leaf_size(options.max_leaf_size())
+        .with_training_sample_ratio(options.training_sample_ratio());
     index.set_ivf_clusterer(Arc::new(clusterer));
     index
         .set_ivf_router(RouterKind::Rng)
         .expect("ParadeDB indexes use the RNG router");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_training_settings() {
+        let clusterer = SuperKMeansIvfClusterer::default();
+        let settings = clusterer.merge_settings(10_000).unwrap();
+        assert_eq!(settings.training_sample_ratio, 0.32);
+        assert_eq!(clusterer.config.max_leaf_size, 100);
+    }
+
+    #[test]
+    fn leaf_size_and_training_fraction_are_independent() {
+        let clusterer = SuperKMeansIvfClusterer::new()
+            .with_max_leaf_size(20)
+            .with_training_sample_ratio(0.25);
+        for total_docs in [100, 10_000] {
+            let settings = clusterer.merge_settings(total_docs).unwrap();
+            assert_eq!(settings.training_sample_ratio, 0.25);
+        }
+        assert_eq!(clusterer.config.max_leaf_size, 20);
+        let larger_leaves = clusterer.with_max_leaf_size(200);
+        assert_eq!(larger_leaves.training_sample_ratio(), 0.25);
+        assert_eq!(larger_leaves.config.max_leaf_size, 200);
+        let larger_sample = larger_leaves.with_training_sample_ratio(0.5);
+        assert_eq!(larger_sample.training_sample_ratio(), 0.5);
+        assert_eq!(larger_sample.config.max_leaf_size, 200);
+    }
+
+    #[test]
+    fn full_sample_ratio_reaches_tantivy_unchanged() {
+        let clusterer = SuperKMeansIvfClusterer::new().with_training_sample_ratio(1.0);
+        assert_eq!(
+            clusterer
+                .merge_settings(10_000)
+                .unwrap()
+                .training_sample_ratio,
+            1.0
+        );
+        assert_eq!(clusterer.config.max_leaf_size, 100);
+    }
 }

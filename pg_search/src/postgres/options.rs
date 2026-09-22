@@ -74,8 +74,8 @@ pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
-pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
-pub(crate) const DEFAULT_TRAINING_SAMPLES_PER_CENTROID: usize = 32;
+pub(crate) const DEFAULT_MAX_LEAF_SIZE: i32 = 100;
+pub(crate) const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = 0.32;
 
 #[pg_guard]
 extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
@@ -350,17 +350,16 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "centroid_ratio".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, centroid_ratio) as i32,
+            optname: "max_leaf_size".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, max_leaf_size) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "training_samples_per_centroid".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, training_samples_per_centroid)
-                as i32,
+            optname: "training_sample_ratio".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, training_sample_ratio) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -458,14 +457,14 @@ impl BM25IndexOptions {
         }
     }
 
-    /// Returns the IVF centroid ratio.
-    pub fn centroid_ratio(&self) -> f32 {
-        self.options_data().centroid_ratio()
+    /// Returns the maximum number of training vectors per clustering leaf.
+    pub fn max_leaf_size(&self) -> usize {
+        self.options_data().max_leaf_size()
     }
 
-    /// Returns the training samples used per centroid.
-    pub fn training_samples_per_centroid(&self) -> usize {
-        self.options_data().training_samples_per_centroid()
+    /// Returns the fraction of vectors sampled for IVF training.
+    pub fn training_sample_ratio(&self) -> f32 {
+        self.options_data().training_sample_ratio()
     }
 
     /// Returns the sort_by configuration.
@@ -812,8 +811,8 @@ struct BM25IndexOptionsData {
     mutable_segment_rows: i32,
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
-    centroid_ratio: f64,
-    training_samples_per_centroid: i32,
+    max_leaf_size: i32,
+    training_sample_ratio: f64,
     partition_by_offset: i32,
 }
 
@@ -834,8 +833,8 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
     sort_by_offset: 0,
     search_tokenizer_offset: 0,
-    centroid_ratio: DEFAULT_CENTROID_RATIO,
-    training_samples_per_centroid: DEFAULT_TRAINING_SAMPLES_PER_CENTROID as i32,
+    max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
+    training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
 };
 
@@ -876,14 +875,14 @@ impl BM25IndexOptionsData {
         }
     }
 
-    /// Returns the IVF centroid ratio.
-    pub fn centroid_ratio(&self) -> f32 {
-        self.centroid_ratio as f32
+    /// Returns the maximum number of training vectors per clustering leaf.
+    pub fn max_leaf_size(&self) -> usize {
+        self.max_leaf_size as usize
     }
 
-    /// Returns the training samples used per centroid.
-    pub fn training_samples_per_centroid(&self) -> usize {
-        self.training_samples_per_centroid.max(1) as usize
+    /// Returns the fraction of vectors sampled for IVF training.
+    pub fn training_sample_ratio(&self) -> f32 {
+        self.training_sample_ratio as f32
     }
 
     /// Returns the sort_by configuration.
@@ -1125,22 +1124,22 @@ pub unsafe fn init() {
         Some(validate_search_tokenizer),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
-    pg_sys::add_real_reloption(
-        RELOPT_KIND_PDB,
-        "centroid_ratio".as_pg_cstr(),
-        "IVF centroid ratio for k-means clustering at index build time".as_pg_cstr(),
-        DEFAULT_CENTROID_RATIO,
-        0.000001,
-        1.0,
-        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
     pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
-        "training_samples_per_centroid".as_pg_cstr(),
-        "k-means training vectors sampled per IVF centroid at index build time".as_pg_cstr(),
-        DEFAULT_TRAINING_SAMPLES_PER_CENTROID as i32,
+        "max_leaf_size".as_pg_cstr(),
+        "Maximum training vectors per leaf in hierarchical IVF clustering".as_pg_cstr(),
+        DEFAULT_MAX_LEAF_SIZE,
         1,
-        100_000,
+        i32::MAX,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_real_reloption(
+        RELOPT_KIND_PDB,
+        "training_sample_ratio".as_pg_cstr(),
+        "Fraction of vectors sampled for IVF clustering at index build time".as_pg_cstr(),
+        DEFAULT_TRAINING_SAMPLE_RATIO,
+        0.000001,
+        1.0,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

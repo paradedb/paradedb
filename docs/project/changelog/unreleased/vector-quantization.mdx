@@ -16,3 +16,5 @@ The default `[1, 1]` schedule uses two 1-bit layers for vectors with at least 64
 On Cohere 1M with 1024-dimensional cosine vectors and an explicit `[1, 4]` schedule, top-10 queries ran ~4× faster at 99% recall and ~2× faster at 95% recall for ~7% more index size, measured with one segment and one worker. Quantization takes effect when a field is built; use `REINDEX` to change an existing index.
 
 - Added `paradedb.max_scan_levels` to limit how many code layers a query reads. It defaults to all built layers; `0` scans full-precision vectors through the same cluster routing.
+
+- Replaced the `centroid_ratio` and `training_samples_per_centroid` index options with `training_sample_ratio` (default `0.32`) and `max_leaf_size` (default `100`). The settings now directly control Tantivy's training fraction and SuperKMeans' maximum training leaf size. The old names are no longer accepted; recreate indexes that explicitly store them using the new options. The default training leaf size increases from 32 to 100.

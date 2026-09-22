@@ -18,7 +18,7 @@
 use crate::index::mvcc::SegmentPins;
 use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::FileEntry;
+use crate::postgres::storage::block::{FileEntry, VECTOR_VEC_EXT};
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
@@ -72,6 +72,36 @@ impl FileHandle for SegmentComponentReader {
             Some(component) => io_stats::record(component, || self.read_bytes_raw(range)),
             None => self.read_bytes_raw(range),
         }
+    }
+
+    fn read_bytes_chunks(
+        &self,
+        range: Range<usize>,
+        visitor: &mut dyn FnMut(&[u8]),
+    ) -> Result<(), Error> {
+        let range = range.start..range.end.min(self.len());
+        let is_vector = matches!(
+            &self.component,
+            Some(tantivy::index::SegmentComponent::Custom(ext)) if ext == VECTOR_VEC_EXT
+        );
+        let mut chunks = unsafe {
+            self.block_list.get_bytes_range_page_chunks(
+                range,
+                self.segment_pins.as_ref(),
+                is_vector,
+            )
+        };
+        loop {
+            let chunk = match &self.component {
+                Some(component) => io_stats::record(component, || chunks.next()),
+                None => chunks.next(),
+            };
+            let Some(chunk) = chunk else {
+                break;
+            };
+            visitor(chunk.as_ref());
+        }
+        Ok(())
     }
 
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {

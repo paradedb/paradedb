@@ -49,6 +49,12 @@ impl SegmentComponentReader {
         }
     }
 
+    /// Enable endpoint lookups for a published, immutable component file.
+    pub fn with_finalized_length(mut self) -> Self {
+        self.block_list = self.block_list.with_length(self.entry.total_bytes);
+        self
+    }
+
     fn read_bytes_raw(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
         unsafe {
             let end = range.end.min(self.len());
@@ -105,29 +111,40 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
-        let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
-        let segment = format!("{}.term", uuid::Uuid::new_v4());
-        let path = Path::new(segment.as_str());
+        let page_size = crate::postgres::storage::block::bm25_max_free_space();
+        for len in [
+            0,
+            1,
+            page_size - 1,
+            page_size,
+            page_size + 1,
+            2 * page_size,
+            100_000,
+        ] {
+            let bytes: Vec<u8> = (1..=255).cycle().take(len).collect();
+            let segment = format!("{}.term", uuid::Uuid::new_v4());
+            let path = Path::new(segment.as_str());
+            let mut writer = SegmentComponentWriter::new(&indexrel, path);
+            writer.write_all(&bytes).unwrap();
+            let file_entry = writer.file_entry();
+            writer.terminate().unwrap();
 
-        let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
-        writer.write_all(&bytes).unwrap();
-        let file_entry = writer.file_entry();
-        writer.terminate().unwrap();
-
-        let reader = SegmentComponentReader::new(&indexrel, file_entry, None);
-
-        assert_eq!(reader.len(), 100_000);
-        assert_eq!(
-            reader.read_bytes(99_998..100_000).unwrap().as_ref(),
-            &bytes[99_998..100_000]
-        );
-        assert_eq!(
-            reader.read_bytes(99_999..100_001).unwrap().as_ref(),
-            &bytes[99_999..100_000]
-        );
-        assert_eq!(
-            reader.read_bytes(0..100_000).unwrap().as_ref(),
-            &bytes[0..100_000]
-        );
+            for finalized in [false, true] {
+                let mut reader = SegmentComponentReader::new(&indexrel, file_entry, None);
+                if finalized {
+                    reader = reader.with_finalized_length();
+                }
+                assert_eq!(reader.len(), len);
+                let tail = len.saturating_sub(24);
+                assert_eq!(
+                    reader.read_bytes(tail..len + 1).unwrap().as_ref(),
+                    &bytes[tail..]
+                );
+                for offset in (0..len).step_by(page_size.saturating_sub(1)).rev() {
+                    assert_eq!(reader.read_byte(offset).unwrap(), bytes[offset]);
+                }
+                assert_eq!(reader.read_bytes(0..len).unwrap().as_ref(), bytes);
+            }
+        }
     }
 }

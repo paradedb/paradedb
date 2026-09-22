@@ -306,6 +306,15 @@ jobs:
           asset_name: ${{ steps.pkg.outputs.pkg_name }}.cosign.bundle
           overwrite: true
 
+      - name: Generate GitHub App Token for PostgresApp Fork
+        id: postgresapp-app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: PostgresApp
+
       # Open a PR to PostgresApp/PostgresApp updating the pg_search download URL on
       # https://postgresapp.com/extensions/. The page is generated from per-version
       # JSON files at docs/_data/extensions/<pg>/pg_search.json. The PR is raised
@@ -318,6 +327,7 @@ jobs:
           # resource owner, and PostgresApp/PostgresApp lives outside the paradedb org.
           # Reuses the existing enterprise-sync token, which already has `repo` scope.
           GH_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.postgresapp-app-token.outputs.token }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
           PG_MAJOR_VERSION: ${{ matrix.pg_version }}
           PKG_NAME: ${{ steps.pkg.outputs.pkg_name }}
@@ -350,9 +360,6 @@ jobs:
           fi
 
           UPSTREAM_DEFAULT_BRANCH=$(gh api "repos/${UPSTREAM}" --jq .default_branch)
-
-          git config --global user.name "paradedb[bot]"
-          git config --global user.email "developers@paradedb.com"
 
           WORK=$(mktemp -d)
           git clone "https://x-access-token:${GH_TOKEN}@github.com/${FORK}.git" "$WORK"
@@ -391,9 +398,28 @@ jobs:
             exit 0
           fi
 
-          git add "$JSON_PATH"
-          git commit -m "Update pg_search to v${TAG_VERSION} for PostgreSQL ${PG_MAJOR_VERSION}"
-          git push origin "$BRANCH" --force
+          # A PAT authenticates a git push but does not sign its commit. Use the
+          # App installation token to have GitHub create and sign the commit in
+          # the ParadeDB fork. Keep the PAT for opening the upstream PR.
+          BASE_SHA=$(git rev-parse HEAD)
+          BASE_TREE=$(git rev-parse HEAD^{tree})
+          TREE_SHA=$(jq -n --arg base "$BASE_TREE" --arg path "$JSON_PATH" \
+            --rawfile content "$JSON_PATH" \
+            '{base_tree: $base, tree: [{path: $path, mode: "100644", type: "blob", content: $content}]}' |
+            GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/${FORK}/git/trees" --input - --jq .sha)
+          COMMIT_SHA=$(jq -n --arg message "Update pg_search to v${TAG_VERSION} for PostgreSQL ${PG_MAJOR_VERSION}" \
+            --arg tree "$TREE_SHA" --arg parent "$BASE_SHA" \
+            '{message: $message, tree: $tree, parents: [$parent]}' |
+            GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/${FORK}/git/commits" --input - --jq .sha)
+
+          VERIFIED=$(GH_TOKEN="$APP_TOKEN" gh api "repos/${FORK}/git/commits/${COMMIT_SHA}" --jq .verification.verified)
+          if [ "$VERIFIED" != "true" ]; then
+            echo "::error::GitHub did not verify the App commit; refusing to update the fork branch."
+            exit 1
+          fi
+
+          GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/${FORK}/git/refs" \
+            -f ref="refs/heads/${BRANCH}" -f sha="$COMMIT_SHA" --jq .ref
 
           BODY=$(cat <<EOF
           This PR updates the [pg_search](https://github.com/paradedb/paradedb) entry on https://postgresapp.com/extensions/ to point at the v${TAG_VERSION} release.

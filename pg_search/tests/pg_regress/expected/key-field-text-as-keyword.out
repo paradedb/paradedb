@@ -7,10 +7,11 @@ CREATE TABLE public.key_field_text_raw
 );
 CREATE INDEX idx_key_field_raw on public.key_field_text_raw USING paradedb ((id::pdb.literal), data);
 SELECT * FROM paradedb.schema('idx_key_field_raw') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
- ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
- data | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
- id   | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]         | basic    | raw
-(3 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ data       | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ id         | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]         | basic    | raw
+ tid_block  | U64        | f      | f       | t    | f          |             |                                  |          | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                                  |          | 
+(4 rows)
 

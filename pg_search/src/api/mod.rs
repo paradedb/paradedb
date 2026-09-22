@@ -108,6 +108,8 @@ pub type Cardinality = f64;
 pub type Varno = i32;
 
 pub(crate) const CTID_FIELD_NAME: &str = "ctid";
+pub(crate) const TID_BLOCK_FIELD_NAME: &str = "tid_block";
+pub(crate) const TID_OFFSET_FIELD_NAME: &str = "tid_offset";
 
 pub trait AsCStr {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;

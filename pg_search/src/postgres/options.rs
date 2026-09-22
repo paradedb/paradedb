@@ -20,7 +20,9 @@ use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::rc::Rc;
 
-use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
+use crate::api::{
+    CTID_FIELD_NAME, FieldName, HashMap, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME,
+};
 use crate::gucs;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
@@ -445,6 +447,14 @@ impl BM25IndexOptions {
         }
     }
 
+    #[cfg(any(test, feature = "pg_test"))]
+    pub fn for_test() -> Self {
+        Self {
+            indexrel: std::ptr::null_mut(),
+            lazy: LazyInfo::default(),
+        }
+    }
+
     pub fn foreground_layer_sizes(&self) -> Vec<u64> {
         self.options_data().foreground_layer_sizes()
     }
@@ -580,12 +590,22 @@ impl BM25IndexOptions {
 
     /// Resolves indexed types and explicit field options.
     fn field_config(&self, field_name: &FieldName) -> Option<SearchFieldConfig> {
-        if field_name.is_ctid() {
-            return Some(SearchFieldConfig::Numeric {
-                indexed: true,
-                fast: true,
-                scale: None,
-            });
+        if !self.attributes().contains_key(field_name) {
+            if field_name.is_ctid() {
+                return Some(SearchFieldConfig::Numeric {
+                    indexed: true,
+                    fast: true,
+                    scale: None,
+                });
+            } else if field_name.as_ref() == TID_BLOCK_FIELD_NAME
+                || field_name.as_ref() == TID_OFFSET_FIELD_NAME
+            {
+                return Some(SearchFieldConfig::Numeric {
+                    indexed: false,
+                    fast: true,
+                    scale: None,
+                });
+            }
         }
 
         let field_type = self.get_field_type(field_name);
@@ -712,16 +732,24 @@ impl BM25IndexOptions {
     }
 
     pub fn get_field_type(&self, field_name: &FieldName) -> Option<SearchFieldType> {
-        if field_name.is_ctid() {
-            // the "ctid" field isn't an attribute, per se, in the index itself
-            // it's one we add directly, so we need to account for it here
-            return Some(SearchFieldType::U64(pg_sys::TIDOID));
-        }
         self.attributes()
             .get(field_name)
             .map(|ExtractedFieldAttribute { tantivy_type, .. }| *tantivy_type)
             // account for aliased fields
             .or_else(|| self.get_aliased_field_type(field_name))
+            .or_else(|| {
+                if field_name.is_ctid() {
+                    // the "ctid" field isn't an attribute, per se, in the index itself
+                    // it's one we add directly, so we need to account for it here
+                    Some(SearchFieldType::U64(pg_sys::TIDOID))
+                } else if field_name.as_ref() == TID_BLOCK_FIELD_NAME
+                    || field_name.as_ref() == TID_OFFSET_FIELD_NAME
+                {
+                    Some(SearchFieldType::U64(pg_sys::OIDOID))
+                } else {
+                    None
+                }
+            })
     }
 
     fn get_aliased_field_type(&self, field_name: &FieldName) -> Option<SearchFieldType> {
@@ -749,7 +777,11 @@ impl BM25IndexOptions {
     }
 
     pub fn is_multi_valued(&self, field_name: &FieldName) -> bool {
-        if field_name.is_ctid() {
+        if !self.attributes().contains_key(field_name)
+            && (field_name.is_ctid()
+                || field_name.as_ref() == TID_BLOCK_FIELD_NAME
+                || field_name.as_ref() == TID_OFFSET_FIELD_NAME)
+        {
             return false;
         }
 
@@ -930,6 +962,10 @@ impl BM25IndexOptionsData {
         if sort_by_str.is_empty() {
             // Default: sort segments by ctid ascending so they're laid out in
             // heap (tid) order unless the user explicitly opts out with 'none'.
+            // TODO: Rename ctid -> tid
+            // TODO: Consider what we want to support in terms of partitioning (and segment sorting).
+            // It's possible that for both partitioning and sorting, we want to still expose ctid/tid
+            // as the user-facing name.
             return vec![SortByField::new(
                 FieldName::from(CTID_FIELD_NAME),
                 SortByDirection::Asc,

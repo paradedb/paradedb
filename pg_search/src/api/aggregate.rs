@@ -64,7 +64,9 @@ use crate::api::operator::estimate_matching_rows;
 use crate::api::version::VersionInfo;
 use crate::gucs;
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
+use crate::postgres::customscan::aggregatescan::aggregate_type::{
+    rewrite_ctid_to_tid_offset, validate_agg_json_fields,
+};
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{ExprContextGuard, lookup_pdb_function};
@@ -94,20 +96,22 @@ fn aggregate_impl(
     // Validate aggregation fields exist and are supported before executing.
     // This path bypasses the planner, so we validate here directly.
     let schema = SearchIndexSchema::open(&relation).ok();
-    if let Some(schema) = schema.as_ref()
-        && let Err(e) = validate_agg_json_fields(&agg.0, schema)
-    {
-        pgrx::error!("{}", e);
+    let mut agg_json = agg.0;
+    if let Some(schema) = schema.as_ref() {
+        rewrite_ctid_to_tid_offset(&mut agg_json, schema);
+        if let Err(e) = validate_agg_json_fields(&agg_json, schema) {
+            pgrx::error!("{}", e);
+        }
     }
 
     let standalone_context = ExprContextGuard::new();
-    // need a copy of the original request json for rewriting later
-    let agg_json = agg.0.clone();
+    // need a copy of the request json for rewriting later
+    let agg_json_for_rewrite = agg_json.clone();
 
     let aggregate = execute_aggregate(
         &relation,
         query,
-        AggregateRequest::Json(serde_json::from_value(agg.0)?),
+        AggregateRequest::Json(serde_json::from_value(agg_json)?),
         visibility,
         memory_limit.try_into()?,
         bucket_limit_u32,
@@ -125,7 +129,7 @@ fn aggregate_impl(
     if relation.created_by_version().stores_datetimes_in_i64()
         && let (Some(schema), Some(request_obj), Some(output_obj)) = (
             schema.as_ref(),
-            agg_json.as_object(),
+            agg_json_for_rewrite.as_object(),
             output.as_object_mut(),
         )
     {

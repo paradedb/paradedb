@@ -1139,11 +1139,12 @@ CREATE INDEX idx_tokenized ON tokenized_test USING paradedb (
 SELECT * FROM paradedb.schema('idx_tokenized') ORDER BY name;
      name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
 --------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
- ctid         | U64        | f      | t       | t    | f          |             |                                  |          | 
  id           | I64        | f      | t       | t    | f          |             |                                  |          | 
+ tid_block    | U64        | f      | f       | t    | f          |             |                                  |          | 
+ tid_offset   | U64        | f      | f       | t    | f          |             |                                  |          | 
  title        | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
  title_simple | Str        | f      | t       | f    | t          |             | default                          | position | 
-(4 rows)
+(5 rows)
 
 INSERT INTO tokenized_test (title) VALUES ('Running and Jumping');
 -- Search on the simple tokenizer field (lowercased)
@@ -1203,9 +1204,10 @@ SELECT * FROM paradedb.schema('idx_ngram') ORDER BY name;
 ---------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
  content       | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false           | position | 
  content_ngram | Str        | f      | t       | f    | t          |             | ngram_mingram:2_maxgram:4_prefixonly:false | position | 
- ctid          | U64        | f      | t       | t    | f          |             |                                            |          | 
  id            | I64        | f      | t       | t    | f          |             |                                            |          | 
-(4 rows)
+ tid_block     | U64        | f      | f       | t    | f          |             |                                            |          | 
+ tid_offset    | U64        | f      | f       | t    | f          |             |                                            |          | 
+(5 rows)
 
 INSERT INTO ngram_test (content) VALUES ('PostgreSQL database');
 -- Search with partial match via ngram - 'gres' should match 'PostgreSQL'
@@ -1265,9 +1267,10 @@ SELECT * FROM paradedb.schema('idx_stemmer') ORDER BY name;
 -----------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
  content         | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
  content_stemmed | Str        | f      | t       | f    | t          |             | default[stemmer=English]         | position | 
- ctid            | U64        | f      | t       | t    | f          |             |                                  |          | 
  id              | I64        | f      | t       | t    | f          |             |                                  |          | 
-(4 rows)
+ tid_block       | U64        | f      | f       | t    | f          |             |                                  |          | 
+ tid_offset      | U64        | f      | f       | t    | f          |             |                                  |          | 
+(5 rows)
 
 INSERT INTO stemmer_test (content) VALUES
     ('running quickly'),
@@ -2560,13 +2563,14 @@ CREATE INDEX idx_json_composite ON json_test USING paradedb (
 );
 -- Validate schema shows JSON field
 SELECT * FROM paradedb.schema('idx_json_composite') ORDER BY name;
-   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
-----------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
- ctid     | U64        | f      | t       | t    | f          |             |                                  |          | 
- id       | I64        | f      | t       | t    | f          |             |                                  |          | 
- metadata | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
- tags     | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
-(4 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ id         | I64        | f      | t       | t    | f          |             |                                  |          | 
+ metadata   | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
+ tags       | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                                  |          | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                                  |          | 
+(5 rows)
 
 INSERT INTO json_test (metadata, tags) VALUES
     ('{"title": "PostgreSQL Guide", "author": "John", "year": 2024}', ARRAY['database', 'tutorial']),
@@ -2707,11 +2711,12 @@ CREATE INDEX idx_multi_tokenizer ON multi_tokenizer_test USING paradedb (
 SELECT * FROM paradedb.schema('idx_multi_tokenizer') ORDER BY name;
      name      | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
 ---------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
- ctid          | U64        | f      | t       | t    | f          |             |                                            |          | 
  desc_ngram    | Str        | f      | t       | f    | t          |             | ngram_mingram:3_maxgram:3_prefixonly:false | position | 
  desc_standard | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false           | position | 
  id            | I64        | f      | t       | t    | f          |             |                                            |          | 
-(4 rows)
+ tid_block     | U64        | f      | f       | t    | f          |             |                                            |          | 
+ tid_offset    | U64        | f      | f       | t    | f          |             |                                            |          | 
+(5 rows)
 
 INSERT INTO multi_tokenizer_test (description) VALUES
     ('PostgreSQL is a powerful database'),
@@ -2812,11 +2817,12 @@ CREATE INDEX idx_numeric_expr ON numeric_expr_test USING paradedb (
 SELECT * FROM paradedb.schema('idx_numeric_expr') ORDER BY name;
        name       | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 ------------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
- ctid             | U64        | f      | t       | t    | f          |             |           |        | 
  discounted_price | F64        | f      | t       | t    | f          |             |           |        | 
  id               | I64        | f      | t       | t    | f          |             |           |        | 
  original_price   | F64        | f      | t       | t    | f          |             |           |        | 
-(4 rows)
+ tid_block        | U64        | f      | f       | t    | f          |             |           |        | 
+ tid_offset       | U64        | f      | f       | t    | f          |             |           |        | 
+(5 rows)
 
 INSERT INTO numeric_expr_test (price) VALUES (100.00), (200.00), (50.00);
 -- Range query on original price (use the expression 'price' which maps to 'original_price' field)

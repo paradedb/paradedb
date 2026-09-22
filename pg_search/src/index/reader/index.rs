@@ -1055,19 +1055,38 @@ impl SearchIndexReader {
         &self.segment_stats_snapshot
     }
 
-    /// Returns the sort order of the index segments, if the index was created with `sort_by`.
+    /// Returns the primary sort order of the index segments, if the index was created with `sort_by`.
     ///
     /// This reads from the Tantivy index settings stored in the index metadata.
     /// Returns `None` if the index was not created with segment sorting.
     pub fn sort_order(&self) -> Option<SortByField> {
         let settings = self.underlying_index.settings();
-        settings.sort_by_field.as_ref().map(|sort_field| {
+        settings.primary_sort_by_field().map(|sort_field| {
             let direction = match sort_field.order {
                 Order::Asc => SortByDirection::Asc,
                 Order::Desc => SortByDirection::Desc,
             };
             SortByField::new(FieldName::from(sort_field.field.clone()), direction)
         })
+    }
+
+    /// Returns all sort orders of the index segments, if the index was created with `sort_by`.
+    ///
+    /// This reads from the Tantivy index settings stored in the index metadata.
+    /// Returns an empty list if the index was not created with segment sorting.
+    pub fn sort_orders(&self) -> Vec<SortByField> {
+        let settings = self.underlying_index.settings();
+        settings
+            .sort_by_fields()
+            .iter()
+            .map(|sort_field| {
+                let direction = match sort_field.order {
+                    Order::Asc => SortByDirection::Asc,
+                    Order::Desc => SortByDirection::Desc,
+                };
+                SortByField::new(FieldName::from(sort_field.field.clone()), direction)
+            })
+            .collect()
     }
 
     pub fn validate_checksum(&self) -> Result<std::collections::HashSet<PathBuf>> {

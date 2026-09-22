@@ -21,12 +21,13 @@ CREATE INDEX idxexpr
                     (lower(t)::pdb.literal)
             );
 SELECT * FROM paradedb.schema('idxexpr') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
-------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
- ctid | U64        | f      | t       | t    | f          |             |                          |        | 
- id   | I64        | f      | t       | t    | f          |             |                          |        | 
- t    | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | lowercase
-(3 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
+------------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
+ id         | I64        | f      | t       | t    | f          |             |                          |        | 
+ t          | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | lowercase
+ tid_block  | U64        | f      | f       | t    | f          |             |                          |        | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                          |        | 
+(4 rows)
 
 SELECT * FROM expr WHERE lower(t) &&& 'This is a TEST';
  id | t 

@@ -23,7 +23,7 @@ use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::gucs::WorkMem;
-use crate::index::fast_fields_helper::{FFType, resolve_ctid};
+use crate::index::fast_fields_helper::{TidCache, resolve_ctid};
 use crate::index::reader::index::{
     MAX_TOPK_FEATURES, SearchIndexReader, TopKAuxiliaryCollector, TopKSearch, TopKSearchResults,
 };
@@ -39,7 +39,6 @@ use crate::postgres::customscan::parallel::checkout_segment_for_source;
 use crate::query::SearchQueryInput;
 
 use pgrx::{IntoDatum, check_for_interrupts, direct_function_call, pg_sys};
-use tantivy::SegmentOrdinal;
 use tantivy::aggregation::AggregationLimitsGuard;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
@@ -81,7 +80,8 @@ pub struct TopKScanExecState {
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
     /// Cached per-segment ctid fast-field reader.
-    ctid_cache: Option<(SegmentOrdinal, FFType)>,
+    // TODO: Rename ctid -> tid
+    ctid_cache: TidCache,
 }
 
 impl TopKScanExecState {

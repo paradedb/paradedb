@@ -117,6 +117,7 @@ pub struct VisibilityChecker {
     // TODO: Make this non-optional in the future once all call sites provide an FFHelper.
     ffhelper: Option<Arc<FFHelper>>,
     raw_ctids_scratch: Vec<Option<u64>>,
+    split_ctids_scratch: Vec<Option<u64>>,
 }
 
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
@@ -164,6 +165,7 @@ impl VisibilityChecker {
                 check_visibility: true,
                 ffhelper: None,
                 raw_ctids_scratch: Vec::new(),
+                split_ctids_scratch: Vec::new(),
             }
         }
     }
@@ -369,7 +371,11 @@ impl VisibilityChecker {
 
         let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
         raw_ctids.resize(doc_ids.len(), None);
-        ffhelper.ctid(segment_ord).as_u64s(doc_ids, &mut raw_ctids);
+        let mut split_scratch = std::mem::take(&mut self.split_ctids_scratch);
+        ffhelper
+            .ctid(segment_ord)
+            .as_u64s(doc_ids, &mut raw_ctids, &mut split_scratch);
+        self.split_ctids_scratch = split_scratch;
 
         if !self.check_visibility {
             results.copy_from_slice(&raw_ctids);

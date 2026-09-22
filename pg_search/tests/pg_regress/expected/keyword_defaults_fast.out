@@ -21,10 +21,11 @@ CREATE INDEX t_idx ON t USING paradedb
 SELECT * FROM paradedb.schema('t_idx');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+--------------------------+----------+------------
- ctid        | U64        | f      | t       | t    | f          |             |                          |          | 
  description | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic    | raw
  id          | I64        | f      | t       | t    | f          |             |                          |          | 
  org_id      | Str        | f      | t       | t    | t          |             | keyword[lowercase=false] | position | raw
-(4 rows)
+ tid_block   | U64        | f      | f       | t    | f          |             |                          |          | 
+ tid_offset  | U64        | f      | f       | t    | f          |             |                          |          | 
+(5 rows)
 
 DROP TABLE t;

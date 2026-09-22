@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::mvcc::SegmentPins;
 use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::FileEntry;
@@ -32,6 +33,7 @@ pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     entry: FileEntry,
     component: Option<tantivy::index::SegmentComponent>,
+    segment_pins: Option<SegmentPins>,
 }
 
 impl SegmentComponentReader {
@@ -39,6 +41,7 @@ impl SegmentComponentReader {
         indexrel: &PgSearchRelation,
         entry: FileEntry,
         component: Option<tantivy::index::SegmentComponent>,
+        segment_pins: Option<SegmentPins>,
     ) -> Self {
         let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
 
@@ -46,6 +49,7 @@ impl SegmentComponentReader {
             block_list,
             entry,
             component,
+            segment_pins,
         }
     }
 
@@ -55,7 +59,9 @@ impl SegmentComponentReader {
             let range = range.start..end;
 
             // read one or more pages
-            Ok(self.block_list.get_bytes_range(range))
+            Ok(self
+                .block_list
+                .get_bytes_range(range, self.segment_pins.as_ref()))
         }
     }
 }
@@ -69,7 +75,7 @@ impl FileHandle for SegmentComponentReader {
     }
 
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {
-        let read = || Ok(unsafe { self.block_list.get_byte(offset) });
+        let read = || Ok(unsafe { self.block_list.get_byte(offset, self.segment_pins.as_ref()) });
         match &self.component {
             Some(component) => io_stats::record(component, read),
             None => read(),
@@ -114,7 +120,7 @@ mod tests {
         let file_entry = writer.file_entry();
         writer.terminate().unwrap();
 
-        let reader = SegmentComponentReader::new(&indexrel, file_entry, None);
+        let reader = SegmentComponentReader::new(&indexrel, file_entry, None, None);
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

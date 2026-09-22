@@ -109,7 +109,7 @@ ORDER BY p.name
      :   AggregateExec: mode=Single, gby=[name@1 as col_1, name@3 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
@@ -140,10 +140,10 @@ ORDER BY s.name
    Limit: 20
    Order By: s.name asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[name@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+     : ProjectionExec: expr=[name@1 as col_1, ctid_1@0 as ctid_1]
      :   TantivyDecodeExec: decode=[name]
-     :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=20, visibility_checks=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, ctid_1@0, name@2]
+     :     SegmentedTopKExec: expr=[name@4 ASC NULLS LAST], k=20, visibility_checks=[p, s], pruned=[p]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, ctid_1@0, id@1, name@2]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, fetch=[name], dynamic_filters=1, query="all"
      :         CooperativeExec
@@ -242,10 +242,10 @@ ORDER BY paradedb.score(p.id) DESC, p.name
    Order By: pdb.score() desc, p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 DESC, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[name@2 as col_1, pdb.score()@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[name@2 as col_1, pdb.score()@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[pdb.score()@2, ctid_0@3, name@5, ctid_1@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[pdb.score()@2, ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
@@ -315,7 +315,7 @@ ORDER BY p.name
      :   AggregateExec: mode=Single, gby=[name@1 as col_1, name@3 as col_2, name@5 as col_3], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1, min(c_2.ctid_2) as ctid_2]
      :     VisibilityFilterExec: tables=[p, s, c]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@3, name@5, ctid_1@6, name@7, ctid_2@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@3, category_id@4, name@5, ctid_1@6, name@7, ctid_2@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, query="all"
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_0@3, category_id@4, name@6, ctid_1@0, name@2]
@@ -414,7 +414,7 @@ ORDER BY s.name
      :   AggregateExec: mode=Single, gby=[name@1 as col_1, name@3 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
@@ -446,8 +446,8 @@ ORDER BY p.name
      : ProjectionExec: expr=[name@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   TantivyDecodeExec: decode=[name]
      :     TantivyFetchExec: fetch=[name]
-     :       SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=10, visibility_checks=[p, s]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, name@4, ctid_1@0]
+     :       SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10, visibility_checks=[p, s]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, name@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
@@ -479,8 +479,8 @@ ORDER BY p.name
      : ProjectionExec: expr=[name@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   TantivyDecodeExec: decode=[name]
      :     TantivyFetchExec: fetch=[name]
-     :       SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=10, visibility_checks=[p, s]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, name@4, ctid_1@0]
+     :       SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10, visibility_checks=[p, s]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, name@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
      :           CooperativeExec
@@ -695,10 +695,10 @@ LIMIT 10;
    Order By: pdb.score() desc, p.id asc, p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[id@2 as col_1, name@3 as col_2, pdb.score()@0 as col_3], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[id@2 as col_1, name@3 as col_2, pdb.score()@0 as col_3], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[pdb.score()@3, ctid_0@4, id@6, name@7, ctid_1@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[pdb.score()@3, ctid_0@4, supplier_id@5, id@6, name@7, __p_0_tag_0@8, ctid_1@0, id@1, __s_1_tag_0@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"country","value":"USA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"name","value":"Wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -835,7 +835,7 @@ ORDER BY p.name
      :     AggregateExec: mode=Single, gby=[name@1 as col_1, name@3 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
      :       VisibilityFilterExec: tables=[p, s]
      :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :             CooperativeExec
      :               PgSearchScan: table=s, segments=1, query="all"
      :             CooperativeExec
@@ -880,10 +880,10 @@ LIMIT 50;
    Order By: p.id asc, p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=50), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[id@1 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(j_2.ctid_2) as ctid_2]
-     :     VisibilityFilterExec: tables=[p, j]
+     :   AggregateExec: mode=Single, gby=[id@1 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, j], pruned=[j]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@1)], projection=[ctid_0@2, id@3, name@4, ctid_2@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@1)], projection=[ctid_0@2, id@3, name@4, ctid_2@0, person_id@1]
      :           CooperativeExec
      :             PgSearchScan: table=j, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
      :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, person_id@0)], null_aware
@@ -1182,10 +1182,10 @@ LIMIT 10;
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[name@1 as col_1, category_id@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[name@1 as col_1, category_id@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@0, name@2, category_id@3, ctid_1@4]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=2, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"term":{"field":"category_id","value":301}}]}}
      :           CooperativeExec
@@ -1349,8 +1349,8 @@ FROM dist_products p
 WHERE p.category_id = 301
 ORDER BY p.name
 LIMIT 2;
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
@@ -1362,7 +1362,7 @@ LIMIT 2;
      :   AggregateExec: mode=Single, gby=[name@1 as col_1, name@3 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=2, query={"term":{"field":"category_id","value":301}}
      :           CooperativeExec

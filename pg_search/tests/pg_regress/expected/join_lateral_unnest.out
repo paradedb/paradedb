@@ -276,9 +276,9 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc, categories asc, regions asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, p_0_categories@1 as col_3, s_2_regions@5 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1, ctid_2@4 as ctid_2]
-     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST, p_0_categories@1 ASC NULLS LAST, s_2_regions@5 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[p, b, s]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, p_0_categories@1 as col_3, s_2_regions@3 as col_4, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST, p_0_categories@1 ASC NULLS LAST, s_2_regions@3 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, b, s], pruned=[b, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
      :         UnnestExec
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, p_0_categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1, ctid_2@4 as ctid_2, regions@5 as s_2_regions]
@@ -401,7 +401,7 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, b]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         FilterExec: b_1_tags@3 = bestseller, projection=[ctid_0@0, id@1, ctid_1@2]
+     :         FilterExec: b_1_tags@3 = bestseller
      :           UnnestExec
      :             ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
      :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, ctid_1@3, tags@4]
@@ -513,9 +513,9 @@ LIMIT 2;
    Limit: 2
    Order By: p.id asc, categories asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, p_0_categories@1 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@2 as col_1, p_0_categories@1 as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=2), expr=[id@2 ASC NULLS LAST, p_0_categories@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[p, b]
+     :     VisibilityFilterExec: tables=[p, b], pruned=[b]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         UnnestExec
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]
@@ -562,9 +562,9 @@ LIMIT 3;
    Limit: 3
    Order By: categories desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, p_0_categories@1 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@2 as col_1, p_0_categories@1 as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=3), expr=[p_0_categories@1 DESC], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[p, b]
+     :     VisibilityFilterExec: tables=[p, b], pruned=[b]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         UnnestExec
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]
@@ -614,9 +614,9 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc, tags asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, b_1_tags@3 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, b_1_tags@3 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[p, b]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, b_1_tags@2 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, b_1_tags@2 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, b], pruned=[b]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         UnnestExec
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
@@ -716,8 +716,8 @@ LIMIT 10;
    Order By: p.id asc, categories asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[id@2 as col_1, p_0_categories@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(b_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, b]
+     :   AggregateExec: mode=Single, gby=[id@2 as col_1, p_0_categories@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, b], pruned=[b]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         UnnestExec
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]

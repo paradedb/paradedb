@@ -54,6 +54,7 @@ use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::arrow::compute::kernels::boolean::{and, is_not_null};
 use datafusion::catalog::Session;
+use datafusion::common::project_schema;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchemaRef, DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -61,12 +62,17 @@ use datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext
 use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
 use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
-use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_expr::equivalence::ProjectionMapping;
+use datafusion::physical_expr::utils::reassign_expr_columns;
+use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion::physical_plan::filter_pushdown::{
     FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
+};
+use datafusion::physical_plan::projection::{
+    EmbeddedProjection, ProjectionExec, try_embed_projection,
 };
 use datafusion::physical_plan::{
     ChildrenPropertiesMode, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
@@ -156,6 +162,29 @@ impl datafusion::logical_expr::UserDefinedLogicalNodeCore for VisibilityFilterNo
 
     fn expressions(&self) -> Vec<datafusion::logical_expr::Expr> {
         vec![]
+    }
+
+    fn necessary_children_exprs(&self, output_columns: &[usize]) -> Option<Vec<Vec<usize>>> {
+        let child_schema = self.input.schema();
+        let mut needed_indices = BTreeSet::new();
+
+        // Forward columns requested by parent:
+        needed_indices.extend(
+            output_columns
+                .iter()
+                .copied()
+                .filter(|&idx| idx < child_schema.fields().len()),
+        );
+
+        // Add ctid columns required for visibility checking by this node:
+        for &(plan_pos, _) in &self.plan_pos_oids {
+            let ctid_name = CtidColumn::new(plan_pos).to_string();
+            if let Some(idx) = child_schema.index_of_column_by_name(None, &ctid_name) {
+                needed_indices.insert(idx);
+            }
+        }
+
+        Some(vec![needed_indices.into_iter().collect()])
     }
 
     fn prevent_predicate_push_down_columns(&self) -> std::collections::HashSet<String> {
@@ -358,6 +387,15 @@ fn projection_with_ctids_added(
     proj: &datafusion::logical_expr::Projection,
     beneficial: &BTreeSet<usize>,
 ) -> Result<Option<datafusion::logical_expr::Projection>> {
+    // Only leaf projections directly above TableScan should have newly-projected ctids added.
+    // Higher projections (such as the query root projection) represent intentional output
+    // projections; adding ctids to them would change the query's output schema and cause
+    // DataFusion optimizer invariant assertions to fail. Any unprojected ctid will be
+    // caught as a lineage drop by analyze_and_inject and verified below the projection.
+    if !matches!(proj.input.as_ref(), LogicalPlan::TableScan(_)) {
+        return Ok(None);
+    }
+
     let mut new_exprs = proj.expr.clone();
     let mut added = false;
     for (i, field) in proj.input.schema().fields().iter().enumerate() {
@@ -527,14 +565,6 @@ fn extract_ctid_lineage(schema: &DFSchemaRef) -> BTreeSet<usize> {
         .collect()
 }
 
-fn existing_visibility_plan_positions(plan: &LogicalPlan) -> Option<BTreeSet<usize>> {
-    let LogicalPlan::Extension(ext) = plan else {
-        return None;
-    };
-    let vf = ext.node.as_any().downcast_ref::<VisibilityFilterNode>()?;
-    Some(vf.plan_pos_oids.iter().map(|(pp, _)| *pp).collect())
-}
-
 fn wrap_with_visibility(
     input: LogicalPlan,
     plan_positions: &BTreeSet<usize>,
@@ -567,12 +597,16 @@ fn wrap_with_visibility_if_needed(
         return Ok(Transformed::no(input));
     }
 
-    if let Some(existing) = existing_visibility_plan_positions(&input) {
+    if let LogicalPlan::Extension(ext) = &input
+        && let Some(vf) = ext.node.as_any().downcast_ref::<VisibilityFilterNode>()
+    {
+        let existing: BTreeSet<usize> = vf.plan_pos_oids.iter().map(|(pp, _)| *pp).collect();
         let missing: BTreeSet<usize> = plan_positions.difference(&existing).copied().collect();
         if missing.is_empty() {
             return Ok(Transformed::no(input));
         }
-        let wrapped = wrap_with_visibility(input, &missing, plan_pos_metadata)?;
+        let all_positions: BTreeSet<usize> = existing.union(plan_positions).copied().collect();
+        let wrapped = wrap_with_visibility(vf.input.clone(), &all_positions, plan_pos_metadata)?;
         return Ok(Transformed::yes(wrapped));
     }
 
@@ -896,8 +930,8 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
 // Physical Execution Plan
 // ---------------------------------------------------------------------------
 
-/// The dispatch wire shape: `(plan_pos, heap_oid)` pairs and display names.
-type VisibilityDispatchPayload = (Vec<(usize, pg_sys::Oid)>, Vec<String>);
+/// The dispatch wire shape: `(plan_pos, heap_oid)` pairs, display names, and optional projection.
+type VisibilityDispatchPayload = (Vec<(usize, pg_sys::Oid)>, Vec<String>, Option<Vec<usize>>);
 
 /// Physical plan node that visibility-checks ctid columns and HOT-corrects them.
 ///
@@ -907,12 +941,14 @@ type VisibilityDispatchPayload = (Vec<(usize, pg_sys::Oid)>, Vec<String>);
 /// 2. Runs `VisibilityChecker::check_batch()` to determine visible rows
 /// 3. Filters the batch to only visible rows
 /// 4. Replaces ctid values with HOT-resolved ctids
+/// 5. Applies an optional embedded projection to prune columns (including ctid columns).
 pub struct VisibilityFilterExec {
     input: Arc<dyn ExecutionPlan>,
     /// (plan_position, heap_oid) pairs for visibility checking.
     plan_pos_oids: Vec<(usize, pg_sys::Oid)>,
     /// Table names for EXPLAIN display, parallel to plan_pos_oids.
     table_names: Vec<String>,
+    projection: Option<Vec<usize>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -928,42 +964,106 @@ impl fmt::Debug for VisibilityFilterExec {
                     .map(|(p, _)| *p)
                     .collect::<Vec<_>>(),
             )
+            .field("projection", &self.projection)
             .finish()
     }
 }
 
 impl VisibilityFilterExec {
-    pub fn new(
+    pub fn try_new(
         input: Arc<dyn ExecutionPlan>,
         plan_pos_oids: Vec<(usize, pg_sys::Oid)>,
         table_names: Vec<String>,
+        projection: Option<Vec<usize>>,
     ) -> Result<Self> {
-        // Visibility filtering only removes rows — it never reorders them.
-        // Forward the input's equivalence properties so DataFusion knows
-        // sort order is preserved (avoids unnecessary re-sorts).
+        let mut eq_properties = input.properties().equivalence_properties().clone();
+        let mut output_partitioning = input.properties().output_partitioning().clone();
+
+        if let Some(ref proj) = projection {
+            let schema = eq_properties.schema();
+            let projection_mapping = ProjectionMapping::from_indices(proj, schema)?;
+            let out_schema = project_schema(schema, Some(proj))?;
+            output_partitioning = output_partitioning.project(&projection_mapping, &eq_properties);
+            eq_properties = eq_properties.project(&projection_mapping, out_schema);
+        }
+
         let properties = Arc::new(PlanProperties::new(
-            input.properties().equivalence_properties().clone(),
-            input.properties().output_partitioning().clone(),
-            EmissionType::Incremental,
-            Boundedness::Bounded,
+            eq_properties,
+            output_partitioning,
+            input.pipeline_behavior(),
+            input.boundedness(),
         ));
         Ok(Self {
             input,
             plan_pos_oids,
             table_names,
+            projection,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         })
+    }
+
+    pub fn new(
+        input: Arc<dyn ExecutionPlan>,
+        plan_pos_oids: Vec<(usize, pg_sys::Oid)>,
+        table_names: Vec<String>,
+    ) -> Result<Self> {
+        Self::try_new(input, plan_pos_oids, table_names, None)
+    }
+
+    pub fn with_projection(&self, projection: Option<Vec<usize>>) -> Result<Self> {
+        let combined = match (self.projection.as_ref(), projection) {
+            (Some(existing), Some(new_proj)) => {
+                let max_len = existing.len();
+                let mut combined = Vec::with_capacity(new_proj.len());
+                for idx in new_proj {
+                    if idx >= max_len {
+                        return Err(DataFusionError::Internal(format!(
+                            "VisibilityFilterExec: projection index {idx} out of bounds {max_len}"
+                        )));
+                    }
+                    combined.push(existing[idx]);
+                }
+                Some(combined)
+            }
+            (Some(existing), None) => Some(existing.clone()),
+            (None, Some(new_proj)) => {
+                let max_len = self.input.schema().fields().len();
+                for &idx in &new_proj {
+                    if idx >= max_len {
+                        return Err(DataFusionError::Internal(format!(
+                            "VisibilityFilterExec: projection index {idx} out of bounds {max_len}"
+                        )));
+                    }
+                }
+                Some(new_proj)
+            }
+            (None, None) => None,
+        };
+        Self::try_new(
+            Arc::clone(&self.input),
+            self.plan_pos_oids.clone(),
+            self.table_names.clone(),
+            combined,
+        )
     }
 
     pub fn plan_pos_oids(&self) -> &[(usize, pg_sys::Oid)] {
         &self.plan_pos_oids
     }
 
+    pub fn projection(&self) -> Option<&[usize]> {
+        self.projection.as_deref()
+    }
+
     /// Serialize for leader dispatch. Visibility checking needs no live state, so only the
-    /// `(plan_pos, heap_oid)` pairs and table names travel.
+    /// `(plan_pos, heap_oid)` pairs, table names, and projection travel.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
-        let payload = (&self.plan_pos_oids, &self.table_names);
+        let payload: VisibilityDispatchPayload = (
+            self.plan_pos_oids.clone(),
+            self.table_names.clone(),
+            self.projection.clone(),
+        );
         serde_json::to_vec(&payload).map_err(|e| {
             DataFusionError::Internal(format!("VisibilityFilterExec dispatch: serialize: {e}"))
         })
@@ -975,14 +1075,17 @@ impl VisibilityFilterExec {
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let (plan_pos_oids, table_names): VisibilityDispatchPayload = serde_json::from_slice(buf)
-            .map_err(|e| {
-            DataFusionError::Internal(format!("VisibilityFilterExec dispatch: deserialize: {e}"))
-        })?;
-        Ok(Arc::new(VisibilityFilterExec::new(
+        let (plan_pos_oids, table_names, projection): VisibilityDispatchPayload =
+            serde_json::from_slice(buf).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "VisibilityFilterExec dispatch: deserialize: {e}"
+                ))
+            })?;
+        Ok(Arc::new(VisibilityFilterExec::try_new(
             input,
             plan_pos_oids,
             table_names,
+            projection,
         )?))
     }
 
@@ -991,13 +1094,40 @@ impl VisibilityFilterExec {
     }
 }
 
+impl EmbeddedProjection for VisibilityFilterExec {
+    fn with_projection(&self, projection: Option<Vec<usize>>) -> Result<Self> {
+        self.with_projection(projection)
+    }
+}
+
 impl DisplayAs for VisibilityFilterExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "VisibilityFilterExec: tables=[{}]",
-            self.table_names.join(", ")
-        )
+        let mut pruned_tables = Vec::new();
+        if let Some(ref proj) = self.projection {
+            let input_schema = self.input.schema();
+            for (&(plan_pos, _), table_name) in self.plan_pos_oids.iter().zip(&self.table_names) {
+                let ctid_col = CtidColumn::new(plan_pos).to_string();
+                if let Some((idx, _)) = input_schema.column_with_name(&ctid_col)
+                    && !proj.contains(&idx)
+                {
+                    pruned_tables.push(table_name.as_str());
+                }
+            }
+        }
+        if pruned_tables.is_empty() {
+            write!(
+                f,
+                "VisibilityFilterExec: tables=[{}]",
+                self.table_names.join(", ")
+            )
+        } else {
+            write!(
+                f,
+                "VisibilityFilterExec: tables=[{}], pruned=[{}]",
+                self.table_names.join(", "),
+                pruned_tables.join(", ")
+            )
+        }
     }
 }
 
@@ -1037,11 +1167,19 @@ impl ExecutionPlan for VisibilityFilterExec {
                 children.len()
             )));
         }
-        Ok(Arc::new(VisibilityFilterExec::new(
+        Ok(Arc::new(VisibilityFilterExec::try_new(
             children.remove(0),
             self.plan_pos_oids.clone(),
             self.table_names.clone(),
+            self.projection.clone(),
         )?))
+    }
+
+    fn try_swapping_with_projection(
+        &self,
+        projection: &ProjectionExec,
+    ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+        try_embed_projection(projection, self)
     }
 
     fn gather_filters_for_pushdown(
@@ -1056,10 +1194,17 @@ impl ExecutionPlan for VisibilityFilterExec {
                 &self.children(),
             ));
         }
-        // VisibilityFilterExec is unary and preserves its child's schema.
-        // We block ctid_* columns (this node still filters dead rows and HOT-corrects
-        // them) and allow all other columns through for filter pushdown.
+        // VisibilityFilterExec blocks ctid_* columns (this node still filters dead rows
+        // and HOT-corrects them) and allows all other columns through for filter pushdown.
         let schema = self.input.schema();
+        let parent_filters = if self.projection.is_some() {
+            parent_filters
+                .into_iter()
+                .map(|expr| reassign_expr_columns(expr, &schema))
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            parent_filters
+        };
         let blocked_ctid_names: std::collections::HashSet<String> = self
             .plan_pos_oids
             .iter()
@@ -1095,7 +1240,7 @@ impl ExecutionPlan for VisibilityFilterExec {
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let mut input_stream = self.input.execute(partition, context)?;
-        let schema = self.schema();
+        let input_schema = self.input.schema();
 
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         if snapshot.is_null() {
@@ -1105,7 +1250,7 @@ impl ExecutionPlan for VisibilityFilterExec {
         let mut checkers: Vec<CtidCheckerEntry> = Vec::with_capacity(self.plan_pos_oids.len());
         for &(plan_pos, heap_oid) in &self.plan_pos_oids {
             let col_name = CtidColumn::new(plan_pos).to_string();
-            let (col_idx, _) = schema.column_with_name(&col_name).ok_or_else(|| {
+            let (col_idx, _) = input_schema.column_with_name(&col_name).ok_or_else(|| {
                 DataFusionError::Execution(format!(
                     "VisibilityFilterExec: missing ctid column '{}'",
                     col_name
@@ -1122,13 +1267,22 @@ impl ExecutionPlan for VisibilityFilterExec {
         }
 
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
-        let stream_schema = schema.clone();
+        let stream_input_schema = Arc::clone(&input_schema);
+        let projection = self.projection.clone();
         let stream_gen = async_stream::try_stream! {
             use futures::StreamExt;
             while let Some(batch_res) = input_stream.next().await {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let result = match batch_res {
-                    Ok(batch) => filter_batch(&stream_schema, &mut checkers, batch),
+                    Ok(batch) => {
+                        let filtered = filter_batch(&stream_input_schema, &mut checkers, batch)?;
+                        match &projection {
+                            Some(proj) => filtered
+                                .project(proj)
+                                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None)),
+                            None => Ok(filtered),
+                        }
+                    }
                     Err(e) => Err(e),
                 };
                 timer.done();
@@ -1141,7 +1295,7 @@ impl ExecutionPlan for VisibilityFilterExec {
         // SAFETY: The generated stream captures VisibilityChecker instances
         // holding raw Postgres relation/snapshot pointers. These are safe because
         // we run on a single-threaded Tokio runtime within the backend process.
-        let stream = unsafe { UnsafeSendStream::new(stream_gen, schema) };
+        let stream = unsafe { UnsafeSendStream::new(stream_gen, self.schema()) };
         Ok(Box::pin(stream))
     }
 }
@@ -1891,6 +2045,238 @@ mod tests {
             vec![(TEST_PLAN_POS, pg_sys::Oid::from(42))]
         );
         assert_eq!(vis.table_names, vec!["test_table".to_string()]);
+        Ok(())
+    }
+
+    #[pg_test]
+    fn visibility_node_necessary_children_exprs_preserves_required_ctids() -> Result<()> {
+        use datafusion::logical_expr::UserDefinedLogicalNodeCore;
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+        let left = make_ctid_plan(POS_A, pg_sys::Oid::from(42), Some("a"))?;
+        let right = make_ctid_plan(POS_B, pg_sys::Oid::from(43), Some("b"))?;
+        let joined = LogicalPlanBuilder::from(left).cross_join(right)?.build()?;
+
+        let ctid_a_idx = joined
+            .schema()
+            .index_of_column_by_name(None, "ctid_0")
+            .unwrap();
+        let ctid_b_idx = joined
+            .schema()
+            .index_of_column_by_name(None, "ctid_1")
+            .unwrap();
+
+        let vf = VisibilityFilterNode::new(
+            joined,
+            vec![
+                (POS_A, pg_sys::Oid::from(42)),
+                (POS_B, pg_sys::Oid::from(43)),
+            ],
+            vec!["a".to_string(), "b".to_string()],
+        );
+
+        let needed_by_parent = vec![ctid_a_idx];
+        let children_exprs = vf.necessary_children_exprs(&needed_by_parent).unwrap();
+
+        assert_eq!(children_exprs.len(), 1);
+        let requested_indices: BTreeSet<usize> = children_exprs[0].iter().copied().collect();
+        assert!(requested_indices.contains(&ctid_a_idx));
+        assert!(requested_indices.contains(&ctid_b_idx));
+
+        let vf_only_a = VisibilityFilterNode::new(
+            vf.input.clone(),
+            vec![(POS_A, pg_sys::Oid::from(42))],
+            vec!["a".to_string()],
+        );
+        let children_exprs_only_a = vf_only_a
+            .necessary_children_exprs(&needed_by_parent)
+            .unwrap();
+        let requested_indices_only_a: BTreeSet<usize> =
+            children_exprs_only_a[0].iter().copied().collect();
+        assert!(requested_indices_only_a.contains(&ctid_a_idx));
+        assert!(!requested_indices_only_a.contains(&ctid_b_idx));
+
+        Ok(())
+    }
+
+    #[pg_test]
+    fn wrap_with_visibility_merges_existing_node() -> Result<()> {
+        use super::{wrap_with_visibility, wrap_with_visibility_if_needed};
+        use crate::scan::table_provider::VisibilitySourceMetadata;
+        use std::collections::BTreeMap;
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+        let left = make_ctid_plan(POS_A, pg_sys::Oid::from(42), Some("a"))?;
+        let right = make_ctid_plan(POS_B, pg_sys::Oid::from(43), Some("b"))?;
+        let joined = LogicalPlanBuilder::from(left).cross_join(right)?.build()?;
+
+        let mut metadata = BTreeMap::new();
+        metadata.insert(
+            POS_A,
+            VisibilitySourceMetadata {
+                plan_position: POS_A,
+                heap_oid: pg_sys::Oid::from(42),
+                table_name: "a".to_string(),
+            },
+        );
+        metadata.insert(
+            POS_B,
+            VisibilitySourceMetadata {
+                plan_position: POS_B,
+                heap_oid: pg_sys::Oid::from(43),
+                table_name: "b".to_string(),
+            },
+        );
+
+        let wrapped_a = wrap_with_visibility(joined, &BTreeSet::from([POS_A]), &metadata)?;
+        let wrapped_both =
+            wrap_with_visibility_if_needed(wrapped_a, &BTreeSet::from([POS_A, POS_B]), &metadata)?;
+        assert!(wrapped_both.transformed);
+
+        // There should only be 1 VisibilityFilterNode, not 2 nested ones:
+        assert_eq!(count_visibility_nodes(&wrapped_both.data), 1);
+        let LogicalPlan::Extension(ext) = &wrapped_both.data else {
+            panic!("expected Extension");
+        };
+        let vf = ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .unwrap();
+        assert_eq!(
+            vf.plan_pos_oids,
+            vec![
+                (POS_A, pg_sys::Oid::from(42)),
+                (POS_B, pg_sys::Oid::from(43)),
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[pg_test]
+    fn visibility_filter_exec_projection_and_explain() -> Result<()> {
+        use super::VisibilityFilterExec;
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::physical_plan::empty::EmptyExec;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("ctid_0", DataType::UInt64, false),
+            Field::new("score", DataType::Float32, false),
+            Field::new("ctid_1", DataType::UInt64, false),
+        ]));
+        let child = Arc::new(EmptyExec::new(schema));
+        let plan_pos_oids = vec![(0, pg_sys::Oid::from(100)), (1, pg_sys::Oid::from(101))];
+        let table_names = vec!["c".to_string(), "p".to_string()];
+
+        // No projection:
+        let vf =
+            VisibilityFilterExec::new(child.clone(), plan_pos_oids.clone(), table_names.clone())?;
+        assert_eq!(vf.projection(), None);
+        assert_eq!(
+            datafusion::physical_plan::displayable(&vf)
+                .one_line()
+                .to_string()
+                .trim(),
+            "VisibilityFilterExec: tables=[c, p]"
+        );
+
+        // Projection keeping both ctids:
+        let vf_both = vf.with_projection(Some(vec![0, 1, 3]))?;
+        assert_eq!(vf_both.projection(), Some(&[0, 1, 3][..]));
+        assert_eq!(
+            datafusion::physical_plan::displayable(&vf_both)
+                .one_line()
+                .to_string()
+                .trim(),
+            "VisibilityFilterExec: tables=[c, p]"
+        );
+
+        // Projection pruning table p (ctid_1 at index 3):
+        let vf_pruned_p = vf.with_projection(Some(vec![0, 1, 2]))?;
+        assert_eq!(vf_pruned_p.projection(), Some(&[0, 1, 2][..]));
+        assert_eq!(
+            datafusion::physical_plan::displayable(&vf_pruned_p)
+                .one_line()
+                .to_string()
+                .trim(),
+            "VisibilityFilterExec: tables=[c, p], pruned=[p]"
+        );
+
+        // Projection pruning both tables (keeping only id and score):
+        let vf_pruned_both = vf.with_projection(Some(vec![0, 2]))?;
+        assert_eq!(vf_pruned_both.projection(), Some(&[0, 2][..]));
+        assert_eq!(
+            datafusion::physical_plan::displayable(&vf_pruned_both)
+                .one_line()
+                .to_string()
+                .trim(),
+            "VisibilityFilterExec: tables=[c, p], pruned=[c, p]"
+        );
+
+        Ok(())
+    }
+
+    #[pg_test]
+    fn visibility_filter_exec_try_swapping_with_projection() -> Result<()> {
+        use super::VisibilityFilterExec;
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::physical_expr::expressions::Column;
+        use datafusion::physical_plan::ExecutionPlan;
+        use datafusion::physical_plan::empty::EmptyExec;
+        use datafusion::physical_plan::projection::ProjectionExec;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("ctid_0", DataType::UInt64, false),
+            Field::new("score", DataType::Float32, false),
+            Field::new("ctid_1", DataType::UInt64, false),
+        ]));
+        let child = Arc::new(EmptyExec::new(schema));
+        let vf = Arc::new(VisibilityFilterExec::new(
+            child,
+            vec![(0, pg_sys::Oid::from(100)), (1, pg_sys::Oid::from(101))],
+            vec!["c".to_string(), "p".to_string()],
+        )?);
+
+        // Projection above VisibilityFilterExec: keep id (0), ctid_0 (1), score (2), drop ctid_1 (3)
+        let proj_exprs = vec![
+            (
+                Arc::new(Column::new("id", 0)) as Arc<dyn datafusion::physical_plan::PhysicalExpr>,
+                "id".to_string(),
+            ),
+            (
+                Arc::new(Column::new("ctid_0", 1))
+                    as Arc<dyn datafusion::physical_plan::PhysicalExpr>,
+                "ctid_0".to_string(),
+            ),
+            (
+                Arc::new(Column::new("score", 2))
+                    as Arc<dyn datafusion::physical_plan::PhysicalExpr>,
+                "score".to_string(),
+            ),
+        ];
+        let projection = ProjectionExec::try_new(proj_exprs, vf.clone())?;
+
+        let swapped = vf.try_swapping_with_projection(&projection)?;
+        assert!(swapped.is_some());
+        let new_plan = swapped.unwrap();
+
+        let new_vf = new_plan
+            .downcast_ref::<VisibilityFilterExec>()
+            .expect("should be VisibilityFilterExec");
+        assert_eq!(new_vf.projection(), Some(&[0, 1, 2][..]));
+        assert_eq!(
+            datafusion::physical_plan::displayable(new_vf)
+                .one_line()
+                .to_string()
+                .trim(),
+            "VisibilityFilterExec: tables=[c, p], pruned=[p]"
+        );
+
         Ok(())
     }
 }

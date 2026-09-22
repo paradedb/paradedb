@@ -163,7 +163,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
    Join Cond: users.id = orders.id
    Limit: 10
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[users, orders]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
@@ -189,7 +189,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
    Join Cond: users.id = orders.id
    Limit: 10
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[users, orders]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]

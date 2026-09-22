@@ -66,10 +66,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@3 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@2 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -137,10 +137,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[name@3 IS NULL as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[name@2 IS NULL as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -208,10 +208,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[supplier_id@1 * 10 + id@3 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[supplier_id@1 * 10 + id@3 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, name@4, id@5, ctid_1@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, name@4, id@5, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -279,10 +279,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[CASE WHEN name@3 IS NOT NULL THEN name@3 ELSE N/A END as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[CASE WHEN name@2 IS NOT NULL THEN name@2 ELSE N/A END as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -350,10 +350,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_24da50e3(CAST(name@4 AS Utf8), supplier_id@1) as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_24da50e3(CAST(name@3 AS Utf8), supplier_id@1) as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -421,10 +421,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[character_length(name@3) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[character_length(name@2) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -493,10 +493,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=1), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@3 AS Utf8)) IS NULL as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@2 AS Utf8)) IS NULL as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -537,10 +537,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[name@3 IS NOT NULL as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[name@2 IS NOT NULL as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -606,10 +606,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[character_length(name@3) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[character_length(name@2) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -675,10 +675,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_f1ebe528(supplier_id@1) * 100 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_f1ebe528(supplier_id@1) * 100 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, name@4, ctid_1@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, name@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -744,10 +744,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_eb551b6f(supplier_id@1) / 3 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_eb551b6f(supplier_id@1) / 3 as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, name@4, ctid_1@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, name@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -813,10 +813,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@3 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@2 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -882,10 +882,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_b92e4f1e(CAST(name@3 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_b92e4f1e(CAST(name@2 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -955,10 +955,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[CASE WHEN name@3 IS NOT NULL THEN name@3 ELSE N/A END as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[CASE WHEN name@2 IS NOT NULL THEN name@2 ELSE N/A END as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -1088,10 +1088,10 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_d16211df(CAST(name@3 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_d16211df(CAST(name@2 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -1162,7 +1162,7 @@ ORDER BY supplier_null, s.name, p.name
      :   AggregateExec: mode=Single, gby=[name@3 IS NULL as col_1, name@3 as col_2, name@1 as col_3], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, id@1, name@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"info","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec

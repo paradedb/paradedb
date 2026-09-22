@@ -62,7 +62,7 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[lo, ls]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=ls, segments=1, query="all"
      :           CooperativeExec
@@ -331,7 +331,7 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[tp, tr]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ref_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ref_id@1, id@1)]
      :           CooperativeExec
      :             PgSearchScan: table=tp, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -399,7 +399,7 @@ LIMIT 20;
      :   SortExec: TopK(fetch=20), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[hp, hc]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, category_id@3, id@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=hc, segments=1, query="all"
      :           CooperativeExec

@@ -83,7 +83,7 @@ LIMIT 25;
      :   SortExec: TopK(fetch=25), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[t, c]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, category_id@3, id@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, query="all"
      :           CooperativeExec
@@ -153,7 +153,7 @@ LIMIT 25;
      :   │ SortExec: TopK(fetch=25), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[t, c]
      :   │     TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :   │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
+     :   │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, category_id@3, id@4, ctid_1@0, id@1]
      :   │         CoalescePartitionsExec
      :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
      :   │         DistributedLeafExec:
@@ -257,7 +257,7 @@ LIMIT 25;
      : │   SortExec: TopK(fetch=25), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      : │     VisibilityFilterExec: tables=[t, c]
      : │       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     : │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
+     : │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, category_id@3, id@4, ctid_1@0, id@1]
      : │           CoalescePartitionsExec
      : │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=3
      : │           CooperativeExec

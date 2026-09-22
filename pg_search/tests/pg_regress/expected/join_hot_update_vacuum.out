@@ -175,7 +175,7 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[o]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, user_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, user_id@1)], projection=[ctid_0@2, user_id@3, id@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=u, segments=1, visibility=eager, query="all"
      :           CooperativeExec

@@ -48,8 +48,8 @@
 
 use std::sync::Arc;
 
-use datafusion::common::Result;
 use datafusion::common::config::ConfigOptions;
+use datafusion::common::{DataFusionError, Result};
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
@@ -275,7 +275,7 @@ fn try_inject_below_lookup(
                 // here for inner joins and for the preserved sides of any join type
                 // (e.g. Left, LeftSemi, LeftAnti); the null-supplying sides are forced
                 // to be checked inside the join, so they won't be absorbed here.
-                let (absorbed_visibility, stk_input) =
+                let (absorbed_visibility, stk_input, projection) =
                     if let Some(vis_exec) = lookup_child.downcast_ref::<VisibilityFilterExec>() {
                         // The VF's child is a ctid-resolving TantivyFetchExec. Bypass it and let
                         // the STK resolve ctids at candidate time, so a large join output does not
@@ -299,30 +299,39 @@ fn try_inject_below_lookup(
                                 vis_exec.table_names().to_vec(),
                             ))),
                             stk_input,
+                            vis_exec.projection().map(|p| p.to_vec()),
                         )
                     } else {
-                        (None, Arc::clone(lookup_child))
+                        (None, Arc::clone(lookup_child), None)
                     };
 
                 // Wrap blocking nodes (e.g. SortPreservingMergeExec) so that the
                 // shared `DynamicFilterPhysicalExpr` can traverse them during the
                 // pushdown pass that reached this scan subtree.
                 let lookup_child = &wrap_blocking_nodes(stk_input)?;
+                let stk_schema = lookup_child.schema();
 
                 // Collect all deferred columns found in the sort expressions,
                 // resolving logical → physical indices for each.
                 let mut deferred_columns = Vec::new();
                 for expr in &sort_exprs {
                     if let Some(col) = expr.expr.downcast_ref::<Column>()
-                        && let Some(physical_idx) = resolve_physical_index(col, &input_schema)
+                        && let Some(lookup_idx) = resolve_physical_index(col, &input_schema)
                         && let Some(field) = lookup
                             .deferred_fields()
                             .iter()
-                            .find(|d| d.col_idx == physical_idx)
+                            .find(|d| d.col_idx == lookup_idx)
                     {
+                        let sort_col_idx =
+                            resolve_physical_index(col, &stk_schema).ok_or_else(|| {
+                                DataFusionError::Internal(format!(
+                                    "SegmentedTopK: column '{}' not found in stk_input schema",
+                                    col.name()
+                                ))
+                            })?;
                         deferred_columns.push(
                             crate::scan::segmented_topk_exec::DeferredSortColumn {
-                                sort_col_idx: physical_idx,
+                                sort_col_idx,
                                 canonical: field.canonical.clone(),
                                 rebuild: field.rebuild.clone(),
                             },
@@ -365,13 +374,13 @@ fn try_inject_below_lookup(
                 let mut rewritten_sort_exprs = Vec::with_capacity(sort_exprs.len());
                 for sort_expr in &sort_exprs {
                     use datafusion::common::tree_node::{Transformed, TreeNode};
-                    let input_schema_clone = Arc::clone(&input_schema);
+                    let stk_schema_clone = Arc::clone(&stk_schema);
                     let mut resolve_failed = false;
                     let rewritten_expr = sort_expr.expr.clone().transform(|node| {
                         if let Some(col) = node.downcast_ref::<Column>() {
                             if let Some(physical_idx) =
-                                resolve_physical_index(col, &input_schema_clone)
-                                && physical_idx < input_schema_clone.fields().len()
+                                resolve_physical_index(col, &stk_schema_clone)
+                                && physical_idx < stk_schema_clone.fields().len()
                             {
                                 let new_col = Column::new(col.name(), physical_idx);
                                 return Ok(Transformed::yes(
@@ -397,7 +406,7 @@ fn try_inject_below_lookup(
                 let rewritten_lex_ordering =
                     LexOrdering::new(rewritten_sort_exprs).unwrap_or(sort_exprs.clone());
 
-                let segmented_topk = Arc::new(SegmentedTopKExec::new(
+                let segmented_topk = Arc::new(SegmentedTopKExec::try_new(
                     Arc::clone(lookup_child),
                     rewritten_lex_ordering,
                     deferred_columns.clone(),
@@ -405,7 +414,8 @@ fn try_inject_below_lookup(
                     k,
                     absorbed_visibility,
                     parent_filter.clone(),
-                ));
+                    projection,
+                )?);
 
                 // Rebuild the lookup with the new child: the fetch when the STK went under
                 // it, then the decode above.

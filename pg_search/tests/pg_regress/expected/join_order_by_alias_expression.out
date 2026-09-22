@@ -48,10 +48,10 @@ LIMIT 10;
    Limit: 10
    Order By: company_name asc, cccf.contact_id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[contact_id@4 as col_1, company_id@1 as col_2, company_name_words@2 as col_3, company_name@3 as col_4, ctid_0@0 as ctid_0, ctid_1@5 as ctid_1]
+     : ProjectionExec: expr=[contact_id@4 as col_1, company_id@1 as col_2, company_name_words@2 as col_3, company_name@3 as col_4, ctid_0@0 as ctid_0]
      :   TantivyDecodeExec: decode=[company_name_words, company_name]
-     :     SegmentedTopKExec: expr=[company_name@3 ASC NULLS LAST, contact_id@4 ASC NULLS LAST], k=10, visibility_checks=[cccf, ti]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@1)], projection=[ctid_0@0, company_id@1, company_name_words@2, company_name@3, contact_id@4, ctid_1@5]
+     :     SegmentedTopKExec: expr=[company_name@3 ASC NULLS LAST, contact_id@4 ASC NULLS LAST], k=10, visibility_checks=[cccf, ti], pruned=[ti]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@1)]
      :         CooperativeExec
      :           PgSearchScan: table=cccf, segments=1, fetch=[company_name_words, company_name], dynamic_filters=1, query="all"
      :         CooperativeExec

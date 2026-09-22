@@ -88,8 +88,9 @@ use arrow_schema::SchemaRef;
 use arrow_select::concat::concat_batches;
 use arrow_select::filter::filter_record_batch;
 use datafusion::arrow::row::{OwnedRow, RowConverter, SortField};
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::{DataFusionError, Result, project_schema};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_expr::equivalence::ProjectionMapping;
 use datafusion::physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, PhysicalExpr};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -98,6 +99,9 @@ use datafusion::physical_plan::filter_pushdown::{
 };
 use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
+};
+use datafusion::physical_plan::projection::{
+    EmbeddedProjection, ProjectionExec, try_embed_projection,
 };
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, apply_expression_roots,
@@ -142,6 +146,14 @@ const MINIMUM_VISIBILITY_CHECK_SIZE: usize = 8192;
 /// they are re-wired from the decoded subtree in `decode_for_dispatch`,
 /// or rebuilt if the scan sits behind a network boundary.
 type VisibilityRecipe = Option<(Vec<(usize, pg_sys::Oid)>, Vec<String>, Vec<(usize, u32)>)>;
+type SegmentedTopKDispatchPayload = (
+    Vec<Vec<u8>>,
+    Vec<DeferredSortColumn>,
+    usize,
+    VisibilityRecipe,
+    Vec<u8>,
+    Option<Vec<usize>>,
+);
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DeferredSortColumn {
@@ -232,6 +244,8 @@ pub struct SegmentedTopKExec {
     /// joins or the preserved sides of outer/semi/anti joins). When present, this node
     /// owns MVCC visibility checking.
     visibility_data: Option<Arc<AbsorbedVisibilityData>>,
+    /// Optional projection indices if absorbed from a `VisibilityFilterExec` or projection pushdown.
+    projection: Option<Vec<usize>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -254,7 +268,7 @@ impl std::fmt::Debug for SegmentedTopKExec {
 
 impl SegmentedTopKExec {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn try_new(
         input: Arc<dyn ExecutionPlan>,
         sort_exprs: LexOrdering,
         deferred_columns: Vec<DeferredSortColumn>,
@@ -262,14 +276,25 @@ impl SegmentedTopKExec {
         k: usize,
         visibility_data: Option<Arc<AbsorbedVisibilityData>>,
         parent_filter: Option<Arc<dyn PhysicalExpr>>,
-    ) -> Self {
+        projection: Option<Vec<usize>>,
+    ) -> Result<Self> {
         use datafusion::physical_expr::expressions::lit;
 
         let mut eq_props = EquivalenceProperties::new(input.schema());
         eq_props.add_ordering(sort_exprs.clone());
+        let mut output_partitioning = input.properties().output_partitioning().clone();
+
+        if let Some(ref proj) = projection {
+            let schema = eq_props.schema();
+            let projection_mapping = ProjectionMapping::from_indices(proj, schema)?;
+            let out_schema = project_schema(schema, Some(proj))?;
+            output_partitioning = output_partitioning.project(&projection_mapping, &eq_props);
+            eq_props = eq_props.project(&projection_mapping, out_schema);
+        }
+
         let properties = Arc::new(PlanProperties::new(
             eq_props,
-            input.properties().output_partitioning().clone(),
+            output_partitioning,
             EmissionType::Final,
             Boundedness::Bounded,
         ));
@@ -287,7 +312,7 @@ impl SegmentedTopKExec {
             Arc::new(DynamicFilterPhysicalExpr::new(children, lit(true)))
         });
 
-        Self {
+        Ok(Self {
             input,
             sort_exprs,
             deferred_columns,
@@ -295,9 +320,75 @@ impl SegmentedTopKExec {
             k,
             dynamic_filter,
             visibility_data,
+            projection,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
-        }
+        })
+    }
+
+    #[cfg(any(test, feature = "pg_test"))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        input: Arc<dyn ExecutionPlan>,
+        sort_exprs: LexOrdering,
+        deferred_columns: Vec<DeferredSortColumn>,
+        ffhelper: Arc<FFHelper>,
+        k: usize,
+        visibility_data: Option<Arc<AbsorbedVisibilityData>>,
+        parent_filter: Option<Arc<dyn PhysicalExpr>>,
+    ) -> Self {
+        Self::try_new(
+            input,
+            sort_exprs,
+            deferred_columns,
+            ffhelper,
+            k,
+            visibility_data,
+            parent_filter,
+            None,
+        )
+        .expect("SegmentedTopKExec::new failed")
+    }
+
+    pub fn with_projection(&self, projection: Option<Vec<usize>>) -> Result<Self> {
+        let combined = match (self.projection.as_ref(), projection) {
+            (Some(existing), Some(new_proj)) => {
+                let max_len = existing.len();
+                let mut combined = Vec::with_capacity(new_proj.len());
+                for idx in new_proj {
+                    if idx >= max_len {
+                        return Err(DataFusionError::Internal(format!(
+                            "SegmentedTopKExec: projection index {idx} out of bounds {max_len}"
+                        )));
+                    }
+                    combined.push(existing[idx]);
+                }
+                Some(combined)
+            }
+            (Some(existing), None) => Some(existing.clone()),
+            (None, Some(new_proj)) => {
+                let max_len = self.input.schema().fields().len();
+                for &idx in &new_proj {
+                    if idx >= max_len {
+                        return Err(DataFusionError::Internal(format!(
+                            "SegmentedTopKExec: projection index {idx} out of bounds {max_len}"
+                        )));
+                    }
+                }
+                Some(new_proj)
+            }
+            (None, None) => None,
+        };
+        Self::try_new(
+            Arc::clone(&self.input),
+            self.sort_exprs.clone(),
+            self.deferred_columns.clone(),
+            Arc::clone(&self.ffhelper),
+            self.k,
+            self.visibility_data.clone(),
+            Some(Arc::clone(&self.dynamic_filter)),
+            combined,
+        )
     }
 
     /// Returns the `(plan_position, heap_oid)` pairs whose ctid columns need
@@ -397,12 +488,13 @@ impl SegmentedTopKExec {
                 resolver_indexes,
             )
         });
-        let payload = (
+        let payload: SegmentedTopKDispatchPayload = (
             sort_bytes,
             self.deferred_columns.clone(),
             self.k,
             visibility_recipe,
             dynamic_filter_bytes,
+            self.projection.clone(),
         );
         serde_json::to_vec(&payload).map_err(|e| {
             DataFusionError::Internal(format!("SegmentedTopKExec dispatch: serialize: {e}"))
@@ -420,15 +512,10 @@ impl SegmentedTopKExec {
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
         proto_converter: &dyn datafusion_proto::physical_plan::PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let (sort_bytes, deferred_columns, k, visibility_recipe, dynamic_filter_bytes): (
-            Vec<Vec<u8>>,
-            Vec<DeferredSortColumn>,
-            usize,
-            VisibilityRecipe,
-            Vec<u8>,
-        ) = serde_json::from_slice(buf).map_err(|e| {
-            DataFusionError::Internal(format!("SegmentedTopKExec dispatch: deserialize: {e}"))
-        })?;
+        let (sort_bytes, deferred_columns, k, visibility_recipe, dynamic_filter_bytes, projection): SegmentedTopKDispatchPayload =
+            serde_json::from_slice(buf).map_err(|e| {
+                DataFusionError::Internal(format!("SegmentedTopKExec dispatch: deserialize: {e}"))
+            })?;
         // The deferred sort columns all resolve against one index (the sorted relation), and
         // `ff_index` is relative to that index's fast-field list. A join leaves the other
         // index's scan in the same subtree, so pick the helper by `indexrelid` instead of
@@ -537,7 +624,7 @@ impl SegmentedTopKExec {
             }
             None => None,
         };
-        Ok(Arc::new(SegmentedTopKExec::new(
+        Ok(Arc::new(SegmentedTopKExec::try_new(
             input,
             sort_exprs,
             deferred_columns,
@@ -546,7 +633,8 @@ impl SegmentedTopKExec {
             visibility_data,
             // Reuse the shipped filter so it stays identity-shared with the scans below.
             parent_filter,
-        )))
+            projection,
+        )?))
     }
 }
 
@@ -567,9 +655,36 @@ impl DisplayAs for SegmentedTopKExec {
         // absorbed a VisibilityFilterExec), and for which tables, so it is visible when
         // reading a plan where the checking happens.
         if let Some(vd) = &self.visibility_data {
-            write!(f, ", visibility_checks=[{}]", vd.table_names.join(", "))?;
+            let mut pruned_tables = Vec::new();
+            if let Some(ref proj) = self.projection {
+                let input_schema = self.input.schema();
+                for (&(plan_pos, _), table_name) in vd.plan_pos_oids.iter().zip(&vd.table_names) {
+                    let ctid_col = CtidColumn::new(plan_pos).to_string();
+                    if let Some((idx, _)) = input_schema.column_with_name(&ctid_col)
+                        && !proj.contains(&idx)
+                    {
+                        pruned_tables.push(table_name.as_str());
+                    }
+                }
+            }
+            if pruned_tables.is_empty() {
+                write!(f, ", visibility_checks=[{}]", vd.table_names.join(", "))?;
+            } else {
+                write!(
+                    f,
+                    ", visibility_checks=[{}], pruned=[{}]",
+                    vd.table_names.join(", "),
+                    pruned_tables.join(", ")
+                )?;
+            }
         }
         Ok(())
+    }
+}
+
+impl EmbeddedProjection for SegmentedTopKExec {
+    fn with_projection(&self, projection: Option<Vec<usize>>) -> Result<Self> {
+        self.with_projection(projection)
     }
 }
 
@@ -601,7 +716,7 @@ impl ExecutionPlan for SegmentedTopKExec {
     ) -> Result<Arc<dyn ExecutionPlan>> {
         // Preserve the existing dynamic filter so that filter pushdown wiring
         // (which already holds a reference) stays connected.
-        let new = SegmentedTopKExec::new(
+        let new = SegmentedTopKExec::try_new(
             children.remove(0),
             self.sort_exprs.clone(),
             self.deferred_columns.clone(),
@@ -609,8 +724,16 @@ impl ExecutionPlan for SegmentedTopKExec {
             self.k,
             self.visibility_data.clone(),
             Some(Arc::clone(&self.dynamic_filter)),
-        );
+            self.projection.clone(),
+        )?;
         Ok(Arc::new(new))
+    }
+
+    fn try_swapping_with_projection(
+        &self,
+        projection: &ProjectionExec,
+    ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+        try_embed_projection(projection, self)
     }
 
     fn execute(
@@ -634,14 +757,14 @@ impl ExecutionPlan for SegmentedTopKExec {
             Count::new()
         };
 
+        let input_schema = self.input.schema();
+
         // Build the row converter
         let sort_fields = self
             .sort_exprs
             .iter()
             .map(|expr| {
-                let expr_type = expr
-                    .expr
-                    .data_type(self.properties.eq_properties.schema())?;
+                let expr_type = expr.expr.data_type(&input_schema)?;
                 // If it's a deferred column, we treat its sorting type as UInt64 (the ordinal type).
                 let data_type = if expr
                     .expr
@@ -665,7 +788,7 @@ impl ExecutionPlan for SegmentedTopKExec {
             &self.sort_exprs,
             &self.deferred_columns,
             &self.ffhelper,
-            self.properties.eq_properties.schema(),
+            &input_schema,
         )?;
 
         // Build per-relation visibility checker entries from the absorbed VFExec data
@@ -687,11 +810,10 @@ impl ExecutionPlan for SegmentedTopKExec {
                         .into(),
                 ));
             }
-            let schema = self.properties.eq_properties.schema();
             let mut entries = Vec::with_capacity(vd.plan_pos_oids.len());
             for &(plan_pos, heap_oid) in &vd.plan_pos_oids {
                 let col_name = CtidColumn::new(plan_pos).to_string();
-                let (col_idx, _) = schema.column_with_name(&col_name).ok_or_else(|| {
+                let (col_idx, _) = input_schema.column_with_name(&col_name).ok_or_else(|| {
                     DataFusionError::Execution(format!(
                         "SegmentedTopKExec: missing ctid column '{}' \
                                  for visibility checking",
@@ -727,7 +849,8 @@ impl ExecutionPlan for SegmentedTopKExec {
             deferred_columns: self.deferred_columns.clone(),
             ffhelper: Arc::clone(&self.ffhelper),
             k: self.k,
-            schema: self.properties.eq_properties.schema().clone(),
+            schema: input_schema,
+            projection: self.projection.clone(),
             row_converter,
             segment_bufs: Vec::new(),
             segment_cutoffs: Vec::new(),
@@ -800,11 +923,21 @@ impl ExecutionPlan for SegmentedTopKExec {
             ));
         }
 
+        let schema = self.input.schema();
+        let parent_filters = if self.projection.is_some() {
+            parent_filters
+                .into_iter()
+                .map(|expr| datafusion::physical_expr::utils::reassign_expr_columns(expr, &schema))
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            parent_filters
+        };
+
         // Route parent filters to our child based on column compatibility,
         // and add our own dynamic filter as a self-filter.
         let child_desc = crate::scan::filter_pushdown::schema_preserving_child_filter_description(
             &parent_filters,
-            &self.input.schema(),
+            &schema,
             None,
         )?
         .with_self_filter(Arc::clone(&self.dynamic_filter));
@@ -871,6 +1004,7 @@ struct SegmentedTopKState {
     ffhelper: Arc<FFHelper>,
     k: usize,
     schema: SchemaRef,
+    projection: Option<Vec<usize>>,
     row_converter: RowConverter,
     /// Per-segment rolling buffers, indexed by `SegmentOrdinal` (dense, 0..N).
     /// Filled in `collect_batch` identically for visibility and non-visibility plans;
@@ -1976,6 +2110,12 @@ impl SegmentedTopKState {
                 columns[entry.col_idx] = Arc::new(UInt64Array::from(corrected)) as ArrayRef;
             }
             result = RecordBatch::try_new(self.schema.clone(), columns)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        }
+
+        if let Some(ref proj) = self.projection {
+            result = result
+                .project(proj)
                 .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
         }
 

@@ -223,8 +223,6 @@ impl LinkedList for LinkedBytesList {
     }
 
     fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber> {
-        #[cfg(feature = "io_stats")]
-        let _io = crate::index::reader::io_stats::trace::label(None, None, Some("block_map"));
         self.blocklist_reader
             .get_or_init(|| {
                 blocklist::reader::BlockList::new(

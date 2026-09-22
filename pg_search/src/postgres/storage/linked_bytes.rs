@@ -26,7 +26,9 @@ use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, bm25_max_fre
 use crate::index::mvcc::SegmentPins;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
-use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods, init_new_buffer};
+use crate::postgres::storage::buffer::{
+    BufferManager, ImmutablePage, PageHeaderMethods, init_new_buffer,
+};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 
 use std::cell::UnsafeCell;
@@ -44,6 +46,20 @@ const BLOCK_CACHE_SIZE: usize = 16;
 struct CacheEntry {
     block_ord: usize,
     block_bytes: OwnedBytes,
+}
+
+pub(crate) enum PageChunk {
+    Cached(OwnedBytes),
+    Uncached(ImmutablePage, Range<usize>),
+}
+
+impl AsRef<[u8]> for PageChunk {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Cached(bytes) => bytes.as_ref(),
+            Self::Uncached(page, range) => &page[range.clone()],
+        }
+    }
 }
 
 /// UnsafeCell-based cache. SAFETY: Postgres backends are single-threaded.
@@ -424,7 +440,7 @@ impl LinkedBytesList {
 
         if start_block_ord == end_block_ord {
             // Single block read
-            let block_bytes = self.get_bytes_range_block(start_block_ord, segment_pins);
+            let block_bytes = self.get_bytes_range_block(start_block_ord, segment_pins, false);
             let slice_start = range.start % ITEM_SIZE;
             let slice_end = slice_start + range.len();
             return block_bytes.slice(slice_start..slice_end);
@@ -437,7 +453,7 @@ impl LinkedBytesList {
         let mut remaining = range.len();
 
         for block_ord in start_block_ord..=end_block_ord {
-            let block_bytes = self.get_bytes_range_block(block_ord, segment_pins);
+            let block_bytes = self.get_bytes_range_block(block_ord, segment_pins, false);
             let slice_start = if block_ord == start_block_ord {
                 range.start % ITEM_SIZE
             } else {
@@ -451,10 +467,51 @@ impl LinkedBytesList {
         OwnedBytes::new(data)
     }
 
+    /// # Safety
+    /// The payload must be immutable. Provided pins must prevent its reclamation.
+    pub(crate) unsafe fn get_bytes_range_page_chunks<'a>(
+        &'a self,
+        range: Range<usize>,
+        segment_pins: Option<&'a SegmentPins>,
+        retain_one_page: bool,
+    ) -> impl Iterator<Item = PageChunk> + 'a {
+        const ITEM_SIZE: usize = bm25_max_free_space();
+        let mut offset = range.start;
+        std::iter::from_fn(move || {
+            if offset >= range.end {
+                return None;
+            }
+            let block_ord = offset / ITEM_SIZE;
+            let start = offset % ITEM_SIZE;
+            let len = (ITEM_SIZE - start).min(range.end - offset);
+            let cached = self
+                .cache
+                .get()
+                .iter()
+                .any(|entry| entry.block_ord == block_ord);
+            let chunk = if !retain_one_page || offset + len == range.end || cached {
+                PageChunk::Cached(
+                    self.get_bytes_range_block(block_ord, segment_pins, retain_one_page)
+                        .slice(start..start + len),
+                )
+            } else {
+                self.cache.get().clear();
+                let blockno = self.block_for_ord(block_ord).expect("block not found");
+                let page = self
+                    .bman
+                    .get_immutable_page_with_hint(blockno, segment_pins);
+                PageChunk::Uncached(page, start..start + len)
+            };
+            offset += len;
+            Some(chunk)
+        })
+    }
+
     unsafe fn get_bytes_range_block(
         &self,
         start_block_ord: usize,
         segment_pins: Option<&SegmentPins>,
+        retain_one_page: bool,
     ) -> OwnedBytes {
         // SAFETY: Postgres backends are single-threaded.
         let cache = self.cache.get();
@@ -462,15 +519,27 @@ impl LinkedBytesList {
             // Cache hit: Arc clone, and promote to the back (LRU).
             let entry = cache.remove(pos).unwrap();
             let block_bytes = entry.block_bytes.clone();
+            if retain_one_page {
+                cache.clear();
+            }
             cache.push_back(entry);
             return block_bytes;
         }
 
+        if retain_one_page {
+            cache.clear();
+        }
         // Cache miss: read the block.
         let blockno = self
             .block_for_ord(start_block_ord)
             .expect("block not found");
-        let block_bytes = OwnedBytes::new(self.bman.get_immutable_page(blockno, segment_pins));
+        let page = if retain_one_page {
+            self.bman
+                .get_immutable_page_with_hint(blockno, segment_pins)
+        } else {
+            self.bman.get_immutable_page(blockno, segment_pins)
+        };
+        let block_bytes = OwnedBytes::new(page);
 
         if cache.len() >= BLOCK_CACHE_SIZE {
             cache.pop_front();

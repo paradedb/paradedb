@@ -1101,6 +1101,7 @@ mod tests {
             SegmentComponent::FastFields,
             SegmentComponent::FieldNorms,
             SegmentComponent::Custom(STATS_EXT.to_string()),
+            SegmentComponent::Custom(crate::postgres::storage::block::VECTOR_VEC_EXT.to_string()),
             SegmentComponent::Delete,
         ] {
             let path = SegmentMetaEntryImmutable::path(&segment.uuid_string(), component);
@@ -1245,6 +1246,33 @@ mod tests {
                     .get_buffer_for_cleanup_conditional(sentinel)
                     .is_none()
             );
+            let before = shared_buffer_reads();
+            for range in [0..0, page_size - 1..page_size + 1, 0..bytes.len()] {
+                let mut actual = Vec::new();
+                reader
+                    .read_bytes_chunks(range.clone(), &mut |chunk| {
+                        let offset = range.start + actual.len();
+                        assert_eq!(chunk, &bytes[offset..offset + chunk.len()]);
+                        if actual.is_empty() {
+                            let mut nested = Vec::new();
+                            reader
+                                .read_bytes_chunks(
+                                    page_size * 3 + 5..page_size * 23 + 3,
+                                    &mut |part| {
+                                        nested.extend_from_slice(part);
+                                        assert_eq!(chunk, &bytes[offset..offset + chunk.len()]);
+                                    },
+                                )
+                                .unwrap();
+                            assert_eq!(nested, bytes[page_size * 3 + 5..page_size * 23 + 3]);
+                            assert_eq!(escaped.as_ref(), &bytes[escaped_range.clone()]);
+                        }
+                        actual.extend_from_slice(chunk);
+                    })
+                    .unwrap();
+                assert_eq!(actual, bytes[range]);
+            }
+            assert_eq!(shared_buffer_reads(), before);
             drop(directory);
             assert!(weak.upgrade().is_some());
             drop(reader);
@@ -1293,7 +1321,16 @@ mod tests {
         drop(reader);
         drop(directory);
         assert!(!escaped.is_empty());
-        Spi::run("SELECT 1 / 0").unwrap();
+        let directory = MvccSatisfies::Snapshot.directory(&indexrel);
+        directory
+            .load_metas(&SegmentMetaInventory::default())
+            .unwrap();
+        let reader = directory.get_file_handle(Path::new(&path)).unwrap();
+        reader
+            .read_bytes_chunks(0..bm25_max_free_space() * 3, &mut |_| {
+                Spi::run("SELECT 1 / 0").unwrap();
+            })
+            .unwrap();
         unreachable!("expected PostgreSQL ERROR");
     }
 

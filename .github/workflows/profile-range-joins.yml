@@ -5,12 +5,12 @@ permissions:
   contents: read
 jobs:
   paired:
-    name: CPU and scheduler profiles (20M, main vs branch)
+    name: Semi-join profiles (${{ matrix.size }}, main vs branch)
     timeout-minutes: 720
     strategy:
       fail-fast: false
       matrix:
-        size: [20m]
+        size: [1m, 20m]
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted

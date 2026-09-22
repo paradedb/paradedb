@@ -4,7 +4,7 @@
 # Run our queries benchmark suite (stackoverflow and/or cohere) against pg_search.
 
 name: Benchmark pg_search (Queries)
-run-name: ${{ inputs.profile_range_joins && 'Profile range joins — main vs experimental branch' || 'Benchmark pg_search (Queries)' }}
+run-name: ${{ inputs.profile_range_joins && 'Profile semi-join regressions — 1M and 20M, main vs branch' || 'Benchmark pg_search (Queries)' }}
 
 # We run benchmarks on push to `main` and on benchmark-labeled PRs. stackoverflow runs by default;
 # cohere is opt-in via the benchmark-cohere-{hnsw,ivfflat} labels (or a manual run).
@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       profile_range_joins:
-        description: "Experimental branch only: profile main/branch on unchanged 20M indexes; do not publish benchmark results."
+        description: "Experimental branch only: profile range semi-join on unchanged 1M and 20M indexes, main vs branch; do not publish results."
         required: false
         type: boolean
         default: false

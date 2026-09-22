@@ -13,10 +13,10 @@ import sys
 from paired_stats_once import ROOT, OUT, URL, identity, psql, run
 
 
-GROUPS = ("join_semi_filter", "join_permissioned_search", "join_top_k_score_desc_low_selectivity")
+GROUPS = ("join_semi_filter",)
 SIZE = sys.argv[1] if len(sys.argv) > 1 else "20m"
 assert SIZE in ("1m", "20m")
-VARIANTS = ("hash_partitioned", "range_partitioned")
+VARIANTS = ("range_partitioned",)
 
 
 def selected_queries():
@@ -25,7 +25,7 @@ def selected_queries():
     for group in GROUPS:
         for variant in VARIANTS:
             source = directory / group / f"{variant}.sql"
-            # These six source files contain no semicolons or comments in literals.
+            # The selected SQL contains no semicolons or comments in literals.
             statements = [s.strip() for s in re.sub(r"--[^\n]*", "", source.read_text()).split(";") if s.strip()]
             assert all(s.upper().startswith("SET ") for s in statements[:-1])
             assert statements[-1].upper().startswith("SELECT")
@@ -112,11 +112,11 @@ def main():
     assert not subset.exists(), "refuse to replace an existing query suite"
     pkglibdir = Path(run(["/usr/lib/postgresql/18/bin/pg_config", "--pkglibdir"], capture=True).strip())
     manifest = {"baseline": os.environ["BASELINE_SHA"], "branch": os.environ["FIXED_SHA"],
-                "size": SIZE, "cpu_sample_hz": 199, "rounds": []}
+                "size": SIZE, "queries": list(selected), "cpu_sample_hz": 199, "rounds": []}
     expected = expected_rows = None
     try:
         # Use the normal Rust benchmark runner for index creation and unprofiled
-        # timings. Its index-specific directory selects only these six queries.
+        # timings. Its index-specific directory selects only the range semi-join.
         for group in GROUPS:
             (subset / group).mkdir(parents=True)
             for variant in VARIANTS:
@@ -160,7 +160,7 @@ def main():
                 (OUT / "profile-manifest.json").write_text(json.dumps(manifest, indent=2))
             assert identity() == expected
             (OUT / "profile-manifest.json").write_text(json.dumps(manifest, indent=2))
-            print(f"Finished {label}: unchanged indexes; six CPU profiles plus supported scheduler traces", flush=True)
+            print(f"Finished {label}: unchanged indexes; {len(selected)} CPU profile(s) plus supported scheduler traces", flush=True)
     finally:
         if subset.exists():
             shutil.rmtree(subset)

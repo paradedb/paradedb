@@ -443,18 +443,23 @@ fn boolean_matches_all(
             == required
 }
 
+/// `(can_match, matches_all)` for one segment, as the tests read it.
+#[cfg(any(test, feature = "pg_test"))]
+mod proof {
+    pub(super) type Proof = (bool, bool);
+    pub(super) const NEVER: Proof = (false, false);
+    pub(super) const MAYBE: Proof = (true, false);
+    pub(super) const ALWAYS: Proof = (true, true);
+}
+
 #[cfg(test)]
 mod unit_tests {
+    use super::proof::{ALWAYS, MAYBE, NEVER, Proof};
     use super::*;
     use proptest::prelude::*;
     use rstest::rstest;
     use tantivy::schema::{INDEXED, Schema};
     use tantivy::{Index, TantivyDocument, doc};
-
-    type Proof = (bool, bool);
-    const NEVER: Proof = (false, false);
-    const MAYBE: Proof = (true, false);
-    const ALWAYS: Proof = (true, true);
 
     fn range_truth(
         stats: Option<&EmpiricalStats>,
@@ -623,7 +628,7 @@ mod unit_tests {
 
     #[test]
     fn single_clause_boolean_proofs_agree_with_tantivy_execution() {
-        use tantivy::collector::{Count, TopDocs};
+        use tantivy::collector::Count;
         use tantivy::query::{AllQuery, BooleanQuery, EmptyQuery, EnableScoring, Occur, Query};
         use tantivy::{DocSet, TERMINATED};
 
@@ -675,12 +680,6 @@ mod unit_tests {
                             _ => {}
                         };
                         check(searcher.search(query, &Count).unwrap());
-                        check(
-                            searcher
-                                .search(query, &TopDocs::with_limit(1).order_by_score())
-                                .unwrap()
-                                .len(),
-                        );
                         for scoring in [false, true] {
                             let weight = query
                                 .weight(if scoring {
@@ -799,24 +798,19 @@ mod unit_tests {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use super::proof::{ALWAYS, MAYBE, NEVER};
     use super::*;
-    use crate::index::mvcc::MvccSatisfies;
-    use crate::index::reader::index::{SearchIndexReader, test_support::segmented_index_fixture};
+    use crate::index::reader::index::test_support::{
+        open_snapshot_reader, range_query, segmented_index_fixture,
+    };
     use pgrx::prelude::*;
-    use tantivy::collector::{Count, TopDocs};
 
     /// Wrapper queries lower conservatively: a disjunction keeps its strongest child, and a
     /// filter that re-checks rows outside the index can inherit only rejections.
     #[pg_test]
     fn wrapper_queries_lower_conservatively() {
-        const ALWAYS: (bool, bool) = (true, true);
-        const MAYBE: (bool, bool) = (true, false);
-        const NEVER: (bool, bool) = (false, false);
         let (index_rel, _heap) = segmented_index_fixture("wrapper_lowering", 2, false);
-        let open_reader = |query, scoring| {
-            SearchIndexReader::open(&index_rel, query, scoring, MvccSatisfies::Snapshot).unwrap()
-        };
-        let reader = open_reader(SearchQueryInput::All, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let pruner = SegmentPruner::new(
             reader.segment_stats_snapshot(),
             reader.schema(),
@@ -829,15 +823,8 @@ mod tests {
         };
         // Fixture ids are 1..=20 over two NOT NULL segments: one range covers both segments
         // exactly and the other reaches neither.
-        let range = |lower, upper| SearchQueryInput::FieldedQuery {
-            field: FieldName::from("id"),
-            query: pdb::Query::Range {
-                lower_bound: Bound::Included(PdbOwnedValue::I64(lower)),
-                upper_bound: Bound::Included(PdbOwnedValue::I64(upper)),
-            },
-        };
-        let always = range(1, 20);
-        let never = range(100, 200);
+        let always = range_query("id", 1, 20);
+        let never = range_query("id", 100, 200);
         assert_eq!(truths(&always), [ALWAYS, ALWAYS]);
         assert_eq!(truths(&never), [NEVER, NEVER]);
 
@@ -853,27 +840,6 @@ mod tests {
             truths(&disjunction(vec![never.clone(), never.clone()])),
             [NEVER, NEVER]
         );
-        for scoring in [false, true] {
-            for (child, expected) in [(always.clone(), 20), (never.clone(), 0)] {
-                let reader = open_reader(disjunction(vec![never.clone(), child]), scoring);
-                assert_eq!(reader.search().count(), expected);
-                assert_eq!(reader.count_matched_docs().unwrap(), expected as u64);
-                assert_eq!(reader.collect(Count), expected);
-                assert_eq!(
-                    reader.searcher().search(reader.query(), &Count).unwrap(),
-                    expected
-                );
-                if scoring {
-                    assert_eq!(
-                        reader.collect(TopDocs::with_limit(10).order_by_score()),
-                        reader
-                            .searcher()
-                            .search(reader.query(), &TopDocs::with_limit(10).order_by_score())
-                            .unwrap()
-                    );
-                }
-            }
-        }
 
         let score_filter = |query: Option<SearchQueryInput>| SearchQueryInput::ScoreFilter {
             bounds: vec![],

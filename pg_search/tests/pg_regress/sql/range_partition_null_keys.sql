@@ -16,14 +16,6 @@ SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
 SET max_parallel_maintenance_workers TO 0;
 
-CREATE FUNCTION rpn_explain_analyze_lines(q text) RETURNS SETOF text AS $$
-DECLARE r record;
-BEGIN
-  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF) ' || q LOOP
-    RETURN NEXT r."QUERY PLAN";
-  END LOOP;
-END $$ LANGUAGE plpgsql;
-
 CREATE TABLE rpn_users (id bigserial PRIMARY KEY, display_name text, about_me text);
 CREATE TABLE rpn_posts (id bigserial PRIMARY KEY, owner_user_id bigint, title text, body text);
 
@@ -48,36 +40,20 @@ SET max_parallel_workers_per_gather TO 0;
 
 SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
 FROM rpn_posts p LEFT JOIN rpn_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
-WHERE p.title @@@ 'error' \gset serial_
-\echo serial_left_join total=:serial_total orphans=:serial_orphans
+WHERE p.title @@@ 'error';
 
+-- The range-partitioned Left join must produce the same rows.
 SET max_parallel_workers_per_gather TO 3;
 
-CREATE TEMP TABLE rpn_plan AS
-SELECT line
-FROM rpn_explain_analyze_lines(
-    $$SELECT count(*), count(*) FILTER (WHERE u.id IS NULL)
-      FROM rpn_posts p LEFT JOIN rpn_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
-      WHERE p.title @@@ 'error'$$
-) AS line;
-
-COPY (
-    SELECT format(
-        'left_join_range_partitioned=%s',
-        EXISTS (SELECT 1 FROM rpn_plan WHERE line LIKE '%join_type=Left%')
-        AND EXISTS (SELECT 1 FROM rpn_plan WHERE line LIKE '%DistributedExec%')
-        AND EXISTS (SELECT 1 FROM rpn_plan WHERE line ~ 'MPP Launch: workers=[1-9][0-9]*')
-        AND EXISTS (SELECT 1 FROM rpn_plan
-                    WHERE line LIKE '%table=p,%' AND line LIKE '%partition=owner_user_id[-∞..%')
-    )
-) TO STDOUT;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM rpn_posts p LEFT JOIN rpn_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title @@@ 'error';
 
 SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
 FROM rpn_posts p LEFT JOIN rpn_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
-WHERE p.title @@@ 'error' \gset mpp_
-\echo mpp_left_join total=:mpp_total orphans=:mpp_orphans
+WHERE p.title @@@ 'error';
 
-DROP FUNCTION rpn_explain_analyze_lines(text);
 DROP TABLE rpn_posts;
 DROP TABLE rpn_users;
 

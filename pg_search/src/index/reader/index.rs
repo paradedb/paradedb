@@ -441,12 +441,84 @@ impl Clone for SearchIndexReader {
 #[cfg(any(test, feature = "pg_test"))]
 pub(crate) mod test_support {
     use super::PgSearchRelation;
+    use super::SearchIndexReader;
+    use crate::api::FieldName;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
+    use crate::query::SearchQueryInput;
+    use crate::query::pdb_query::pdb;
     use pgrx::Spi;
     use std::sync::atomic::AtomicUsize;
 
     /// How many times the index was actually opened (metadata walk, pins, searcher build).
     /// Tests use it to prove reuse paths perform zero additional opens.
     pub(crate) static INDEX_COMPONENT_OPENS: AtomicUsize = AtomicUsize::new(0);
+
+    pub(crate) fn range_query(field: &str, lower: i64, upper: i64) -> SearchQueryInput {
+        SearchQueryInput::FieldedQuery {
+            field: FieldName::from(field),
+            query: pdb::Query::Range {
+                lower_bound: std::ops::Bound::Included(PdbOwnedValue::I64(lower)),
+                upper_bound: std::ops::Bound::Included(PdbOwnedValue::I64(upper)),
+            },
+        }
+    }
+
+    pub(crate) fn term_query(field: &str, value: &str) -> SearchQueryInput {
+        SearchQueryInput::FieldedQuery {
+            field: FieldName::from(field),
+            query: pdb::Query::Term {
+                value: PdbOwnedValue::Str(value.to_string()),
+            },
+        }
+    }
+
+    /// Opens the index a test just created through SPI.
+    pub(crate) fn open_index(name: &str) -> PgSearchRelation {
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+        let oid = Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))
+            .unwrap()
+            .unwrap();
+        PgSearchRelation::open(oid)
+    }
+
+    pub(crate) fn open_snapshot_reader(
+        index_rel: &PgSearchRelation,
+        query: SearchQueryInput,
+        need_scores: bool,
+    ) -> SearchIndexReader {
+        SearchIndexReader::open(index_rel, query, need_scores, MvccSatisfies::Snapshot).unwrap()
+    }
+
+    /// Every entry point of `reader` agrees with Tantivy searching the same query over every
+    /// segment, so candidate filtering changed nothing observable.
+    pub(crate) fn assert_pruning_matches_tantivy(reader: &SearchIndexReader, expected: usize) {
+        use tantivy::collector::{Count, TopDocs};
+
+        let query = reader.query();
+        assert_eq!(
+            reader.searcher().search(query, &Count).unwrap(),
+            expected,
+            "{query:?}"
+        );
+        assert_eq!(reader.search().count(), expected, "{query:?}");
+        assert_eq!(
+            reader.count_matched_docs().unwrap(),
+            expected as u64,
+            "{query:?}"
+        );
+        assert_eq!(reader.collect(Count), expected, "{query:?}");
+        if reader.need_scores() {
+            assert_eq!(
+                reader.collect(TopDocs::with_limit(10).order_by_score()),
+                reader
+                    .searcher()
+                    .search(query, &TopDocs::with_limit(10).order_by_score())
+                    .unwrap(),
+                "{query:?}"
+            );
+        }
+    }
     /// Test fixture shared by the reuse/laziness tests: a table + ParadeDB index laid out as
     /// `immutable_batches` frozen segments of 10 rows (batch 0's titles contain "silver dragon",
     /// later batches "quiet river"), plus an optional 5-row mutable segment. Returns the opened
@@ -2240,84 +2312,9 @@ mod tests {
     use std::ops::Bound;
     use tantivy::index::SegmentComponent;
 
-    fn range_query(field: &str, lower: i64, upper: i64) -> SearchQueryInput {
-        SearchQueryInput::FieldedQuery {
-            field: FieldName::from(field),
-            query: pdb::Query::Range {
-                lower_bound: Bound::Included(PdbOwnedValue::I64(lower)),
-                upper_bound: Bound::Included(PdbOwnedValue::I64(upper)),
-            },
-        }
-    }
-
-    fn term_query(field: &str, value: &str) -> SearchQueryInput {
-        SearchQueryInput::FieldedQuery {
-            field: FieldName::from(field),
-            query: pdb::Query::Term {
-                value: PdbOwnedValue::Str(value.to_string()),
-            },
-        }
-    }
-
-    fn open_snapshot_reader(
-        index_rel: &PgSearchRelation,
-        query: SearchQueryInput,
-        need_scores: bool,
-    ) -> SearchIndexReader {
-        SearchIndexReader::open(index_rel, query, need_scores, MvccSatisfies::Snapshot).unwrap()
-    }
-
-    fn assert_pruning_matches_tantivy(reader: &SearchIndexReader, expected: usize) {
-        use tantivy::collector::{Count, TopDocs};
-
-        // Bypass candidate filtering for the oracle, retaining the identical query and Searcher.
-        let query = reader.query();
-        assert_eq!(
-            reader.searcher().search(query, &Count).unwrap(),
-            expected,
-            "{query:?}"
-        );
-        assert_eq!(reader.search().count(), expected, "{query:?}");
-        assert_eq!(
-            reader.count_matched_docs().unwrap(),
-            expected as u64,
-            "{query:?}"
-        );
-        assert_eq!(reader.collect(Count), expected, "{query:?}");
-        if reader.need_scores() {
-            assert_eq!(
-                reader.collect(TopDocs::with_limit(10).order_by_score()),
-                reader
-                    .searcher()
-                    .search(query, &TopDocs::with_limit(10).order_by_score())
-                    .unwrap(),
-                "{query:?}"
-            );
-        }
-    }
-
-    /// A negative `minimum_should_match` is compiled by pg_search as a huge `usize`; the
-    /// predicate-level oracle test covers the Boolean rules, this pins the compiled shape.
-    #[pg_test]
-    fn negative_minimum_under_negation_keeps_the_query_authoritative() {
-        let (index_rel, _) = segmented_index_fixture("pruning_single_boolean", 1, false);
-        let inner = SearchQueryInput::Boolean {
-            must: vec![],
-            should: vec![SearchQueryInput::All],
-            must_not: vec![],
-            minimum_should_match: Some(-1),
-        };
-        let query = SearchQueryInput::Boolean {
-            must: vec![range_query("id", 1, 10)],
-            should: vec![],
-            must_not: vec![inner],
-            minimum_should_match: None,
-        };
-        for scoring in [false, true] {
-            let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
-            assert_pruning_matches_tantivy(&reader, 0);
-        }
-    }
+    use super::test_support::{
+        assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
+    };
 
     #[pg_test]
     fn segment_pruning_preserves_unsigned_terms_encoded_as_signed_values() {
@@ -2332,10 +2329,7 @@ mod tests {
              RESET paradedb.global_mutable_segment_rows;",
         )
         .unwrap();
-        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'pruning_signed_terms_idx'::regclass::oid")
-            .unwrap()
-            .unwrap();
-        let index_rel = PgSearchRelation::open(oid);
+        let index_rel = open_index("pruning_signed_terms_idx");
         let field = FieldName::from("x");
         let mut queries = Vec::new();
         for value in [i64::MAX as u64, i64::MAX as u64 + 1, u64::MAX - 1, u64::MAX] {
@@ -2375,18 +2369,19 @@ mod tests {
             },
             1,
         ));
+        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let snapshot = probe.segment_stats_snapshot();
+        let field = probe.schema().search_field("x").unwrap();
+        assert!(snapshot.len() > 0);
+        for ordinal in 0..snapshot.len() {
+            assert!(
+                snapshot.empirical(ordinal, &field).is_some(),
+                "must exercise statistics"
+            );
+        }
         for (query, expected) in queries {
             for scoring in [false, true] {
                 let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
-                let snapshot = reader.segment_stats_snapshot();
-                let field = reader.schema().search_field("x").unwrap();
-                assert!(snapshot.len() > 0);
-                for ordinal in 0..snapshot.len() {
-                    assert!(
-                        snapshot.empirical(ordinal, &field).is_some(),
-                        "must exercise statistics"
-                    );
-                }
                 assert_pruning_matches_tantivy(&reader, expected);
             }
         }
@@ -2490,25 +2485,21 @@ mod tests {
     #[pg_test]
     fn analyzed_text_and_uuid_terms_keep_segments_eligible() {
         Spi::run(
-            "CREATE TABLE analyzed_pruning (id bigint PRIMARY KEY, title text NOT NULL, u uuid NOT NULL);
+            "CREATE TABLE analyzed_pruning (id bigint PRIMARY KEY, title text NOT NULL, lit text NOT NULL, u uuid NOT NULL);
              CREATE INDEX analyzed_pruning_idx ON analyzed_pruning
-             USING paradedb (id, (title::pdb.unicode_words('columnar=true')), u)
+             USING paradedb (id, (title::pdb.unicode_words('columnar=true')), (lit::pdb.literal), u)
              WITH (partition_by = 'id', target_segment_count = 8, background_layer_sizes = '0',
                    text_fields = '{\"u\": {\"tokenizer\": {\"type\": \"default\"}, \"fast\": true}}');
              SET paradedb.global_mutable_segment_rows = 0;
              INSERT INTO analyzed_pruning
-             SELECT g, 'silver dragon ' || g, '550e8400-e29b-41d4-a716-446655440000'::uuid
+             SELECT g, 'silver dragon ' || g, 'silver dragon ' || g, '550e8400-e29b-41d4-a716-446655440000'::uuid
              FROM generate_series(1, 10) g;
              INSERT INTO analyzed_pruning
-             SELECT g, 'quiet river ' || g, '650e8400-e29b-41d4-a716-446655440000'::uuid
+             SELECT g, 'quiet river ' || g, 'quiet river ' || g, '650e8400-e29b-41d4-a716-446655440000'::uuid
              FROM generate_series(11, 20) g;
              RESET paradedb.global_mutable_segment_rows;",
         ).unwrap();
-        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'analyzed_pruning_idx'::regclass::oid")
-            .unwrap()
-            .unwrap();
-        let index_rel = PgSearchRelation::open(oid);
+        let index_rel = open_index("analyzed_pruning_idx");
         let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         assert_eq!(probe.total_segment_count(), 2);
         let with_partition_predicate = |query| SearchQueryInput::Boolean {
@@ -2560,45 +2551,22 @@ mod tests {
             );
             assert_pruning_matches_tantivy(&reader, expected);
         }
-    }
-
-    #[pg_test]
-    fn literal_text_terms_still_use_segment_pruning() {
-        Spi::run(
-            "CREATE TABLE literal_text_pruning_test (
-                 id bigint PRIMARY KEY,
-                 title text NOT NULL
-             );
-             CREATE INDEX literal_text_pruning_test_idx
-             ON literal_text_pruning_test
-             USING paradedb (id, (title::pdb.literal))
-             WITH (partition_by = 'title', target_segment_count = 8,
-                   background_layer_sizes = '0');
-             SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO literal_text_pruning_test
-             SELECT g, 'silver dragon ' || g FROM generate_series(1, 10) g;
-             INSERT INTO literal_text_pruning_test
-             SELECT g, 'quiet river ' || g FROM generate_series(11, 20) g;
-             RESET paradedb.global_mutable_segment_rows;",
-        )
-        .unwrap();
-        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-
-        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
-            "SELECT 'literal_text_pruning_test_idx'::regclass::oid",
-        )
-        .unwrap()
-        .unwrap();
-        let index_rel = PgSearchRelation::open(index_oid);
-        let query = term_query("title", "silver dragon 1");
-
-        let reader = open_snapshot_reader(&index_rel, query, false);
+        // Whole-value terms are what the statistics describe.
+        let reader = open_snapshot_reader(
+            &index_rel,
+            with_partition_predicate(term_query("lit", "silver dragon 1")),
+            false,
+        );
         assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
-        assert_eq!(reader.search().count(), 1);
+        assert_pruning_matches_tantivy(&reader, 1);
     }
 
+    /// One partition's scan omits the range filter on fully included segments and keeps it on
+    /// partially included ones. The exact query over every segment is the oracle for rows (and
+    /// for scores, on `All`); the two-reader form is the oracle for scores on every query, and
+    /// the base weight is prepared once, lazily, for both variants.
     #[pg_test]
-    fn partition_queries_share_preparation_without_changing_scores() {
+    fn partition_filter_is_omitted_only_when_redundant() {
         use crate::index::stats::segments_for_partition;
         use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
@@ -2624,7 +2592,71 @@ mod tests {
             }
         }
 
-        let (index_rel, _) = segmented_index_fixture("shared_partition_weights", 2, false);
+        fn scored_hits(
+            results: impl Iterator<Item = (SearchIndexScore, DocAddress)>,
+        ) -> BTreeMap<(SegmentOrdinal, DocId), f32> {
+            results
+                .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
+                .collect()
+        }
+        let check = |index_rel: &PgSearchRelation,
+                     query: &SearchQueryInput,
+                     scoring: bool,
+                     partitioning: &RangePartitioning,
+                     partition: usize,
+                     expected_all: usize,
+                     expected_included: usize,
+                     expected_partial: usize| {
+            let mut reader = open_snapshot_reader(index_rel, query.clone(), scoring);
+            let bounds = partitioning.partition_bounds(partition);
+            let segments = segments_for_partition(&reader, partitioning, partition);
+            assert_eq!(
+                (segments.included.len(), segments.partially_included.len()),
+                (expected_included, expected_partial),
+                "{query:?}, {bounds:?}"
+            );
+
+            let exact = scored_hits(reader.and_query_input(&bounds).search());
+            let is_all = matches!(query, SearchQueryInput::All);
+            if is_all {
+                assert_eq!(exact.len(), expected_all, "{bounds:?}");
+            }
+            // Preserve the existing per-group queries, including their exact score
+            // contributions. Applying the range to every segment is not the score oracle.
+            let per_group = scored_hits(
+                reader
+                    .search_segments(segments.included.iter().copied())
+                    .chain(
+                        reader
+                            .and_query_input(&bounds)
+                            .search_segments(segments.partially_included.iter().copied()),
+                    ),
+            );
+
+            let calls = Arc::new(AtomicUsize::new(0));
+            reader.query = Box::new(CountPreparation {
+                query: reader.query.box_clone(),
+                calls: Arc::clone(&calls),
+            });
+            let scan = reader.search_segments_with_range_filter(&segments, &bounds);
+            assert_eq!(calls.load(Relaxed), 0, "preparation must remain lazy");
+            let actual = scored_hits(scan);
+            assert_eq!(actual.len(), exact.len(), "{query:?}, {bounds:?}");
+            if is_all && scoring {
+                assert_eq!(actual, exact, "{bounds:?}");
+            }
+            assert_eq!(
+                actual, per_group,
+                "{query:?}, scoring={scoring}, {bounds:?}"
+            );
+            assert_eq!(
+                calls.load(Relaxed),
+                usize::from(expected_included + expected_partial > 0)
+            );
+        };
+
+        // Fixture ids 1..=20 over two NOT NULL segments holding 1..=10 and 11..=20.
+        let (index_rel, _heap) = segmented_index_fixture("contained_range_filter_test", 2, false);
         let text = SearchQueryInput::Boolean {
             must: vec![],
             should: vec![term_query("title", "silver"), term_query("title", "quiet")],
@@ -2632,6 +2664,7 @@ mod tests {
             minimum_should_match: Some(1),
         };
         for query in [
+            SearchQueryInput::All,
             term_query("title", "silver"),
             term_query("title", "absent"),
             text.clone(),
@@ -2645,112 +2678,29 @@ mod tests {
             },
         ] {
             for scoring in [false, true] {
-                for (split, partition, expected_included, expected_partial) in
-                    [(11, 0, 1, 0), (5, 0, 0, 1), (15, 0, 1, 1), (100, 1, 0, 0)]
-                {
-                    let mut reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
+                for (split, partition, expected_all, included, partial) in [
+                    (11, 0, 10, 1, 0),
+                    (11, 1, 10, 1, 0),
+                    (5, 0, 4, 0, 1),
+                    (15, 0, 14, 1, 1),
+                    (15, 1, 6, 0, 1),
+                    (100, 1, 0, 0, 0),
+                ] {
                     let partitioning = RangePartitioning {
                         partition_by: FieldName::from("id"),
                         split_points: vec![PdbOwnedValue::I64(split)],
                     };
-                    let bounds = partitioning.partition_bounds(partition);
-                    let segments = segments_for_partition(&reader, &partitioning, partition);
-                    assert_eq!(segments.included.len(), expected_included);
-                    assert_eq!(segments.partially_included.len(), expected_partial);
-
-                    // Preserve the existing per-group queries, including their exact score
-                    // contributions. Applying the range to every segment is not the oracle.
-                    let constrained = reader.and_query_input(&bounds);
-                    let expected = reader
-                        .search_segments(segments.included.iter().copied())
-                        .chain(
-                            constrained
-                                .search_segments(segments.partially_included.iter().copied()),
-                        )
-                        .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
-                        .collect::<BTreeMap<_, _>>();
-                    let calls = Arc::new(AtomicUsize::new(0));
-                    reader.query = Box::new(CountPreparation {
-                        query: reader.query.box_clone(),
-                        calls: Arc::clone(&calls),
-                    });
-                    let scan = reader.search_segments_with_range_filter(&segments, &bounds);
-                    assert_eq!(calls.load(Relaxed), 0, "preparation must remain lazy");
-                    let actual = scan
-                        .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
-                        .collect::<BTreeMap<_, _>>();
-                    assert_eq!(
-                        actual, expected,
-                        "{query:?}, scoring={scoring}, split={split}"
-                    );
-                    assert_eq!(
-                        calls.load(Relaxed),
-                        usize::from(expected_included + expected_partial > 0)
+                    check(
+                        &index_rel,
+                        &query,
+                        scoring,
+                        &partitioning,
+                        partition,
+                        expected_all,
+                        included,
+                        partial,
                     );
                 }
-            }
-        }
-    }
-
-    #[pg_test]
-    fn partition_filter_is_omitted_only_when_redundant() {
-        use crate::index::stats::segments_for_partition;
-
-        let check_filter = |reader: &SearchIndexReader,
-                            bounds: &SearchQueryInput,
-                            partitioning: &RangePartitioning,
-                            partition: usize,
-                            expected: usize,
-                            covered: bool| {
-            let partition_segments = segments_for_partition(reader, partitioning, partition);
-            assert_eq!(
-                !partition_segments.included.is_empty()
-                    && partition_segments.partially_included.is_empty(),
-                covered,
-                "{bounds:?}"
-            );
-            let scan = reader.search_segments_with_range_filter(&partition_segments, bounds);
-            assert_eq!(scan.count(), expected, "{bounds:?}");
-            // The exact query over every segment is the oracle.
-            let exact = reader.and_query_input(bounds);
-            assert_eq!(exact.search().count(), expected, "{bounds:?}");
-            if reader.need_scores() {
-                let scan_results = reader
-                    .search_segments_with_range_filter(&partition_segments, bounds)
-                    .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
-                    .collect::<BTreeMap<_, _>>();
-                let exact_results = exact
-                    .search()
-                    .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
-                    .collect::<BTreeMap<_, _>>();
-                assert_eq!(scan_results, exact_results, "{bounds:?}");
-            }
-        };
-
-        // Fixture ids 1..=20 over two NOT NULL segments holding 1..=10 and 11..=20.
-        let (index_rel, _heap) = segmented_index_fixture("contained_range_filter_test", 2, false);
-        for scoring in [false, true] {
-            let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, scoring);
-            for (split_points, partition, expected, covered) in [
-                (vec![11], 0, 10, true),
-                (vec![11], 1, 10, true),
-                (vec![15], 0, 14, false),
-                (vec![15], 1, 6, false),
-                (vec![100], 1, 0, false),
-            ] {
-                let partitioning = RangePartitioning {
-                    partition_by: FieldName::from("id"),
-                    split_points: split_points.into_iter().map(PdbOwnedValue::I64).collect(),
-                };
-                let bounds = partitioning.partition_bounds(partition);
-                check_filter(
-                    &reader,
-                    &bounds,
-                    &partitioning,
-                    partition,
-                    expected,
-                    covered,
-                );
             }
         }
 
@@ -2764,13 +2714,7 @@ mod tests {
              RESET paradedb.global_mutable_segment_rows;",
         )
         .unwrap();
-        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
-            "SELECT 'nullable_partition_filter_idx'::regclass::oid",
-        )
-        .unwrap()
-        .unwrap();
-        let index_rel = PgSearchRelation::open(index_oid);
+        let index_rel = open_index("nullable_partition_filter_idx");
         let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let field = reader.schema().search_field("value").unwrap();
         assert_eq!(reader.segment_ids().len(), 1);
@@ -2785,31 +2729,62 @@ mod tests {
         // included and searches without the partition filter: all three rows belong to it.
         // Partition 1 does not own NULLs, so the same segment stays partially included and
         // the filter excludes the NULL row.
-        for (split_points, partition, expected, covered) in
-            [(vec![21], 0, 3, true), (vec![5], 1, 2, false)]
+        for (split, partition, expected_all, included, partial) in
+            [(21, 0, 3, 1, 0), (5, 1, 2, 0, 1)]
         {
             let partitioning = RangePartitioning {
                 partition_by: FieldName::from("value"),
-                split_points: split_points.into_iter().map(PdbOwnedValue::I64).collect(),
+                split_points: vec![PdbOwnedValue::I64(split)],
             };
-            let bounds = partitioning.partition_bounds(partition);
-            check_filter(
-                &reader,
-                &bounds,
+            check(
+                &index_rel,
+                &SearchQueryInput::All,
+                false,
                 &partitioning,
                 partition,
-                expected,
-                covered,
+                expected_all,
+                included,
+                partial,
             );
         }
     }
 
     #[pg_test]
-    fn segment_checks_short_circuit_and_share_only_component_opens() {
+    fn statistics_are_read_only_when_a_decision_needs_them() {
         use crate::index::segment_pruning::EMPIRICAL_READS;
         use std::sync::atomic::Ordering::Relaxed;
 
         let (index_rel, _heap) = segmented_index_fixture("direct_segment_checks", 4, true);
+
+        STATS_OPENS.store(0, Relaxed);
+        let unprovable = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        assert_eq!(unprovable.search().count(), 45);
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            0,
+            "a query without a provable predicate must not open any .stats component"
+        );
+        // Planning estimates open the largest segment only, as the join planner does.
+        let estimating = SearchIndexReader::open(
+            &index_rel,
+            range_query("id", 100, 200),
+            false,
+            MvccSatisfies::LargestSegment,
+        )
+        .unwrap();
+        estimating.estimate_docs(RowEstimate::Known(40));
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            0,
+            "a reader that only estimates must not open statistics"
+        );
+        assert_eq!(estimating.segment_pruning_estimate().candidate_segments, 0);
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            1,
+            "the first search decision opens the segment's statistics"
+        );
+
         let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();
         let query = SearchQueryInput::Boolean {
             must: vec![range_query("id", 1, 30), range_query("id", 5, 25)],
@@ -2846,25 +2821,10 @@ mod tests {
         )
         .unwrap();
         assert_pruning_matches_tantivy(&sibling, 10);
-        let id = reader.schema().search_field("id").unwrap();
-        let range = RangePartitioning {
-            partition_by: FieldName::from("id"),
-            split_points: vec![PdbOwnedValue::I64(11), PdbOwnedValue::I64(21)],
-        }
-        .partition_range(1)
-        .unwrap();
-        assert_eq!(
-            reader
-                .segment_stats_snapshot()
-                .segments_intersecting_partition(&id, &range)
-                .count(),
-            2,
-            "retain the matching immutable segment and the mutable segment without statistics"
-        );
         assert_eq!(
             STATS_OPENS.load(Relaxed),
             5,
-            "derived readers, manifest siblings and partition routing reuse opened components, including absence"
+            "derived readers and manifest siblings reuse opened components, including absence"
         );
         let fresh = open_snapshot_reader(&index_rel, range_query("id", 31, 40), false);
         assert_pruning_matches_tantivy(&fresh, 10);
@@ -2916,10 +2876,7 @@ mod tests {
             INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(1, 10) g;
             INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(11, 20) g;
             RESET paradedb.global_mutable_segment_rows;").unwrap();
-        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'grouped_term_proofs_idx'::regclass::oid")
-            .unwrap()
-            .unwrap();
-        let index_rel = PgSearchRelation::open(oid);
+        let index_rel = open_index("grouped_term_proofs_idx");
         let mut same_field = (1000..1512)
             .map(|value| TermInput {
                 field: FieldName::from("id"),
@@ -3017,11 +2974,7 @@ mod tests {
              INSERT INTO candidate_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(11,20) g;
              RESET paradedb.global_mutable_segment_rows;",
         ).unwrap();
-        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'candidate_vectors_idx'::regclass::oid")
-            .unwrap()
-            .unwrap();
-        let index_rel = PgSearchRelation::open(oid);
+        let index_rel = open_index("candidate_vectors_idx");
         let base = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         assert_eq!(base.segment_ids().len(), 2);
         for (lo, hi, expected_rows, expected_segments) in [
@@ -3030,69 +2983,67 @@ mod tests {
             (1, 20, 20, 2),
             (99, 100, 0, 0),
         ] {
-            let query = range_query("id", lo, hi);
-            for reader in [open_snapshot_reader(&index_rel, query.clone(), false)] {
-                for reverse in [false, true] {
-                    let mut ids = reader.segment_ids();
-                    if reverse {
-                        ids.reverse();
-                    }
-                    for tie_break in [false, true] {
-                        let mut order = vec![OrderByInfo {
-                            feature: OrderByFeature::VectorDistance {
-                                name: FieldName::from("embedding"),
+            let reader = open_snapshot_reader(&index_rel, range_query("id", lo, hi), false);
+            for reverse in [false, true] {
+                let mut ids = reader.segment_ids();
+                if reverse {
+                    ids.reverse();
+                }
+                for tie_break in [false, true] {
+                    let mut order = vec![OrderByInfo {
+                        feature: OrderByFeature::VectorDistance {
+                            name: FieldName::from("embedding"),
+                            rti: 0,
+                            query_vector: QueryVector::Resolved(vec![1.0, 0.0, 0.0]),
+                            metric: VectorMetric::L2,
+                        },
+                        direction: SortDirection::AscNullsLast,
+                    }];
+                    if tie_break {
+                        order.push(OrderByInfo {
+                            feature: OrderByFeature::Field {
+                                name: FieldName::from("id"),
                                 rti: 0,
-                                query_vector: QueryVector::Resolved(vec![1.0, 0.0, 0.0]),
-                                metric: VectorMetric::L2,
                             },
                             direction: SortDirection::AscNullsLast,
-                        }];
-                        if tie_break {
-                            order.push(OrderByInfo {
-                                feature: OrderByFeature::Field {
-                                    name: FieldName::from("id"),
-                                    rti: 0,
-                                },
-                                direction: SortDirection::AscNullsLast,
-                            });
-                        }
-                        let top = reader.search_top_k_in_segments(
-                            ids.iter().copied(),
-                            &order,
-                            50,
-                            0,
-                            None,
-                            None,
-                        );
-                        let docs = top.results.map(|(_, doc)| doc).collect::<Vec<_>>();
-                        assert_eq!(docs.len(), expected_rows);
-                        for doc in &docs {
-                            let id = reader
+                        });
+                    }
+                    let top = reader.search_top_k_in_segments(
+                        ids.iter().copied(),
+                        &order,
+                        50,
+                        0,
+                        None,
+                        None,
+                    );
+                    let docs = top.results.map(|(_, doc)| doc).collect::<Vec<_>>();
+                    assert_eq!(docs.len(), expected_rows);
+                    for doc in &docs {
+                        let id = reader
+                            .searcher()
+                            .segment_reader(doc.segment_ord)
+                            .fast_fields()
+                            .i64("id")
+                            .unwrap()
+                            .first(doc.doc_id)
+                            .unwrap();
+                        assert!((lo..=hi).contains(&id), "excluded segment returned id {id}");
+                    }
+                    assert_eq!(top.segment_info.len(), expected_segments);
+                    let returned_segments = docs
+                        .iter()
+                        .map(|doc| {
+                            reader
                                 .searcher()
                                 .segment_reader(doc.segment_ord)
-                                .fast_fields()
-                                .i64("id")
-                                .unwrap()
-                                .first(doc.doc_id)
-                                .unwrap();
-                            assert!((lo..=hi).contains(&id), "excluded segment returned id {id}");
-                        }
-                        assert_eq!(top.segment_info.len(), expected_segments);
-                        let returned_segments = docs
-                            .iter()
-                            .map(|doc| {
-                                reader
-                                    .searcher()
-                                    .segment_reader(doc.segment_ord)
-                                    .segment_id()
-                            })
-                            .collect::<HashSet<_>>();
-                        assert_eq!(
-                            top.segment_info.keys().copied().collect::<HashSet<_>>(),
-                            returned_segments,
-                            "statistics must name the actual returned segments, regardless of input order"
-                        );
-                    }
+                                .segment_id()
+                        })
+                        .collect::<HashSet<_>>();
+                    assert_eq!(
+                        top.segment_info.keys().copied().collect::<HashSet<_>>(),
+                        returned_segments,
+                        "statistics must name the actual returned segments, regardless of input order"
+                    );
                 }
             }
         }
@@ -3139,7 +3090,7 @@ mod tests {
             ),
             (
                 SearchQueryInput::Boost {
-                    query: Box::new(id),
+                    query: Box::new(id.clone()),
                     factor: 2.0,
                 },
                 10,
@@ -3153,6 +3104,39 @@ mod tests {
                     }],
                 },
                 1,
+                true,
+            ),
+            // A disjunction keeps its strongest child.
+            (
+                SearchQueryInput::DisjunctionMax {
+                    disjuncts: vec![range_query("id", 100, 200), range_query("id", 1, 20)],
+                    tie_breaker: None,
+                },
+                20,
+                true,
+            ),
+            (
+                SearchQueryInput::DisjunctionMax {
+                    disjuncts: vec![range_query("id", 100, 200), range_query("id", 100, 200)],
+                    tie_breaker: None,
+                },
+                0,
+                true,
+            ),
+            // A negative `minimum_should_match` compiles to a huge `usize`; the compiled shape
+            // stays authoritative under NOT.
+            (
+                boolean(
+                    vec![id.clone()],
+                    vec![],
+                    vec![SearchQueryInput::Boolean {
+                        must: vec![],
+                        should: vec![SearchQueryInput::All],
+                        must_not: vec![],
+                        minimum_should_match: Some(-1),
+                    }],
+                ),
+                0,
                 true,
             ),
         ];
@@ -3215,11 +3199,7 @@ mod tests {
                  RESET paradedb.global_mutable_segment_rows;"
             ))
             .unwrap();
-            unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-            let oid = Spi::get_one::<pg_sys::Oid>(&format!("SELECT '{name}_idx'::regclass::oid"))
-                .unwrap()
-                .unwrap();
-            let index_rel = PgSearchRelation::open(oid);
+            let index_rel = open_index(&format!("{name}_idx"));
             // Both indexes contain usable statistics. Skipping them must be the relevance gate,
             // not a fixture without persisted components or empirical entries.
             let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
@@ -3264,58 +3244,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[pg_test]
-    fn statistics_are_read_only_when_a_decision_needs_them() {
-        use std::sync::atomic::Ordering::Relaxed;
-
-        let (index_rel, _heap) = segmented_index_fixture("lazy_stats_open_test", 4, false);
-
-        STATS_OPENS.store(0, Relaxed);
-        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-        assert_eq!(reader.search().count(), 40);
-        assert_eq!(
-            STATS_OPENS.load(Relaxed),
-            0,
-            "a query without a provable predicate must not open any .stats component"
-        );
-
-        // Planning estimates open the largest segment only, as the join planner does.
-        let estimating = SearchIndexReader::open(
-            &index_rel,
-            range_query("id", 100, 200),
-            false,
-            MvccSatisfies::LargestSegment,
-        )
-        .unwrap();
-        estimating.estimate_docs(RowEstimate::Known(40));
-        assert_eq!(
-            STATS_OPENS.load(Relaxed),
-            0,
-            "a reader that only estimates must not open statistics"
-        );
-        assert_eq!(estimating.segment_pruning_estimate().candidate_segments, 0);
-        assert_eq!(
-            STATS_OPENS.load(Relaxed),
-            1,
-            "the first search decision opens the segment's statistics"
-        );
-
-        STATS_OPENS.store(0, Relaxed);
-        let reader = open_snapshot_reader(&index_rel, range_query("id", 1, 10), false);
-        assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
-        assert_eq!(
-            STATS_OPENS.load(Relaxed),
-            4,
-            "a range decision opens each immutable segment's .stats exactly once"
-        );
-        assert_eq!(reader.search().count(), 10);
-        assert_eq!(
-            STATS_OPENS.load(Relaxed),
-            4,
-            "executing the search must not reopen statistics"
-        );
     }
 
     #[pg_test]

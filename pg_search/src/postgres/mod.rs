@@ -1347,15 +1347,10 @@ pub(crate) mod test_support {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::api::FieldName;
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::SearchIndexReader;
-    use crate::index::reader::index::test_support::segmented_index_fixture;
+    use crate::index::reader::index::test_support::{range_query, segmented_index_fixture};
     use crate::index::segment_pruning::STATS_OPENS;
-    use crate::postgres::pdb_owned_value::PdbOwnedValue;
-    use crate::query::SearchQueryInput;
-    use crate::query::pdb_query::pdb;
-    use std::ops::Bound;
     use std::sync::atomic::Ordering::Relaxed;
 
     /// A lazily checked-out scan decides each segment as it is claimed, so a participant never
@@ -1363,33 +1358,19 @@ mod tests {
     #[pg_test]
     fn lazy_checkout_decides_only_claimed_segments() {
         let (index_rel, _heap) = segmented_index_fixture("lazy_claim_pruning", 4, false);
-        let query = SearchQueryInput::FieldedQuery {
-            field: FieldName::from("id"),
-            query: pdb::Query::Range {
-                lower_bound: Bound::Included(PdbOwnedValue::I64(11)),
-                upper_bound: Bound::Included(PdbOwnedValue::I64(20)),
-            },
-        };
-        let reader =
-            SearchIndexReader::open(&index_rel, query, false, MvccSatisfies::Snapshot).unwrap();
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            range_query("id", 11, 20),
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
         let view = reader.segment_view();
         assert_eq!(view.len(), 4);
         // Share only two of the four segments, so the other two are never claimed.
         let claimable_view = SegmentView::new(view.entries()[..2].to_vec());
         let claimable = claimable_view.ids().collect::<Vec<_>>();
-
-        let args = ParallelScanArgs {
-            all_sources: vec![claimable_view],
-            query: Vec::new(),
-            with_aggregates: false,
-            with_segment_info: false,
-        };
-        let size = ParallelScanState::size_of(&args.all_nsegments(), &args.query, false, false);
-        let state = unsafe {
-            let state = pg_sys::palloc0(size).cast::<ParallelScanState>();
-            (*state).create_and_populate(args);
-            state
-        };
+        let state = test_support::parallel_state_for_view(claimable_view);
 
         STATS_OPENS.store(0, Relaxed);
         let hits = reader.search_lazy(state, None, 0).count();

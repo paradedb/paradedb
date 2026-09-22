@@ -992,13 +992,12 @@ mod tests {
     #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioned_assigned_execution() {
         use crate::api::FieldName;
+        use crate::index::reader::index::test_support::range_query;
         use crate::index::segment_pruning::{EMPIRICAL_READS, STATS_OPENS};
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
-        use crate::query::pdb_query::pdb;
         use arrow_array::Int64Array;
         use datafusion::physical_plan::Partitioning;
         use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
-        use std::ops::Bound;
         use std::sync::atomic::Ordering::Relaxed;
         use tantivy::index::SegmentId;
 
@@ -1221,14 +1220,7 @@ mod tests {
         // A predicate on the partition column still prunes after dispatch. The worker opens
         // statistics while sizing the plan in `PgSearchScanPlan::new`, then decides per
         // segment during execution.
-        let predicate = SearchQueryInput::FieldedQuery {
-            field: FieldName::from("id"),
-            query: pdb::Query::Range {
-                lower_bound: Bound::Included(PdbOwnedValue::I64(30)),
-                upper_bound: Bound::Included(PdbOwnedValue::I64(40)),
-            },
-        };
-        let (filtered, _) = make_plan(predicate);
+        let (filtered, _) = make_plan(range_query("id", 30, 40));
         let filtered = filtered.with_assigned_partition(1);
         let filtered_encoded = filtered.encode_for_dispatch(&proto_converter).unwrap();
         let opens_before_decode = STATS_OPENS.load(Relaxed);

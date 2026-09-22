@@ -112,11 +112,3 @@ For the other test categories (pg regress, integration tests, client property te
 ## Benchmarks
 
 See [`benchmarks/README.md`](../benchmarks/README.md).
-
-## Reading component files
-
-Index component files span PostgreSQL pages. Each file has a block list that maps positions in the file to physical pages.
-
-Readers use the first and last page pointers in the file header directly, so footer reads can skip the block list. For other pages, readers load only enough of the block list to find the requested page and keep those mappings for later reads.
-
-The first and last page shortcuts apply only to finalized, published files. When reclaiming a file, the reader loads any remaining mappings so every page is returned to the free space map. The on-disk format is unchanged, and existing indexes do not need rebuilding.

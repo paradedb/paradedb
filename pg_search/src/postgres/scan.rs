@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
-use crate::index::fast_fields_helper::{FFType, resolve_ctid};
+use crate::index::fast_fields_helper::{TidCache, resolve_ctid};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::index_only::IndexOnlyScanState;
@@ -36,7 +36,8 @@ pub struct Bm25ScanState {
     ambulkdelete_epoch: u32,
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
     /// reader for every row returned from the same segment.
-    ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
+    // TODO: Rename ctid -> tid
+    ctid_cache: TidCache,
 }
 
 #[pg_guard]
@@ -351,10 +352,10 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
         // Clone the Searcher (cheap Arc clone) to avoid holding a borrow on
         // `state.results` while also needing to look up `state.ctid_cache`.
         let searcher = state.reader.searcher().clone();
-        let mut ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)> = None;
+        let mut tid_cache: TidCache = None;
         if let Some(search_results) = state.results.as_mut() {
             for (_scored, doc_address) in search_results {
-                let ctid = resolve_ctid(&mut ctid_cache, &searcher, doc_address);
+                let ctid = resolve_ctid(&mut tid_cache, &searcher, doc_address);
 
                 let mut ipd = pg_sys::ItemPointerData::default();
                 crate::postgres::utils::u64_to_item_pointer(ctid, &mut ipd);

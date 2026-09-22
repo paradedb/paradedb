@@ -36,8 +36,8 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use tantivy::schema::{Field, FieldType, Schema};
 
-use crate::api::FieldName;
 use crate::api::version::Version;
+use crate::api::{CTID_FIELD_NAME, FieldName, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
 use crate::index::kdtree::{KdTree, Point};
 use crate::index::stats;
 use crate::postgres::composite::CompositeSlotValues;
@@ -49,7 +49,7 @@ use crate::postgres::utils::{
     FieldSource, item_pointer_to_u64, resolve_field_value, scalar_datum_to_tantivy_value,
     unwrap_alias_datum,
 };
-use crate::schema::{CategorizedFieldData, SearchField};
+use crate::schema::{CategorizedFieldData, SearchField, SearchIndexSchema};
 
 /// Upper bound on the heap blocks read for the sample. Blocks are chosen uniformly at random,
 /// so a table physically ordered by a `partition_by` field still yields a spread of positions
@@ -78,10 +78,18 @@ pub(super) fn plan_partition_boundaries(
     snapshot: pg_sys::Snapshot,
     target_partitions: usize,
 ) -> anyhow::Result<Option<KdTree>> {
-    let partition_by = indexrel.options().partition_by();
-    if partition_by.is_empty() {
+    let raw_partition_by = indexrel.options().partition_by();
+    if raw_partition_by.is_empty() {
         return Ok(None);
     }
+    let schema = indexrel.schema()?;
+    // For partition_by, we implicitly only partition by tid_block when ctid is requested
+    // on a split schema. Partitioning by tid_block is sufficient to achieve the goal, since
+    // tid_block is a prefix of (block, offset). Meanwhile, we sort by both tid_block and
+    // tid_offset because sorting by both maximizes compression.
+    let partition_by =
+        SearchIndexSchema::build_partition_by_fields(&raw_partition_by, schema.tantivy_schema());
+
     if target_partitions <= 1 {
         return Ok(Some(KdTree::unpartitioned(partition_by)));
     }
@@ -116,6 +124,38 @@ fn dim_fast(schema: &Schema, field: Field) -> bool {
 /// by without one, and `partition_by` has none to run its range query against.
 pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &str) -> Result<()> {
     for dim in dims {
+        // TODO: Consider what we want to support in terms of partitioning (and segment sorting).
+        // It's possible that for both partitioning and sorting, we want to still expose ctid/tid
+        // as the user-facing name.
+        if dim.is_ctid() {
+            if let Ok(block) = schema.get_field(TID_BLOCK_FIELD_NAME) {
+                // In split mode, the tuple identifier is stored across tid_block and tid_offset.
+                // For partition_by, we implicitly only partition by tid_block (sufficient since
+                // tid_block is a prefix), so only tid_block is required.
+                // Meanwhile, for sort_by, we sort by both to maximize compression.
+                if !dim_fast(schema, block) {
+                    bail!("{reloption} field '{TID_BLOCK_FIELD_NAME}' must be columnar");
+                }
+                if reloption == "sort_by" {
+                    let offset = schema
+                        .get_field(TID_OFFSET_FIELD_NAME)
+                        .map_err(|_| anyhow::anyhow!("{reloption} field '{TID_OFFSET_FIELD_NAME}' does not exist in the index schema"))?;
+                    if !dim_fast(schema, offset) {
+                        bail!("{reloption} field '{TID_OFFSET_FIELD_NAME}' must be columnar");
+                    }
+                }
+            } else {
+                let field = schema.get_field(CTID_FIELD_NAME).map_err(|_| {
+                    anyhow::anyhow!("{reloption} field '{dim}' does not exist in the index schema")
+                })?;
+                if !dim_fast(schema, field) {
+                    bail!(
+                        "{reloption} field '{dim}' must be columnar. Add it to the index with 'columnar=true'"
+                    );
+                }
+            }
+            continue;
+        }
         let Ok(field) = schema.get_field(dim.as_ref()) else {
             bail!("{reloption} field '{dim}' does not exist in the index schema");
         };
@@ -135,6 +175,9 @@ pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &s
 pub(crate) fn normalized_dims(schema: &Schema, dims: &[FieldName]) -> Vec<FieldName> {
     dims.iter()
         .filter(|dim| {
+            if dim.is_ctid() || dim.as_ref() == TID_BLOCK_FIELD_NAME {
+                return false;
+            }
             schema
                 .get_field(dim.as_ref())
                 .is_ok_and(|field| !stats::logical_bounds_hold(schema, field))
@@ -183,6 +226,7 @@ impl CategorizedPartitionField {
 #[derive(Clone)]
 pub(crate) enum PartitionField {
     Ctid,
+    TidBlock,
     Categorized(Box<CategorizedPartitionField>),
 }
 
@@ -193,7 +237,9 @@ impl PartitionField {
     ) -> anyhow::Result<Vec<Self>> {
         dims.iter()
             .map(|dim| {
-                if dim.is_ctid() {
+                if dim.as_ref() == TID_BLOCK_FIELD_NAME {
+                    Ok(Self::TidBlock)
+                } else if dim.is_ctid() {
                     Ok(Self::Ctid)
                 } else {
                     categorized_fields
@@ -252,7 +298,7 @@ unsafe fn sample_partition_fields(
     };
 
     let needs_expressions = fields.iter().any(|f| match f {
-        PartitionField::Ctid => false,
+        PartitionField::Ctid | PartitionField::TidBlock => false,
         PartitionField::Categorized(categorized) => {
             !matches!(categorized.categorized.source, FieldSource::Heap { .. })
         }
@@ -415,7 +461,7 @@ unsafe fn project_row(
                     None
                 }
             }
-            PartitionField::Ctid => None,
+            PartitionField::Ctid | PartitionField::TidBlock => None,
         }))
     };
 
@@ -423,6 +469,10 @@ unsafe fn project_row(
         .iter()
         .map(|f| match f {
             PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
+            PartitionField::TidBlock => {
+                let block = crate::postgres::utils::u64_ctid_block_number(ctid);
+                Ok(PdbOwnedValue::U64(block as u64))
+            }
             PartitionField::Categorized(categorized) => {
                 let (datum, is_null) = resolve_field_value(
                     &categorized.categorized.source,
@@ -703,7 +753,7 @@ mod tests {
         let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
             .unwrap()
             .expect("index declares partition_by");
-        assert_eq!(tree.dims(), &[FieldName::from("ctid")]);
+        assert_eq!(tree.dims(), &[FieldName::from(TID_BLOCK_FIELD_NAME)]);
         assert_eq!(tree.partition_count(), 4, "{tree}");
 
         let (heaprel, indexrel) = open_rels("sample_multi_ctid", "sample_multi_ctid_idx");
@@ -712,7 +762,10 @@ mod tests {
             .expect("index declares partition_by");
         assert_eq!(
             tree.dims(),
-            &[FieldName::from("tenant_id"), FieldName::from("ctid")]
+            &[
+                FieldName::from("tenant_id"),
+                FieldName::from(TID_BLOCK_FIELD_NAME)
+            ]
         );
         assert_eq!(tree.partition_count(), 4, "{tree}");
 

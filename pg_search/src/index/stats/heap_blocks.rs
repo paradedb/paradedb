@@ -68,7 +68,7 @@ use tantivy::directory::{CompositeWrite, FileSlice, OwnedBytes};
 use tantivy::index::{Segment, SegmentComponent};
 use tantivy::{Directory, HasLen};
 
-use crate::api::CTID_FIELD_NAME;
+use crate::api::{CTID_FIELD_NAME, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
 use crate::postgres::heap::HEAPBLOCKS_PER_PAGE;
 
 pub(super) const PRESENCE_IDX: usize = 3;
@@ -96,24 +96,39 @@ fn u32_at(bytes: &[u8], at: usize) -> u32 {
 
 /// Writes presence and boundary entries from the finished CTID column at flush or merge.
 pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Result<()> {
-    if !segment
-        .index()
-        .settings()
-        .sort_by_field
-        .as_ref()
-        .is_some_and(|sort| sort.field == CTID_FIELD_NAME)
-    {
+    let settings = segment.index().settings();
+    let is_ctid_sorted = match settings.sort_by_fields() {
+        [sort] if sort.field == CTID_FIELD_NAME => true,
+        [block, offset]
+            if block.field == TID_BLOCK_FIELD_NAME
+                && offset.field == TID_OFFSET_FIELD_NAME
+                && block.order == offset.order =>
+        {
+            true
+        }
+        _ => false,
+    };
+    if !is_ctid_sorted {
         return Ok(());
     }
     if HEAPBLOCKS_PER_PAGE > u16::MAX as u32 || !HEAPBLOCKS_PER_PAGE.is_multiple_of(32) {
         return Ok(());
     }
     let schema = segment.schema();
-    let Ok(field) = schema.get_field(CTID_FIELD_NAME) else {
+    let (field, is_split) = if let Ok(block_field) = schema.get_field(TID_BLOCK_FIELD_NAME) {
+        (block_field, true)
+    } else if let Ok(ctid_field) = schema.get_field(CTID_FIELD_NAME) {
+        (ctid_field, false)
+    } else {
         return Ok(());
     };
     let fast = ColumnarReader::open(segment.open_read(SegmentComponent::FastFields)?)?;
-    let handles = fast.read_columns(CTID_FIELD_NAME)?;
+    let field_name = if is_split {
+        TID_BLOCK_FIELD_NAME
+    } else {
+        CTID_FIELD_NAME
+    };
+    let handles = fast.read_columns(field_name)?;
     let [handle] = handles.as_slice() else {
         return Ok(());
     };
@@ -158,14 +173,22 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
     let mut presence_bytes = 0u32;
     let mut previous = None;
 
+    let get_block = |value: u64| -> io::Result<u32> {
+        if is_split {
+            u32::try_from(value).map_err(|_| invalid())
+        } else {
+            u32::try_from(value >> 16).map_err(|_| invalid())
+        }
+    };
+
     // Spool one VM page at a time, keeping presence densely packed apart from boundaries.
     while let Some(&value) = values.peek() {
         pgrx::check_for_interrupts!();
-        let block = u32::try_from(value >> 16).map_err(|_| invalid())?;
+        let block = get_block(value)?;
         let vm_page = block / HEAPBLOCKS_PER_PAGE;
         present_blocks.clear();
         while let Some(&value) = values.peek() {
-            let block = u32::try_from(value >> 16).map_err(|_| invalid())?;
+            let block = get_block(value)?;
             if previous.is_some_and(|last| block < last) {
                 return Ok(());
             }

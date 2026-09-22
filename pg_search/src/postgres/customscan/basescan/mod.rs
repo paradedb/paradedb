@@ -1167,8 +1167,9 @@ impl CustomScan for BaseScan {
                     // Validate that all fields in window aggregates exist in the index schema
                     // and are supported for aggregate pushdown (not NUMERIC)
                     if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {
-                        for window_agg in &window_aggregates {
-                            for agg_type in window_agg.targetlist.aggregates() {
+                        for window_agg in &mut window_aggregates {
+                            for agg_type in window_agg.targetlist.aggregates_mut() {
+                                agg_type.rewrite_ctid_to_tid_offset(&schema);
                                 if let Err(e) = agg_type.validate_fields(&schema) {
                                     pgrx::error!("{}", e);
                                 }

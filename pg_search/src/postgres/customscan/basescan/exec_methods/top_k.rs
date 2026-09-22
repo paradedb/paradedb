@@ -495,6 +495,7 @@ impl ExecMethod for TopKScanExecState {
         let raw_results = search_results.results;
         let mut resolved_ctids = vec![0u64; raw_results.len()];
         let mut seg_ctids_buffer = Vec::new();
+        let mut seg_scratch_buffer = Vec::new();
 
         let search_reader = self
             .search_reader
@@ -511,9 +512,11 @@ impl ExecMethod for TopKScanExecState {
         for_each_segment(num_segments, doc_addresses, |seg_ord, rows| {
             let doc_ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
             seg_ctids_buffer.resize(doc_ids.len(), None);
-            ffhelper
-                .ctid(seg_ord)
-                .as_u64s(&doc_ids, &mut seg_ctids_buffer);
+            ffhelper.ctid(seg_ord).as_u64s(
+                &doc_ids,
+                &mut seg_ctids_buffer,
+                &mut seg_scratch_buffer,
+            );
             for ((orig_idx, _), maybe_ctid) in rows.into_iter().zip(seg_ctids_buffer.drain(..)) {
                 resolved_ctids[orig_idx] = maybe_ctid.expect("All rows must have ctids.");
             }

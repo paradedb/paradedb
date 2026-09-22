@@ -321,8 +321,8 @@ pub async fn build_join_aggregate_plan(
     // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
     // bounded TopK heap.
     if let Some(topk) = topk {
-        let sort_col_name = topk.sort_target.resolve_sort_col_name(targetlist, plan);
-        let sort_expr = datafusion::prelude::col(&sort_col_name)
+        let sort_column = topk.sort_target.resolve_sort_column(targetlist, plan);
+        let sort_expr = Expr::Column(sort_column)
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         df = df.sort(vec![sort_expr])?;
         df = df.limit(0, Some(topk.k))?;
@@ -1073,7 +1073,10 @@ async fn build_source_df(
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
-    let source_idx = mpp_manifests.map(|_| plan_position);
+    let is_mpp = mpp_manifests.is_some()
+        || (crate::postgres::customscan::mpp::glue::mpp_is_active()
+            && ctx.state().config().target_partitions() > 1);
+    let source_idx = is_mpp.then_some(plan_position);
     let mut provider = PgSearchTableProvider::new(scan_info, fields.clone(), source_idx);
     // The leader claims segments out of the DSM pool the same manifests populate, so its own
     // reader is built from the source's manifest. This plan never crosses the codec that

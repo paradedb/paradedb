@@ -877,7 +877,7 @@ fn term(
     index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
-    let record_option = IndexRecordOption::WithFreqsAndPositions;
+    let record_option = IndexRecordOption::WithFreqs;
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1862,7 +1862,7 @@ fn phrase_array(
         )?;
         Ok(Box::new(TermQuery::new(
             term,
-            IndexRecordOption::WithFreqsAndPositions.into(),
+            IndexRecordOption::WithFreqs.into(),
         )))
     } else {
         for token in tokens {
@@ -1944,7 +1944,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
             )?;
             return Ok(Box::new(TermQuery::new(
                 term,
-                IndexRecordOption::WithFreqsAndPositions.into(),
+                IndexRecordOption::WithFreqs.into(),
             )));
         }
         // If conversion fails, fall through to standard parsing (will likely error)
@@ -2107,10 +2107,7 @@ fn match_array_query(
             index_created_by_version,
         )?;
         let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
-            (0, _) => Box::new(TermQuery::new(
-                term,
-                IndexRecordOption::WithFreqsAndPositions.into(),
-            )),
+            (0, _) => Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs.into())),
             (distance, true) => Box::new(FuzzyTermQuery::new_prefix(
                 term,
                 distance,
@@ -2399,6 +2396,94 @@ mod tests {
             field: crate::api::FieldName::from("field"),
             query,
         }
+    }
+
+    #[pg_test]
+    fn term_scoring_does_not_open_positions() {
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::postgres::rel::PgSearchRelation;
+        use tantivy::collector::TopDocs;
+        use tantivy::directory::{Directory, RamDirectory};
+        use tantivy::index::SegmentComponent;
+        use tantivy::query::{QueryParser, TermQuery};
+        use tantivy::schema::IndexRecordOption;
+        use tantivy::{Term, doc};
+
+        Spi::run(
+            "CREATE TABLE term_positions (id BIGINT, title TEXT);
+             CREATE INDEX term_positions_idx ON term_positions USING bm25 (id, title);",
+        )
+        .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'term_positions_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let relation = PgSearchRelation::open(oid);
+        let schema = relation.schema().unwrap();
+        let field = schema.search_field("title").unwrap().field();
+        let directory = RamDirectory::create();
+        let index = relation.create_in_memory_index(directory.clone()).unwrap();
+        let mut writer = index.writer_with_num_threads(1, 15_000_000).unwrap();
+        for title in ["database database", "database systems", "other systems"] {
+            writer.add_document(doc!(field => title)).unwrap();
+        }
+        writer.commit().unwrap();
+        writer.wait_merging_threads().unwrap();
+
+        let term = Term::from_field_text(field, "database");
+        let with_positions = TermQuery::new(term, IndexRecordOption::WithFreqsAndPositions);
+        let top_docs = TopDocs::with_limit(2).order_by_score();
+        let reader = index.reader().unwrap();
+        let expected = reader
+            .searcher()
+            .search(&with_positions, &top_docs)
+            .unwrap();
+        assert_eq!(expected.len(), 2);
+        assert!(expected[0].0 > expected[1].0);
+        assert!(expected[1].0 > 0.0);
+        drop(reader);
+
+        for segment in index.searchable_segment_metas().unwrap() {
+            directory
+                .delete(&segment.relative_path(SegmentComponent::Positions))
+                .unwrap();
+        }
+        let reader = index.reader().unwrap();
+        let searcher = reader.searcher();
+        let queries = [
+            Query::Term {
+                value: PdbOwnedValue::Str("database".into()),
+            },
+            match_query("database"),
+            Query::MatchArray {
+                tokens: vec!["database".into()],
+                distance: None,
+                transposition_cost_one: None,
+                prefix: None,
+                conjunction_mode: None,
+            },
+            Query::PhraseArray {
+                tokens: vec!["database".into()],
+                slop: None,
+            },
+            Query::TokenizedPhrase {
+                phrase: "database".into(),
+                slop: None,
+            },
+        ];
+        for query in queries {
+            let query = query
+                .into_tantivy_query(
+                    "title".into(),
+                    &schema,
+                    relation.created_by_version(),
+                    &|| QueryParser::for_index(&index, vec![field]),
+                    &searcher,
+                    oid,
+                )
+                .unwrap();
+            assert_eq!(searcher.search(&query, &top_docs).unwrap(), expected);
+        }
+        assert!(searcher.search(&with_positions, &top_docs).is_err());
     }
 
     #[pg_test]

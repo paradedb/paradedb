@@ -1,5 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_custom_scan_without_operator TO on;
 CREATE TABLE issue_5751_series (
     id bigint PRIMARY KEY,
     state text
@@ -598,6 +599,7 @@ SELECT issue_5751_result(
 (1 row)
 
 RESET enable_partitionwise_join;
+RESET paradedb.enable_custom_scan_without_operator;
 DROP FUNCTION issue_5751_plan_uses(text, text), issue_5751_result(text, boolean);
 DROP TABLE issue_5751_js_left, issue_5751_js_right;
 DROP TABLE issue_5751_pw_a, issue_5751_pw_b;

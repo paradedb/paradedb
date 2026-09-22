@@ -127,7 +127,7 @@ if [[ $ORMS =~ "django" ]]; then
 
   echo "Installing Django ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "django-paradedb==0.12.0" \
+    "django-paradedb==0.13.0" \
     "django-cte>=2.0" \
     "psycopg[binary]"
 

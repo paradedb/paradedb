@@ -85,7 +85,7 @@ jobs:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m8gd.metal-24xl # Chosen for its performance consistency across hosts
+      - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu24-full-arm64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
@@ -526,10 +526,20 @@ jobs:
             gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@recall_body.md
           fi
 
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [benchmark-pg_search-queries]
+    if: always() && needs.benchmark-pg_search-queries.result == 'failure' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: read
+    steps:
       - name: Notify Slack on Failure (push only)
-        if: failure() && github.event_name == 'push'
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
+          suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
+          job_results: ${{ toJSON(needs) }}
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "${{ github.workflow }} Failed"

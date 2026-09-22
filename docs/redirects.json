@@ -209,7 +209,11 @@
   },
   {
     "source": "/documentation/sorting/boost",
-    "destination": "/reference/full-text/boost"
+    "destination": "/reference/full-text/relevance-tuning"
+  },
+  {
+    "source": "/reference/full-text/boost",
+    "destination": "/reference/full-text/relevance-tuning"
   },
   {
     "source": "/documentation/full-text/highlight",

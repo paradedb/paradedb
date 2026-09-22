@@ -452,10 +452,6 @@ GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
 
-
-
-RESET paradedb.enable_aggregate_late_materialization;
-
 DROP TABLE lmp_profiles;
 DROP TABLE lmp_comments;
 DROP TABLE lmp_posts;

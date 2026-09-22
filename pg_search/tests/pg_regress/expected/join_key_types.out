@@ -230,7 +230,6 @@ FROM items i
 JOIN item_types t ON i.type_id = t.type_id
 WHERE i.type_id = 0
 ORDER BY i.id;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i, t)
  id |      name      |   type_name   | type_id 
 ----+----------------+---------------+---------
   1 | Mystery Box    | Uncategorized |       0

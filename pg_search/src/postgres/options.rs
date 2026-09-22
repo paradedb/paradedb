@@ -192,7 +192,7 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
 
 /// The only legal `bounds_scope`: the merge folds centroid bounds over a
 /// cluster's NATIVE (primary-assignment) members. Captured into the stored
-/// tantivy `IndexSettings` at CREATE INDEX, like the clustering threshold.
+/// tantivy `IndexSettings` at CREATE INDEX.
 pub(crate) const BOUNDS_SCOPE_NATIVE: &str = "native";
 
 #[pg_guard]

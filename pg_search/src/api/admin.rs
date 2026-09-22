@@ -449,7 +449,7 @@ fn vector_info(
             let Some(info) = vector_index.info() else {
                 continue;
             };
-            let cluster_stats = info.cluster_stats.as_ref();
+            let cluster_stats = vector_index.clusters().map(|_| &info.cluster_stats);
             // Summed here rather than read off `cluster_stats`, which only
             // carries the average: this keeps the membership total exact.
             let total_memberships = vector_index
@@ -458,13 +458,13 @@ fn vector_info(
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
                 field.clone(),
-                match info.format {
-                    tantivy::vector::VectorStorageFormat::Flat => "flat",
-                    tantivy::vector::VectorStorageFormat::Ivf => "ivf",
+                match cluster_stats {
+                    None => "flat",
+                    Some(_) => "ivf",
                 }
                 .to_string(),
                 info.num_vectors.into(),
-                info.num_centroids.map(Into::into),
+                cluster_stats.map(|_| info.num_centroids.into()),
                 cluster_stats.map(|stats| stats.min_cluster_size.into()),
                 cluster_stats.map(|stats| stats.max_cluster_size.into()),
                 cluster_stats.map(|stats| stats.avg_cluster_size),
@@ -534,7 +534,7 @@ fn vector_clusters(
             let sizes = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.index().map(|ivf| {
+            let radii = vector_index.clusters().map(|ivf| {
                 let bounds = ivf.bounds();
                 (0..ivf.num_clusters()).map(|c| bounds.ball_r(c)).collect()
             });

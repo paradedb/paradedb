@@ -20,16 +20,17 @@ use crate::api::{CTID_FIELD_NAME, HashSet};
 use crate::index::{index_settings, setup_tokenizers};
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::storage::block::IndexFileEntry;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
-use crate::vector::clusterer::set_ivf_clusterer;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
 use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
+use std::path::Path;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use tantivy::TantivyError;
@@ -504,15 +505,34 @@ impl PgSearchRelation {
         MetaPage::open(self).settings()
     }
 
+    pub fn centroid_index(&self) -> tantivy::Result<Option<IndexFileEntry>> {
+        self.index_file(&tantivy::vector::CENTROIDS_FILEPATH)
+    }
+
+    pub fn index_file(&self, path: &Path) -> tantivy::Result<Option<IndexFileEntry>> {
+        Ok(self
+            .index_files()?
+            .into_iter()
+            .find(|entry| Path::new(&entry.filename) == path))
+    }
+
+    pub fn index_files(&self) -> tantivy::Result<Vec<IndexFileEntry>> {
+        let Some(bytes_list) = MetaPage::open(self).index_files_bytes() else {
+            return Ok(Vec::new());
+        };
+        let bytes = unsafe { bytes_list.read_all() };
+        if bytes.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
     pub(crate) fn create_in_memory_index(&self, directory: RamDirectory) -> anyhow::Result<Index> {
         let schema = self.schema()?;
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
         let settings = index_settings(self.options(), &tantivy_schema);
         // Throwaway materializations do not need the stats plugin.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
-        if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index, self.options());
-        }
         setup_tokenizers(self, &mut index)?;
         Ok(index)
     }

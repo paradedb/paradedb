@@ -5,6 +5,10 @@ version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 
+[package.metadata.cargo-machete]
+# Enables BLAS for Tantivy's separately pinned SuperKMeans dependency.
+ignored = ["superkmeans-assignment"]
+
 [lints]
 workspace = true
 
@@ -102,11 +106,17 @@ prost = "0.14.3"
 # SuperKMeans IVF clusterer (pure-Rust port). BLAS backend is target-specific:
 # Accelerate on macOS, OpenBLAS on Linux (already required by the build env).
 [target.'cfg(target_os = "macos")'.dependencies]
+superkmeans-assignment = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
+  "accelerate",
+] }
 superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
+superkmeans-assignment = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
+  "openblas",
+] }
 superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
   "openblas",
 ] }

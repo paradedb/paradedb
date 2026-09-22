@@ -11,6 +11,8 @@
 SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
+-- Tiny fixtures: lower the centroid-training floor.
+SET paradedb.vector_min_training_rows = 1;
 
 DROP TABLE IF EXISTS remerge;
 CREATE TABLE remerge (
@@ -22,10 +24,15 @@ CREATE TABLE remerge (
 -- (foreground merges only fire on an insert-cleanup that created a segment);
 -- target_segment_count = 1 keeps the merge policy engaged (merging is
 -- disabled while segment_count <= target); background_layer_sizes = '0'
--- keeps every merge in the foreground, deterministic. Inserts flush ~1000-doc
--- segments of ~70kb, and a 600kb layer closes its first candidate at
--- >= 10000 docs — at or above tantivy's vector_clustering_threshold, so the
--- merge target is written IVF (clustered), with every vector in 3 cells.
+-- keeps every merge in the foreground, deterministic. Every segment —
+-- commit or merged — is clustered against the index-level centroid index,
+-- with every vector in 3 cells (cluster_replication = 3).
+-- Centroids train at CREATE INDEX over existing rows, so seed a corpus
+-- first; the waves below still drive the segment/merge behavior.
+INSERT INTO remerge
+SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
+FROM generate_series(-999, 0) g;
+
 CREATE INDEX remerge_idx ON remerge
     USING paradedb (id, vec vector_l2_ops)
     WITH (

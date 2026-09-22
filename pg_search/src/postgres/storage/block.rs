@@ -236,6 +236,13 @@ pub struct FileEntry {
     pub total_bytes: usize,
 }
 
+/// An immutable index-level file and its location in block storage.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct IndexFileEntry {
+    pub filename: String,
+    pub file_entry: FileEntry,
+}
+
 /// Metadata for tracking where to find a ".del" file
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DeleteEntry {

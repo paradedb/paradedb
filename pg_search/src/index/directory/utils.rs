@@ -368,6 +368,14 @@ pub unsafe fn load_metas(
     loop {
         // Find all relevant segments in this list.
         segment_metas.for_each(|bman, mut entry| {
+            if matches!(
+                solve_mvcc,
+                MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment
+            ) && !entry.visible()
+            {
+                return;
+            }
+
             // nobody sees recyclable segments
             let accept = !entry.recyclable(bman) && (
                 // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them

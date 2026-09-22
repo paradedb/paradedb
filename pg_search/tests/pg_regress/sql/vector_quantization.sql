@@ -19,7 +19,6 @@ CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    key_field = id,
     vector_fields = '{"vec":{"quantization":false}}'
 );
 INSERT INTO q_cal_unquantized
@@ -31,30 +30,24 @@ CREATE TABLE q_explicit_below_floor (id integer PRIMARY KEY, vec vector(63));
 CREATE INDEX q_explicit_below_floor_idx ON q_explicit_below_floor
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    key_field = id,
     vector_fields = '{"vec":{"quantization":true}}'
 );
 DROP TABLE q_explicit_below_floor;
 
 CREATE TABLE q_default_below_floor (id integer PRIMARY KEY, vec vector(63));
 CREATE INDEX q_default_below_floor_idx ON q_default_below_floor
-USING paradedb (id, vec vector_l2_ops)
-WITH (
-    key_field = id
-);
+USING paradedb (id, vec vector_l2_ops);
 DROP TABLE q_default_below_floor;
 
 CREATE TABLE q_schedule_validation (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_too_many_layers_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    key_field = id,
     vector_fields = '{"vec":{"quantization":{"layers":[1,1,1,1]}}}'
 );
 CREATE INDEX q_grid_first_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    key_field = id,
     vector_fields = '{"vec":{"quantization":{"layers":[4]}}}'
 );
 DROP TABLE q_schedule_validation;
@@ -63,7 +56,6 @@ CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_cosine_idx ON q_cosine
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    key_field = id,
     centroid_ratio = 0.2,
     target_segment_count = 1,
     mutable_segment_rows = 0,
@@ -104,7 +96,6 @@ CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_l2_idx ON q_l2
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    key_field = id,
     vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
     target_segment_count = 1,
     mutable_segment_rows = 0,
@@ -132,7 +123,6 @@ CREATE TABLE q_odd (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_odd_idx ON q_odd
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    key_field = id,
     vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
     target_segment_count = 1,
     mutable_segment_rows = 0,
@@ -158,10 +148,7 @@ FROM (
 
 CREATE TABLE q_flat (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_flat_idx ON q_flat
-USING paradedb (id, vec vector_cosine_ops)
-WITH (
-    key_field = id
-);
+USING paradedb (id, vec vector_cosine_ops);
 INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
 
 SET paradedb.max_scan_levels = 0;

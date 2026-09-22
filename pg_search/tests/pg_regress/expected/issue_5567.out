@@ -65,8 +65,8 @@ FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
 WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
 ORDER BY p.category DESC NULLS FIRST, p.name ASC
 LIMIT 5;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.category, p.name
    Relation Tree: p INNER c
@@ -74,15 +74,17 @@ LIMIT 5;
    Limit: 5
    Order By: p.category desc, p.name asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, name@3 as col_3, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1]
+     : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, name@3 as col_3, ctid_0@0 as ctid_0]
      :   TantivyDecodeExec: decode=[category, name]
-     :     SegmentedTopKExec: expr=[category@2 DESC, name@3 ASC NULLS LAST], k=5, visibility_checks=[p, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@0, id@1, category@2, name@3, ctid_1@4]
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, fetch=[category, name], dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
-(15 rows)
+     :     SegmentedTopKExec: expr=[category@2 DESC, name@3 ASC NULLS LAST], k=5
+     :       VisibilityFilterExec: tables=[p, c], pruned=[c]
+     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, fetch=[category, name], dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+(17 rows)
 
 -- Same rows as the reference result above.
 SELECT p.id, p.category, p.name
@@ -123,8 +125,8 @@ FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
 WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
 ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
 LIMIT 5;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.kind, p.category, p.name
    Relation Tree: p INNER c
@@ -132,15 +134,17 @@ LIMIT 5;
    Limit: 5
    Order By: p.kind asc, p.category asc nulls first, p.name asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, kind@2 as col_2, category@3 as col_3, name@4 as col_4, ctid_0@0 as ctid_0, ctid_1@5 as ctid_1]
+     : ProjectionExec: expr=[id@1 as col_1, kind@2 as col_2, category@3 as col_3, name@4 as col_4, ctid_0@0 as ctid_0]
      :   TantivyDecodeExec: decode=[kind, category, name]
-     :     SegmentedTopKExec: expr=[kind@2 ASC NULLS LAST, category@3 ASC, name@4 ASC NULLS LAST], k=5, visibility_checks=[p, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@0, id@1, kind@2, category@3, name@4, ctid_1@5]
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, fetch=[kind, category, name], dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
-(15 rows)
+     :     SegmentedTopKExec: expr=[kind@2 ASC NULLS LAST, category@3 ASC, name@4 ASC NULLS LAST], k=5
+     :       VisibilityFilterExec: tables=[p, c], pruned=[c]
+     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, fetch=[kind, category, name], dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+(17 rows)
 
 SELECT p.id, p.kind, p.category, p.name
 FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id

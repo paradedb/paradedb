@@ -16,17 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Physical optimizer rule that wires FFHelper instances from PgSearchScanPlan
-//! into the node that owns MVCC visibility checking, for ctid resolution.
+//! into the TantivyFetchExec that resolves ctid columns.
 //!
 //! Visibility checking needs real ctids, but when deferred visibility is enabled
 //! the ctid columns hold packed DocAddresses. This rule finds the PgSearchScanPlan
-//! that owns each ctid column and wires its FFHelper into the owning node so it can
-//! resolve the packed addresses itself.
-//!
-//! The owning node is either a `VisibilityFilterExec`, or a `SegmentedTopKExec` that
-//! has absorbed a `VisibilityFilterExec` (see `SegmentedTopKRule`) and now performs
-//! the visibility checks inline. Both expose the same `plan_pos_oids` and
-//! `set_ctid_resolver` interface, so this rule handles them identically.
+//! that owns each ctid column and wires its FFHelper into the `TantivyFetchExec` that
+//! resolves them.
 //!
 //! This is interior mutation only (Mutex-based wiring), with no structural plan changes.
 
@@ -39,7 +34,6 @@ use datafusion::physical_plan::ExecutionPlan;
 
 use crate::index::fast_fields_helper::FFHelper;
 use crate::scan::execution_plan::PgSearchScanPlan;
-use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
 #[derive(Debug)]
@@ -65,13 +59,12 @@ impl PhysicalOptimizerRule for VisibilityCtidResolverRule {
     }
 }
 
-/// Walk the plan tree. When we find a VisibilityFilterExec or a
-/// SegmentedTopKExec that has absorbed one, wire FFHelpers from matching
-/// PgSearchScanPlans in the subtree.
+/// Walk the plan tree. When we find a ctid-resolving TantivyFetchExec,
+/// wire FFHelpers from matching PgSearchScanPlans in the subtree.
 fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
-    // The ctid-resolving TantivyFetchExec below a VisibilityFilterExec (or an absorbed
-    // SegmentedTopKExec) turns packed doc-addresses into real ctids. A fetch that only
-    // resolves string ordinals carries no ctid columns and is skipped.
+    // The ctid-resolving TantivyFetchExec below a VisibilityFilterExec turns packed
+    // doc-addresses into real ctids. A fetch that only resolves string ordinals
+    // carries no ctid columns and is skipped.
     if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
         for ctid_column in fetch.ctid_columns() {
             let plan_pos = ctid_column.plan_position;
@@ -83,21 +76,6 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
                 ))
             })?;
             fetch.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
-        }
-    }
-
-    // SegmentedTopKExec may have absorbed a VisibilityFilterExec and now
-    // owns ctid resolution for the same plan positions.
-    if let Some(stk) = plan.downcast_ref::<SegmentedTopKExec>() {
-        for &(plan_pos, _) in stk.plan_pos_oids() {
-            let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
-                .ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "VisibilityCtidResolverRule: no PgSearchScanPlan found \
-                         for SegmentedTopKExec deferred ctid plan_position {plan_pos}"
-                ))
-            })?;
-            stk.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
     }
 
@@ -166,108 +144,5 @@ mod tests {
             .expect("matching plan_position should find ffhelper");
         assert!(Arc::ptr_eq(&found, &ffhelper));
         assert!(find_ffhelper_for_plan_position(&scan, 6).is_none());
-    }
-
-    fn sort_schema() -> SchemaRef {
-        use arrow_schema::{DataType, Field};
-        Arc::new(Schema::new(vec![Field::new(
-            "sort_col",
-            DataType::Int64,
-            true,
-        )]))
-    }
-
-    fn dummy_lex_ordering(schema: &SchemaRef) -> datafusion::physical_expr::LexOrdering {
-        use arrow_schema::SortOptions;
-        use datafusion::physical_expr::expressions::Column;
-        use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
-
-        let sort_expr = PhysicalSortExpr {
-            expr: Arc::new(Column::new("sort_col", 0)),
-            options: SortOptions::default(),
-        };
-        // We need the schema to create EquivalenceProperties, not used here
-        let _ = schema;
-        LexOrdering::new(vec![sort_expr]).expect("single-element LexOrdering must succeed")
-    }
-
-    #[pg_test]
-    fn stk_plan_pos_oids_returns_empty_without_visibility_data() {
-        use crate::scan::segmented_topk_exec::SegmentedTopKExec;
-
-        let schema = sort_schema();
-        let ffhelper = Arc::new(FFHelper::empty());
-        let scan = PgSearchScanPlan::new(
-            None,
-            schema.clone(),
-            SearchQueryInput::All,
-            None,
-            Vec::new(),
-            Some(ffhelper.clone()),
-            0,
-            None,
-            1,
-            None,
-            None,
-        );
-        let stk = SegmentedTopKExec::new(
-            Arc::new(scan),
-            dummy_lex_ordering(&schema),
-            vec![],
-            ffhelper,
-            5,
-            None,
-            None,
-        );
-
-        // No visibility data absorbed → plan_pos_oids must be empty.
-        assert!(
-            stk.plan_pos_oids().is_empty(),
-            "plan_pos_oids should be empty when no VisibilityFilterExec was absorbed"
-        );
-    }
-
-    #[pg_test]
-    fn stk_plan_pos_oids_returns_absorbed_data() {
-        use crate::scan::segmented_topk_exec::{AbsorbedVisibilityData, SegmentedTopKExec};
-        use pgrx::pg_sys;
-
-        let plan_pos = 3_usize;
-        let schema = sort_schema();
-        let ffhelper_scan = Arc::new(FFHelper::empty());
-        let scan = PgSearchScanPlan::new(
-            None,
-            schema.clone(),
-            SearchQueryInput::All,
-            None,
-            Vec::new(),
-            Some(ffhelper_scan.clone()),
-            0,
-            Some(plan_pos),
-            1,
-            None,
-            None,
-        );
-
-        let vis_data = Arc::new(AbsorbedVisibilityData::new(
-            vec![(plan_pos, pg_sys::Oid::INVALID)],
-            vec!["test_table".to_string()],
-        ));
-        let stk = SegmentedTopKExec::new(
-            Arc::new(scan),
-            dummy_lex_ordering(&schema),
-            vec![],
-            Arc::new(FFHelper::empty()),
-            5,
-            Some(vis_data),
-            None,
-        );
-
-        let pos_oids = stk.plan_pos_oids();
-        assert_eq!(pos_oids.len(), 1, "one plan_pos_oid should be present");
-        assert_eq!(pos_oids[0].0, plan_pos, "plan_position should match");
-
-        // Wire a resolver and verify no panic.
-        stk.set_ctid_resolver(plan_pos, 0, ffhelper_scan);
     }
 }

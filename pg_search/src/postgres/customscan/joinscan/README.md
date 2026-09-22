@@ -86,22 +86,24 @@ Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizin
 | [`planning.rs`](planning.rs)                               | Cost estimation, field validation, ORDER BY extraction                                |
 | [`predicate.rs`](predicate.rs)                             | Postgres expression → `JoinLevelExpr`                                                 |
 | [`range_partitioning_rule.rs`](range_partitioning_rule.rs) | Rules that synchronize Join-side MPP partition boundaries and co-partition the join   |
+| [`visibility_filter.rs`](visibility_filter.rs)             | Deferred MVCC visibility checking: `VisibilityFilterNode`, `VisibilityFilterExec`     |
 | [`translator.rs`](../datafusion/translator.rs)             | Postgres ↔ DataFusion expression mapping                                              |
 | [`explain.rs`](../datafusion/explain.rs)                   | EXPLAIN output formatting                                                             |
 
 Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
 
-| File                                                     | Purpose                                                                                                                             |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| [`segmented_topk_exec.rs`][topk-exec]                    | [`SegmentedTopKExec`][topk-exec] — per-segment heaps, [global heap][global-heap], [`build_global_filter_expression`][global-filter] |
-| [`segmented_topk_rule.rs`][topk-rule]                    | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                                                                              |
-| [`tantivy_fetch_exec.rs`][fetch-exec]                    | Columnar field fetch: doc address → term ordinal, packed ctid → ctid                                                                |
-| [`tantivy_decode_exec.rs`][decode-exec]                  | Dictionary decode: term ordinal → string/bytes                                                                                      |
-| [`filter_passthrough_exec.rs`][filter-passthrough]       | Transparent wrapper enabling filter pushdown through blocking nodes                                                                 |
-| [`batch_scanner.rs`](../../../scan/batch_scanner.rs)     | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility                                                         |
-| [`execution_plan.rs`](../../../scan/execution_plan.rs)   | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                                                                        |
-| [`pre_filter.rs`](../../../scan/pre_filter.rs)           | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                                                        |
-| [`deferred_encode.rs`](../../../scan/deferred_encode.rs) | Packed deferred column construction and unpacking                                                                                   |
+| File                                                                                 | Purpose                                                                             |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| [`segmented_topk_exec.rs`][topk-exec]                                                | [`SegmentedTopKExec`][topk-exec] — per-segment buffers, global threshold publishing |
+| [`segmented_topk_rule.rs`][topk-rule]                                                | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                              |
+| [`visibility_ctid_resolver_rule.rs`](../../../scan/visibility_ctid_resolver_rule.rs) | Wires scan-side FFHelper into `TantivyFetchExec` for ctid resolution                |
+| [`tantivy_fetch_exec.rs`][fetch-exec]                                                | Columnar field fetch: doc address → term ordinal, packed ctid → ctid                |
+| [`tantivy_decode_exec.rs`][decode-exec]                                              | Dictionary decode: term ordinal → string/bytes                                      |
+| [`filter_passthrough_exec.rs`][filter-passthrough]                                   | Transparent wrapper enabling filter pushdown through blocking nodes                 |
+| [`batch_scanner.rs`](../../../scan/batch_scanner.rs)                                 | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility         |
+| [`execution_plan.rs`](../../../scan/execution_plan.rs)                               | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                        |
+| [`pre_filter.rs`](../../../scan/pre_filter.rs)                                       | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]        |
+| [`deferred_encode.rs`](../../../scan/deferred_encode.rs)                             | Packed deferred column construction and unpacking                                   |
 
 ## GUCs
 
@@ -118,8 +120,6 @@ Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
 [joincsc]: build.rs
 [optimizer-rules]: scan_state.rs
 [topk-exec]: ../../../scan/segmented_topk_exec.rs
-[global-filter]: ../../../scan/segmented_topk_exec.rs
-[global-heap]: ../../../scan/segmented_topk_exec.rs
 [topk-rule]: ../../../scan/segmented_topk_rule.rs
 [wrap-blocking]: ../../../scan/segmented_topk_rule.rs
 [filter-passthrough]: ../../../scan/filter_passthrough_exec.rs

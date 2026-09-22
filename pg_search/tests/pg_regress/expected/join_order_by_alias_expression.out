@@ -40,8 +40,8 @@ JOIN tech_installs ti ON cccf.company_id = ti.company_id
 WHERE technology_name ||| 'java'
 ORDER BY lower(company_name) ASC, cccf.contact_id
 LIMIT 10;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: cccf INNER ti
    Join Cond: cccf.company_id = ti.company_id
@@ -50,13 +50,15 @@ LIMIT 10;
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[contact_id@4 as col_1, company_id@1 as col_2, company_name_words@2 as col_3, company_name@3 as col_4, ctid_0@0 as ctid_0]
      :   TantivyDecodeExec: decode=[company_name_words, company_name]
-     :     SegmentedTopKExec: expr=[company_name@3 ASC NULLS LAST, contact_id@4 ASC NULLS LAST], k=10, visibility_checks=[cccf, ti], pruned=[ti]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@1)]
-     :         CooperativeExec
-     :           PgSearchScan: table=cccf, segments=1, fetch=[company_name_words, company_name], dynamic_filters=1, query="all"
-     :         CooperativeExec
-     :           PgSearchScan: table=ti, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"technology_name","value":"java","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(14 rows)
+     :     SegmentedTopKExec: expr=[company_name@3 ASC NULLS LAST, contact_id@4 ASC NULLS LAST], k=10
+     :       VisibilityFilterExec: tables=[cccf, ti], pruned=[ti]
+     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@1)]
+     :             CooperativeExec
+     :               PgSearchScan: table=cccf, segments=1, fetch=[company_name_words, company_name], dynamic_filters=1, query="all"
+     :             CooperativeExec
+     :               PgSearchScan: table=ti, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"technology_name","value":"java","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
 
 SELECT cccf.*
 FROM contacts cccf

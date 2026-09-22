@@ -876,8 +876,8 @@ fn wrap_visibility_below_lookup_chain(
         current = child;
     }
 
-    // Resolve the ctid columns just below the visibility filter, so the filter (and a
-    // SegmentedTopKExec that later absorbs it) consumes real ctids instead of packed addresses.
+    // Resolve the ctid columns just below the visibility filter, so the filter
+    // consumes real ctids instead of packed addresses.
     let vf_input = ctid_resolving_fetch(current, &plan_pos_oids)?;
     let mut result = Arc::new(VisibilityFilterExec::new(
         vf_input,
@@ -1048,10 +1048,7 @@ impl VisibilityFilterExec {
         )
     }
 
-    pub fn plan_pos_oids(&self) -> &[(usize, pg_sys::Oid)] {
-        &self.plan_pos_oids
-    }
-
+    #[cfg(any(test, feature = "pg_test"))]
     pub fn projection(&self) -> Option<&[usize]> {
         self.projection.as_deref()
     }
@@ -1087,10 +1084,6 @@ impl VisibilityFilterExec {
             table_names,
             projection,
         )?))
-    }
-
-    pub fn table_names(&self) -> &[String] {
-        &self.table_names
     }
 }
 

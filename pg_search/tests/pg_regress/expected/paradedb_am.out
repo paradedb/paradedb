@@ -138,7 +138,7 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[i, c]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)]
      :           CooperativeExec
      :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec

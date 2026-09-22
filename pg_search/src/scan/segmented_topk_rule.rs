@@ -58,9 +58,8 @@ use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMerge
 use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
 
 use crate::gucs;
-use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
-use crate::scan::segmented_topk_exec::{AbsorbedVisibilityData, SegmentedTopKExec};
+use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
@@ -267,48 +266,10 @@ fn try_inject_below_lookup(
             });
 
             if has_deferred_sort_col {
-                // If the direct child of the lookup is a VisibilityFilterExec,
-                // absorb it: SegmentedTopKExec will own MVCC visibility checking and the
-                // VFExec node is removed from the plan, so dead rows never inflate the
-                // pushed-down threshold. VFExec preserves schema, so `input_schema` above
-                // is unchanged. Per `VisibilityFilterOptimizerRule`, a VFExec appears
-                // here for inner joins and for the preserved sides of any join type
-                // (e.g. Left, LeftSemi, LeftAnti); the null-supplying sides are forced
-                // to be checked inside the join, so they won't be absorbed here.
-                let (absorbed_visibility, stk_input, projection) =
-                    if let Some(vis_exec) = lookup_child.downcast_ref::<VisibilityFilterExec>() {
-                        // The VF's child is a ctid-resolving TantivyFetchExec. Bypass it and let
-                        // the STK resolve ctids at candidate time, so a large join output does not
-                        // pay one fast-field read per row before the Top-K prune. Only a fetch
-                        // with no string columns can be dropped this way: the STK resolves ctids
-                        // itself but not string ordinals, so a fetch that also carries string
-                        // columns has to stay, at the cost of the per-row read.
-                        let vf_child = Arc::clone(vis_exec.children()[0]);
-                        let stk_input = match vf_child.downcast_ref::<TantivyFetchExec>() {
-                            Some(fetch)
-                                if !fetch.ctid_columns().is_empty()
-                                    && fetch.fetch_fields().is_empty() =>
-                            {
-                                Arc::clone(fetch.children()[0])
-                            }
-                            _ => vf_child,
-                        };
-                        (
-                            Some(Arc::new(AbsorbedVisibilityData::new(
-                                vis_exec.plan_pos_oids().to_vec(),
-                                vis_exec.table_names().to_vec(),
-                            ))),
-                            stk_input,
-                            vis_exec.projection().map(|p| p.to_vec()),
-                        )
-                    } else {
-                        (None, Arc::clone(lookup_child), None)
-                    };
-
                 // Wrap blocking nodes (e.g. SortPreservingMergeExec) so that the
                 // shared `DynamicFilterPhysicalExpr` can traverse them during the
                 // pushdown pass that reached this scan subtree.
-                let lookup_child = &wrap_blocking_nodes(stk_input)?;
+                let lookup_child = &wrap_blocking_nodes(Arc::clone(lookup_child))?;
                 let stk_schema = lookup_child.schema();
 
                 // Collect all deferred columns found in the sort expressions,
@@ -325,7 +286,7 @@ fn try_inject_below_lookup(
                         let sort_col_idx =
                             resolve_physical_index(col, &stk_schema).ok_or_else(|| {
                                 DataFusionError::Internal(format!(
-                                    "SegmentedTopK: column '{}' not found in stk_input schema",
+                                    "SegmentedTopK: column '{}' not found in child schema",
                                     col.name()
                                 ))
                             })?;
@@ -406,16 +367,14 @@ fn try_inject_below_lookup(
                 let rewritten_lex_ordering =
                     LexOrdering::new(rewritten_sort_exprs).unwrap_or(sort_exprs.clone());
 
-                let segmented_topk = Arc::new(SegmentedTopKExec::try_new(
+                let segmented_topk = Arc::new(SegmentedTopKExec::new(
                     Arc::clone(lookup_child),
                     rewritten_lex_ordering,
                     deferred_columns.clone(),
                     Arc::clone(&ffhelper),
                     k,
-                    absorbed_visibility,
                     parent_filter.clone(),
-                    projection,
-                )?);
+                ));
 
                 // Rebuild the lookup with the new child: the fetch when the STK went under
                 // it, then the decode above.

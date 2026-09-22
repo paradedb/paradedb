@@ -288,8 +288,8 @@ WHERE id IN (
 AND category ### 'target_category'
 ORDER BY category ASC, id ASC
 LIMIT 10;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
    Relation Tree: table_a SEMI table_b
@@ -300,13 +300,15 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
      :   TantivyDecodeExec: decode=[category]
      :     TantivyFetchExec: fetch=[category]
-     :       SegmentedTopKExec: expr=[category@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=10, visibility_checks=[table_a]
-     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
-     :           CooperativeExec
-     :             PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
-     :           CooperativeExec
-     :             PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
-(16 rows)
+     :       SegmentedTopKExec: expr=[category@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=10
+     :         VisibilityFilterExec: tables=[table_a]
+     :           TantivyFetchExec: fetch=[ctid_0]
+     :             HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
+     :               CooperativeExec
+     :                 PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
+(18 rows)
 
 SELECT *
 FROM table_a

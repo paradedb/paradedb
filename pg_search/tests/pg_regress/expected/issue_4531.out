@@ -93,7 +93,7 @@ ORDER BY p.id DESC LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)], projection=[ctid_0@0, id@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, visibility=eager, query="all"
      :           CooperativeExec

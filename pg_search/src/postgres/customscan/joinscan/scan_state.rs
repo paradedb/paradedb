@@ -545,8 +545,6 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
 /// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
 /// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
 pub fn create_datafusion_session_context() -> SessionContext {
-    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
-
     let mut config = SessionConfig::new().with_target_partitions(1);
 
     // Configure dynamic filter pushdown thresholds from our GUCs
@@ -587,12 +585,6 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .with_physical_optimizer_rule(Arc::new(
             crate::scan::segmented_topk_rule::SegmentedTopKRule,
         ))
-        // SegmentedTopKRule absorbs VisibilityFilterExec and creates a fresh
-        // AbsorbedVisibilityData with empty ctid resolvers.  We must run
-        // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
-        // that it wires resolvers into the STK node rather than the (now-removed)
-        // VisibilityFilterExec node.
-        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
         .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
 
     SessionContext::new_with_state(builder.build())

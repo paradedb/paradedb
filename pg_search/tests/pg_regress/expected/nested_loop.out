@@ -34,7 +34,7 @@ LIMIT 10;
    Join Predicate: ((heap:(orders.id = 3) AND orders:{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}) OR (users:{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} AND heap:(users.id = 3)))
    Limit: 10
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[name@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1, ctid_2@6 as ctid_2]
+     : ProjectionExec: expr=[name@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_2@6 as ctid_2]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[users, products, orders]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]

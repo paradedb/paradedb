@@ -123,8 +123,6 @@ impl BaseScan {
         let wrapper_start = std::time::Instant::now();
         let executor_scan_init_ns =
             std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
-        #[cfg(feature = "io_stats")]
-        let _io = crate::index::reader::io_stats::trace::label(Some("reader_setup"), None, None);
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
         state
@@ -1504,7 +1502,11 @@ impl CustomScan for BaseScan {
                     explainer.add_json("Parallel Workers", &explain_data.workers);
                 }
                 #[cfg(feature = "io_stats")]
-                explainer.add_json("IO Breakdown", state.custom_state().io_trace.json());
+                explainer.add_group("Buffer Hits", |explainer| {
+                    for (component, hits) in state.custom_state().io_trace.hits() {
+                        explainer.add_unsigned_integer(&component, hits, None);
+                    }
+                });
                 if gucs::vector_stats() {
                     let segment_info = state.custom_state().segment_info_for_explain();
                     if !segment_info.is_empty() {
@@ -2366,7 +2368,7 @@ fn check_visibility(
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
     #[cfg(feature = "io_stats")]
-    let _io = crate::index::reader::io_stats::trace::external("execute/heap/visibility_and_fetch");
+    let _io = crate::index::reader::io_stats::trace::external("Heap");
     state
         .custom_state_mut()
         .visibility_checker()

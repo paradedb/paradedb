@@ -23,6 +23,7 @@ use std::ops::Range;
 use std::sync::OnceLock;
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, bm25_max_free_space};
+use crate::index::mvcc::SegmentPins;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods, init_new_buffer};
@@ -396,7 +397,7 @@ impl LinkedBytesList {
 
     /// Reads a single byte from the block list.
     /// Uses the unified block cache — indexes directly into OwnedBytes' pre-resolved slice.
-    pub unsafe fn get_byte(&self, offset: usize) -> u8 {
+    pub unsafe fn get_byte(&self, offset: usize, segment_pins: Option<&SegmentPins>) -> u8 {
         const ITEM_SIZE: usize = bm25_max_free_space();
         let block_ord = offset / ITEM_SIZE;
         let local_offset = offset % ITEM_SIZE;
@@ -416,8 +417,7 @@ impl LinkedBytesList {
 
         // Cache miss: read the block, cache it, return the byte.
         let blockno = self.block_for_ord(block_ord).expect("block not found");
-        let buffer = self.bman.get_buffer(blockno);
-        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
+        let block_bytes = OwnedBytes::new(self.bman.get_immutable_page(blockno, segment_pins));
         let byte = block_bytes[local_offset];
 
         if cache.len() >= BLOCK_CACHE_SIZE {
@@ -431,7 +431,11 @@ impl LinkedBytesList {
         byte
     }
 
-    pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> OwnedBytes {
+    pub unsafe fn get_bytes_range(
+        &self,
+        range: Range<usize>,
+        segment_pins: Option<&SegmentPins>,
+    ) -> OwnedBytes {
         if range.is_empty() {
             return OwnedBytes::empty();
         }
@@ -444,7 +448,7 @@ impl LinkedBytesList {
 
         if start_block_ord == end_block_ord {
             // Single block read
-            let block_bytes = self.get_bytes_range_block(start_block_ord);
+            let block_bytes = self.get_bytes_range_block(start_block_ord, segment_pins);
             let slice_start = range.start % ITEM_SIZE;
             let slice_end = slice_start + range.len();
             return block_bytes.slice(slice_start..slice_end);
@@ -457,7 +461,7 @@ impl LinkedBytesList {
         let mut remaining = range.len();
 
         for block_ord in start_block_ord..=end_block_ord {
-            let block_bytes = self.get_bytes_range_block(block_ord);
+            let block_bytes = self.get_bytes_range_block(block_ord, segment_pins);
             let slice_start = if block_ord == start_block_ord {
                 range.start % ITEM_SIZE
             } else {
@@ -471,7 +475,11 @@ impl LinkedBytesList {
         OwnedBytes::new(data)
     }
 
-    unsafe fn get_bytes_range_block(&self, start_block_ord: usize) -> OwnedBytes {
+    unsafe fn get_bytes_range_block(
+        &self,
+        start_block_ord: usize,
+        segment_pins: Option<&SegmentPins>,
+    ) -> OwnedBytes {
         // SAFETY: Postgres backends are single-threaded.
         let cache = self.cache.get();
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == start_block_ord) {
@@ -486,8 +494,7 @@ impl LinkedBytesList {
         let blockno = self
             .block_for_ord(start_block_ord)
             .expect("block not found");
-        let buffer = self.bman.get_buffer(blockno);
-        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
+        let block_bytes = OwnedBytes::new(self.bman.get_immutable_page(blockno, segment_pins));
 
         if cache.len() >= BLOCK_CACHE_SIZE {
             cache.pop_front();
@@ -525,11 +532,11 @@ mod tests {
             .finalize_and_write()
             .unwrap()
             .with_length(bytes.len());
-        assert_eq!(list.get_byte(bytes.len() - 1), bytes[bytes.len() - 1]);
-        assert_eq!(list.get_byte(0), bytes[0]);
+        assert_eq!(list.get_byte(bytes.len() - 1, None), bytes[bytes.len() - 1]);
+        assert_eq!(list.get_byte(0, None), bytes[0]);
         assert!(list.blocklist_reader.get().is_none());
         assert_eq!(
-            list.get_byte(bm25_max_free_space()),
+            list.get_byte(bm25_max_free_space(), None),
             bytes[bm25_max_free_space()]
         );
         assert!(list.blocklist_reader.get().is_some());

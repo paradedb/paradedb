@@ -33,6 +33,7 @@ use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
+use crate::index::stats::PartitionSegments;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
@@ -766,6 +767,7 @@ impl SearchIndexReader {
 
     /// Compiled without an expression context: only the reader's own query carries resolved
     /// Params, and it is kept as is.
+    #[cfg(any(test, feature = "pg_test"))]
     pub(crate) fn and_query_input(&self, query: &SearchQueryInput) -> Self {
         self.and_query(self.make_query(query, None))
     }
@@ -1067,23 +1069,22 @@ impl SearchIndexReader {
     /// Search specific index segments with different queries for fully included vs partially included segments.
     ///
     /// Fully included segments evaluate against `self` (the unconstrained base query),
-    /// while partially included segments evaluate against `constrained_reader` (which includes the partition RangeQuery).
-    pub fn search_segments_with_range_filter(
+    /// while partially included segments also evaluate `partition_bounds`. Both variants share
+    /// the base query weight, so scored text preparation runs only once per task.
+    pub(crate) fn search_segments_with_range_filter(
         &self,
-        included: impl Iterator<Item = SegmentId>,
-        constrained_reader: &SearchIndexReader,
-        partially_included: impl Iterator<Item = SegmentId>,
+        segments: &PartitionSegments,
+        partition_bounds: &SearchQueryInput,
     ) -> MultiSegmentSearchResults {
+        let included = segments.included.iter().copied();
+        let partially_included = segments.partially_included.iter().copied();
         let unconstrained_weight = Arc::new(LazyWeight::new(
             self.query().box_clone(),
             self.need_scores,
             self.searcher.clone(),
         ));
-        let constrained_weight = Arc::new(LazyWeight::new(
-            constrained_reader.query().box_clone(),
-            constrained_reader.need_scores,
-            constrained_reader.searcher.clone(),
-        ));
+        let constrained_weight =
+            Arc::new(unconstrained_weight.and_query(self.make_query(partition_bounds, None)));
         let mut iterators = Vec::new();
         for (segment_ord, segment_reader) in self.segment_readers_in_segments(included) {
             iterators.push(ScorerIter::new(
@@ -2597,6 +2598,101 @@ mod tests {
     }
 
     #[pg_test]
+    fn partition_queries_share_preparation_without_changing_scores() {
+        use crate::index::stats::segments_for_partition;
+        use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+        #[derive(Debug)]
+        struct CountPreparation {
+            query: Box<dyn Query>,
+            calls: Arc<AtomicUsize>,
+        }
+
+        impl Clone for CountPreparation {
+            fn clone(&self) -> Self {
+                Self {
+                    query: self.query.box_clone(),
+                    calls: Arc::clone(&self.calls),
+                }
+            }
+        }
+
+        impl Query for CountPreparation {
+            fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+                self.calls.fetch_add(1, Relaxed);
+                self.query.weight(scoring)
+            }
+        }
+
+        let (index_rel, _) = segmented_index_fixture("shared_partition_weights", 2, false);
+        let text = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![term_query("title", "silver"), term_query("title", "quiet")],
+            must_not: vec![],
+            minimum_should_match: Some(1),
+        };
+        for query in [
+            term_query("title", "silver"),
+            term_query("title", "absent"),
+            text.clone(),
+            SearchQueryInput::Boost {
+                query: Box::new(text.clone()),
+                factor: 2.5,
+            },
+            SearchQueryInput::ConstScore {
+                query: Box::new(text),
+                score: 3.0,
+            },
+        ] {
+            for scoring in [false, true] {
+                for (split, partition, expected_included, expected_partial) in
+                    [(11, 0, 1, 0), (5, 0, 0, 1), (15, 0, 1, 1), (100, 1, 0, 0)]
+                {
+                    let mut reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
+                    let partitioning = RangePartitioning {
+                        partition_by: FieldName::from("id"),
+                        split_points: vec![PdbOwnedValue::I64(split)],
+                    };
+                    let bounds = partitioning.partition_bounds(partition);
+                    let segments = segments_for_partition(&reader, &partitioning, partition);
+                    assert_eq!(segments.included.len(), expected_included);
+                    assert_eq!(segments.partially_included.len(), expected_partial);
+
+                    // Preserve the existing per-group queries, including their exact score
+                    // contributions. Applying the range to every segment is not the oracle.
+                    let constrained = reader.and_query_input(&bounds);
+                    let expected = reader
+                        .search_segments(segments.included.iter().copied())
+                        .chain(
+                            constrained
+                                .search_segments(segments.partially_included.iter().copied()),
+                        )
+                        .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
+                        .collect::<BTreeMap<_, _>>();
+                    let calls = Arc::new(AtomicUsize::new(0));
+                    reader.query = Box::new(CountPreparation {
+                        query: reader.query.box_clone(),
+                        calls: Arc::clone(&calls),
+                    });
+                    let scan = reader.search_segments_with_range_filter(&segments, &bounds);
+                    assert_eq!(calls.load(Relaxed), 0, "preparation must remain lazy");
+                    let actual = scan
+                        .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
+                        .collect::<BTreeMap<_, _>>();
+                    assert_eq!(
+                        actual, expected,
+                        "{query:?}, scoring={scoring}, split={split}"
+                    );
+                    assert_eq!(
+                        calls.load(Relaxed),
+                        usize::from(expected_included + expected_partial > 0)
+                    );
+                }
+            }
+        }
+    }
+
+    #[pg_test]
     fn partition_filter_is_omitted_only_when_redundant() {
         use crate::index::stats::segments_for_partition;
 
@@ -2613,23 +2709,14 @@ mod tests {
                 covered,
                 "{bounds:?}"
             );
-            let constrained_reader = reader.and_query_input(bounds);
-            let scan = reader.search_segments_with_range_filter(
-                partition_segments.included.iter().copied(),
-                &constrained_reader,
-                partition_segments.partially_included.iter().copied(),
-            );
+            let scan = reader.search_segments_with_range_filter(&partition_segments, bounds);
             assert_eq!(scan.count(), expected, "{bounds:?}");
             // The exact query over every segment is the oracle.
             let exact = reader.and_query_input(bounds);
             assert_eq!(exact.search().count(), expected, "{bounds:?}");
             if reader.need_scores() {
                 let scan_results = reader
-                    .search_segments_with_range_filter(
-                        partition_segments.included.iter().copied(),
-                        &constrained_reader,
-                        partition_segments.partially_included.iter().copied(),
-                    )
+                    .search_segments_with_range_filter(&partition_segments, bounds)
                     .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
                     .collect::<BTreeMap<_, _>>();
                 let exact_results = exact
@@ -3389,12 +3476,7 @@ mod tests {
         let partition_segments = segments_for_partition(&reader, &partitioning, 0);
         assert!(!partition_segments.partially_included.is_empty());
         let bounds = range_query("id", 1, 10);
-        let constrained_reader = reader.and_query_input(&bounds);
-        let results = reader.search_segments_with_range_filter(
-            partition_segments.included.into_iter(),
-            &constrained_reader,
-            partition_segments.partially_included.into_iter(),
-        );
+        let results = reader.search_segments_with_range_filter(&partition_segments, &bounds);
         assert_eq!(results.count(), 10);
         assert_pruning_matches_tantivy(&reader.and_query_input(&bounds), 10);
     }

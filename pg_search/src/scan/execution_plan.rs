@@ -1289,13 +1289,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                 let partition_segments = assigned_partition_segments
                     .unwrap_or_else(|| segments_for_partition(&reader, range_boundaries, target_partition));
 
-                let constrained_reader =
-                    reader.and_query_input(&range_boundaries.partition_bounds(target_partition));
-
                 reader.search_segments_with_range_filter(
-                    partition_segments.included.into_iter(),
-                    &constrained_reader,
-                    partition_segments.partially_included.into_iter(),
+                    &partition_segments,
+                    &range_boundaries.partition_bounds(target_partition),
                 )
             } else {
                 // Standard mode delegates to the parallel state if present

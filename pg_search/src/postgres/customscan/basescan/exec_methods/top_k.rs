@@ -468,16 +468,11 @@ impl ExecMethod for TopKScanExecState {
                     prepared.mvcc_enabled,
                     agg_limits.clone(),
                 );
-                let searcher = search_reader.searcher();
                 if let Some(vischeck) = vischeck {
-                    searcher.search(
-                        search_reader.query(),
-                        &MVCCFilterCollector::new(aggregation_collector, vischeck),
-                    )
+                    search_reader.collect(MVCCFilterCollector::new(aggregation_collector, vischeck))
                 } else {
-                    searcher.search(search_reader.query(), &aggregation_collector)
+                    search_reader.collect(aggregation_collector)
                 }
-                .expect("failed to run window aggregation query")
             };
 
             let search_reader = state.search_reader.as_ref().unwrap();

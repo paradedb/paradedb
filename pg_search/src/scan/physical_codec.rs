@@ -41,6 +41,7 @@ use datafusion_proto::protobuf::PhysicalPlanNode;
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::SegmentView;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::datafusion::udaf_by_name;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
@@ -69,6 +70,8 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Worker's `ParallelScanState`, used to resolve the scan's MVCC segment set and to claim
     /// segments at runtime.
     parallel_state: Option<*mut ParallelScanState>,
+    /// Already opened execution views for leader-side task-plan reconstruction.
+    source_manifests: Vec<SearchIndexManifest>,
     /// The leader's segment view of every join source, indexed by `plan_position`, for the
     /// rebuilt ctid resolvers on decode.
     index_segment_views: Vec<SegmentView>,
@@ -80,6 +83,15 @@ pub struct PgSearchPhysicalExtensionCodec {
 // single-threaded, so the raw `ParallelScanState` pointer never crosses a real thread boundary.
 unsafe impl Send for PgSearchPhysicalExtensionCodec {}
 unsafe impl Sync for PgSearchPhysicalExtensionCodec {}
+
+impl PgSearchPhysicalExtensionCodec {
+    pub(crate) fn with_source_manifests(source_manifests: Vec<SearchIndexManifest>) -> Self {
+        Self {
+            source_manifests,
+            ..Self::default()
+        }
+    }
+}
 
 impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     fn try_decode(
@@ -99,6 +111,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                 payload,
                 self.parallel_state,
                 self.expr_context,
+                &self.source_manifests,
                 ctx,
                 proto_converter,
             ),
@@ -435,6 +448,7 @@ pub fn deserialize_physical_plan_with_runtime(
         parallel_state,
         index_segment_views,
         expr_context,
+        source_manifests: Vec::new(),
     });
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
         DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))

@@ -41,6 +41,7 @@ use futures::{FutureExt, StreamExt};
 use pgrx::pg_sys;
 
 use crate::index::mvcc::SegmentView;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::PartitionSink;
@@ -93,6 +94,7 @@ pub(crate) struct MppWorkerInputs {
 pub(crate) fn build_mpp_session_context(
     seed: SessionContext,
     mesh: Option<Arc<MppMesh>>,
+    source_manifests: Vec<SearchIndexManifest>,
 ) -> SessionContext {
     // Workers are procs 1..n_procs; leader is proc 0. Producer count = n_procs - 1.
     // n_procs >= 3 always holds: for mesh = Some, the launch clamps the spawned width to
@@ -165,7 +167,9 @@ pub(crate) fn build_mpp_session_context(
             state_builder.with_distributed_channel_resolver(ShmChannelResolver::new(mesh));
     }
     let state_builder = state_builder
-        .with_distributed_user_codec(PgSearchPhysicalExtensionCodec::default())
+        .with_distributed_user_codec(PgSearchPhysicalExtensionCodec::with_source_manifests(
+            source_manifests,
+        ))
         .with_distributed_desired_task_count_handler(pg_search_scan_desired_task_count)
         .with_distributed_scale_up_leaf_node_handler(pg_search_scan_scale_up_leaf_node)
         .with_distributed_desired_task_count_handler(n_workers)

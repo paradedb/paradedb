@@ -138,10 +138,9 @@ pub struct PgSearchTableProvider {
     /// ignores parallel state segments and yields statically partitioned streams.
     range_split_points: Option<RangeSplitPoints>,
 
-    /// The manifest this source was captured with, for an MPP source: `scan()` builds its
-    /// reader from it, replaying exactly the view the DSM was populated from. Backend-local
-    /// (readers do not travel), so re-injected by the codec on deserialization, keyed by
-    /// `source_idx`.
+    /// The captured execution view reused by `scan()`, including serial rebuilds after an
+    /// MPP launch fails. Backend-local; the codec injects it again on deserialization.
+    /// Distributed sources retain the exact per-source view published in DSM.
     #[serde(skip)]
     manifest: Option<SearchIndexManifest>,
 }
@@ -757,8 +756,8 @@ impl PgSearchTableProvider {
             query.init_postgres_expressions(planstate);
             query.solve_postgres_expressions(expr_context);
         }
-        // An MPP source builds its reader from the manifest the codec injected: no second
-        // open, and it replays exactly the view the DSM was populated from.
+        // Captured sources reuse their opened components, including serial fallback. An
+        // MPP source replays exactly the view published in DSM.
         //
         // Workers never reach the manifest arm. An MPP worker decodes physical plans, and
         // plans build address-free, so `parallel_state` is still null here and arrives on the
@@ -770,7 +769,7 @@ impl PgSearchTableProvider {
                 assert_eq!(
                     unsafe { pg_sys::ParallelWorkerNumber },
                     -1,
-                    "captured manifests are only valid while the MPP leader builds its plan"
+                    "captured manifests must be consumed by the backend building the plan"
                 );
                 SearchIndexReader::from_manifest(
                     manifest,
@@ -803,9 +802,14 @@ impl PgSearchTableProvider {
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
             .with_check_visibility(check_visibility);
 
-        let total_estimated_rows = self.scan_info.estimate.as_planner_estimate();
+        let pruning = reader.segment_pruning_estimate();
+        let total_estimated_rows = self
+            .scan_info
+            .estimate
+            .as_planner_estimate()
+            .min(pruning.candidate_docs);
 
-        let segment_count = reader.segment_readers().len();
+        let segment_count = pruning.candidate_segments;
         let target_partitions = state.config().target_partitions();
         if self.range_split_points.is_some() {
             debug_assert!(

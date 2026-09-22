@@ -165,7 +165,7 @@ use self::scan_state::{
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
-use crate::index::mvcc::{MvccSatisfies, SegmentView};
+use crate::index::mvcc::SegmentView;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -834,22 +834,16 @@ impl JoinScan {
             return;
         }
 
-        let manifests = state
-            .custom_state()
-            .join_clause
-            .plan
-            .sources()
-            .iter()
-            .map(|source| {
-                let rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to capture source manifest for indexrelid {}: {e}",
-                        source.scan_info.indexrelid
-                    )
-                })
-            })
-            .collect();
+        let manifests = SearchIndexManifest::capture_sources(
+            state
+                .custom_state()
+                .join_clause
+                .plan
+                .sources()
+                .iter()
+                .map(|source| source.scan_info.indexrelid),
+        )
+        .expect("Failed to capture join source manifests");
 
         state.custom_state_mut().source_manifests = manifests;
     }
@@ -908,10 +902,12 @@ impl JoinScan {
     /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
     fn build_mpp_session_context(
         mesh: Option<Arc<MppMesh>>,
+        source_manifests: Vec<SearchIndexManifest>,
     ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
             create_datafusion_session_context(),
             mesh,
+            source_manifests,
         )
     }
 
@@ -1442,6 +1438,16 @@ impl CustomScan for JoinScan {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
+            let manifests = SearchIndexManifest::capture_sources(
+                state
+                    .custom_state()
+                    .join_clause
+                    .plan
+                    .sources()
+                    .iter()
+                    .map(|source| source.scan_info.indexrelid),
+            )
+            .expect("Failed to capture EXPLAIN source manifests");
             let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
                 let logical_plan = deserialize_logical_plan_with_runtime(
                     bytes,
@@ -1449,7 +1455,7 @@ impl CustomScan for JoinScan {
                     None,
                     Some(expr_context.as_ptr()),
                     None,
-                    vec![],
+                    manifests.clone(),
                 )
                 .expect("Failed to deserialize logical plan");
                 runtime
@@ -1460,7 +1466,10 @@ impl CustomScan for JoinScan {
                 state.custom_state().parallel_mode_ok,
                 &state.custom_state().join_clause.plan,
             ) {
-                let mpp_plan = build_with(&Self::build_mpp_session_context(None), logical_plan);
+                let mpp_plan = build_with(
+                    &Self::build_mpp_session_context(None, Vec::new()),
+                    logical_plan,
+                );
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
                 } else {
@@ -1636,7 +1645,7 @@ impl CustomScan for JoinScan {
                 // planner's ceiling. The mesh and the dispatch source are execute-time
                 // concerns; the exec session below carries them once the workers are committed.
                 let plan_ctx = if mpp_pending {
-                    Self::build_mpp_session_context(None)
+                    Self::build_mpp_session_context(None, Vec::new())
                 } else {
                     create_datafusion_session_context()
                 };
@@ -1651,9 +1660,10 @@ impl CustomScan for JoinScan {
                     match Self::launch_mpp(state, &plan) {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                            let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
-                                &leader.session.mesh,
-                            )))
+                            let exec_ctx = Self::build_mpp_session_context(
+                                Some(Arc::clone(&leader.session.mesh)),
+                                source_manifests.clone(),
+                            )
                             .with_distributed_dispatch_plan_source(source);
                             launch_us.prepare_us = leader.timing.prepare_us;
                             launch_us.payload_us = leader.timing.payload_us;

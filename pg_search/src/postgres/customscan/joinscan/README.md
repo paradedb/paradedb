@@ -39,7 +39,7 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 
 [`scan_state.rs`](scan_state.rs) builds a DataFusion logical plan from the `JoinCSClause`, then runs [physical optimization][optimizer-rules]:
 
-1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — coordinates split points across joins for MPP range partitioning, sampling both sides of the join and injecting the merged sample into both `PgSearchTableProvider`s
+1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — chooses compatible split points during logical planning; execution classifies its visible segments against those boundaries
 2. **`LateMaterializationRule`** — injects [`TantivyDecodeExec`][decode-exec] over [`TantivyFetchExec`][fetch-exec] to defer string materialization. With `paradedb.defer_column_fetch = off` the scan resolves term ordinals itself and only the decode node is injected
 3. **[`RangeCoPartitionedJoinRule`](range_partitioning_rule.rs)** — flips a `CollectLeft` inner hash join to `Partitioned` mode when both sides declare compatible `Partitioning::Range` layouts, so MPP joins partition pairs task-locally instead of broadcasting the build side
 4. **[`DeferredPlacementRule`](../../../scan/deferred_placement_rule.rs)** — decides per column where the fetch and the decode of a deferred string column run: a build side or a fan-out join moves the fetch into the scan, and a fan-out with no bounded consumer above moves the decode there too. `paradedb.defer_column_fetch` and `paradedb.defer_string_decode` override it

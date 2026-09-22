@@ -49,7 +49,9 @@ mod tests;
 
 use plugin::stats_component;
 pub(crate) use plugin::{StatsWriter, logical_bounds_hold, register};
-pub(crate) use pruning::{persisted_split_points, segments_for_partition};
+pub(crate) use pruning::{
+    PartitionSegments, SegmentInclusion, persisted_split_points, segments_for_partition,
+};
 
 const EMPIRICAL_IDX: usize = 0;
 const LOGICAL_IDX: usize = 1;
@@ -145,7 +147,7 @@ impl From<LogicalWire> for LogicalBounds {
 }
 
 /// True when `hi` ends before `lo` starts, so two ranges with these ends cannot share a value.
-fn ends_before(hi: Bound<&PdbOwnedValue>, lo: Bound<&PdbOwnedValue>) -> bool {
+pub(crate) fn ends_before(hi: Bound<&PdbOwnedValue>, lo: Bound<&PdbOwnedValue>) -> bool {
     match (hi, lo) {
         (Bound::Unbounded, _) | (_, Bound::Unbounded) => false,
         (Bound::Included(h), Bound::Included(l)) => h.total_cmp(l) == Ordering::Less,
@@ -162,6 +164,45 @@ fn ranges_intersect(
     b_hi: Bound<&PdbOwnedValue>,
 ) -> bool {
     !ends_before(a_hi, b_lo) && !ends_before(b_hi, a_lo)
+}
+
+fn lower_bound_ge(a_lo: Bound<&PdbOwnedValue>, b_lo: Bound<&PdbOwnedValue>) -> bool {
+    match (a_lo, b_lo) {
+        (_, Bound::Unbounded) => true,
+        (Bound::Unbounded, _) => false,
+        (Bound::Included(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) != Ordering::Less
+        }
+        (Bound::Included(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) == Ordering::Greater
+        }
+    }
+}
+
+fn upper_bound_le(a_hi: Bound<&PdbOwnedValue>, b_hi: Bound<&PdbOwnedValue>) -> bool {
+    match (a_hi, b_hi) {
+        (_, Bound::Unbounded) => true,
+        (Bound::Unbounded, _) => false,
+        (Bound::Included(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) != Ordering::Greater
+        }
+        (Bound::Included(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) == Ordering::Less
+        }
+    }
+}
+
+fn range_is_subset(
+    a_lo: Bound<&PdbOwnedValue>,
+    a_hi: Bound<&PdbOwnedValue>,
+    b_lo: Bound<&PdbOwnedValue>,
+    b_hi: Bound<&PdbOwnedValue>,
+) -> bool {
+    lower_bound_ge(a_lo, b_lo) && upper_bound_le(a_hi, b_hi)
 }
 
 /// The looser of two lower bounds. At an equal value the inclusive one is looser.
@@ -222,7 +263,7 @@ fn max_upper(a: &Bound<PdbOwnedValue>, b: &Bound<PdbOwnedValue>) -> Bound<PdbOwn
 
 /// Whether `total_cmp` ranks these two values by value. The derived order it falls back to
 /// ranks by variant, so a bound of one kind against a statistic of another says nothing.
-fn comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
+pub(crate) fn comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
     use PdbOwnedValue::*;
     matches!(
         (a, b),
@@ -278,6 +319,27 @@ impl LogicalBounds {
     pub(crate) fn may_hold_nulls(&self) -> bool {
         matches!(self.lower, Bound::Unbounded)
     }
+
+    /// Whether all values in this box are guaranteed to fall in `[lower, upper)`.
+    pub(crate) fn is_subset_of(
+        &self,
+        lower: &Bound<PdbOwnedValue>,
+        upper: &Bound<PdbOwnedValue>,
+    ) -> bool {
+        for own in [&self.lower, &self.upper] {
+            if let Bound::Included(v) | Bound::Excluded(v) = own
+                && !(bound_comparable(lower, v) && bound_comparable(upper, v))
+            {
+                return false;
+            }
+        }
+        range_is_subset(
+            self.lower.as_ref(),
+            self.upper.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+        )
+    }
 }
 
 impl EmpiricalStats {
@@ -292,6 +354,23 @@ impl EmpiricalStats {
             return true;
         }
         ranges_intersect(
+            Bound::Included(&self.min),
+            Bound::Included(&self.max),
+            lower.as_ref(),
+            upper.as_ref(),
+        )
+    }
+
+    /// Whether all values in `[min, max]` are guaranteed to fall in `[lower, upper)`.
+    pub(crate) fn is_subset_of(
+        &self,
+        lower: &Bound<PdbOwnedValue>,
+        upper: &Bound<PdbOwnedValue>,
+    ) -> bool {
+        if !(bound_comparable(lower, &self.min) && bound_comparable(upper, &self.max)) {
+            return false;
+        }
+        range_is_subset(
             Bound::Included(&self.min),
             Bound::Included(&self.max),
             lower.as_ref(),
@@ -319,13 +398,20 @@ impl EmpiricalStats {
 /// A segment's `.stats` file, opened on its footer. Entries are decoded on request.
 pub(crate) struct SegmentStats {
     file: CompositeFile,
+    source: FileSlice,
 }
 
 impl SegmentStats {
     pub(crate) fn open(slice: FileSlice) -> io::Result<Self> {
         Ok(Self {
             file: CompositeFile::open(&slice)?,
+            source: slice,
         })
+    }
+
+    /// Copy the persisted representation for another process without reopening the component.
+    pub(crate) fn dispatch_bytes(&self) -> io::Result<Vec<u8>> {
+        Ok(self.source.read_bytes()?.as_slice().to_vec())
     }
 
     /// Open a segment's `.stats` component through its directory, reading only the footer.
@@ -345,6 +431,9 @@ impl SegmentStats {
     }
 
     fn from_component(opened: Result<FileSlice, OpenReadError>) -> io::Result<Option<Self>> {
+        #[cfg(any(test, feature = "pg_test"))]
+        crate::index::segment_pruning::STATS_OPENS
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         match opened {
             Ok(slice) => Self::open(slice).map(Some),
             Err(OpenReadError::FileDoesNotExist(_)) => Ok(None),

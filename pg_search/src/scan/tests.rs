@@ -519,6 +519,91 @@ mod tests {
         assert_eq!(build_1.split_points.len(), 0);
     }
 
+    /// Execute the generated bounds: a pure-negative NULL clause has the right shape but
+    /// returns no rows in Tantivy unless it also has a positive All clause.
+    #[pg_test]
+    fn test_range_partition_queries_cover_nulls_once() {
+        use crate::api::FieldName;
+        use crate::index::stats::segments_for_partition;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue::{I64, Null};
+        use crate::scan::range_partitioning::RangePartitioning;
+
+        Spi::run(
+            "CREATE TABLE null_partition_rows (id bigint PRIMARY KEY, value bigint);
+             CREATE INDEX null_partition_rows_idx ON null_partition_rows
+             USING paradedb (id, value)
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO null_partition_rows VALUES (1, NULL), (2, -10), (3, 10), (4, 20), (5, NULL);
+             RESET paradedb.global_mutable_segment_rows;",
+        ).unwrap();
+        unsafe { pg_sys::CommandCounterIncrement() };
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'null_partition_rows_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let index_rel = PgSearchRelation::open(oid);
+        for scoring in [false, true] {
+            let reader = SearchIndexReader::open(
+                &index_rel,
+                SearchQueryInput::All,
+                scoring,
+                MvccSatisfies::Snapshot,
+            )
+            .unwrap();
+            for (split_points, expected) in [
+                (vec![], vec![vec![1, 2, 3, 4, 5]]),
+                (vec![I64(10)], vec![vec![1, 2, 5], vec![3, 4]]),
+                (vec![Null], vec![vec![1, 5], vec![2, 3, 4]]),
+                (vec![Null, Null], vec![vec![1, 5], vec![], vec![2, 3, 4]]),
+                (
+                    vec![Null, Null, I64(10)],
+                    vec![vec![1, 5], vec![], vec![2], vec![3, 4]],
+                ),
+                (
+                    vec![I64(10), I64(10)],
+                    vec![vec![1, 2, 5], vec![], vec![3, 4]],
+                ),
+            ] {
+                let partitioning = RangePartitioning {
+                    partition_by: FieldName::from("value"),
+                    split_points,
+                };
+                for (partition, expected_ids) in expected.into_iter().enumerate() {
+                    let query = partitioning.partition_bounds(partition);
+                    let exact = reader.and_query_input(&query);
+                    let ids = segments_for_partition(&reader, &partitioning, partition);
+                    let collect_ids =
+                        |results: crate::index::reader::index::MultiSegmentSearchResults| {
+                            let mut ids = results
+                                .map(|(_, doc)| {
+                                    reader
+                                        .searcher()
+                                        .segment_reader(doc.segment_ord)
+                                        .fast_fields()
+                                        .i64("id")
+                                        .unwrap()
+                                        .first(doc.doc_id)
+                                        .unwrap()
+                                })
+                                .collect::<Vec<_>>();
+                            ids.sort_unstable();
+                            ids
+                        };
+                    assert_eq!(
+                        collect_ids(exact.search()),
+                        expected_ids,
+                        "compiled bounds {query:?}, scoring={scoring}"
+                    );
+                    assert_eq!(
+                        collect_ids(exact.search_segments(ids.into_iter())),
+                        expected_ids,
+                        "routed bounds {query:?}, scoring={scoring}"
+                    );
+                }
+            }
+        }
+    }
+
     #[pg_test]
     fn test_range_partitioning_points_nulls() {
         use crate::api::FieldName;
@@ -542,9 +627,13 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        // partition 0: upper is NULL -> only NULL rows (All AND NOT Exists).
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        assert!(matches!(
+            p0,
+            SearchQueryInput::Boolean { ref must, .. }
+                if matches!(must.as_slice(), [SearchQueryInput::All])
+        ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
         let p1 = build.partition_bounds(1);
@@ -576,15 +665,19 @@ mod tests {
         assert_eq!(build.split_points[0], PdbOwnedValue::Null);
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
 
-        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        // partition 0: upper is NULL -> only NULL rows (All AND NOT Exists).
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        assert!(matches!(
+            p0,
+            SearchQueryInput::Boolean { ref must, .. }
+                if matches!(must.as_slice(), [SearchQueryInput::All])
+        ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
         let p1 = build.partition_bounds(1);
         assert!(matches!(p1, SearchQueryInput::Empty));
 
-        // partition 2: lower is Null (Unbounded), upper is Unbounded -> Range
+        // partition 2: both bounds are Unbounded -> Exists (all non-NULL values)
         let p2 = build.partition_bounds(2);
         assert!(matches!(p2, SearchQueryInput::FieldedQuery { .. }));
     }
@@ -611,7 +704,7 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::I64(10));
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is 10 -> Range OR Boolean(NOT Exists)
+        // partition 0: upper is 10 -> Range OR Boolean(All AND NOT Exists)
         let p0 = build.partition_bounds(0);
         assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
 
@@ -870,19 +963,28 @@ mod tests {
     #[pg_test]
     #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioned_assigned_execution() {
+        use crate::index::reader::index::{
+            SearchIndexManifest, test_support::INDEX_COMPONENT_OPENS,
+        };
+        use crate::scan::physical_codec::PgSearchPhysicalExtensionCodec;
         use arrow_array::Int64Array;
         use datafusion::physical_plan::Partitioning;
-        use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
+        use datafusion_proto::physical_plan::{
+            DefaultPhysicalProtoConverter, PhysicalExtensionCodec,
+        };
 
         let (heap_oid, index_oid) = get_relation_oids();
         let heap_rel = PgSearchRelation::open(heap_oid);
         let index_rel = PgSearchRelation::open(index_oid);
 
-        let reader = SearchIndexReader::open(
+        let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();
+        let reader = SearchIndexReader::from_manifest(
+            &manifest,
             &index_rel,
             SearchQueryInput::All,
             false,
-            MvccSatisfies::Snapshot,
+            None,
+            false,
         )
         .unwrap();
 
@@ -956,8 +1058,16 @@ mod tests {
             Precision::Inexact(25)
         );
 
+        use crate::index::segment_pruning::STATS_OPENS;
+        use std::sync::atomic::Ordering::Relaxed;
+        STATS_OPENS.store(0, Relaxed);
+        let variants: Vec<_> = (0..4)
+            .map(|partition| plan.with_assigned_partition(partition))
+            .collect();
+        let opened = STATS_OPENS.load(Relaxed);
+        assert_eq!(opened, reader.searcher().segment_readers().len());
         // As one of four task variants: this one owns partition 1 alone.
-        let plan = plan.with_assigned_partition(1);
+        let plan = Arc::clone(&variants[1]);
 
         assert!(plan.repartition(2).is_err());
         assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
@@ -979,53 +1089,116 @@ mod tests {
         // variant advertises one local partition to DataFusion.
         let proto_converter = DefaultPhysicalProtoConverter {};
         let encoded = plan.encode_for_dispatch(&proto_converter).unwrap();
+        // A later open can see another segment. Dispatch must replay the encoded view,
+        // not open its statistics or include its matching row in the old task.
+        Spi::run("INSERT INTO t (id, data) VALUES (30, 'appended after dispatch')").unwrap();
+        let fresh = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        assert_ne!(fresh.segment_view(), reader.segment_view());
         let task_context = TaskContext::default();
+        let codec = PgSearchPhysicalExtensionCodec::with_source_manifests(vec![manifest.clone()]);
+        let mut tagged = Vec::new();
+        codec
+            .try_encode(plan, &mut tagged, &proto_converter)
+            .unwrap();
+        let opens_before = INDEX_COMPONENT_OPENS.load(Relaxed);
+        let mut decoded = Vec::new();
+        for _ in 0..4 {
+            decoded.push(
+                codec
+                    .try_decode(&tagged, &[], &task_context, &proto_converter)
+                    .unwrap(),
+            );
+        }
+        assert_eq!(
+            INDEX_COMPONENT_OPENS.load(Relaxed),
+            opens_before,
+            "leader task copies must not reopen index components"
+        );
+        let newer = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();
+        let wrong_view = PgSearchPhysicalExtensionCodec::with_source_manifests(vec![newer]);
+        assert!(
+            wrong_view
+                .try_decode(&tagged, &[], &task_context, &proto_converter)
+                .unwrap_err()
+                .to_string()
+                .contains("source manifest differs")
+        );
+        Spi::run("CREATE TABLE other_source (id int); CREATE INDEX other_source_idx ON other_source USING paradedb(id)").unwrap();
+        let other_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'other_source_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let other = SearchIndexManifest::capture(
+            &PgSearchRelation::open(other_oid),
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let wrong_index = PgSearchPhysicalExtensionCodec::with_source_manifests(vec![other]);
+        assert!(
+            wrong_index
+                .try_decode(&tagged, &[], &task_context, &proto_converter)
+                .is_err()
+        );
         let plan = PgSearchScanPlan::decode_for_dispatch(
             &encoded,
             None,
             None,
+            &[],
             &task_context,
             &proto_converter,
         )
         .unwrap();
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            opened,
+            "physical-plan decoding must reuse captured statistics"
+        );
 
-        assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
-        assert!(matches!(
-            plan.properties().output_partitioning(),
-            Partitioning::UnknownPartitioning(1)
-        ));
+        decoded.push(plan);
+        for plan in decoded {
+            assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
+            assert!(matches!(
+                plan.properties().output_partitioning(),
+                Partitioning::UnknownPartitioning(1)
+            ));
 
-        // The specialized plan exposes only local partition 0. Rejecting another local
-        // partition must not consume the assigned global partition's execution state.
-        assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
+            // The specialized plan exposes only local partition 0. Rejecting another local
+            // partition must not consume the assigned global partition's execution state.
+            assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        let collect_ids = |partition: usize| {
-            let mut stream = plan
-                .execute(partition, Arc::new(TaskContext::default()))
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
                 .unwrap();
-            let mut ids = Vec::new();
-            runtime.block_on(async {
-                while let Some(batch) = stream.next().await {
-                    let batch = batch.unwrap();
-                    let id_array = batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .expect("id should be an Int64Array");
-                    ids.extend(id_array.values().iter().copied());
-                }
-            });
-            ids.sort_unstable();
-            ids
-        };
+            let collect_ids = |partition: usize| {
+                let mut stream = plan
+                    .execute(partition, Arc::new(TaskContext::default()))
+                    .unwrap();
+                let mut ids = Vec::new();
+                runtime.block_on(async {
+                    while let Some(batch) = stream.next().await {
+                        let batch = batch.unwrap();
+                        let id_array = batch
+                            .column(1)
+                            .as_any()
+                            .downcast_ref::<Int64Array>()
+                            .expect("id should be an Int64Array");
+                        ids.extend(id_array.values().iter().copied());
+                    }
+                });
+                ids.sort_unstable();
+                ids
+            };
 
-        // Local partition 0 must map to global partition 1, not merely any 25-row range.
-        assert_eq!(collect_ids(0), (25_i64..50).collect::<Vec<_>>());
+            // Local partition 0 must map to global partition 1, not merely any 25-row range.
+            assert_eq!(collect_ids(0), (25_i64..50).collect::<Vec<_>>());
 
-        // The state is consumed exactly once.
-        assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());
+            // The state is consumed exactly once.
+            assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());
+        }
     }
 }

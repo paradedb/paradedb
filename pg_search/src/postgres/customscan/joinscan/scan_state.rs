@@ -610,12 +610,6 @@ pub async fn build_joinscan_logical_plan(
     optimize_logical_plan(df)
 }
 
-/// Convert a LogicalPlan to an ExecutionPlan.
-///
-/// The input logical plan is already fully optimized (visibility + late materialization
-/// nodes injected at planning time). Physical planning reuses the shared
-/// `SessionContext` configuration and lowers the stored plan after execution
-/// has injected whatever runtime-only bindings are required during decode.
 /// Register a [`PgSearchTableProvider`] under `alias` and return the resulting
 /// [`DataFrame`].
 ///
@@ -637,14 +631,14 @@ pub async fn register_source_table(
 
 /// Build a DataFusion physical plan from a logical plan.
 ///
-/// Uses the session context's query planner and wraps multi-partition
-/// output with `CoalescePartitionsExec`. Shared by JoinScan and AggregateScan.
+/// The input has already undergone logical optimization, including range-boundary
+/// selection. Lower it with the session's query planner and wrap multi-partition output
+/// with `CoalescePartitionsExec`. Shared by JoinScan and AggregateScan.
 pub async fn build_physical_plan(
     ctx: &SessionContext,
     plan: datafusion::logical_expr::LogicalPlan,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let state = ctx.state();
-
     let plan = state
         .query_planner()
         .create_physical_plan(&plan, &state)

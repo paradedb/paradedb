@@ -202,12 +202,7 @@ impl RelationBufferAccess {
             || unsafe { self.get_buffer_extended_untracked(blockno, strategy, buffer_mode, lock) };
         #[cfg(feature = "io_stats")]
         {
-            crate::index::reader::io_stats::trace::buffer(
-                self.rel.oid().to_u32(),
-                self.rel.fork_number(),
-                blockno,
-                read,
-            )
+            crate::index::reader::io_stats::trace::buffer(read)
         }
         #[cfg(not(feature = "io_stats"))]
         unsafe {

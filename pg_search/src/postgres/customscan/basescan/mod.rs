@@ -121,8 +121,6 @@ impl BaseScan {
     ///    `estimate_dsm_custom_scan`, before any DSM is attached, and it is the open the
     ///    published view is captured from.
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
-        #[cfg(feature = "io_stats")]
-        let _io = crate::index::reader::io_stats::trace::label(Some("reader_setup"), None, None);
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
         state
@@ -1472,7 +1470,11 @@ impl CustomScan for BaseScan {
                     explainer.add_json("Parallel Workers", &explain_data.workers);
                 }
                 #[cfg(feature = "io_stats")]
-                explainer.add_json("IO Breakdown", state.custom_state().io_trace.json());
+                explainer.add_group("Buffer Hits", |explainer| {
+                    for (component, hits) in state.custom_state().io_trace.hits() {
+                        explainer.add_unsigned_integer(&component, hits, None);
+                    }
+                });
                 let segment_info = state.custom_state().segment_info_for_explain();
                 if !segment_info.is_empty() {
                     explainer.add_json("Segment Info", &segment_info);
@@ -2312,7 +2314,7 @@ fn check_visibility(
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
     #[cfg(feature = "io_stats")]
-    let _io = crate::index::reader::io_stats::trace::external("execute/heap/visibility_and_fetch");
+    let _io = crate::index::reader::io_stats::trace::external("Heap");
     state
         .custom_state_mut()
         .visibility_checker()

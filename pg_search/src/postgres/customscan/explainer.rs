@@ -133,6 +133,29 @@ impl Explainer {
         }
     }
 
+    #[cfg(feature = "io_stats")]
+    pub fn add_group(&mut self, key: &str, add_properties: impl FnOnce(&mut Self)) {
+        let state = self.state.as_ptr();
+        let text = unsafe { (*state).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT };
+        unsafe {
+            if text {
+                pg_sys::appendStringInfoSpaces((*state).str_, 2 * (*state).indent);
+                pg_sys::appendStringInfoString((*state).str_, format!("{key}:\n").as_pg_cstr());
+                (*state).indent += 1;
+            } else {
+                pg_sys::ExplainOpenGroup(key.as_pg_cstr(), key.as_pg_cstr(), true, state);
+            }
+        }
+        add_properties(self);
+        unsafe {
+            if text {
+                (*state).indent -= 1;
+            } else {
+                pg_sys::ExplainCloseGroup(key.as_pg_cstr(), key.as_pg_cstr(), true, state);
+            }
+        }
+    }
+
     pub fn add_bool(&mut self, key: &str, value: bool) {
         unsafe {
             pg_sys::ExplainPropertyBool(key.as_pg_cstr(), value, self.state.as_ptr());

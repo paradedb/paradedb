@@ -398,8 +398,7 @@ jobs:
             exit 0
           fi
 
-          # A PAT authenticates a git push but does not sign its commit. Use the
-          # App installation token to have GitHub create and sign the commit in
+          # Use the App installation token to have GitHub create and sign the commit in
           # the ParadeDB fork. Keep the PAT for opening the upstream PR.
           BASE_SHA=$(git rev-parse HEAD)
           BASE_TREE=$(git rev-parse HEAD^{tree})

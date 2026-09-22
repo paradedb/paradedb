@@ -23,6 +23,11 @@
 //! Like `block_tracker`, this is compiled out unless the `io_stats` feature is
 //! enabled, in which case the per-segment counters are merged into the
 //! `Segment Info` JSON shown by `EXPLAIN (ANALYZE, VERBOSE)`.
+//! Base scans also expose a `Buffer Hits` breakdown for component accesses during
+//! `ExecCustomScan`, including reader setup and heap visibility checks.
+
+#[cfg(feature = "io_stats")]
+pub mod trace;
 
 #[cfg(feature = "io_stats")]
 mod imp {
@@ -46,6 +51,7 @@ mod imp {
     }
 
     pub fn record<R>(component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
+        let _component = super::trace::file_read(component);
         let (hit0, read0) = snapshot();
         let result = read();
         let (hit1, read1) = snapshot();

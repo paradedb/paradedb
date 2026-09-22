@@ -20,8 +20,7 @@
 use crate::index::directory::utils::load_index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::catalog::is_pgvector_oid;
-use crate::postgres::is_bm25_index;
+use crate::postgres::catalog::{OidExt, is_pgvector_oid};
 use crate::postgres::rel::PgSearchRelation;
 use crate::vector::PgVector;
 use anyhow::{Context, Result, bail, ensure};
@@ -157,7 +156,7 @@ fn vector_estimator_info_internal(
     reject_partitioned_index(index.oid(), PartitionedIndexOperation::EstimatorInfo)?;
     ensure!(
         unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX
-            && is_bm25_index(&index),
+            && index.relam().is_paradedb_am(),
         "vector_estimator_info requires a ParadeDB index"
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
@@ -407,7 +406,7 @@ fn vector_error_audit_internal(
         "vector error audit requires a physical index"
     );
     ensure!(
-        is_bm25_index(&index),
+        index.relam().is_paradedb_am(),
         "vector error audit requires a ParadeDB index"
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
@@ -661,7 +660,7 @@ fn vector_error_cone_audit_internal(
         "vector error cone audit requires a physical index"
     );
     ensure!(
-        is_bm25_index(&index),
+        index.relam().is_paradedb_am(),
         "vector error cone audit requires a ParadeDB index"
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");

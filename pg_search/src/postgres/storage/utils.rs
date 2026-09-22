@@ -197,6 +197,31 @@ impl RelationBufferAccess {
             "cannot specify a lock when the buffer mode indicates locking"
         );
 
+        #[cfg(feature = "io_stats")]
+        let read =
+            || unsafe { self.get_buffer_extended_untracked(blockno, strategy, buffer_mode, lock) };
+        #[cfg(feature = "io_stats")]
+        {
+            crate::index::reader::io_stats::trace::buffer(
+                self.rel.oid().to_u32(),
+                self.rel.fork_number(),
+                blockno,
+                read,
+            )
+        }
+        #[cfg(not(feature = "io_stats"))]
+        unsafe {
+            self.get_buffer_extended_untracked(blockno, strategy, buffer_mode, lock)
+        }
+    }
+
+    unsafe fn get_buffer_extended_untracked(
+        &self,
+        blockno: pg_sys::BlockNumber,
+        strategy: pg_sys::BufferAccessStrategy,
+        buffer_mode: pg_sys::ReadBufferMode::Type,
+        lock: Option<u32>,
+    ) -> pg_sys::Buffer {
         unsafe {
             let buffer = if blockno == pg_sys::InvalidBlockNumber {
                 pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);

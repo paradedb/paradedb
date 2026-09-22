@@ -7,7 +7,7 @@ CREATE TABLE review_storage (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX review_storage_idx ON review_storage
 USING paradedb (id, vec vector_cosine_ops)
 WITH (target_segment_count = 1, mutable_segment_rows = 0,
-      layer_sizes = '100kb', background_layer_sizes = '0', centroid_ratio = 0.1);
+      layer_sizes = '100kb', background_layer_sizes = '0', max_leaf_size = 10, training_sample_ratio = 1.0);
 INSERT INTO review_storage
 SELECT g, ARRAY(SELECT (((g * 31 + i * 17) % 101) - 50)::real FROM generate_series(1,64) i)::vector
 FROM generate_series(1,256) g;

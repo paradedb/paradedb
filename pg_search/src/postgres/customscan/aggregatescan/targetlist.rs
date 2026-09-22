@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::CTID_FIELD_NAME;
 use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScan;
@@ -185,7 +186,10 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 }
 
                 if let Some(field_name) = aggregate.field_name() {
-                    if let Some(search_field) = schema.search_field(&field_name) {
+                    if field_name == CTID_FIELD_NAME {
+                        // ctid is backed by either the legacy `ctid` fast field or the split
+                        // `tid_block` and `tid_offset` fast fields, which are always fast.
+                    } else if let Some(search_field) = schema.search_field(&field_name) {
                         if !search_field.is_fast() {
                             return Err(format!("Field '{}' is not fast", field_name).into());
                         }

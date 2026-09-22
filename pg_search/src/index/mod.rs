@@ -86,7 +86,7 @@ pub fn index_settings(
     }
 
     Ok(IndexSettings {
-        sort_by_field: SearchIndexSchema::build_sort_by_field(&options.sort_by(), schema),
+        sort_by_fields: SearchIndexSchema::build_sort_by_fields(&options.sort_by(), schema),
         docstore_compress_dedicated_thread: false,
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
         vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),

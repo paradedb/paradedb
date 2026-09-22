@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::api::CTID_FIELD_NAME;
+use crate::api::{CTID_FIELD_NAME, TID_BLOCK_FIELD_NAME};
 use crate::api::version::Version;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::composite::CompositeSlotValues;
@@ -125,6 +125,7 @@ pub struct VisibilityChecker {
     // TODO: Make this non-optional in the future once all call sites provide an FFHelper.
     ffhelper: Option<Arc<FFHelper>>,
     raw_ctids_scratch: Vec<Option<u64>>,
+    split_ctids_scratch: Vec<Option<u64>>,
     segment_visibility: Option<(SegmentId, bool)>,
 }
 
@@ -173,6 +174,7 @@ impl VisibilityChecker {
                 check_visibility: true,
                 ffhelper: None,
                 raw_ctids_scratch: Vec::new(),
+                split_ctids_scratch: Vec::new(),
                 segment_visibility: None,
             }
         }
@@ -343,16 +345,34 @@ impl VisibilityChecker {
             {
                 break 'proof false;
             }
-            let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
-            if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc()
-            {
-                break 'proof false;
-            }
-            let (Ok(first), Ok(last)) = (
-                u32::try_from(ctids.min_value() >> 16),
-                u32::try_from(ctids.max_value() >> 16),
-            ) else {
-                break 'proof false;
+            let (first, last) = if segment.schema().get_field(TID_BLOCK_FIELD_NAME).is_ok() {
+                let blocks = segment.fast_fields().u64(TID_BLOCK_FIELD_NAME)?;
+                if blocks.get_cardinality() != Cardinality::Full
+                    || blocks.num_docs() != segment.max_doc()
+                {
+                    break 'proof false;
+                }
+                let (Ok(first), Ok(last)) = (
+                    u32::try_from(blocks.min_value()),
+                    u32::try_from(blocks.max_value()),
+                ) else {
+                    break 'proof false;
+                };
+                (first, last)
+            } else {
+                let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+                if ctids.get_cardinality() != Cardinality::Full
+                    || ctids.num_docs() != segment.max_doc()
+                {
+                    break 'proof false;
+                }
+                let (Ok(first), Ok(last)) = (
+                    u32::try_from(ctids.min_value() >> 16),
+                    u32::try_from(ctids.max_value() >> 16),
+                ) else {
+                    break 'proof false;
+                };
+                (first, last)
             };
             let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
             if vm_pages > 64 {
@@ -472,7 +492,11 @@ impl VisibilityChecker {
 
         let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
         raw_ctids.resize(doc_ids.len(), None);
-        ffhelper.ctid(segment_ord).as_u64s(doc_ids, &mut raw_ctids);
+        let mut split_scratch = std::mem::take(&mut self.split_ctids_scratch);
+        ffhelper
+            .ctid(segment_ord)
+            .as_u64s(doc_ids, &mut raw_ctids, &mut split_scratch);
+        self.split_ctids_scratch = split_scratch;
 
         if !self.check_visibility {
             results.copy_from_slice(&raw_ctids);

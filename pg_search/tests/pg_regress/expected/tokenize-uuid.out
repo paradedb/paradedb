@@ -17,23 +17,25 @@ INSERT INTO test_table (uuid) VALUES
 -- verify default is literal
 CREATE INDEX idx_test_table_uuid ON test_table USING paradedb (id, uuid);
 SELECT * FROM paradedb.schema('idx_test_table_uuid');
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+--------------------------+----------+------------
- ctid | U64        | f      | t       | t    | f          |             |                          |          | 
- id   | I64        | f      | t       | t    | f          |             |                          |          | 
- uuid | Str        | f      | t       | t    | t          |             | keyword[lowercase=false] | position | raw
-(3 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         |  record  | normalizer 
+------------+------------+--------+---------+------+------------+-------------+--------------------------+----------+------------
+ id         | I64        | f      | t       | t    | f          |             |                          |          | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                          |          | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                          |          | 
+ uuid       | Str        | f      | t       | t    | t          |             | keyword[lowercase=false] | position | raw
+(4 rows)
 
 DROP INDEX idx_test_table_uuid;
 -- use unicode
 CREATE INDEX idx_test_table_uuid ON test_table USING paradedb (id, (uuid::pdb.unicode_words));
 SELECT * FROM paradedb.schema('idx_test_table_uuid');
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
- ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
- id   | I64        | f      | t       | t    | f          |             |                                  |          | 
- uuid | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
-(3 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ id         | I64        | f      | t       | t    | f          |             |                                  |          | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                                  |          | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                                  |          | 
+ uuid       | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+(4 rows)
 
 DROP INDEX idx_test_table_uuid;
 -- use alias
@@ -41,10 +43,11 @@ CREATE INDEX idx_test_table_uuid ON test_table USING paradedb (id, (uuid::pdb.un
 SELECT * FROM paradedb.schema('idx_test_table_uuid');
     name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer            |  record  | normalizer 
 ------------+------------+--------+---------+------+------------+-------------+---------------------------------+----------+------------
- ctid       | U64        | f      | t       | t    | f          |             |                                 |          | 
  id         | I64        | f      | t       | t    | f          |             |                                 |          | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                                 |          | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                                 |          | 
  uuid_words | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:true | position | 
-(3 rows)
+(4 rows)
 
 DROP INDEX idx_test_table_uuid;
 DROP TABLE test_table;

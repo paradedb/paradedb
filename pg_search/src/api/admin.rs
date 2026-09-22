@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{CTID_FIELD_NAME, FieldName, HashMap, HashSet};
+use crate::api::{
+    CTID_FIELD_NAME, FieldName, HashMap, HashSet, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME,
+};
 use crate::index::directory::utils::load_index_settings;
-use crate::index::fast_fields_helper::FFType;
+use crate::index::fast_fields_helper::TidReader;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
@@ -586,15 +588,44 @@ fn vector_clusters(
 ///
 /// Otherwise, if this function returns NULL that is likely indicative of a pg_search bug.  We wish
 /// you luck in determining which is which.
+// TODO: Rename ctid -> tid
 #[pg_extern]
 fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<Vec<String>>> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     let ctid_u64 = item_pointer_to_u64(ctid);
-    let query = SearchQueryInput::FieldedQuery {
-        field: CTID_FIELD_NAME.into(),
-        query: pdb_query::Query::Term {
-            value: ctid_u64.into(),
-        },
+    let schema = index.schema()?;
+    let query = if schema
+        .tantivy_schema()
+        .get_field(TID_BLOCK_FIELD_NAME)
+        .is_ok()
+    {
+        let (block, offset) = crate::postgres::utils::tid_to_components(ctid_u64);
+        SearchQueryInput::Boolean {
+            must: vec![
+                SearchQueryInput::FieldedQuery {
+                    field: TID_BLOCK_FIELD_NAME.into(),
+                    query: pdb_query::Query::Term {
+                        value: (block as u64).into(),
+                    },
+                },
+                SearchQueryInput::FieldedQuery {
+                    field: TID_OFFSET_FIELD_NAME.into(),
+                    query: pdb_query::Query::Term {
+                        value: (offset as u64).into(),
+                    },
+                },
+            ],
+            should: vec![],
+            must_not: vec![],
+            minimum_should_match: None,
+        }
+    } else {
+        SearchQueryInput::FieldedQuery {
+            field: CTID_FIELD_NAME.into(),
+            query: pdb_query::Query::Term {
+                value: ctid_u64.into(),
+            },
+        }
     };
     let search_index = SearchIndexReader::open(&index, query, false, MvccSatisfies::Snapshot)?;
     let results = search_index.search();
@@ -735,7 +766,8 @@ fn verify_heap_references(
 
         let segment_id = segment_reader.segment_id().short_uuid_string();
         let fast_fields = segment_reader.fast_fields();
-        let ctid_column = FFType::new_ctid(fast_fields);
+        let tid_column = TidReader::open(segment_reader.schema(), fast_fields)
+            .expect("ctid columns should be present");
         let alive_bitset = segment_reader.alive_bitset();
 
         if verbose {
@@ -773,7 +805,9 @@ fn verify_heap_references(
 
             // Get the ctid for this document
             // Every indexed document MUST have a ctid - if missing, the index is corrupted
-            let ctid_u64 = match ctid_column.as_u64(doc_id) {
+            // TODO: Migrate from as_u64 point lookup to as_u64s batching
+            #[allow(deprecated)]
+            let ctid_u64 = match tid_column.as_u64(doc_id) {
                 Some(val) => val,
                 None => continue, // Will be detected as total_docs > total_checked
             };
@@ -1441,7 +1475,14 @@ pub mod pdb {
 
                 // Check if fast fields are accessible (specifically ctid)
                 let fast_fields = segment_reader.fast_fields();
-                if fast_fields.u64(CTID_FIELD_NAME).is_err() {
+                let schema = segment_reader.schema();
+                let ctid_accessible = if schema.get_field(TID_BLOCK_FIELD_NAME).is_ok() {
+                    fast_fields.u64(TID_BLOCK_FIELD_NAME).is_ok()
+                        && fast_fields.u64(TID_OFFSET_FIELD_NAME).is_ok()
+                } else {
+                    fast_fields.u64(CTID_FIELD_NAME).is_ok()
+                };
+                if !ctid_accessible {
                     segment_issues.push(format!(
                         "Segment {} ({}): ctid columnar field not accessible",
                         idx, segment_id

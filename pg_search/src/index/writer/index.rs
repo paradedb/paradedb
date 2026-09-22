@@ -22,7 +22,6 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
-use tantivy::schema::Field;
 use tantivy::{
     Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
     directory::RamDirectory,
@@ -33,7 +32,7 @@ use crate::index::setup_tokenizers;
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchIndexSchema, TidFields};
 use crate::vector::clusterer::set_ivf_clusterer;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
@@ -210,7 +209,7 @@ pub struct SerialIndexWriter {
     // for logging purposes
     id: i32,
     indexrel: PgSearchRelation,
-    ctid_field: Field,
+    tid_fields: TidFields,
     config: IndexWriterConfig,
     pub(crate) index: Index,
     pending_segment: Option<PendingSegment>,
@@ -307,12 +306,12 @@ impl SerialIndexWriter {
             set_ivf_clusterer(&mut index, index_relation.options());
         }
         setup_tokenizers(index_relation, &mut index)?;
-        let ctid_field = schema.ctid_field();
+        let tid_fields = schema.tid_fields();
 
         Ok(Self {
             id: worker_number,
             indexrel: Clone::clone(index_relation),
-            ctid_field,
+            tid_fields,
             config,
             index,
             pending_segment: Default::default(),
@@ -335,7 +334,7 @@ impl SerialIndexWriter {
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
         let index = index_relation.create_in_memory_index(directory)?;
-        let ctid_field = schema.ctid_field();
+        let tid_fields = schema.tid_fields();
         // We bound the input size instead: see the method doc.
         let memory_budget = NonZeroUsize::new(usize::MAX).unwrap();
         let config = IndexWriterConfig {
@@ -348,7 +347,7 @@ impl SerialIndexWriter {
         Ok(Self {
             id: worker_number,
             indexrel: Clone::clone(index_relation),
-            ctid_field,
+            tid_fields,
             config,
             index,
             pending_segment,
@@ -369,7 +368,16 @@ impl SerialIndexWriter {
         ctid: u64,
         on_finalize: OnFinalize,
     ) -> Result<Option<SegmentMeta>> {
-        document.add_u64(self.ctid_field, ctid);
+        match self.tid_fields {
+            TidFields::Legacy(field) => {
+                document.add_u64(field, ctid);
+            }
+            TidFields::Split { block, offset } => {
+                let (b, o) = crate::postgres::utils::tid_to_components(ctid);
+                document.add_u64(block, b as u64);
+                document.add_u64(offset, o as u64);
+            }
+        }
 
         if self.pending_segment.is_none() {
             self.pending_segment = Some(self.new_segment()?);
@@ -699,14 +707,12 @@ mod tests {
         let mut writer =
             SerialIndexWriter::open(&index_relation, config, Default::default()).unwrap();
         let schema = writer.schema();
-        let ctid_field = schema.ctid_field();
         let text_field = schema.search_field("data").unwrap().field();
         let mut segment_ids = HashSet::default();
 
         for i in 0..num_docs {
             let mut document = TantivyDocument::new();
             document.add_text(text_field, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor.");
-            document.add_u64(ctid_field, i as u64);
             if let Some(meta) = writer.insert(document, i as u64, || {}).unwrap() {
                 segment_ids.insert(meta.id());
             }

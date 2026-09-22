@@ -128,6 +128,22 @@ END$$;
 SELECT msg FROM mpp_spill_guc_off_outcome;
 DROP TABLE mpp_spill_guc_off_outcome;
 
+-- EXPLAIN may report a scalar count or counts keyed by task ID. A spill
+-- on a later task must count; nonzero task IDs and unrelated metrics must not.
+SELECT bool_and(
+    (line ~ 'spill_count=([1-9][0-9]*|\{[^}]*:\s*[1-9][0-9]*)') = expected
+) AS spill_metric_matching_correct
+FROM (VALUES
+    ('spill_count=0', false),
+    ('spill_count=2', true),
+    ('spill_count={0:0, 1:1, 2:0}', true),
+    ('spill_count={1:1}', true),
+    ('spill_count={0:0, 12:10}', true),
+    ('spill_count={0:0, 1:0, 12:0}', false),
+    ('spill_count={0:0, 1:0}, output_rows={0:100}', false),
+    ('output_rows={0:100}', false)
+) AS cases(line, expected);
+
 -- GUC on: the MPP path must spill at least one operator and complete.
 SET paradedb.spill_to_disk TO on;
 
@@ -142,7 +158,7 @@ FROM explain_analyze_lines(
 ) AS line;
 
 SELECT bool_or(
-    line ~ 'spill_count=\{?0?:?\s*[1-9]'
+    line ~ 'spill_count=([1-9][0-9]*|\{[^}]*:\s*[1-9][0-9]*)'
 ) AS something_spilled
 FROM mpp_spill_explain_output;
 

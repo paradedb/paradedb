@@ -100,7 +100,7 @@ FROM explain_analyze_lines(
      GROUP BY f.title'
 ) AS line;
 SELECT bool_or(
-    line LIKE '%AggregateExec%' AND line ~ 'spill_count=\{?0?:?\s*[1-9]'
+    line LIKE '%AggregateExec%' AND line ~ 'spill_count=([1-9][0-9]*|\{[^}]*:\s*[1-9][0-9]*)'
 ) AS aggregate_spilled
 FROM spill_explain_output;
 DROP TABLE spill_explain_output;

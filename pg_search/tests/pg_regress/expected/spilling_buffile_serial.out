@@ -96,7 +96,7 @@ FROM explain_analyze_lines(
 ) AS line;
 WARNING:  query exceeded work_mem and spilled to disk; consider raising work_mem for better performance (paradedb.spill_to_disk allowed it to complete instead of erroring)
 SELECT bool_or(
-    line LIKE '%AggregateExec%' AND line ~ 'spill_count=\{?0?:?\s*[1-9]'
+    line LIKE '%AggregateExec%' AND line ~ 'spill_count=([1-9][0-9]*|\{[^}]*:\s*[1-9][0-9]*)'
 ) AS aggregate_spilled
 FROM spill_explain_output;
  aggregate_spilled 

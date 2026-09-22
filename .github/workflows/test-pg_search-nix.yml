@@ -90,8 +90,7 @@ jobs:
               exit 1
             fi
 
-            # Local git commits pushed with an App token are not signed. Create
-            # the commit through GitHub's Git API with the App installation token;
+            # Create the commit through GitHub's Git API with the App installation token;
             # omitting author and committer lets GitHub sign it as the App.
             base_sha=$(git rev-parse HEAD)
             base_tree=$(git rev-parse HEAD^{tree})

@@ -2694,21 +2694,27 @@ mod tests {
                 .unwrap()
                 .nullable
         );
-        let bounds = range_query("value", 10, 20);
-        let partitioning = RangePartitioning {
-            partition_by: FieldName::from("value"),
-            split_points: vec![PdbOwnedValue::I64(21)],
-        };
-        let partition_segments = segments_for_partition(&reader, &partitioning, 0);
-        assert!(!partition_segments.partially_included.is_empty());
-        assert!(partition_segments.included.is_empty());
-        let constrained_reader = reader.and_query_input(&bounds);
-        let scan = reader.search_segments_with_range_filter(
-            partition_segments.included.into_iter(),
-            &constrained_reader,
-            partition_segments.partially_included.into_iter(),
-        );
-        assert_eq!(scan.count(), 2);
+        // Partition 0 owns the NULL rows, so a nullable segment inside its value range is fully
+        // included and searches without the partition filter: all three rows belong to it.
+        // Partition 1 does not own NULLs, so the same segment stays partially included and
+        // the filter excludes the NULL row.
+        for (split_points, partition, expected, covered) in
+            [(vec![21], 0, 3, true), (vec![5], 1, 2, false)]
+        {
+            let partitioning = RangePartitioning {
+                partition_by: FieldName::from("value"),
+                split_points: split_points.into_iter().map(PdbOwnedValue::I64).collect(),
+            };
+            let bounds = partitioning.partition_bounds(partition);
+            check_filter(
+                &reader,
+                &bounds,
+                &partitioning,
+                partition,
+                expected,
+                covered,
+            );
+        }
     }
 
     #[pg_test]

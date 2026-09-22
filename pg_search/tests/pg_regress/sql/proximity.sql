@@ -32,6 +32,10 @@ SELECT * FROM prox WHERE text @@@ pdb.proximity(pdb.prox_regex('del...ous'), 1, 
 SELECT * FROM prox WHERE text @@@ pdb.proximity_in_order(pdb.prox_regex('del...ous'), 1, pdb.prox_array('chicken', pdb.prox_regex('r..s')));
 
 
+SELECT id, pdb.score(id) > 0 AS scored FROM prox WHERE text @@@ pdb.proximity_in_order('bbq', 1, pdb.prox_array('chicken', 'ribs')) ORDER BY id;
+SELECT id, pdb.score(id) > 0 AS scored FROM prox WHERE text @@@ pdb.proximity(pdb.prox_regex('del...ous'), 1, pdb.prox_array('chicken', pdb.prox_regex('r..s'))) ORDER BY id;
+SELECT id, pdb.score(id) > 0 AS scored FROM prox WHERE text @@@ pdb.proximity(pdb.prox_clause(pdb.prox_array('chicken', 'ribs'), 0, 'will'), 4, pdb.prox_clause('bbq', 0, 'party')) ORDER BY id;
+
 --
 -- just to assert the json representation
 --

@@ -23,7 +23,8 @@ CREATE TABLE agg_join_products (
 CREATE TABLE agg_join_tags (
     id SERIAL PRIMARY KEY,
     product_id INTEGER,
-    tag_name TEXT
+    tag_name TEXT,
+    sep TEXT DEFAULT '|'
 );
 
 INSERT INTO agg_join_products (description, category, price, rating) VALUES
@@ -886,30 +887,59 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
 
--- NULL delimiter regression. Identical inputs make the result independent of
--- aggregation order.
+-- Test 14.4: NULL delimiter uses no separator and supports aggregate ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+SELECT p.category, STRING_AGG(t.tag_name, NULL ORDER BY t.tag_name) AS null_delimiter
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop'
-  AND t.tag_name = 'tech';
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
 
-SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+SELECT p.category, STRING_AGG(t.tag_name, NULL ORDER BY t.tag_name) AS null_delimiter
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop'
-  AND t.tag_name = 'tech';
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
 
 SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+SELECT p.category, STRING_AGG(t.tag_name, NULL ORDER BY t.tag_name) AS null_delimiter
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop'
-  AND t.tag_name = 'tech';
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
--- Test 14.4: BOOL_AND/OR parity — DataFusion vs Postgres native
+-- Test 14.5: A column separator falls back to native Postgres
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT STRING_AGG(t.tag_name, t.sep ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+SELECT STRING_AGG(t.tag_name, t.sep ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+-- Test 14.6: A generic-plan parameter separator falls back to native Postgres
+SET plan_cache_mode = force_generic_plan;
+PREPARE aggregate_join_string_agg_separator(text) AS
+SELECT STRING_AGG(t.tag_name, $1 ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXECUTE aggregate_join_string_agg_separator('|');
+
+EXECUTE aggregate_join_string_agg_separator('|');
+DEALLOCATE aggregate_join_string_agg_separator;
+RESET plan_cache_mode;
+
+-- Test 14.7: BOOL_AND/OR parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
 FROM agg_join_products p
@@ -926,7 +956,7 @@ WHERE p.description @@@ 'laptop OR shoes OR toy'
 GROUP BY p.category
 ORDER BY p.category;
 
--- Test 13.5: ARRAY_AGG on join
+-- Test 14.8: ARRAY_AGG on join
 SELECT p.category, ARRAY_AGG(t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -934,7 +964,7 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
 
--- Test 13.6: ARRAY_AGG parity — DataFusion vs Postgres native
+-- Test 14.9: ARRAY_AGG parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, ARRAY_AGG(t.tag_name)
 FROM agg_join_products p

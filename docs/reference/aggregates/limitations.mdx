@@ -146,5 +146,6 @@ For aggregates over joins, ParadeDB falls back to native Postgres execution when
 - The query uses window functions (`OVER ...`), `ROLLUP`, `CUBE`, `GROUPING SETS`, `LATERAL`, or `DISTINCT ON`. The single-table [faceted query](/reference/aggregates/facets) form `pdb.agg(...) OVER ()` is pushed down, but not across joins
 - `GROUP BY` uses a scalar function like `date_trunc(...)` or `lower(...)` (JSON sub-field access via `->>` is supported)
 - The aggregate argument or result is wrapped in an expression such as `COALESCE(SUM(...), 0)` or a cast
+- A `STRING_AGG` separator cannot be reduced to a constant during planning, such as when it is a column, a non-foldable function expression like `current_setting(...)`, or a parameter in a generic plan
 
 When a fallback happens, the query still runs correctly through Postgres' native planner. ParadeDB simply does not accelerate it.

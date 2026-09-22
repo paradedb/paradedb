@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed `STRING_AGG` over joins to preserve PostgreSQL separator semantics: a `NULL` separator inserts nothing, while separators that remain non-constant at planning time fall back to PostgreSQL aggregation instead of being silently replaced with a comma (#6385).

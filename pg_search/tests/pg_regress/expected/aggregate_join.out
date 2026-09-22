@@ -19,7 +19,8 @@ CREATE TABLE agg_join_products (
 CREATE TABLE agg_join_tags (
     id SERIAL PRIMARY KEY,
     product_id INTEGER,
-    tag_name TEXT
+    tag_name TEXT,
+    sep TEXT DEFAULT '|'
 );
 INSERT INTO agg_join_products (description, category, price, rating) VALUES
     ('Laptop with fast processor', 'Electronics', 999.99, 5),
@@ -1409,54 +1410,135 @@ ORDER BY p.category;
  Toys        | tech, kids
 (3 rows)
 
--- NULL delimiter regression. Identical inputs make the result independent of
--- aggregation order.
+-- Test 14.4: NULL delimiter uses no separator and supports aggregate ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+SELECT p.category, STRING_AGG(t.tag_name, NULL ORDER BY t.tag_name) AS null_delimiter
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop'
-  AND t.tag_name = 'tech';
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan)
-   Backend: DataFusion
-   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Aggregates: STRING_AGG(tag_name)
-   DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[], aggr=[string_agg(t_1.tag_name, ) as agg_0]
-     :   TantivyDecodeExec: decode=[tag_name]
-     :     TantivyFetchExec: fetch=[tag_name]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@1)], projection=[tag_name@1]
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(tag_name = 'tech'::text)"}]}}
-(13 rows)
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+         Group By: category
+         Aggregates: STRING_AGG(tag_name)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[string_agg(t_1.tag_name, ) ORDER BY [t_1.tag_name ASC NULLS LAST] as agg_0]
+           :   SortExec: expr=[tag_name@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     TantivyDecodeExec: decode=[tag_name]
+           :       TantivyFetchExec: fetch=[tag_name]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
 
-SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+SELECT p.category, STRING_AGG(t.tag_name, NULL ORDER BY t.tag_name) AS null_delimiter
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop'
-  AND t.tag_name = 'tech';
- null_delimiter 
-----------------
- techtechtech
-(1 row)
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+  category   |     null_delimiter     
+-------------+------------------------
+ Electronics | computergamingtechtech
+ Sports      | fitnessrunning
+ Toys        | kidstech
+(3 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+SELECT p.category, STRING_AGG(t.tag_name, NULL ORDER BY t.tag_name) AS null_delimiter
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop'
-  AND t.tag_name = 'tech';
- null_delimiter 
-----------------
- techtechtech
-(1 row)
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+  category   |     null_delimiter     
+-------------+------------------------
+ Electronics | computergamingtechtech
+ Sports      | fitnessrunning
+ Toys        | kidstech
+(3 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
--- Test 14.4: BOOL_AND/OR parity — DataFusion vs Postgres native
+-- Test 14.5: A column separator falls back to native Postgres
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT STRING_AGG(t.tag_name, t.sep ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+WARNING:  Aggregate Scan (DataFusion) not used: STRING_AGG separator must be a constant for aggregate pushdown (table: join)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Sort
+         Sort Key: t.tag_name
+         ->  Hash Join
+               Hash Cond: (t.product_id = p.id)
+               ->  Seq Scan on agg_join_tags t
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on agg_join_products p
+                           Table: agg_join_products
+                           Index: agg_join_products_idx
+                           Exec Method: ColumnarExecState
+                           Columnar: id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT STRING_AGG(t.tag_name, t.sep ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+WARNING:  Aggregate Scan (DataFusion) not used: STRING_AGG separator must be a constant for aggregate pushdown (table: join)
+             string_agg              
+-------------------------------------
+ computer|gaming|kids|tech|tech|tech
+(1 row)
+
+-- Test 14.6: A generic-plan parameter separator falls back to native Postgres
+SET plan_cache_mode = force_generic_plan;
+PREPARE aggregate_join_string_agg_separator(text) AS
+SELECT STRING_AGG(t.tag_name, $1 ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXECUTE aggregate_join_string_agg_separator('|');
+WARNING:  Aggregate Scan (DataFusion) not used: STRING_AGG separator must be a constant for aggregate pushdown (table: join)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Sort
+         Sort Key: t.tag_name
+         ->  Hash Join
+               Hash Cond: (t.product_id = p.id)
+               ->  Seq Scan on agg_join_tags t
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on agg_join_products p
+                           Table: agg_join_products
+                           Index: agg_join_products_idx
+                           Exec Method: ColumnarExecState
+                           Columnar: id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+EXECUTE aggregate_join_string_agg_separator('|');
+             string_agg              
+-------------------------------------
+ computer|gaming|kids|tech|tech|tech
+(1 row)
+
+DEALLOCATE aggregate_join_string_agg_separator;
+RESET plan_cache_mode;
+-- Test 14.7: BOOL_AND/OR parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
 FROM agg_join_products p
@@ -1485,7 +1567,7 @@ ORDER BY p.category;
  Toys        | f        | f
 (3 rows)
 
--- Test 13.5: ARRAY_AGG on join
+-- Test 14.8: ARRAY_AGG on join
 SELECT p.category, ARRAY_AGG(t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -1499,7 +1581,7 @@ ORDER BY p.category;
  Toys        | {tech,kids}
 (3 rows)
 
--- Test 13.6: ARRAY_AGG parity — DataFusion vs Postgres native
+-- Test 14.9: ARRAY_AGG parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, ARRAY_AGG(t.tag_name)
 FROM agg_join_products p

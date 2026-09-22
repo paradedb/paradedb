@@ -29,12 +29,14 @@ use super::datafusion_build::{
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
 use crate::api::{SortDirection, pdb_agg_spec};
+use crate::nodecast;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
 use crate::postgres::node::NodeExt;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use crate::schema::SearchFieldType;
+use pgrx::FromDatum;
 use pgrx::PgList;
 use pgrx::pg_guard;
 use pgrx::pg_sys;
@@ -806,11 +808,10 @@ unsafe fn extract_raw_aggregate_entry(
                 .map(|name| format!("unsupported aggregate function: {name}"))
                 .unwrap_or_else(|| format!("unsupported aggregate function OID: {aggfnoid}"))
         })?;
-    let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
-    if is_string_agg {
-        agg_kind =
-            AggKind::StringAgg(extract_string_agg_separator(aggref).unwrap_or_else(|| ",".into()));
+    if let AggKind::StringAgg(separator) = &mut agg_kind {
+        *separator = extract_string_agg_separator(aggref)?;
     }
+    let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
     let field_refs = extract_aggref_field_refs(context, aggref, is_string_agg)?;
     let order_by =
         extract_aggref_order_by(aggref, context.sources, context.plan, context.outer_root_id)?;
@@ -923,31 +924,20 @@ unsafe fn lower_pdb_agg(
 /// Extract the separator string from a STRING_AGG's second argument.
 ///
 /// STRING_AGG(col, separator) stores the separator as the second TargetEntry.
-/// A NULL constant is normalized to an empty string, matching PostgreSQL's
-/// no-separator semantics. Returns `None` if the separator cannot be extracted
-/// (non-const, missing).
-unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<String> {
+/// PostgreSQL evaluates the separator per row, while DataFusion requires a
+/// literal, so only constant separators are pushed down. NULL inserts no
+/// separator.
+unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Result<String, String> {
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-    if args.len() < 2 {
-        return None;
-    }
-    let second_arg = args.get_ptr(1)?;
-    let expr = (*second_arg).expr as *mut pg_sys::Node;
-    if expr.is_null() || (*expr).type_ != pg_sys::NodeTag::T_Const {
-        return None;
-    }
-    let konst = expr as *mut pg_sys::Const;
-    if (*konst).constisnull {
-        return Some(String::new());
-    }
-    let datum = (*konst).constvalue;
-    let text_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
-    let cstr = pg_sys::text_to_cstring(text_ptr);
-    if cstr.is_null() {
-        return None;
-    }
-    let s = std::ffi::CStr::from_ptr(cstr).to_str().ok()?.to_owned();
-    Some(s)
+    let konst = args
+        .get_ptr(1)
+        .and_then(|arg| nodecast!(Const, T_Const, (*arg).expr))
+        .ok_or("STRING_AGG separator must be a constant for aggregate pushdown")?;
+    Ok(String::from_datum(
+        (*konst).constvalue,
+        (*konst).constisnull,
+    )
+    .unwrap_or_default())
 }
 
 /// Extract the field reference from an `Aggref`'s arguments.

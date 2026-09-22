@@ -743,11 +743,28 @@ impl VectorSearchControl for PgVectorSearchControl<'_> {
         };
         let state = unsafe { state.as_ref() };
         let pid = unsafe { pgrx::pg_sys::MyProcPid as u32 };
-        state
-            .rank_owner
-            .compare_exchange(0, pid, Ordering::AcqRel, Ordering::Acquire)
-            .unwrap_or_else(|owner| owner)
-            == 0
+        let leader = state.route_owner.load(Ordering::Acquire);
+        let preferred = if state.leader_routes
+            && state.route().incremental
+            && state.route().shareable
+            && leader != 0
+            && (0..=state.segment_count)
+                .any(|i| unsafe { &*state.pids_ptr().add(i) }.load(Ordering::Acquire) == leader)
+        {
+            leader
+        } else {
+            pid
+        };
+        let owner = match state.rank_owner.compare_exchange(
+            0,
+            preferred,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => preferred,
+            Err(owner) => owner,
+        };
+        owner == pid
     }
 
     fn can_overlap_routing(&self) -> bool {

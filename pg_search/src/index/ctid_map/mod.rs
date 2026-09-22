@@ -37,7 +37,7 @@ use tantivy::directory::error::OpenReadError;
 use tantivy::directory::{CompositeFile, CompositeWrite, FileSlice};
 use tantivy::index::{Segment, SegmentComponent, SegmentReader};
 
-use crate::api::CTID_FIELD_NAME;
+use crate::api::{CTID_FIELD_NAME, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
 use crate::index::reader::index::SearchIndexReader;
 
 mod plugin;
@@ -57,21 +57,36 @@ where
 
 /// Builds the boundary column from the final live CTIDs at flush or merge.
 pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Result<()> {
-    if !segment
-        .index()
-        .settings()
-        .sort_by_field
-        .as_ref()
-        .is_some_and(|sort| sort.field == CTID_FIELD_NAME)
-    {
+    let settings = segment.index().settings();
+    let is_ctid_sorted = match settings.sort_by_fields() {
+        [sort] if sort.field == CTID_FIELD_NAME => true,
+        [block, offset]
+            if block.field == TID_BLOCK_FIELD_NAME
+                && offset.field == TID_OFFSET_FIELD_NAME
+                && block.order == offset.order =>
+        {
+            true
+        }
+        _ => false,
+    };
+    if !is_ctid_sorted {
         return Ok(());
     }
     let schema = segment.schema();
-    let Ok(field) = schema.get_field(CTID_FIELD_NAME) else {
+    let (field, is_split) = if let Ok(block_field) = schema.get_field(TID_BLOCK_FIELD_NAME) {
+        (block_field, true)
+    } else if let Ok(ctid_field) = schema.get_field(CTID_FIELD_NAME) {
+        (ctid_field, false)
+    } else {
         return Ok(());
     };
     let fast = ColumnarReader::open(segment.open_read(SegmentComponent::FastFields)?)?;
-    let handles = fast.read_columns(CTID_FIELD_NAME)?;
+    let field_name = if is_split {
+        TID_BLOCK_FIELD_NAME
+    } else {
+        CTID_FIELD_NAME
+    };
+    let handles = fast.read_columns(field_name)?;
     let [handle] = handles.as_slice() else {
         return Ok(());
     };
@@ -83,12 +98,15 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Resu
         return Ok(());
     }
     let descending = column.values.get_val(0) > column.values.get_val(docs - 1);
-    let first_block =
-        u32::try_from(column.values.get_val(if descending { docs - 1 } else { 0 }) >> 16)
-            .context("heap block number exceeds BlockNumber")?;
-    let last_block =
-        u32::try_from(column.values.get_val(if descending { 0 } else { docs - 1 }) >> 16)
-            .context("heap block number exceeds BlockNumber")?;
+    let get_block = |value: u64| -> anyhow::Result<u32> {
+        if is_split {
+            u32::try_from(value).context("heap block number exceeds BlockNumber")
+        } else {
+            u32::try_from(value >> 16).context("heap block number exceeds BlockNumber")
+        }
+    };
+    let first_block = get_block(column.values.get_val(if descending { docs - 1 } else { 0 }))?;
+    let last_block = get_block(column.values.get_val(if descending { 0 } else { docs - 1 }))?;
     if first_block > last_block || last_block == InvalidBlockNumber {
         bail!("invalid heap-block boundaries");
     }
@@ -105,7 +123,12 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Resu
                     pgrx::check_for_interrupts!();
                 }
                 let source_doc = if descending { docs - doc - 1 } else { doc };
-                let block = (column.values.get_val(source_doc) >> 16) as BlockNumber;
+                let val = column.values.get_val(source_doc);
+                let block = if is_split {
+                    val as BlockNumber
+                } else {
+                    (val >> 16) as BlockNumber
+                };
                 let boundary = (previous != Some(block)).then_some((block, doc));
                 previous = Some(block);
                 boundary
@@ -157,7 +180,13 @@ impl BlockToDocIdMap {
             Err(error) => return Err(error.into()),
         };
         let file = CompositeFile::open(&slice)?;
-        let field = segment.schema().get_field(CTID_FIELD_NAME)?;
+        let schema = segment.schema();
+        let Ok(field) = schema
+            .get_field(TID_BLOCK_FIELD_NAME)
+            .or_else(|_| schema.get_field(CTID_FIELD_NAME))
+        else {
+            return Ok(None);
+        };
         let Some(file) = file.open_read(field) else {
             return Ok(None);
         };

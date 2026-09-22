@@ -18,7 +18,7 @@
 use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
-use crate::api::CTID_FIELD_NAME;
+use crate::api::{CTID_FIELD_NAME, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
 use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::datetime::PostgresDateTime;
@@ -26,8 +26,10 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
+use crate::postgres::utils::{TidBlock, TidOffset};
 use crate::schema::{SearchFieldType, is_columnar_json_path};
 use tantivy::index::SegmentId;
+use tantivy::schema::Schema;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
@@ -57,9 +59,93 @@ pub struct CanonicalColumn {
     pub ff_index: FFIndex,
 }
 
+/// Cache of the active segment's tuple identifier reader and ordinal.
+pub type TidCache = Option<(tantivy::SegmentOrdinal, TidReader)>;
+
+/// Reads document tuple identifiers from Tantivy fast fields.
+///
+/// Supports backwards compatibility: reads either from the legacy single `ctid`
+/// column or by combining the split `tid_block` and `tid_offset` columns.
+///
+/// If you are reading multiple columns during a scan, use a nearby [`FFHelper`]
+/// (via `ff_helper.ctid(segment_ord)`) rather than constructing a `TidReader` directly.
+/// Direct usage of `TidReader` is intended only for rare cases where no other columns
+/// are being fetched.
+#[derive(Clone, Debug)]
+pub enum TidReader {
+    Legacy(Column<u64>),
+    Split {
+        block: Column<u64>,
+        offset: Column<u64>,
+    },
+}
+
+impl TidReader {
+    /// Opens tuple identifier fast field column(s) for a segment.
+    ///
+    /// NOTE: If you are reading multiple columns during a scan, use a nearby [`FFHelper`]
+    /// rather than constructing a `TidReader` directly.
+    pub fn open(schema: &Schema, ffr: &FastFieldReaders) -> tantivy::Result<Self> {
+        if schema.get_field(TID_BLOCK_FIELD_NAME).is_ok() {
+            let block = ffr.u64(TID_BLOCK_FIELD_NAME)?;
+            let offset = ffr.u64(TID_OFFSET_FIELD_NAME)?;
+            Ok(Self::Split { block, offset })
+        } else {
+            Ok(Self::Legacy(ffr.u64(CTID_FIELD_NAME)?))
+        }
+    }
+
+    #[deprecated(
+        note = "Point lookups for tuple IDs are inefficient with split columns; migrate to batch lookup via as_u64s"
+    )]
+    #[inline(always)]
+    pub fn as_u64(&self, doc: DocId) -> Option<u64> {
+        match self {
+            Self::Legacy(col) => col.first(doc),
+            Self::Split { block, offset } => {
+                let b = block.first(doc)?;
+                let o = offset.first(doc)?;
+                Some(crate::postgres::utils::tid_from_components(
+                    b as TidBlock,
+                    o as TidOffset,
+                ))
+            }
+        }
+    }
+
+    pub fn as_u64s(
+        &self,
+        docs: &[DocId],
+        output: &mut [Option<u64>],
+        scratch: &mut Vec<Option<u64>>,
+    ) {
+        match self {
+            Self::Legacy(col) => {
+                col.first_vals(docs, output);
+            }
+            Self::Split { block, offset } => {
+                block.first_vals(docs, output);
+                scratch.resize(docs.len(), None);
+                scratch.fill(None);
+                offset.first_vals(docs, scratch.as_mut_slice());
+                for (out, &o) in output.iter_mut().zip(scratch.iter()) {
+                    *out = match (*out, o) {
+                        (Some(b), Some(o)) => Some(crate::postgres::utils::tid_from_components(
+                            b as TidBlock,
+                            o as TidOffset,
+                        )),
+                        _ => None,
+                    };
+                }
+            }
+        }
+    }
+}
+
 struct SegmentCache {
     columns: Vec<OnceLock<FFType>>,
-    ctid: OnceLock<FFType>,
+    // TODO: Rename ctid -> tid
+    ctid: OnceLock<TidReader>,
 }
 
 /// A helper for tracking specific "fast field" readers from a [`SearchIndexReader`] reference
@@ -169,10 +255,13 @@ impl FFHelper {
         })
     }
 
-    pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {
-        self.caches()[segment_ord as usize]
-            .ctid
-            .get_or_init(|| FFType::new_ctid(self.fast_fields(segment_ord)))
+    // TODO: Rename ctid -> tid
+    pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &TidReader {
+        self.caches()[segment_ord as usize].ctid.get_or_init(|| {
+            let ffr = self.fast_fields(segment_ord);
+            let schema = self.searcher().schema();
+            TidReader::open(schema, ffr).expect("ctid columns should be present")
+        })
     }
 
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
@@ -283,27 +372,8 @@ pub enum FFType {
 }
 
 impl FFType {
-    /// Construct the proper [`FFType`] for the internal `ctid` field, which
-    /// should be a known field name in the Tantivy index
-    pub fn new_ctid(ffr: &FastFieldReaders) -> Self {
-        Self::U64(
-            ffr.u64(CTID_FIELD_NAME)
-                .expect("ctid should be a u64 fast field"),
-        )
-    }
-
-    /// Construct the proper [`FFType`] for the specified `field_name`, which
-    /// should be a known field name in the Tantivy index
-    #[track_caller]
-    pub fn new(ffr: &FastFieldReaders, field_name: &str) -> Self {
-        match Self::try_new(ffr, field_name) {
-            Some(ff) => ff,
-            None => missing_columnar_field(field_name),
-        }
-    }
-
-    /// Like [`FFType::new`], but `None` when the segment has no typed column for `field_name`.
-    pub fn try_new(ffr: &FastFieldReaders, field_name: &str) -> Option<Self> {
+    /// Returns `None` when the segment has no typed column for `field_name`.
+    fn try_new(ffr: &FastFieldReaders, field_name: &str) -> Option<Self> {
         if let Ok(ff) = ffr.i64(field_name) {
             Some(Self::I64(ff))
         } else if let Ok(Some(ff)) = ffr.str(field_name) {
@@ -382,29 +452,6 @@ impl FFType {
                     .unwrap_or(PdbOwnedValue::Null),
             ),
         }
-    }
-
-    /// Given a [`DocId`], what is its u64 "fast field" value?
-    ///
-    /// If this [`FFType`] isn't [`FFType::U64`], this function returns [`None`].
-    #[inline(always)]
-    pub fn as_u64(&self, doc: DocId) -> Option<u64> {
-        if let FFType::U64(ff) = self {
-            ff.first(doc)
-        } else {
-            None
-        }
-    }
-
-    /// Given [`DocId`]s, what are their u64 "fast field" values?
-    ///
-    /// The given `output` slice must be the same length as the docs slice.
-    #[inline(always)]
-    pub fn as_u64s(&self, docs: &[DocId], output: &mut [Option<u64>]) {
-        let FFType::U64(ff) = self else {
-            panic!("Expected a u64 column.");
-        };
-        ff.first_vals(docs, output);
     }
 
     /// Fetches the batch of fast field values (or term ordinals for Text/Bytes)
@@ -542,6 +589,7 @@ impl FFType {
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub enum WhichFastField {
     Junk(String),
+    // TODO: Rename ctid -> tid
     Ctid,
     TableOid,
     Score,
@@ -550,6 +598,7 @@ pub enum WhichFastField {
     Deferred(String, SearchFieldType),
     /// Packed DocAddress ctid for deferred visibility (joinscan path only).
     /// The String is the ctid column alias (e.g. "ctid_0").
+    // TODO: Rename ctid -> tid
     DeferredCtid(String),
     /// Synthetic match tag column (e.g. "__users_tag_0") for disjunctive search join filtering.
     MatchTag(String),
@@ -671,28 +720,33 @@ where
     Ok(())
 }
 
-/// Resolve the `ctid` for a single `doc_address` using a cached per-segment [`FFType`].
+/// Resolves the tuple identifier for a single `doc_address` using a cached per-segment [`TidReader`].
 ///
-/// On the first call for a given segment, this opens the `ctid` fast-field column and stores
-/// it in `cache`.  Subsequent calls for the same segment reuse the cached reader, avoiding the
+/// On the first call for a given segment, this opens the tuple identifier fast-field column(s) and stores
+/// them in `cache`. Subsequent calls for the same segment reuse the cached reader, avoiding the
 /// overhead of re-opening the column on every row.
 ///
 /// # Panics
-/// Panics if the `ctid` fast field is absent for the given doc (should never happen in a
+/// Panics if the tuple identifier fast fields are absent for the given doc (should never happen in a
 /// well-formed ParadeDB index).
+// TODO: Rename ctid -> tid
+#[allow(deprecated)]
 #[inline]
 pub fn resolve_ctid(
-    cache: &mut Option<(tantivy::SegmentOrdinal, FFType)>,
+    cache: &mut TidCache,
     searcher: &tantivy::Searcher,
     doc_address: tantivy::DocAddress,
 ) -> u64 {
     let seg_ord = doc_address.segment_ord;
     if cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
+        let segment_reader = searcher.segment_reader(seg_ord);
         *cache = Some((
             seg_ord,
-            FFType::new_ctid(searcher.segment_reader(seg_ord).fast_fields()),
+            TidReader::open(searcher.schema(), segment_reader.fast_fields())
+                .expect("ctid columns should be present"),
         ));
     }
+    // TODO: Migrate from as_u64 point lookup to as_u64s batching
     cache
         .as_ref()
         .unwrap()

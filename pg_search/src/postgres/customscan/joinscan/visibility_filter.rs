@@ -1490,7 +1490,6 @@ pub(crate) fn materialize_and_check_deferred_ctid(
 
         state.segment_ctids.clear();
         state.segment_ctids.resize(rows.len(), None);
-
         checker.check_segment_docs(seg_ord, &state.segment_doc_ids, &mut state.segment_ctids);
 
         for ((row_idx, _), value) in rows.into_iter().zip(state.segment_ctids.iter()) {

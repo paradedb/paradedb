@@ -437,6 +437,7 @@ impl MVCCDirectory {
                             .and_then(|ext| ext.to_str())
                             .and_then(|ext| SegmentComponent::try_from(ext).ok()),
                     )
+                    .with_finalized_length()
                 }))
             }
             LoadedSegmentMetaEntry::Memory {

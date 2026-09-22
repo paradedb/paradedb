@@ -138,7 +138,6 @@ CREATE TABLE q_estimator (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_estimator_idx ON q_estimator
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    key_field = id,
     centroid_ratio = 0.2,
     target_segment_count = 1,
     mutable_segment_rows = 0,

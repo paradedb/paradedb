@@ -10,7 +10,7 @@ SET paradedb.vector_clustering_threshold = 64;
 CREATE TABLE review_storage (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX review_storage_idx ON review_storage
 USING paradedb (id, vec vector_cosine_ops)
-WITH (key_field = 'id', target_segment_count = 1, mutable_segment_rows = 0,
+WITH (target_segment_count = 1, mutable_segment_rows = 0,
       layer_sizes = '100kb', background_layer_sizes = '0', centroid_ratio = 0.1);
 INSERT INTO review_storage
 SELECT g, ARRAY(SELECT (((g * 31 + i * 17) % 101) - 50)::real FROM generate_series(1,64) i)::vector

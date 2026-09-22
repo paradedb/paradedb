@@ -194,7 +194,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
 
     let vector_configs = options.vector_config();
     for (field_name, config) in vector_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Vector(..))
         });
         let Some(SearchFieldType::Vector(_, schema_dims, _)) = options.get_field_type(field_name)

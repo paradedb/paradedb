@@ -933,11 +933,7 @@ unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Result<St
         .get_ptr(1)
         .and_then(|arg| nodecast!(Const, T_Const, (*arg).expr))
         .ok_or("STRING_AGG separator must be a constant for aggregate pushdown")?;
-    Ok(String::from_datum(
-        (*konst).constvalue,
-        (*konst).constisnull,
-    )
-    .unwrap_or_default())
+    Ok(String::from_datum((*konst).constvalue, (*konst).constisnull).unwrap_or_default())
 }
 
 /// Extract the field reference from an `Aggref`'s arguments.

@@ -332,3 +332,209 @@ impl Accumulator for TopKAccumulator {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow_array::types::Int64Type;
+    use arrow_array::{Array, ArrayRef, Int64Array, StringArray};
+    use arrow_schema::SortOptions;
+    use datafusion::datasource::MemTable;
+    use datafusion::logical_expr::expr::AggregateFunction;
+    use datafusion::physical_plan::displayable;
+    use datafusion::prelude::{Expr, SessionConfig, SessionContext, col, lit};
+
+    /// `(score, id)`: score nullable, id not.
+    fn schema() -> SchemaRef {
+        Arc::new(Schema::new(vec![
+            Field::new("score", DataType::Int64, true),
+            Field::new("id", DataType::Int64, false),
+        ]))
+    }
+
+    fn batch(rows: &[(Option<i64>, i64)]) -> RecordBatch {
+        let score = Int64Array::from(rows.iter().map(|r| r.0).collect::<Vec<_>>());
+        let id = Int64Array::from(rows.iter().map(|r| r.1).collect::<Vec<_>>());
+        RecordBatch::try_new(schema(), vec![Arc::new(score) as ArrayRef, Arc::new(id)]).unwrap()
+    }
+
+    /// `ORDER BY score DESC NULLS FIRST, id ASC`.
+    fn accumulator(k: usize) -> TopKAccumulator {
+        let ordering = LexOrdering::new(vec![
+            PhysicalSortExpr::new(
+                Arc::new(Column::new("score", 0)),
+                SortOptions {
+                    descending: true,
+                    nulls_first: true,
+                },
+            ),
+            PhysicalSortExpr::new(
+                Arc::new(Column::new("id", 1)),
+                SortOptions {
+                    descending: false,
+                    nulls_first: false,
+                },
+            ),
+        ])
+        .unwrap();
+        TopKAccumulator::new(schema(), ordering, k)
+    }
+
+    /// Reads a single `List<Struct<score, id>>` scalar back as rows.
+    fn rows_of(value: &ScalarValue) -> Vec<(Option<i64>, i64)> {
+        let ScalarValue::List(list) = value else {
+            panic!("expected a list scalar, got {value}");
+        };
+        assert_eq!(list.len(), 1);
+        let rows = list.value(0);
+        let rows = rows.as_struct();
+        let score = rows.column(0).as_primitive::<Int64Type>();
+        let id = rows.column(1).as_primitive::<Int64Type>();
+        (0..rows.len())
+            .map(|i| (score.is_valid(i).then(|| score.value(i)), id.value(i)))
+            .collect()
+    }
+
+    #[test]
+    fn keeps_top_k_across_batches() {
+        let mut acc = accumulator(3);
+        for rows in [
+            &[(Some(5), 1), (None, 2), (Some(1), 3)][..],
+            &[(Some(9), 4), (Some(5), 5)],
+            &[(None, 6), (Some(0), 7)],
+        ] {
+            acc.update_batch(batch(rows).columns()).unwrap();
+        }
+        // NULLS FIRST puts both nulls ahead of every score; id orders the two nulls.
+        assert_eq!(
+            rows_of(&acc.evaluate().unwrap()),
+            vec![(None, 2), (None, 6), (Some(9), 4)]
+        );
+    }
+
+    #[test]
+    fn merge_combines_partial_states() {
+        let mut first = accumulator(2);
+        first
+            .update_batch(batch(&[(Some(5), 1), (Some(3), 2), (Some(1), 3)]).columns())
+            .unwrap();
+        let mut second = accumulator(2);
+        second
+            .update_batch(batch(&[(Some(4), 4), (Some(9), 5)]).columns())
+            .unwrap();
+        // A partial that saw no input: its state is an empty list, not a null one.
+        let mut idle = accumulator(2);
+
+        let row_type = DataType::Struct(schema().fields().clone());
+        let states = ScalarValue::iter_to_array([
+            first.state().unwrap().remove(0),
+            second.state().unwrap().remove(0),
+            idle.state().unwrap().remove(0),
+            ScalarValue::new_null_list(row_type, true, 1),
+        ])
+        .unwrap();
+
+        // Final mode: never fed through update_batch, only merged.
+        let mut merged = accumulator(2);
+        merged.merge_batch(&[states]).unwrap();
+        assert_eq!(
+            rows_of(&merged.evaluate().unwrap()),
+            vec![(Some(9), 5), (Some(5), 1)]
+        );
+    }
+
+    /// Runs the UDAF through DataFusion's own planner and AggregateExec: the ORDER BY
+    /// must not become a SortExec under the aggregate, the Partial/Final split must
+    /// round-trip the state, and the declared return type must match what
+    /// `evaluate` emits.
+    #[test]
+    fn plans_without_a_sort_and_splits_partial_final() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let table_schema = Arc::new(Schema::new(vec![
+                Field::new("g", DataType::Utf8, false),
+                Field::new("score", DataType::Int64, true),
+                Field::new("id", DataType::Int64, false),
+            ]));
+            let part = |rows: &[(&str, Option<i64>, i64)]| {
+                RecordBatch::try_new(
+                    Arc::clone(&table_schema),
+                    vec![
+                        Arc::new(StringArray::from(
+                            rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+                        )) as ArrayRef,
+                        Arc::new(Int64Array::from(
+                            rows.iter().map(|r| r.1).collect::<Vec<_>>(),
+                        )),
+                        Arc::new(Int64Array::from(
+                            rows.iter().map(|r| r.2).collect::<Vec<_>>(),
+                        )),
+                    ],
+                )
+                .unwrap()
+            };
+            // Two partitions so the planner has a reason to split Partial from Final.
+            let table = MemTable::try_new(
+                Arc::clone(&table_schema),
+                vec![
+                    vec![part(&[
+                        ("x", Some(5), 1),
+                        ("x", Some(3), 2),
+                        ("y", None, 3),
+                    ])],
+                    vec![part(&[
+                        ("x", Some(9), 4),
+                        ("y", Some(7), 5),
+                        ("y", Some(8), 6),
+                    ])],
+                ],
+            )
+            .unwrap();
+
+            let ctx =
+                SessionContext::new_with_config(SessionConfig::new().with_target_partitions(2));
+            let topk = Expr::AggregateFunction(AggregateFunction::new_udf(
+                topk_as_agg_udaf(),
+                vec![col("score"), col("id"), lit(2u64)],
+                false,
+                None,
+                vec![col("score").sort(false, true), col("id").sort(true, false)],
+                None,
+            ));
+            let df = ctx
+                .read_table(Arc::new(table))
+                .unwrap()
+                .aggregate(vec![col("g")], vec![topk.alias("topk")])
+                .unwrap();
+
+            let plan = df.clone().create_physical_plan().await.unwrap();
+            let text = displayable(plan.as_ref()).indent(true).to_string();
+            assert!(text.contains("mode=Partial"), "{text}");
+            assert!(text.contains("mode=FinalPartitioned"), "{text}");
+            assert!(!text.contains("SortExec"), "{text}");
+
+            let batches = df.collect().await.unwrap();
+            let batch = concat_batches(&batches[0].schema(), &batches).unwrap();
+            let groups = batch.column(0).as_string::<i32>();
+            let lists = batch.column(1).as_list::<i32>();
+            #[allow(clippy::type_complexity)]
+            let mut rows: Vec<(String, Vec<(Option<i64>, i64)>)> = (0..batch.num_rows())
+                .map(|i| {
+                    let list = ScalarValue::List(Arc::new(lists.slice(i, 1)));
+                    (groups.value(i).to_string(), rows_of(&list))
+                })
+                .collect();
+            rows.sort();
+            assert_eq!(
+                rows,
+                vec![
+                    ("x".into(), vec![(Some(9), 4), (Some(5), 1)]),
+                    ("y".into(), vec![(None, 3), (Some(8), 6)]),
+                ]
+            );
+        });
+    }
+}

@@ -86,8 +86,29 @@ fn setup_partially_visible() {
     .unwrap();
 }
 
+/// Sparse batch size (1,024 documents strided across the segment at ~11% density).
+const SPARSE_BATCH_SIZE: usize = 1024;
+const SPARSE_STRIDE: DocId = 9;
+
 /// Opens the relation and index, preparing a `VisibilityChecker` and document IDs for benchmarking.
 fn prepare_checker(table_name: &str, index_name: &str) -> (VisibilityChecker, Vec<DocId>) {
+    let doc_ids: Vec<DocId> = (0..BATCH_SIZE as DocId).collect();
+    prepare_checker_with_docs(table_name, index_name, doc_ids)
+}
+
+/// Opens the relation and index, preparing a `VisibilityChecker` and sparse document IDs.
+fn prepare_checker_sparse(table_name: &str, index_name: &str) -> (VisibilityChecker, Vec<DocId>) {
+    let doc_ids: Vec<DocId> = (0..SPARSE_BATCH_SIZE as DocId)
+        .map(|i| i * SPARSE_STRIDE)
+        .collect();
+    prepare_checker_with_docs(table_name, index_name, doc_ids)
+}
+
+fn prepare_checker_with_docs(
+    table_name: &str,
+    index_name: &str,
+    doc_ids: Vec<DocId>,
+) -> (VisibilityChecker, Vec<DocId>) {
     unsafe {
         pg_sys::CommandCounterIncrement();
         if pg_sys::GetActiveSnapshot().is_null() {
@@ -113,9 +134,11 @@ fn prepare_checker(table_name: &str, index_name: &str) -> (VisibilityChecker, Ve
     .expect("Failed to open search index reader");
 
     let segment_reader = &reader.searcher().segment_readers()[0];
+    let max_doc = doc_ids.iter().copied().max().unwrap_or(0);
     assert!(
-        segment_reader.max_doc() >= BATCH_SIZE as u32,
-        "Segment 0 must contain at least {BATCH_SIZE} docs, found {}",
+        segment_reader.max_doc() > max_doc,
+        "Segment 0 must contain at least {} docs, found {}",
+        max_doc + 1,
         segment_reader.max_doc()
     );
 
@@ -123,7 +146,6 @@ fn prepare_checker(table_name: &str, index_name: &str) -> (VisibilityChecker, Ve
     let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
     let checker = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot).with_ffhelper(ffhelper);
 
-    let doc_ids: Vec<DocId> = (0..BATCH_SIZE as DocId).collect();
     (checker, doc_ids)
 }
 
@@ -154,6 +176,40 @@ fn bench_visibility_fully_visible_mask(b: &mut Bencher) {
 fn bench_visibility_fully_visible_ctid(b: &mut Bencher) {
     let (mut checker, doc_ids) = prepare_checker("bench_vis_full", "bench_vis_full_idx");
     let mut ctids = vec![None; BATCH_SIZE];
+
+    b.iter(move || {
+        checker.check_segment_docs(0, &doc_ids, &mut ctids);
+        black_box(&ctids);
+    });
+}
+
+/// Benchmarks boolean mask visibility checking over 1,024 sparse docs on fully visible blocks.
+#[pg_bench(
+    setup = setup_fully_visible,
+    transaction = "shared",
+    warm_up_time_ms = 5_000,
+    measurement_time_ms = 25_000
+)]
+fn bench_visibility_full_mask_sparse(b: &mut Bencher) {
+    let (mut checker, doc_ids) = prepare_checker_sparse("bench_vis_full", "bench_vis_full_idx");
+    let mut mask = vec![false; SPARSE_BATCH_SIZE];
+
+    b.iter(move || {
+        checker.check_segment_docs_mask(0, &doc_ids, &mut mask);
+        black_box(&mask);
+    });
+}
+
+/// Benchmarks CTID array visibility checking over 1,024 sparse docs on fully visible blocks.
+#[pg_bench(
+    setup = setup_fully_visible,
+    transaction = "shared",
+    warm_up_time_ms = 5_000,
+    measurement_time_ms = 25_000
+)]
+fn bench_visibility_full_ctid_sparse(b: &mut Bencher) {
+    let (mut checker, doc_ids) = prepare_checker_sparse("bench_vis_full", "bench_vis_full_idx");
+    let mut ctids = vec![None; SPARSE_BATCH_SIZE];
 
     b.iter(move || {
         checker.check_segment_docs(0, &doc_ids, &mut ctids);

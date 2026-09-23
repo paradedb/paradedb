@@ -54,7 +54,7 @@ jobs:
           - name: Debian 12 (Bookworm)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: debian:12-slim
             pg_version: 15
@@ -70,7 +70,7 @@ jobs:
           - name: Debian 12 (Bookworm)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: debian:12-slim
             pg_version: 16
@@ -86,7 +86,7 @@ jobs:
           - name: Debian 12 (Bookworm)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: debian:12-slim
             pg_version: 17
@@ -102,7 +102,7 @@ jobs:
           - name: Debian 12 (Bookworm)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: debian:12-slim
             pg_version: 18
@@ -119,7 +119,7 @@ jobs:
           - name: Debian 13 (Trixie)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: debian:13-slim
             pg_version: 15
@@ -135,7 +135,7 @@ jobs:
           - name: Debian 13 (Trixie)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: debian:13-slim
             pg_version: 16
@@ -151,7 +151,7 @@ jobs:
           - name: Debian 13 (Trixie)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: debian:13-slim
             pg_version: 17
@@ -167,7 +167,7 @@ jobs:
           - name: Debian 13 (Trixie)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: debian:13-slim
             pg_version: 18

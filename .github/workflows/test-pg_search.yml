@@ -75,7 +75,7 @@ jobs:
             pg_impl: system
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             arch: amd64
 

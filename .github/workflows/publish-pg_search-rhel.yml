@@ -53,7 +53,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 15
@@ -69,7 +69,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 16
@@ -85,7 +85,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 17
@@ -101,7 +101,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 18
@@ -118,7 +118,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 15
@@ -134,7 +134,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 16
@@ -150,7 +150,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 17
@@ -166,7 +166,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
+            runner_family: c8a+c8i
             runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 18

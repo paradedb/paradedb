@@ -26,7 +26,7 @@ jobs:
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - spot=false # Disable spot instances for publish jobs to make sure they don't fail
-      - family=m7a+m7i
+      - family=m8a+m8i
       - cpu=8
       - ram=32
       - image=ubuntu26-full-x64

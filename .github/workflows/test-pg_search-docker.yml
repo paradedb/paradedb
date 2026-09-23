@@ -68,7 +68,7 @@ jobs:
           - arm64
         include:
           - arch: amd64
-            runner_family: m7a+m7i
+            runner_family: m8a+m8i
             runner_image: ubuntu26-full-x64
             platform: linux/amd64
           - arch: arm64
@@ -449,7 +449,7 @@ jobs:
           - arm64
         include:
           - arch: amd64
-            runner_family: m7a+m7i
+            runner_family: m8a+m8i
             runner_image: ubuntu26-full-x64
             platform: linux/amd64
             deb_sha_arg: PG_SEARCH_DEB_AMD64_SHA256

@@ -97,7 +97,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
         run: |
-          image="$GITHUB_REPOSITORY:18-cloud-$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          image="$GITHUB_REPOSITORY:18-cloud-$SOURCE_SHA"
           docker tag paradedb-cloud-test "$image"
           docker push "$image"
           digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"

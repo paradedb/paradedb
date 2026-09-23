@@ -30,7 +30,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - spot=false
-      - family=m7g+m8g
+      - family=m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=16
       - ram=64
       - image=ubuntu26-full-arm64

@@ -111,7 +111,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m8a+m8i
+      - family=m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=16
       - ram=64
       - image=ubuntu26-full-x64
@@ -245,7 +245,7 @@ jobs:
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m8a+m8i
+      - family=m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=16
       - ram=64
       - image=ubuntu26-full-x64

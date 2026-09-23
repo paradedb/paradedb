@@ -68,11 +68,11 @@ jobs:
           - arm64
         include:
           - arch: amd64
-            runner_family: m8a+m8i
+            runner_family: m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
             runner_image: ubuntu26-full-x64
             platform: linux/amd64
           - arch: arm64
-            runner_family: m7g+m8g
+            runner_family: m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
             runner_image: ubuntu26-full-arm64
             platform: linux/arm64
 
@@ -449,12 +449,12 @@ jobs:
           - arm64
         include:
           - arch: amd64
-            runner_family: m8a+m8i
+            runner_family: m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
             runner_image: ubuntu26-full-x64
             platform: linux/amd64
             deb_sha_arg: PG_SEARCH_DEB_AMD64_SHA256
           - arch: arm64
-            runner_family: m7g+m8g
+            runner_family: m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
             runner_image: ubuntu26-full-arm64
             platform: linux/arm64
             deb_sha_arg: PG_SEARCH_DEB_ARM64_SHA256

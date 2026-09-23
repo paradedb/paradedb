@@ -542,9 +542,14 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        // partition 0: upper is Null -> is_empty_range -> returns the NULL-row query
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        assert!(matches!(
+            p0,
+            SearchQueryInput::ConstScore { ref query, .. }
+                if matches!(**query, SearchQueryInput::Boolean { ref must, .. }
+                    if matches!(must.as_slice(), [SearchQueryInput::All]))
+        ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
         let p1 = build.partition_bounds(1);
@@ -576,9 +581,14 @@ mod tests {
         assert_eq!(build.split_points[0], PdbOwnedValue::Null);
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
 
-        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        // partition 0: upper is Null -> is_empty_range -> returns the NULL-row query
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        assert!(matches!(
+            p0,
+            SearchQueryInput::ConstScore { ref query, .. }
+                if matches!(**query, SearchQueryInput::Boolean { ref must, .. }
+                    if matches!(must.as_slice(), [SearchQueryInput::All]))
+        ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
         let p1 = build.partition_bounds(1);

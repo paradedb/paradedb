@@ -55,6 +55,9 @@
 //! presence densely packed and compressing boundaries in bounded chunks.
 //! `VisibilityChecker` performs the VM comparison once per eligible segment
 //! and snapshot, caches the resulting ranges, and uses them to filter subsequent batches.
+//! In addition to filtering visibility checks, `HeapBlockMap` serves as a run-length
+//! decoder mapping document IDs to heap block numbers, allowing `TidReader` to bypass
+//! reading the `tid_block` columnar fast field for immutable CTID-sorted segments.
 
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
@@ -66,10 +69,11 @@ use tantivy::columnar::column_values::{
 use tantivy::columnar::{Cardinality, ColumnValues, ColumnarReader, DynamicColumn};
 use tantivy::directory::{CompositeWrite, FileSlice, OwnedBytes};
 use tantivy::index::{Segment, SegmentComponent};
-use tantivy::{Directory, HasLen};
+use tantivy::{Directory, DocId, HasLen};
 
 use crate::api::{CTID_FIELD_NAME, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
 use crate::postgres::heap::HEAPBLOCKS_PER_PAGE;
+use crate::postgres::utils::TidBlock;
 
 pub(super) const PRESENCE_IDX: usize = 3;
 pub(super) const BOUNDARIES_IDX: usize = 6;
@@ -78,6 +82,12 @@ const ENTRY: usize = 16;
 const BOUNDARY_HEADER: usize = 8;
 const BOUNDARY_CHUNK_SIZE: usize = 32768;
 const SPARSE: u32 = 1 << 31;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MissingBlockRange {
+    pub doc_range: Range<DocId>,
+    pub block: TidBlock,
+}
 
 fn invalid() -> io::Error {
     io::Error::new(
@@ -311,10 +321,12 @@ fn encode_presence(blocks: &[u32], pages_per_vm: u32) -> (Vec<u8>, bool) {
     (payload, sparse)
 }
 
-pub(crate) struct HeapBlockMap {
+#[derive(Debug)]
+pub struct HeapBlockMap {
     presence: OwnedBytes,
     boundaries: BoundaryReader,
     docs: u32,
+    blocks: u32,
     pages_per_vm: u32,
     descending: bool,
 }
@@ -424,16 +436,18 @@ impl HeapBlockMap {
             presence,
             boundaries: BoundaryReader::new(boundaries, blocks as usize + 1),
             docs,
+            blocks,
             pages_per_vm,
         })
     }
 
-    /// Filters presence through the VM callback and returns coalesced ranges in document order.
+    /// Filters presence through the VM callback and returns ranges needing checks with their block numbers,
+    /// ordered by document ID.
     pub(crate) fn missing_ranges(
         &mut self,
         mut retain_invisible: impl FnMut(u32, &mut [u32]),
-    ) -> io::Result<Vec<Range<u32>>> {
-        let mut ranges: Vec<Range<u32>> = Vec::new();
+    ) -> io::Result<Vec<MissingBlockRange>> {
+        let mut ranges: Vec<MissingBlockRange> = Vec::new();
         let mut scratch = vec![0u32; self.pages_per_vm as usize / 32];
         for chunk in 0..u32_at(&self.presence, 16) as usize {
             pgrx::check_for_interrupts!();
@@ -467,28 +481,18 @@ impl HeapBlockMap {
             if missing.iter().all(|&mask| mask == 0) {
                 continue;
             }
-            let mut add = |rank: u32| -> io::Result<()> {
+            let mut add = |rank: u32, block: u32| -> io::Result<()> {
                 let start = self.boundaries.get(rank as usize)?;
                 let end = self.boundaries.get(rank as usize + 1)?;
                 if start >= end || end > self.docs {
                     return Err(invalid());
                 }
-                let range = if self.descending {
+                let doc_range = if self.descending {
                     self.docs - end..self.docs - start
                 } else {
                     start..end
                 };
-                if let Some(last) = ranges.last_mut() {
-                    if last.end == range.start {
-                        last.end = range.end;
-                        return Ok(());
-                    }
-                    if range.end == last.start {
-                        last.start = range.start;
-                        return Ok(());
-                    }
-                }
-                ranges.push(range);
+                ranges.push(MissingBlockRange { doc_range, block });
                 Ok(())
             };
             if count & SPARSE != 0 {
@@ -505,7 +509,10 @@ impl HeapBlockMap {
                     let mut bad = missing[word as usize - first_word] & present;
                     while bad != 0 {
                         let bit = bad.trailing_zeros();
-                        add(ordinal + first as u32 + (present & ((1u32 << bit) - 1)).count_ones())?;
+                        let block = base + word * 32 + bit;
+                        let rank =
+                            ordinal + first as u32 + (present & ((1u32 << bit) - 1)).count_ones();
+                        add(rank, block)?;
                         bad &= bad - 1;
                     }
                 }
@@ -526,7 +533,8 @@ impl HeapBlockMap {
                     }
                     while bad != 0 {
                         let bit = bad.trailing_zeros();
-                        add(rank + (present & ((1u32 << bit) - 1)).count_ones())?;
+                        let block = base + (first_word + word) as u32 * 32 + bit;
+                        add(rank + (present & ((1u32 << bit) - 1)).count_ones(), block)?;
                         bad &= bad - 1;
                     }
                 }
@@ -537,12 +545,324 @@ impl HeapBlockMap {
         }
         Ok(ranges)
     }
+
+    /// Returns the minimum block number present in this map.
+    #[inline(always)]
+    pub(crate) fn min_block(&self) -> io::Result<u32> {
+        self.block_at_rank(0)
+    }
+
+    /// Returns the maximum block number present in this map.
+    #[inline(always)]
+    pub(crate) fn max_block(&self) -> io::Result<u32> {
+        self.block_at_rank(self.blocks - 1)
+    }
+
+    /// Returns the heap block number at the given presence rank.
+    pub(crate) fn block_at_rank(&self, target_rank: u32) -> io::Result<u32> {
+        if target_rank >= self.blocks {
+            return Err(invalid());
+        }
+        let chunks = u32_at(&self.presence, 16) as usize;
+        let mut low = 1;
+        let mut high = chunks;
+        while low < high {
+            let mid = low + (high - low) / 2;
+            if u32_at(&self.presence, HEADER + mid * ENTRY + 4) <= target_rank {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        let chunk_idx = low - 1;
+
+        let at = HEADER + chunk_idx * ENTRY;
+        let page = u32_at(&self.presence, at);
+        let base = page * self.pages_per_vm;
+        let chunk_rank = u32_at(&self.presence, at + 4);
+        let count_field = u32_at(&self.presence, at + 12);
+        let count = count_field & !SPARSE;
+        let is_sparse = (count_field & SPARSE) != 0;
+        let offset = u32_at(&self.presence, at + 8) as usize;
+
+        if target_rank < chunk_rank || target_rank >= chunk_rank + count {
+            return Err(invalid());
+        }
+        let rel_rank = target_rank - chunk_rank;
+
+        if is_sparse {
+            let block_offset = u16_at(&self.presence, offset + rel_rank as usize * 2);
+            Ok(base + block_offset as u32)
+        } else {
+            let bytes = &self.presence[offset..];
+            let first_word = usize::from(u16_at(bytes, 0));
+            let words = usize::from(u16_at(bytes, 2));
+            let ranks_bytes = words.div_ceil(8) * 2;
+            let num_checkpoints = words.div_ceil(8);
+            let mut cp_low = 1;
+            let mut cp_high = num_checkpoints;
+            while cp_low < cp_high {
+                let mid = cp_low + (cp_high - cp_low) / 2;
+                if usize::from(u16_at(bytes, 4 + mid * 2)) <= rel_rank as usize {
+                    cp_low = mid + 1;
+                } else {
+                    cp_high = mid;
+                }
+            }
+            let cp = cp_low - 1;
+
+            let mut current_rank = usize::from(u16_at(bytes, 4 + cp * 2));
+            let start_word = cp * 8;
+            let end_word = (start_word + 8).min(words);
+
+            for word_idx in start_word..end_word {
+                let word_val = u32_at(bytes, 4 + ranks_bytes + word_idx * 4);
+                let ones = word_val.count_ones() as usize;
+                if current_rank + ones > rel_rank as usize {
+                    let needed = rel_rank as usize - current_rank;
+                    let mut w = word_val;
+                    for _ in 0..needed {
+                        w &= w - 1;
+                    }
+                    let bit = w.trailing_zeros();
+                    let block = base + (first_word + word_idx) as u32 * 32 + bit;
+                    return Ok(block);
+                }
+                current_rank += ones;
+            }
+            Err(invalid())
+        }
+    }
+
+    /// Returns the presence rank for a document ID.
+    pub(crate) fn rank_of_doc(&mut self, doc: DocId) -> io::Result<u32> {
+        if doc >= self.docs {
+            return Err(invalid());
+        }
+        let processed = if self.descending {
+            self.docs - 1 - doc
+        } else {
+            doc
+        };
+
+        let mut low = 1;
+        let mut high = self.blocks;
+        while low < high {
+            let mid = low + (high - low) / 2;
+            if self.boundaries.get(mid as usize)? <= processed {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        let rank = low - 1;
+        Ok(rank)
+    }
+
+    /// Returns the heap block number for a document ID.
+    pub(crate) fn block_of_doc(&mut self, doc: DocId) -> io::Result<u32> {
+        let rank = self.rank_of_doc(doc)?;
+        self.block_at_rank(rank)
+    }
+
+    /// Populates block numbers for a sorted slice of document IDs.
+    pub(crate) fn blocks_of_docs(
+        &mut self,
+        docs: &[DocId],
+        output: &mut [TidBlock],
+    ) -> io::Result<()> {
+        if docs.is_empty() {
+            return Ok(());
+        }
+        if docs.len() != output.len() {
+            return Err(invalid());
+        }
+        let mut current_rank = 0u32;
+        let mut current_end = self.boundaries.get(1)?;
+        let mut current_block = self.block_at_rank(0)?;
+
+        if !self.descending {
+            for (i, &doc) in docs.iter().enumerate() {
+                if doc >= self.docs {
+                    return Err(invalid());
+                }
+                if doc >= current_end {
+                    if current_rank + 1 < self.blocks {
+                        let next_end = self.boundaries.get((current_rank + 2) as usize)?;
+                        if doc < next_end {
+                            current_rank += 1;
+                            current_end = next_end;
+                            current_block = self.block_at_rank(current_rank)?;
+                            output[i] = current_block;
+                            continue;
+                        }
+                    }
+                    let mut low = current_rank + 2;
+                    let mut high = self.blocks;
+                    while low < high {
+                        let mid = low + (high - low) / 2;
+                        if self.boundaries.get(mid as usize)? <= doc {
+                            low = mid + 1;
+                        } else {
+                            high = mid;
+                        }
+                    }
+                    current_rank = low - 1;
+                    current_end = self.boundaries.get((current_rank + 1) as usize)?;
+                    current_block = self.block_at_rank(current_rank)?;
+                }
+                output[i] = current_block;
+            }
+        } else {
+            for i in (0..docs.len()).rev() {
+                let doc = docs[i];
+                if doc >= self.docs {
+                    return Err(invalid());
+                }
+                let processed = self.docs - 1 - doc;
+                if processed >= current_end {
+                    if current_rank + 1 < self.blocks {
+                        let next_end = self.boundaries.get((current_rank + 2) as usize)?;
+                        if processed < next_end {
+                            current_rank += 1;
+                            current_end = next_end;
+                            current_block = self.block_at_rank(current_rank)?;
+                            output[i] = current_block;
+                            continue;
+                        }
+                    }
+                    let mut low = current_rank + 2;
+                    let mut high = self.blocks;
+                    while low < high {
+                        let mid = low + (high - low) / 2;
+                        if self.boundaries.get(mid as usize)? <= processed {
+                            low = mid + 1;
+                        } else {
+                            high = mid;
+                        }
+                    }
+                    current_rank = low - 1;
+                    current_end = self.boundaries.get((current_rank + 1) as usize)?;
+                    current_block = self.block_at_rank(current_rank)?;
+                }
+                output[i] = current_block;
+            }
+        }
+        Ok(())
+    }
+
+    /// Populates block numbers as `Option<u64>` for a sorted slice of document IDs.
+    pub(crate) fn blocks_of_docs_u64(
+        &mut self,
+        docs: &[DocId],
+        output: &mut [Option<u64>],
+    ) -> io::Result<()> {
+        if docs.is_empty() {
+            return Ok(());
+        }
+        if docs.len() != output.len() {
+            return Err(invalid());
+        }
+        let mut current_rank = 0u32;
+        let mut current_end = self.boundaries.get(1)?;
+        let mut current_block = self.block_at_rank(0)?;
+
+        if !self.descending {
+            for (i, &doc) in docs.iter().enumerate() {
+                if doc >= self.docs {
+                    output[i] = None;
+                    continue;
+                }
+                if doc >= current_end {
+                    if current_rank + 1 < self.blocks {
+                        let next_end = self.boundaries.get((current_rank + 2) as usize)?;
+                        if doc < next_end {
+                            current_rank += 1;
+                            current_end = next_end;
+                            current_block = self.block_at_rank(current_rank)?;
+                            output[i] = Some(current_block as u64);
+                            continue;
+                        }
+                    }
+                    let mut low = current_rank + 2;
+                    let mut high = self.blocks;
+                    while low < high {
+                        let mid = low + (high - low) / 2;
+                        if self.boundaries.get(mid as usize)? <= doc {
+                            low = mid + 1;
+                        } else {
+                            high = mid;
+                        }
+                    }
+                    current_rank = low - 1;
+                    current_end = self.boundaries.get((current_rank + 1) as usize)?;
+                    current_block = self.block_at_rank(current_rank)?;
+                }
+                output[i] = Some(current_block as u64);
+            }
+        } else {
+            for i in (0..docs.len()).rev() {
+                let doc = docs[i];
+                if doc >= self.docs {
+                    output[i] = None;
+                    continue;
+                }
+                let processed = self.docs - 1 - doc;
+                if processed >= current_end {
+                    if current_rank + 1 < self.blocks {
+                        let next_end = self.boundaries.get((current_rank + 2) as usize)?;
+                        if processed < next_end {
+                            current_rank += 1;
+                            current_end = next_end;
+                            current_block = self.block_at_rank(current_rank)?;
+                            output[i] = Some(current_block as u64);
+                            continue;
+                        }
+                    }
+                    let mut low = current_rank + 2;
+                    let mut high = self.blocks;
+                    while low < high {
+                        let mid = low + (high - low) / 2;
+                        if self.boundaries.get(mid as usize)? <= processed {
+                            low = mid + 1;
+                        } else {
+                            high = mid;
+                        }
+                    }
+                    current_rank = low - 1;
+                    current_end = self.boundaries.get((current_rank + 1) as usize)?;
+                    current_block = self.block_at_rank(current_rank)?;
+                }
+                output[i] = Some(current_block as u64);
+            }
+        }
+        Ok(())
+    }
 }
+
+const BOUNDARY_CACHE_CAPACITY: usize = 16;
 
 struct BoundaryReader {
     file: FileSlice,
     count: usize,
-    values: Option<(usize, Arc<dyn ColumnValues<u32>>)>,
+    header_checked: bool,
+    cache: Vec<(usize, Arc<dyn ColumnValues<u32>>)>,
+}
+
+impl std::fmt::Debug for BoundaryReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BoundaryReader")
+            .field("count", &self.count)
+            .field(
+                "cached_chunks",
+                &self
+                    .cache
+                    .iter()
+                    .map(|(chunk, _)| *chunk)
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 impl BoundaryReader {
@@ -551,24 +871,29 @@ impl BoundaryReader {
         Self {
             file,
             count,
-            values: None,
+            header_checked: false,
+            cache: Vec::with_capacity(BOUNDARY_CACHE_CAPACITY),
         }
     }
 
-    /// Reads a boundary by ordinal, retaining at most one fixed-size compressed column.
+    /// Reads a boundary by ordinal, caching decoded chunks in an LRU cache.
     fn get(&mut self, index: usize) -> io::Result<u32> {
         if index >= self.count {
             return Err(invalid());
         }
         let chunk = index / BOUNDARY_CHUNK_SIZE;
-        if let Some((current, values)) = &self.values
-            && *current == chunk
-        {
-            return Ok(values.get_val((index % BOUNDARY_CHUNK_SIZE) as u32));
+        if let Some(pos) = self.cache.iter().position(|(c, _)| *c == chunk) {
+            if pos > 0 {
+                let entry = self.cache.remove(pos);
+                self.cache.insert(0, entry);
+            }
+            return Ok(self.cache[0]
+                .1
+                .get_val((index % BOUNDARY_CHUNK_SIZE) as u32));
         }
         let chunks = self.count.div_ceil(BOUNDARY_CHUNK_SIZE);
         let payload_start = BOUNDARY_HEADER + (chunks + 1) * 8;
-        if self.values.is_none() {
+        if !self.header_checked {
             if self.file.len() < payload_start {
                 return Err(invalid());
             }
@@ -576,6 +901,7 @@ impl BoundaryReader {
             if &header[..4] != b"HBB1" || u32_at(&header, 4) as usize != chunks {
                 return Err(invalid());
             }
+            self.header_checked = true;
         }
         let at = BOUNDARY_HEADER + chunk * 8;
         let offsets = self.file.slice(at..at + 16).read_bytes()?;
@@ -591,8 +917,10 @@ impl BoundaryReader {
         if values.num_vals() as usize != count {
             return Err(invalid());
         }
-        self.values = Some((chunk, values));
-        let (_, values) = self.values.as_ref().unwrap();
+        if self.cache.len() == BOUNDARY_CACHE_CAPACITY {
+            self.cache.pop();
+        }
+        self.cache.insert(0, (chunk, Arc::clone(&values)));
         Ok(values.get_val((index % BOUNDARY_CHUNK_SIZE) as u32))
     }
 }

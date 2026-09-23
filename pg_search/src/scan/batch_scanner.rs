@@ -157,6 +157,7 @@ pub struct Scanner {
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
     visibility_results: Vec<Option<u64>>,
+    visibility_mask: Vec<bool>,
     /// When true, visibility checking is deferred to VisibilityFilterExec.
     /// Packed DocAddresses are emitted instead of real ctids.
     defer_visibility: bool,
@@ -308,6 +309,7 @@ impl Scanner {
             which_fast_fields,
             table_oid,
             visibility_results: Vec::new(),
+            visibility_mask: Vec::new(),
             defer_visibility,
             fetch_ordinals_in_scan,
             pre_filter_rows_scanned: 0,
@@ -542,7 +544,7 @@ impl Scanner {
                 visibility.set_ffhelper(Arc::clone(ffhelper));
             }
 
-            let need_ctid = self
+            let needs_ctid = self
                 .which_fast_fields
                 .iter()
                 .any(|f| matches!(f, WhichFastField::Ctid));
@@ -551,30 +553,47 @@ impl Scanner {
                 .for_segment(segment_ord)
                 .expect("failed to check segment visibility")
             {
-                // Filter out invisible rows and resolve ctids.
-                self.visibility_results.resize(ids.len(), None);
-                checker.check_segment_docs(segment_ord, &ids, &mut self.visibility_results);
+                if needs_ctid {
+                    // Filter out invisible rows and resolve ctids.
+                    self.visibility_results.resize(ids.len(), None);
+                    checker.check_segment_docs(segment_ord, &ids, &mut self.visibility_results);
 
-                let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
-                let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
-                for maybe_visible_ctid in self.visibility_results.drain(..) {
-                    if let Some(visible_ctid) = maybe_visible_ctid {
-                        visibility_mask_builder.append_value(true);
-                        ctids_builder.append_value(visible_ctid);
-                    } else {
-                        visibility_mask_builder.append_value(false);
+                    let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
+                    let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
+                    for maybe_visible_ctid in self.visibility_results.drain(..) {
+                        if let Some(visible_ctid) = maybe_visible_ctid {
+                            visibility_mask_builder.append_value(true);
+                            ctids_builder.append_value(visible_ctid);
+                        } else {
+                            visibility_mask_builder.append_value(false);
+                        }
                     }
+                    // Then filter the remaining columns using the mask.
+                    compact_with_mask(
+                        &mut ids,
+                        &mut memoized_columns,
+                        &visibility_mask_builder.finish(),
+                    );
+                    Some(Arc::new(ctids_builder.finish()) as ArrayRef)
+                } else {
+                    // Only a visibility mask is needed; avoid resolving CTIDs.
+                    self.visibility_mask.resize(ids.len(), false);
+                    checker.check_segment_docs_mask(
+                        segment_ord,
+                        &ids,
+                        &mut self.visibility_mask,
+                    );
+
+                    let mut mask_builder = BooleanBufferBuilder::new(ids.len());
+                    mask_builder.append_slice(&self.visibility_mask);
+                    let mask = BooleanArray::new(mask_builder.finish(), None);
+
+                    compact_with_mask(&mut ids, &mut memoized_columns, &mask);
+                    None
                 }
-                // Then filter the remaining columns using the mask.
-                compact_with_mask(
-                    &mut ids,
-                    &mut memoized_columns,
-                    &visibility_mask_builder.finish(),
-                );
-                Some(Arc::new(ctids_builder.finish()) as ArrayRef)
             } else {
                 // Segment is all visible: skip visibility checks and compaction.
-                if need_ctid {
+                if needs_ctid {
                     let mut ctids_scratch = std::mem::take(&mut self.visibility_results);
                     ctids_scratch.resize(ids.len(), None);
                     visibility.check_segment_docs(segment_ord, &ids, &mut ctids_scratch);

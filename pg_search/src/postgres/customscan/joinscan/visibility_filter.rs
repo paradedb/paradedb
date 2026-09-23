@@ -1453,6 +1453,7 @@ pub(crate) struct DeferredCtidMaterializationState {
     visible_mask: Vec<bool>,
     segment_doc_ids: Vec<DocId>,
     segment_ctids: Vec<Option<u64>>,
+    segment_mask: Vec<bool>,
 }
 
 /// Checks visibility of packed DocAddresses via [`VisibilityChecker::for_segment`] and
@@ -1466,7 +1467,8 @@ pub(crate) struct DeferredCtidMaterializationState {
 /// When `is_pruned` is false, returns `(visible_mask, Some(ctids_array))`. Downstream tuple
 /// fetching in `JoinScanState::build_result_tuple` resolves HOT redirects via `table_index_fetch_tuple`
 /// (`exec_if_visible`) for surviving output rows.
-/// When `is_pruned` is true, returns `(visible_mask, None)`, skipping CTID array materialization.
+/// When `is_pruned` is true, returns `(visible_mask, None)`, using [`VisibilityChecker::check_segment_docs_mask`]
+/// to avoid reading or decoding offsets for docs on all-visible blocks as well as CTID array materialization.
 pub(crate) fn materialize_and_check_deferred_ctid(
     checker: &mut VisibilityChecker,
     doc_addr_array: &UInt64Array,
@@ -1498,15 +1500,33 @@ pub(crate) fn materialize_and_check_deferred_ctid(
             .for_segment(seg_ord)
             .map_err(|e| DataFusionError::External(Box::new(e)))?
         {
-            state.segment_ctids.clear();
-            state.segment_ctids.resize(rows.len(), None);
+            if is_pruned {
+                state.segment_mask.clear();
+                state.segment_mask.resize(rows.len(), false);
+                checker.check_segment_docs_mask(
+                    seg_ord,
+                    &state.segment_doc_ids,
+                    &mut state.segment_mask,
+                );
 
-            checker.check_segment_docs(seg_ord, &state.segment_doc_ids, &mut state.segment_ctids);
+                for ((row_idx, _), &is_vis) in rows.iter().zip(state.segment_mask.iter()) {
+                    if is_vis {
+                        state.visible_mask[*row_idx] = true;
+                    }
+                }
+            } else {
+                state.segment_ctids.clear();
+                state.segment_ctids.resize(rows.len(), None);
 
-            for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
-                if let Some(ctid) = value {
-                    state.visible_mask[*row_idx] = true;
-                    if !is_pruned {
+                checker.check_segment_docs(
+                    seg_ord,
+                    &state.segment_doc_ids,
+                    &mut state.segment_ctids,
+                );
+
+                for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
+                    if let Some(ctid) = value {
+                        state.visible_mask[*row_idx] = true;
                         state.resolved_ctids[*row_idx] = Some(*ctid);
                     }
                 }

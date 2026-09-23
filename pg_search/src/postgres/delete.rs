@@ -206,28 +206,28 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         //     touching the fast field would re-materialize and detoast the segment's heap rows,
         //     racing a concurrent VACUUM (see https://github.com/paradedb/paradedb/issues/5365).
         // Build a uniform stream of delete targets so the callback loop below is shared.
-        let targets: Box<dyn Iterator<Item = DeleteTarget> + '_> =
-            if directory.is_mutable(&segment_id) {
-                // `is_mutable` is true, so the entry exists and is mutable.
-                let entry = directory
-                    .segment_meta_entry(&segment_id)
-                    .expect("is_mutable() guarantees a loaded entry for this segment");
-                let ctids = entry
-                    .mutable_snapshot(&index_relation)
-                    .expect("is_mutable() guarantees this is a mutable segment");
-                Box::new(ctids.into_iter().map(|ctid| DeleteTarget::Ctid { ctid }))
-            } else {
-                let tid_ff = TidReader::open(segment_reader.schema(), segment_reader.fast_fields())
-                    .expect("tid columns should be present");
-                // TODO: Migrate from as_u64 point lookup to as_u64s batching
-                #[allow(deprecated)]
-                Box::new(
-                    (0..segment_reader.max_doc()).map(move |doc_id| DeleteTarget::DocId {
-                        ctid: tid_ff.as_u64(doc_id).expect("tid should be present"),
-                        doc_id,
-                    }),
-                )
-            };
+        let targets: Box<dyn Iterator<Item = DeleteTarget> + '_> = if directory
+            .is_mutable(&segment_id)
+        {
+            // `is_mutable` is true, so the entry exists and is mutable.
+            let entry = directory
+                .segment_meta_entry(&segment_id)
+                .expect("is_mutable() guarantees a loaded entry for this segment");
+            let ctids = entry
+                .mutable_snapshot(&index_relation)
+                .expect("is_mutable() guarantees this is a mutable segment");
+            Box::new(ctids.into_iter().map(|ctid| DeleteTarget::Ctid { ctid }))
+        } else {
+            let tid_ff = TidReader::open(segment_reader).expect("tid columns should be present");
+            // TODO: Migrate from as_u64 point lookup to as_u64s batching
+            #[allow(deprecated)]
+            Box::new(
+                (0..segment_reader.max_doc()).map(move |doc_id| DeleteTarget::DocId {
+                    ctid: tid_ff.as_u64(doc_id).expect("tid should be present"),
+                    doc_id,
+                }),
+            )
+        };
 
         let mut needs_commit = false;
         for (i, target) in targets.enumerate() {

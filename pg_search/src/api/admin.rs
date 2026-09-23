@@ -765,9 +765,7 @@ fn verify_heap_references(
         }
 
         let segment_id = segment_reader.segment_id().short_uuid_string();
-        let fast_fields = segment_reader.fast_fields();
-        let tid_column = TidReader::open(segment_reader.schema(), fast_fields)
-            .expect("ctid columns should be present");
+        let tid_column = TidReader::open(segment_reader).expect("ctid columns should be present");
         let alive_bitset = segment_reader.alive_bitset();
 
         if verbose {

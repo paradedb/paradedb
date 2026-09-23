@@ -397,10 +397,8 @@ impl Weight for HeapFilterWeight {
         let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
 
         // Get ctid fast field for heap access
-        let fast_fields_reader = reader.fast_fields();
-        let ctid_ff =
-            crate::index::fast_fields_helper::TidReader::open(reader.schema(), fast_fields_reader)
-                .expect("ctid columns should be present");
+        let ctid_ff = crate::index::fast_fields_helper::TidReader::open(reader)
+            .expect("ctid columns should be present");
 
         // Claim this (consumer, segment) stream's cursor. No cell installed means
         // no bitmap was planned (or this is an estimation clone): evaluate filters

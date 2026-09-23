@@ -39,6 +39,12 @@ pub(crate) mod vector;
 pub mod gucs;
 pub mod parallel_worker;
 
+#[cfg(feature = "pg_bench")]
+#[pg_schema]
+mod benches {
+    include!("benches.rs");
+}
+
 use self::postgres::customscan;
 use pgrx::*;
 

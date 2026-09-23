@@ -65,6 +65,7 @@ overflow-checks = true
 
 [workspace.dependencies]
 pgrx = "=0.19.2"
+pgrx-bench = "=0.19.2"
 pgrx-tests = "=0.19.2"
 # Keep the Git revisions for `tantivy`, `tantivy-common`, and the crates.io
 # patches in sync.

@@ -764,10 +764,7 @@ impl SearchIndexReader {
     pub fn weight(&self) -> Box<dyn Weight> {
         self.query
             .weight(if self.need_scores {
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: &self.searcher,
-                    statistics_provider: &self.searcher,
-                }
+                tantivy::query::EnableScoring::enabled_from_searcher(&self.searcher)
             } else {
                 tantivy::query::EnableScoring::Disabled {
                     schema: self.schema.tantivy_schema(),

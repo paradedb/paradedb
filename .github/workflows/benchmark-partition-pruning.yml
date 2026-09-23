@@ -5,6 +5,9 @@ on:
       size:
         required: true
         type: string
+      suite:
+        type: string
+        default: date
 permissions:
   contents: read
 jobs:
@@ -22,6 +25,7 @@ jobs:
       BASELINE_SHA: cd3451c19143d0106c6e7a2cb5656245df8d423f
       PR_SHA: ea32cde9a4e0ecc1bc7ac25a6afb51af34cdbbcc
       EXPERIMENT_SIZE: ${{ inputs.size }}
+      EXPERIMENT_SUITE: ${{ inputs.suite }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -33,7 +37,7 @@ jobs:
           git merge-base --is-ancestor "$PR_SHA" HEAD
           git diff --exit-code "$PR_SHA" HEAD -- . ':!benchmarks' ':!.github/workflows'
           mkdir -p diagnostic-output
-          printf 'main=%s\npr=%s\nbenchmarks=%s\nsize=%s\n' "$BASELINE_SHA" "$PR_SHA" "$GITHUB_SHA" "$EXPERIMENT_SIZE" > diagnostic-output/source-commits.txt
+          printf 'main=%s\npr=%s\nbenchmarks=%s\nsize=%s\nsuite=%s\n' "$BASELINE_SHA" "$PR_SHA" "$GITHUB_SHA" "$EXPERIMENT_SIZE" "$EXPERIMENT_SUITE" > diagnostic-output/source-commits.txt
       - uses: runs-on/action@v2
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -70,8 +74,14 @@ jobs:
           psql postgresql://localhost:28818/postgres -v ON_ERROR_STOP=1 --single-transaction -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
           psql postgresql://localhost:28818/postgres -v ON_ERROR_STOP=1 -c 'ALTER SYSTEM SET paradedb.global_target_segment_count = 48;'
           psql postgresql://localhost:28818/postgres -v ON_ERROR_STOP=1 -c 'SELECT pg_reload_conf();'
-      - name: Run identical queries across three layouts and both builds
-        run: python3 -u benchmarks/diagnostics/partition_pruning.py "$EXPERIMENT_SIZE"
+      - name: Run the selected paired experiment
+        run: |
+          set -euo pipefail
+          case "$EXPERIMENT_SUITE" in
+            date) python3 -u benchmarks/diagnostics/partition_pruning.py "$EXPERIMENT_SIZE" ;;
+            unchanged) python3 -u benchmarks/diagnostics/partition_layouts.py "$EXPERIMENT_SIZE" ;;
+            *) echo "Unknown experiment suite"; exit 1 ;;
+          esac
       - name: Preserve failure logs
         if: failure()
         run: |
@@ -81,7 +91,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: partition-pruning-${{ inputs.size }}
+          name: partition-pruning-${{ inputs.suite }}-${{ inputs.size }}
           path: diagnostic-output/
           retention-days: 14
           compression-level: 6

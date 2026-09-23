@@ -30,6 +30,13 @@ on:
         description: "Run the isolated main/#6346 pruning experiment without publishing results or notifications."
         type: boolean
         default: false
+      pruning_suite:
+        description: "Isolated pruning experiment: date probes, or unchanged existing queries with one layout change at a time (1M only)."
+        type: choice
+        default: date
+        options:
+          - date
+          - unchanged
       dataset:
         description: "Dataset to benchmark on a manual run. Ignored otherwise: push and the benchmarks/benchmark-stackoverflow labels run stackoverflow; benchmark-cohere-{hnsw,ivfflat} labels run cohere."
         required: true
@@ -557,11 +564,12 @@ jobs:
     uses: ./.github/workflows/benchmark-partition-pruning.yml
     with:
       size: 1m
+      suite: ${{ inputs.pruning_suite || 'date' }}
     secrets: inherit
 
   pruning-20m:
     needs: pruning-1m
-    if: github.event_name == 'workflow_dispatch' && inputs.partition_pruning_experiment
+    if: github.event_name == 'workflow_dispatch' && inputs.partition_pruning_experiment && inputs.pruning_suite != 'unchanged'
     permissions:
       contents: read
     uses: ./.github/workflows/benchmark-partition-pruning.yml

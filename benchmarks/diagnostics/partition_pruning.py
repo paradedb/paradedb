@@ -109,8 +109,12 @@ def benchmark(size, layout, label, selected, *, initialize):
     if not initialize:
         args.append('--skip-index')
     path = OUT / f'{label}-benchmark.log'
-    with path.open('w') as stream:
-        subprocess.run(args, cwd=ROOT / 'benchmarks', stdout=stream, stderr=subprocess.STDOUT, check=True)
+    try:
+        with path.open('w') as stream:
+            subprocess.run(args, cwd=ROOT / 'benchmarks', stdout=stream, stderr=subprocess.STDOUT, check=True)
+    except subprocess.CalledProcessError:
+        print(f'Benchmark failed: {label}; final log output:\n{path.read_text()[-12000:]}', flush=True)
+        raise
     shutil.copyfile(ROOT / 'benchmarks/results.json', OUT / f'{label}-runner-results.json')
     log = path.read_text()
     observed = {}

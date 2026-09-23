@@ -70,7 +70,7 @@ Dispatch `benchmark-pg_search-queries.yml` on the experiment branch with
 `publish_baseline=false`. The ordinary publishing job and its notification job
 are skipped. The experiment jobs only upload artifacts and write job summaries.
 
-Artifacts `partition-pruning-1m` and `partition-pruning-20m` contain source SHAs,
+Artifacts `partition-pruning-date-1m` and `partition-pruning-date-20m` contain source SHAs,
 library checksums, index DDL and identities, dataset distribution, resolved query
 SQL, every raw timing, full results, executed plans, diagnostic patches and
 traces, and `comparison.md` / `comparison.json`. A negative timing percentage
@@ -80,3 +80,82 @@ Compare main versus PR within each layout to measure the code change. Compare
 layouts within each build to measure layout effects. Inspect join plans for
 changed execution strategies when a partition column is added or removed.
 Do not attribute either effect solely from a query filename or a lower runtime.
+
+## Unchanged-query experiment: evidence for the usage guide
+
+Select `pruning_suite=unchanged` along with `partition_pruning_experiment=true`.
+This first pass runs at **1M only**. It keeps the same pinned builds, cluster
+settings, actual heap snapshot, 48-segment target and same-index ABBA comparisons.
+The ordinary Rust benchmark runner still performs all timed executions.
+
+It copies 19 existing SQL files byte for byte, verifying them against pinned
+main and preserving their original SET statements, filters, ordering and LIMIT.
+In particular, a file named `hash_partitioned` does not explicitly disable range
+joins in this revision: the artifact records the actual executed plan rather
+than relabeling the query or changing its settings.
+
+| Arm | Only index option changed | Question |
+| --- | --- | --- |
+| Original | None | Reference workload |
+| Posts date | `id,owner_user_id,creation_date` | Does the existing date predicate benefit? |
+| Posts type | `id,owner_user_id,post_type_id` | Does low-cardinality filtering help or create imbalance? |
+| Users reputation | `id,reputation` | Do existing reputation filters improve joins? |
+| Comments score | `post_id,score` | Does the comment predicate improve distinct-parent joins? |
+| Comments name | `post_id,user_display_name` | Can raw string paging bounds prune, including runtime subquery binding? |
+
+The queries are `filtered_highcard`, `filtered_lowcard`, all three string paging
+queries, numeric high/low-cardinality top-k, count-filter and grouped-filter
+aggregate scans, and the original hash/range variants of permissioned search,
+foreign-filter/local-sort, distinct-parent, semi-filter and aggregate-count joins.
+This is a focused pass, not all 105 original suite files. The sort/group-only and
+unrelated-filter cases are controls for costs outside the intended beneficiaries.
+
+Correctness and attribution are explicitly separate from timings:
+
+- Timed SQL is never given an additional ordering key. Its outputs are preserved.
+- Separate correctness companions add the projected unique ID as an ordering
+  key for LIMIT queries. Their complete projected results, including scores, are
+  compared across all builds and layouts. Unordered aggregate results are compared
+  as multisets. Row counts are also checked against the original queries.
+- A companion can have a different plan. Its equality does not prove that every
+  tied/unordered execution of the original SQL selected equivalent rows. Original
+  output artifacts remain available for that audit; row counts alone are not called
+  a full correctness proof. Differences in companions are saved and fail the job
+  after collecting the other measurements, rather than being silently ignored.
+- The trace build executes the original SQL separately, with its original settings
+  and LIMIT. Logs cover candidate checks and DeferredScorer creation only. A query
+  emitting no trace events is not evidence that no other pruning mechanism ran.
+- `comparison.json` measures main versus PR within each layout;
+  `layout-comparison.json` measures each layout versus the original within each
+  build. They answer different questions. All raw samples and plans are preserved.
+
+Artifact: `partition-pruning-unchanged-1m`. This experiment only uploads artifacts
+and a job summary; it does not update PRs, published baselines or Slack.
+
+### Follow-up experiments, not yet run by this mode
+
+Promote a claim in the guide to a measured recommendation only after its relevant
+experiment is complete and the plans, results and repeated timings support it:
+
+| Claim | Next controlled experiment |
+| --- | --- |
+| A chosen layout improves the real workload | Extend promising arms to all unchanged queries, then confirm at 20M |
+| A selective filter pays for proof overhead | Sweep actual qualifying fractions near 0%, 0.1%, 1%, 10%, 50%, 100%; include text-only control |
+| Multiple columns are worth adding | Compare individually understood columns with their combination; test column order |
+| A segment count is appropriate | Rebuild at 8, 16, 48, 96 with the same workers and queries; record actual segment sizes |
+| Results are stable across construction | Repeat independent index builds, not only queries on one build |
+| Boolean and NULL cases retain correctness | Dedicated AND/OR/NOT, NULL and exact-boundary queries with full-result oracles |
+| The layout remains useful during writes | Measure after inserts/updates/deletes and maintenance; distinguish M2 behavior from future M3 |
+
+Do not launch the entire product of these dimensions. Use the first pass to
+identify useful or surprising cases, then vary one factor at a time.
+
+### Previous run limit
+
+Run `35845195017` completed the first date experiment at 1M. Its 20M job failed
+in the date-only layout's second round (PR), executing the range-enabled
+aggregate-count join. The server reported an MPP transport receiver detaching
+before EOF. The root cause is not established; this is not a completed 20M
+performance comparison, and rerunning without investigating would not validate it.
+The new unchanged-query first pass retains the join keys and does not automatically
+start a 20M job.

@@ -2,11 +2,9 @@
 FROM postgres:@@PG_VERSION_MAJOR@@-trixie
 
 # %%ANTITHESIS_BEGIN%%
-# Install a locally built pg_search package. Antithesis uses the default filename;
-# development images override PG_SEARCH_DEB with their release-profile package.
+# Install the locally built, Antithesis-instrumented pg_search package.
 ARG COMMIT_SHA
-ARG PG_SEARCH_DEB=pg_search-antithesis-trixie-amd64-pg@@PG_VERSION_MAJOR@@-${COMMIT_SHA}.deb
-COPY ${PG_SEARCH_DEB} /tmp/pg_search.deb
+COPY pg_search-antithesis-trixie-amd64-pg@@PG_VERSION_MAJOR@@-${COMMIT_SHA}.deb /tmp/pg_search.deb
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends /tmp/pg_search.deb; \

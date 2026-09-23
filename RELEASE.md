@@ -86,13 +86,14 @@ To publish a patch release from a stable branch:
 
 ## Development Images
 
-To test a source revision without creating a GitHub Release, run **Publish Development Image**
-(`publish-development-image.yml`) from `main` in the repository whose source you want to build.
-Set `source_ref` to a branch, tag, or commit SHA. For Enterprise builds, run it in
+To test a source revision without creating a GitHub Release, run **Publish ParadeDB (Docker)**
+(`publish-paradedb-docker.yml`) from `main` in the repository whose source you want to build.
+Leave `version` empty and set `source_ref` to a branch, tag, or commit SHA. For Enterprise builds, run it in
 `paradedb/paradedb-enterprise`.
 
 The workflow builds a normal release-profile extension for PostgreSQL 18 on ARM64, installs it
-into the standard ParadeDB runtime, and smoke-tests startup and a BM25 query before publishing.
+over the repository's released `latest-pg18` image, using the same source-build action and
+Dockerfile as Benchmarker, and smoke-tests startup and a BM25 query before publishing.
 It creates no Git tag or GitHub Release and does not change source versions or update `latest`.
 Images are tagged `18-dev-<commit-sha>-<run-id>-<attempt>` in the repository's Docker Hub image.
 

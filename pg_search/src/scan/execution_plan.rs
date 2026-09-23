@@ -811,7 +811,8 @@ impl PgSearchScanPlan {
         ));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
-            .with_check_visibility(descriptor.check_visibility);
+            .with_check_visibility(descriptor.check_visibility)
+            .with_ffhelper(Arc::clone(&ffhelper));
 
         let scanner_config = ScannerConfig {
             which_fast_fields: descriptor.which_fast_fields,
@@ -1079,9 +1080,9 @@ impl DisplayAs for PgSearchScanPlan {
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
-        // A deferred check is already named by the `VisibilityFilterExec` or
-        // `SegmentedTopKExec` that runs it. A scan that checks itself has no such
-        // witness, so only that case is marked.
+        // A deferred check is already named by the `VisibilityFilterExec` that
+        // runs it. A scan that checks itself has no such witness, so only that
+        // case is marked.
         if self.deferred_ctid_plan_position.is_none() {
             write!(f, ", visibility=eager")?;
         }

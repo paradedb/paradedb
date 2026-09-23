@@ -730,13 +730,14 @@ impl CustomScan for BaseScan {
 
             // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
             // execution may skip some of these segments.
-            let segment_count = {
-                let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-                let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-                crate::index::open_index(directory)
-                    .expect("custom_scan: should be able to open index");
-                segment_count.load(Ordering::Relaxed)
-            };
+            let segment_count = crate::api::operator::planning::segment_count(bm25_index.oid())
+                .unwrap_or_else(|| {
+                    let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
+                    let segment_count = directory.total_segment_count();
+                    crate::index::open_index(directory)
+                        .expect("custom_scan: should be able to open index");
+                    segment_count.load(Ordering::Relaxed)
+                });
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");

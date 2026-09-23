@@ -473,6 +473,8 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         return result;
     }
 
+    let _estimate_scope = crate::api::operator::planning::EstimateScope::enter();
+
     // Check if we should replace window functions and do so if needed
     // This checks the OUTER query level
     if should_replace_window_functions(parse) {

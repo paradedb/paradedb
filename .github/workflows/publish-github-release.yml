@@ -202,19 +202,38 @@ jobs:
 
           # Record newly created release files and consumed fragment paths from the release commit
           NEW_SQL="pg_search/sql/pg_search--*--${CLEAN_VERSION}.sql"
-          NEW_CHANGELOG="docs/changelog/${CLEAN_VERSION}.mdx"
           DOCS_SNIPPET="docs/snippets/version.mdx"
-          DELETED_FRAGMENTS=$(git diff HEAD~1 --diff-filter=D --name-only -- 'pg_search/sql/unreleased/' 'docs/changelog/unreleased/')
+
+          # Determine changelog location on the release branch
+          # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
+          # On 0.25.x, changelog was created in docs/changelog/; on post-reorg branches, in docs/project/changelog/
+          if git ls-tree -r --name-only HEAD | grep -q "^docs/project/changelog/${CLEAN_VERSION}\.mdx$"; then
+            BRANCH_CHANGELOG="docs/project/changelog/${CLEAN_VERSION}.mdx"
+          else
+            BRANCH_CHANGELOG="docs/changelog/${CLEAN_VERSION}.mdx"
+          fi
+
+          DELETED_FRAGMENTS=$(git diff HEAD~1 --diff-filter=D --name-only -- 'pg_search/sql/unreleased/' 'docs/changelog/unreleased/' 'docs/project/changelog/unreleased/')
 
           echo "Switching to main branch to sync release artifacts..."
           git fetch origin main:main
           git checkout main
 
           echo "Checking out assembled release files from the release commit..."
+          CHECKOUT_FILES="${NEW_SQL} ${BRANCH_CHANGELOG}"
           if [[ "$IS_LATEST" == "true" ]]; then
-            git checkout "${{ github.ref_name }}" -- ${NEW_SQL} ${NEW_CHANGELOG} ${DOCS_SNIPPET}
-          else
-            git checkout "${{ github.ref_name }}" -- ${NEW_SQL} ${NEW_CHANGELOG}
+            CHECKOUT_FILES="${CHECKOUT_FILES} ${DOCS_SNIPPET}"
+          fi
+          git checkout "${{ github.ref_name }}" -- ${CHECKOUT_FILES}
+
+          # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
+          # Move changelog to docs/project/changelog/ if it was checked out from docs/changelog/
+          if [[ "$BRANCH_CHANGELOG" == "docs/changelog/"* && -d "docs/project/changelog" ]]; then
+            TARGET_CHANGELOG="docs/project/changelog/${CLEAN_VERSION}.mdx"
+            echo "Moving legacy changelog $BRANCH_CHANGELOG to $TARGET_CHANGELOG on main..."
+            mkdir -p "docs/project/changelog"
+            mv "$BRANCH_CHANGELOG" "$TARGET_CHANGELOG"
+            rmdir docs/changelog/unreleased docs/changelog 2>/dev/null || true
           fi
 
           if [[ -n "$DELETED_FRAGMENTS" ]]; then
@@ -223,6 +242,15 @@ jobs:
               if [[ -f "$fragment" ]]; then
                 echo " - Removing $fragment"
                 rm -f "$fragment"
+              fi
+              # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
+              # If fragment was deleted from docs/changelog/unreleased/ on 0.25.x, also delete counterpart in docs/project/changelog/unreleased/ on main
+              if [[ "$fragment" == "docs/changelog/unreleased/"* ]]; then
+                alt_fragment="docs/project/changelog/unreleased/${fragment##*/}"
+                if [[ -f "$alt_fragment" ]]; then
+                  echo " - Removing $alt_fragment"
+                  rm -f "$alt_fragment"
+                fi
               fi
             done
           fi

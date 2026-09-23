@@ -17,4 +17,4 @@ On Cohere 1M with 1024-dimensional cosine vectors and an explicit `[1, 4]` sched
 
 - Added `paradedb.max_scan_levels` to limit how many code layers a query reads. It defaults to all built layers; `0` scans full-precision vectors through the same cluster routing.
 
-- Replaced the `centroid_ratio` and `training_samples_per_centroid` index options with `training_sample_ratio` (default `0.32`) and `max_leaf_size` (default `100`). The settings now directly control Tantivy's training fraction and SuperKMeans' maximum training leaf size. The old names are no longer accepted; recreate indexes that explicitly store them using the new options. The default training leaf size increases from 32 to 100.
+- Replaced the `centroid_ratio` and `training_samples_per_centroid` index options with `training_sample_ratio` (default `0.32`) and `max_leaf_size` (default `100`). The settings now directly control Tantivy's training fraction and SuperKMeans' maximum training leaf size. The old names are no longer accepted; recreate indexes that explicitly store them using the new options.

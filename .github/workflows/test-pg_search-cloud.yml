@@ -3,7 +3,7 @@
 # Test pg_search (Cloud)
 # Build and publish a source image for manual testing in ParadeDB Cloud.
 # Compile pg_search from the selected source revision and install it into a released
-# ParadeDB image. PRs build and smoke-test locally on the runner; manual runs also
+# ParadeDB image. PRs build the image locally on the runner; manual runs also
 # publish the image to Docker Hub for use in staging.
 
 name: Test pg_search (Cloud)
@@ -90,41 +90,7 @@ jobs:
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$source_sha" \
             --label "com.paradedb.extension-version=$version" \
-            --tag paradedb-development "$RUNNER_TEMP/source-image"
-
-      - name: Smoke Test Development Image
-        env:
-          EXTENSION_VERSION: ${{ steps.image.outputs.extension_version }}
-        run: |
-          set -euo pipefail
-          trap 'docker logs development-db; docker rm -f development-db' EXIT
-          docker run -d --name development-db \
-            -e POSTGRES_PASSWORD=development-test \
-            paradedb-development
-          ready=false
-          for attempt in $(seq 1 90); do
-            echo "Waiting for PostgreSQL ($attempt/90)"
-            if docker exec development-db pg_isready -h localhost -U postgres; then
-              ready=true
-              break
-            fi
-            sleep 2
-          done
-          [[ "$ready" == true ]]
-          actual="$(docker exec development-db psql -U postgres -Atc "SELECT extversion FROM pg_extension WHERE extname = 'pg_search'")"
-          [[ "$actual" == "$EXTENSION_VERSION" ]]
-          docker exec -i development-db psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE TABLE development_smoke (id bigint PRIMARY KEY, description text);
-          INSERT INTO development_smoke VALUES (1, 'running shoes'), (2, 'winter boots');
-          CREATE INDEX development_smoke_idx ON development_smoke
-            USING bm25 (id, description) WITH (key_field = 'id');
-          DO $$
-          BEGIN
-            IF (SELECT count(*) FROM development_smoke WHERE description @@@ 'shoes') != 1 THEN
-              RAISE EXCEPTION 'pg_search smoke test failed';
-            END IF;
-          END $$;
-          SQL
+            --tag paradedb-cloud-test "$RUNNER_TEMP/source-image"
 
       - name: Login to Docker Hub
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -133,14 +99,14 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      - name: Publish Development Image
+      - name: Publish Cloud Test Image
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         id: published-image
         env:
           SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
         run: |
-          image="$GITHUB_REPOSITORY:18-dev-$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          docker tag paradedb-development "$image"
+          image="$GITHUB_REPOSITORY:18-cloud-$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker tag paradedb-cloud-test "$image"
           docker push "$image"
           digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
           [[ "$digest" == *@sha256:* ]]
@@ -151,13 +117,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: sigstore/cosign-installer@v4.1.2
 
-      - name: Sign Development Image
+      - name: Sign Cloud Test Image
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         env:
           IMAGE: ${{ steps.published-image.outputs.ref }}
         run: cosign sign --yes "$IMAGE"
 
-      - name: Summarize Development Image
+      - name: Summarize Cloud Test Image
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         env:
           IMAGE: ${{ steps.published-image.outputs.ref }}

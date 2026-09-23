@@ -33,11 +33,11 @@ use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
 use anyhow::{Context, Result};
 use rand::{TryRng, rngs::SysRng};
-use tantivy::{Index, IndexSettings};
-use tantivy::directory::Directory;
 use tantivy::columnar::CodecType;
+use tantivy::directory::Directory;
 use tantivy::schema::FieldType;
 use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer};
+use tantivy::{Index, IndexSettings};
 
 /// Open the tantivy index behind `directory` the way every pg_search reader
 /// and writer must: with the IVF centroid router selected. Tantivy refuses

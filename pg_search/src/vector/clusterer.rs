@@ -21,7 +21,8 @@ use std::sync::{Arc, Mutex};
 
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
 use tantivy::vector::{
-    IvfCentroids, IvfClusterer, IvfMatrix, IvfTrainingVectors, IvfVectors, Metric, RouterKind, VectorOptions,
+    IvfCentroids, IvfClusterer, IvfMatrix, IvfTrainingVectors, IvfVectors, Metric, RouterKind,
+    VectorOptions,
 };
 use tantivy::{Index, TantivyError};
 
@@ -253,9 +254,6 @@ pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
         .with_max_leaf_size(options.max_leaf_size())
         .with_training_sample_ratio(options.training_sample_ratio());
     index.set_ivf_clusterer(Arc::new(clusterer));
-    index
-        .set_ivf_router(RouterKind::Rng)
-        .expect("ParadeDB indexes use the RNG router");
 }
 
 #[cfg(test)]
@@ -267,6 +265,7 @@ mod tests {
         let clusterer = SuperKMeansIvfClusterer::default();
         let settings = clusterer.merge_settings(10_000).unwrap();
         assert_eq!(settings.training_sample_ratio, 0.32);
+        assert_eq!(settings.assign_batch_size, DEFAULT_ASSIGN_BATCH_SIZE);
         assert_eq!(clusterer.config.max_leaf_size, 100);
     }
 
@@ -299,5 +298,17 @@ mod tests {
             1.0
         );
         assert_eq!(clusterer.config.max_leaf_size, 100);
+    }
+
+    /// The router is fixed per index: setting it twice with the same kind is
+    /// idempotent, so opening the same `Index` through several paths is safe.
+    #[test]
+    fn set_ivf_router_is_idempotent() {
+        use tantivy::schema::Schema;
+
+        let mut index = Index::create_in_ram(Schema::builder().build());
+        set_ivf_router(&mut index).expect("first set");
+        set_ivf_router(&mut index).expect("same kind again");
+        assert!(index.set_ivf_router(RouterKind::Stacked).is_err());
     }
 }

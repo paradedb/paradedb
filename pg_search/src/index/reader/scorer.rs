@@ -17,8 +17,20 @@
 
 use crate::index::reader::index::enable_scoring;
 use std::sync::{Arc, OnceLock};
-use tantivy::query::{PruningScorer, Query, Scorer, Weight};
+use tantivy::Term;
+use tantivy::query::{
+    BooleanQuery, EnableScoring, Explanation, Occur, PruningScorer, Query, Scorer, Weight,
+};
+use tantivy::schema::Field;
 use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
+
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) mod test_support {
+    use std::sync::atomic::AtomicUsize;
+
+    /// Number of deferred per-segment scorers that crossed the actual Tantivy open boundary.
+    pub(crate) static SCORERS_OPENED: AtomicUsize = AtomicUsize::new(0);
+}
 
 /// Lazily builds one [`Weight`] and shares it across a search's segments.
 ///
@@ -43,6 +55,19 @@ impl LazyWeight {
         }
     }
 
+    /// Conjoin another query using the same searcher and scoring mode, while sharing the
+    /// base query's prepared weight. Each segment still receives its own scorer.
+    pub(super) fn and_query(self: &Arc<Self>, query: Box<dyn Query>) -> Self {
+        Self::new(
+            Box::new(BooleanQuery::new(vec![
+                (Occur::Must, Box::new(SharedQuery(Arc::clone(self)))),
+                (Occur::Must, query),
+            ])),
+            self.need_scores,
+            self.searcher.clone(),
+        )
+    }
+
     fn get(&self) -> &dyn Weight {
         self.weight
             .get_or_init(|| {
@@ -51,6 +76,88 @@ impl LazyWeight {
                     .expect("weight should be constructable")
             })
             .as_ref()
+    }
+}
+
+/// Lets Tantivy build its ordinary BooleanWeight without preparing the shared clause again.
+/// Every `Weight` method is forwarded so the base weight's scorer and pruning specializations
+/// are the ones that run; a method added to the trait with a default body would silently
+/// bypass them, so keep this impl in step with the trait.
+#[derive(Clone)]
+struct SharedQuery(Arc<LazyWeight>);
+
+impl std::fmt::Debug for SharedQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.query.fmt(f)
+    }
+}
+
+impl Query for SharedQuery {
+    fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+        assert_eq!(
+            scoring.is_scoring_enabled(),
+            self.0.need_scores,
+            "constrained weight must use the base weight's scoring mode"
+        );
+        self.0.get();
+        Ok(Box::new(self.clone()))
+    }
+
+    fn query_terms(
+        &self,
+        field: Field,
+        reader: &SegmentReader,
+        visitor: &mut dyn FnMut(&Term, bool),
+    ) {
+        self.0.query.query_terms(field, reader, visitor);
+    }
+}
+
+impl Weight for SharedQuery {
+    fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
+        self.0.get().scorer(reader, boost)
+    }
+
+    fn pruning_scorer(
+        &self,
+        reader: &SegmentReader,
+        boost: Score,
+        threshold: Score,
+    ) -> tantivy::Result<Box<dyn PruningScorer>> {
+        self.0.get().pruning_scorer(reader, boost, threshold)
+    }
+
+    fn explain(&self, reader: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
+        self.0.get().explain(reader, doc)
+    }
+
+    fn count(&self, reader: &SegmentReader) -> tantivy::Result<u32> {
+        self.0.get().count(reader)
+    }
+
+    fn for_each(
+        &self,
+        reader: &SegmentReader,
+        callback: &mut dyn FnMut(DocId, Score),
+    ) -> tantivy::Result<()> {
+        self.0.get().for_each(reader, callback)
+    }
+
+    fn for_each_no_score(
+        &self,
+        reader: &SegmentReader,
+        callback: &mut dyn FnMut(&[DocId]),
+    ) -> tantivy::Result<()> {
+        self.0.get().for_each_no_score(reader, callback)
+    }
+
+    fn for_each_pruning(
+        &self,
+        threshold: Score,
+        reader: &SegmentReader,
+        callback: &mut dyn FnMut(DocId, Score) -> Score,
+    ) -> tantivy::Result<()> {
+        self.0.get().for_each_pruning(threshold, reader, callback)
     }
 }
 
@@ -82,6 +189,8 @@ impl DeferredScorer {
     #[inline(always)]
     fn scorer(&self) -> &dyn PruningScorer {
         self.scorer.get_or_init(|| {
+            #[cfg(any(test, feature = "pg_test"))]
+            test_support::SCORERS_OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.weight
                 .get()
                 .pruning_scorer(&self.segment_reader, 1.0, Score::MIN)

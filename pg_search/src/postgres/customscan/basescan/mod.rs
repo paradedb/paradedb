@@ -728,6 +728,8 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
+            // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
+            // execution may skip some of these segments.
             let segment_count = {
                 let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
                 let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened

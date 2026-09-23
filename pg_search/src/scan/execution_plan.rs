@@ -62,7 +62,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::stats::segments_for_partition;
+use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::parallel::segment_view;
@@ -162,9 +162,9 @@ pub struct PgSearchScanPlan {
     /// Stored separately so `partition_statistics` is deterministic, even after
     /// the state has been consumed.
     planner_estimated_rows: u64,
-    /// Number of segments this plan will process, derived at construction time
-    /// from ParallelScanState or the reader, and kept around for EXPLAIN after
-    /// the state is consumed.
+    /// Number of segments this plan may process after applying its static execution-time proof.
+    /// Kept around for EXPLAIN after the state is consumed. The reader still retains the full
+    /// manifest/DSM view; this is an estimate and never a segment-identity authority.
     segment_count: usize,
     /// Number of partitions in the scan before task specialization. A specialized variant's
     /// `output_partitioning` is always one, so this count is serialized separately and used to
@@ -200,6 +200,7 @@ pub struct PgSearchScanPlan {
     /// Global partition selected for a task-specialized variant. When present, this plan
     /// exposes one local partition and maps `execute(0)` back to this global partition.
     pub(crate) assigned_partition: Option<usize>,
+    pub(crate) partition_segments: Option<PartitionSegments>,
     pub(crate) scan_mode: crate::scan::ScanMode,
     /// Fallback ExprContext guard created during dispatch decode when heap filters are present
     /// but no external ExprContext was supplied through the codec. Kept alive on the plan so
@@ -229,6 +230,7 @@ impl Clone for PgSearchScanPlan {
             sort_order: self.sort_order.clone(),
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
+            partition_segments: self.partition_segments.clone(),
             scan_mode: self.scan_mode.clone(),
             _expr_context_guard: self._expr_context_guard.clone(),
         }
@@ -301,10 +303,7 @@ impl PgSearchScanPlan {
             .unwrap_or(0);
         let segment_count = state
             .as_ref()
-            .map(|s| match parallel_state {
-                Some(ps) => unsafe { (*ps).source_segment_count(s.source_idx.unwrap_or(0)) },
-                None => s.reader.segment_ids().len(),
-            })
+            .map(|s| s.reader.segment_pruning_estimate().candidate_segments)
             .unwrap_or(0);
 
         if range_split_points.is_none() {
@@ -359,6 +358,7 @@ impl PgSearchScanPlan {
             sort_order: sort_order.cloned(),
             range_split_points,
             assigned_partition: None,
+            partition_segments: None,
             scan_mode,
             _expr_context_guard: None,
         }
@@ -391,33 +391,32 @@ impl PgSearchScanPlan {
                 points.partitions_for(target_partitions)
             });
 
-        let state_guard = self
-            .state
-            .lock()
-            .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan state: {e}")))?;
-
-        let new_state = match &*state_guard {
-            ExecutionState::Shared {
-                parallel_state,
-                scan_state,
-            } => ExecutionState::Shared {
-                parallel_state: parallel_state.clone(),
-                scan_state: scan_state.clone(),
-            },
-            ExecutionState::RangePartitioned { scan_state, .. } => {
-                ExecutionState::RangePartitioned {
-                    range_boundaries: self
-                        .range_split_points
-                        .as_ref()
-                        .unwrap()
-                        .build(target_partitions),
-                    scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
+        let new_state = {
+            let state_guard = self.state.lock().unwrap();
+            match &*state_guard {
+                ExecutionState::Shared {
+                    parallel_state,
+                    scan_state,
+                } => ExecutionState::Shared {
+                    parallel_state: parallel_state.clone(),
+                    scan_state: scan_state.clone(),
+                },
+                ExecutionState::RangePartitioned { scan_state, .. } => {
+                    ExecutionState::RangePartitioned {
+                        range_boundaries: self
+                            .range_split_points
+                            .as_ref()
+                            .unwrap()
+                            .build(target_partitions),
+                        scan_state: scan_state.clone(),
+                    }
                 }
-            }
-            _ => {
-                return Err(DataFusionError::Internal(
-                    "Cannot repartition uninitialized or consumed plan".into(),
-                ));
+                ExecutionState::Uninitialized => ExecutionState::Uninitialized,
+                ExecutionState::Consumed => {
+                    return Err(DataFusionError::Internal(
+                        "Cannot repartition a consumed PgSearchScanPlan".to_string(),
+                    ));
+                }
             }
         };
 
@@ -463,6 +462,7 @@ impl PgSearchScanPlan {
             sort_order: self.sort_order.clone(),
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
+            partition_segments: self.partition_segments.clone(),
             scan_mode: self.scan_mode.clone(),
             _expr_context_guard: self._expr_context_guard.clone(),
         })
@@ -474,6 +474,18 @@ impl PgSearchScanPlan {
     /// it as a single-partition plan, while `assigned_partition` records which partition's
     /// workload (range bounds or parallel state assignment) this variant executes.
     pub(crate) fn with_assigned_partition(&self, assigned: usize) -> Arc<Self> {
+        self.assign_partition(assigned, None)
+            .expect("assignment without a received classification cannot be rejected")
+    }
+
+    /// Like [`Self::with_assigned_partition`], but reuses a received classification when it
+    /// names exactly this reader's segment view; see [`ReceivedClassification`] for what a
+    /// mismatch means.
+    pub(crate) fn assign_partition(
+        &self,
+        assigned: usize,
+        classified: Option<ReceivedClassification>,
+    ) -> Result<Arc<Self>> {
         assert!(
             self.assigned_partition.is_none(),
             "PgSearchScanPlan is already task-specialized"
@@ -490,7 +502,29 @@ impl PgSearchScanPlan {
                 .with_partitioning(Partitioning::UnknownPartitioning(1)),
         );
         variant.properties = new_properties;
-        Arc::new(variant)
+        if let Some(ref range_split_points) = self.range_split_points {
+            let boundaries = range_split_points.build(self.global_partition_count);
+            let state = self.state.lock().unwrap();
+            if let ExecutionState::RangePartitioned { scan_state, .. } = &*state {
+                let reader = &scan_state.0.reader;
+                let partition_segments = match classified {
+                    Some(
+                        ReceivedClassification::SharedView(segments)
+                        | ReceivedClassification::Snapshot(segments),
+                    ) if segments.covers_view(reader) => segments,
+                    Some(ReceivedClassification::SharedView(_)) => {
+                        return Err(DataFusionError::Internal(
+                            "PgSearchScan dispatch: partition classification does not match \
+                             the worker's segment view"
+                                .into(),
+                        ));
+                    }
+                    _ => segments_for_partition(reader, &boundaries, assigned),
+                };
+                variant.partition_segments = Some(partition_segments);
+            }
+        }
+        Ok(Arc::new(variant))
     }
 
     /// Late-bind the shared `ParallelScanState` into this scan's execution state (#5667).
@@ -673,6 +707,7 @@ impl PgSearchScanPlan {
             global_partition_count: self.global_partition_count,
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
+            partition_segments: self.partition_segments.clone(),
             scan_mode: scanner_config.scan_mode,
             check_visibility: state.0.visibility.checks_visibility(),
         };
@@ -834,7 +869,14 @@ impl PgSearchScanPlan {
         plan.eager_fields = descriptor.eager_fields;
         plan._expr_context_guard = fallback_guard;
         let final_plan = if let Some(assigned) = descriptor.assigned_partition {
-            plan.with_assigned_partition(assigned)
+            let classified = descriptor.partition_segments.map(|segments| {
+                if parallel_state.is_some() {
+                    ReceivedClassification::SharedView(segments)
+                } else {
+                    ReceivedClassification::Snapshot(segments)
+                }
+            });
+            plan.assign_partition(assigned, classified)?
         } else {
             Arc::new(plan)
         };
@@ -876,7 +918,20 @@ struct ScanDispatchDescriptor {
     /// leader; see `PgSearchTableProvider::scan_inner`.
     check_visibility: bool,
     assigned_partition: Option<usize>,
+    /// The leader's segment classification for `assigned_partition`, so a reconstructed task
+    /// neither reopens statistics nor classifies again. Absent for unassigned plans.
+    #[serde(default)]
+    partition_segments: Option<PartitionSegments>,
     scan_mode: crate::scan::ScanMode,
+}
+
+/// A classification received with a dispatched task, tagged by the view it is checked
+/// against. Under the shared parallel state the view is the leader's, so a mismatch is a
+/// view-identity bug and an error; without it, as for a display plan, the view may be newer,
+/// so a mismatch classifies again from local statistics.
+pub(crate) enum ReceivedClassification {
+    SharedView(PartitionSegments),
+    Snapshot(PartitionSegments),
 }
 
 /// The output partitioning a scan declares to DataFusion.
@@ -950,11 +1005,22 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
 
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "PgSearchScan: table={}, segments={}",
-            self.table_alias, self.segment_count
-        )?;
+        if let Some(ref partition_segments) = self.partition_segments {
+            write!(
+                f,
+                "PgSearchScan: table={}, segments={{partial={}, included={}, pruned={}}}",
+                self.table_alias,
+                partition_segments.partially_included.len(),
+                partition_segments.included.len(),
+                partition_segments.pruned.len()
+            )?;
+        } else {
+            write!(
+                f,
+                "PgSearchScan: table={}, segments={}",
+                self.table_alias, self.segment_count
+            )?;
+        }
         if let Some(range_split_points) = &self.range_split_points {
             if let Some(assigned) = self.assigned_partition {
                 let partitioning = range_split_points.build(self.global_partition_count);
@@ -1180,7 +1246,6 @@ impl ExecutionPlan for PgSearchScanPlan {
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", target_partition));
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", target_partition));
-
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let plan_metrics = self.metrics.clone();
         let schema = self.properties.eq_properties.schema().clone();
@@ -1195,12 +1260,11 @@ impl ExecutionPlan for PgSearchScanPlan {
             .map(|d| d.name.clone())
             .collect();
 
+        let assigned_partition_segments = self.partition_segments.clone();
+
         let stream_gen = async_stream::try_stream! {
             // Create a local copy of the reader if the query changed
-            let mut reader = match &range_boundaries {
-                Some(rb) => reader.and_query_input(&rb.partition_bounds(target_partition)),
-                None => reader,
-            };
+            let mut reader = reader;
 
             // Optimized Search Integration:
             // We initialize the search here, inside the stream, because for HashJoin
@@ -1219,12 +1283,16 @@ impl ExecutionPlan for PgSearchScanPlan {
             };
 
             let search_results = if let Some(range_boundaries) = &range_boundaries {
-                // Range partitioned mode has no shared scan state: each partition searches the
-                // segments its bounds can reach, per their `.stats`. The query above still
-                // filters the rows, so a segment kept in doubt costs time, not correctness.
-                let segment_ids =
-                    segments_for_partition(&reader, range_boundaries, target_partition);
-                reader.search_segments(segment_ids.into_iter())
+                // In range-partitioned mode, each partition searches segments classified by
+                // their bounds: fully included segments omit the partition RangeQuery,
+                // while partially included segments retain it.
+                let partition_segments = assigned_partition_segments
+                    .unwrap_or_else(|| segments_for_partition(&reader, range_boundaries, target_partition));
+
+                reader.search_segments_with_range_filter(
+                    &partition_segments,
+                    &range_boundaries.partition_bounds(target_partition),
+                )
             } else {
                 // Standard mode delegates to the parallel state if present
                 match parallel_state {

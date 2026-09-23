@@ -109,7 +109,7 @@ jobs:
         uses: paradedb/actions/build-pg_search-source@v14
         with:
           pg-version: ${{ env.pg_version }}
-          cache-prefix-key: "v2-benchmarks-rust-cache"
+          cache-prefix-key: "v2-benchmarks-rust-cache-ubuntu-26.04"
           cache-save: "true"
           cache-on-failure: "true"
 

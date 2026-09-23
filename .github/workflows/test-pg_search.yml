@@ -140,7 +140,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.pgrx
-          key: pgrx-pg-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
+          key: pgrx-pg-${{ matrix.runner_image }}-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Initialize pgrx Environment (pgrx Download)
         if: matrix.pg_impl == 'pgrx' && steps.cache-pgrx-pg.outputs.cache-hit != 'true'

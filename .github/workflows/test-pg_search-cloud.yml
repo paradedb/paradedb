@@ -64,7 +64,7 @@ jobs:
         with:
           pg-version: "18"
           profile: release
-          cache-prefix-key: "v1-cloud-rust-cache"
+          cache-prefix-key: "v1-cloud-rust-cache-ubuntu-26.04"
           cache-save: true
 
       - name: Assemble Source Image

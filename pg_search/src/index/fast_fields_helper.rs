@@ -29,7 +29,6 @@ use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::postgres::utils::{TidBlock, TidOffset};
 use crate::schema::{SearchFieldType, is_columnar_json_path};
 use tantivy::index::SegmentId;
-use tantivy::schema::Schema;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
@@ -85,7 +84,9 @@ impl TidReader {
     ///
     /// NOTE: If you are reading multiple columns during a scan, use a nearby [`FFHelper`]
     /// rather than constructing a `TidReader` directly.
-    pub fn open(schema: &Schema, ffr: &FastFieldReaders) -> tantivy::Result<Self> {
+    pub fn open(segment: &SegmentReader) -> tantivy::Result<Self> {
+        let schema = segment.schema();
+        let ffr = segment.fast_fields();
         if schema.get_field(TID_BLOCK_FIELD_NAME).is_ok() {
             let block = ffr.u64(TID_BLOCK_FIELD_NAME)?;
             let offset = ffr.u64(TID_OFFSET_FIELD_NAME)?;
@@ -258,9 +259,8 @@ impl FFHelper {
     // TODO: Rename ctid -> tid
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &TidReader {
         self.caches()[segment_ord as usize].ctid.get_or_init(|| {
-            let ffr = self.fast_fields(segment_ord);
-            let schema = self.searcher().schema();
-            TidReader::open(schema, ffr).expect("ctid columns should be present")
+            let segment_reader = self.searcher().segment_reader(segment_ord);
+            TidReader::open(segment_reader).expect("ctid columns should be present")
         })
     }
 
@@ -742,8 +742,7 @@ pub fn resolve_ctid(
         let segment_reader = searcher.segment_reader(seg_ord);
         *cache = Some((
             seg_ord,
-            TidReader::open(searcher.schema(), segment_reader.fast_fields())
-                .expect("ctid columns should be present"),
+            TidReader::open(segment_reader).expect("ctid columns should be present"),
         ));
     }
     // TODO: Migrate from as_u64 point lookup to as_u64s batching

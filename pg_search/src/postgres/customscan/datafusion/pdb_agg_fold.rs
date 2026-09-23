@@ -53,11 +53,6 @@ pub fn pdb_agg_fold_udaf() -> Arc<AggregateUDF> {
     Arc::clone(&PDB_AGG_FOLD)
 }
 
-/// Resolve the UDAF by name, for the plan codecs.
-pub fn udaf_by_name(name: &str) -> Option<Arc<AggregateUDF>> {
-    (name == PDB_AGG_FOLD_NAME).then(pdb_agg_fold_udaf)
-}
-
 /// The leading literal arguments of a call: the requests and the entry index.
 /// The bucket columns follow.
 const LITERAL_ARGS: usize = 2;

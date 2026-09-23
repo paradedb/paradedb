@@ -52,7 +52,7 @@ pub fn all_pg_search_udafs() -> Vec<Arc<AggregateUDF>> {
         numeric_agg::numeric_bytes_sum_udaf(),
         numeric_agg::numeric_bytes_avg_udaf(),
         cardinality_agg::tantivy_cardinality_udaf(),
-        pg_agg_fold::pg_agg_fold_udaf(),
+        pdb_agg_fold::pdb_agg_fold_udaf(),
     ]
 }
 

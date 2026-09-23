@@ -808,10 +808,12 @@ unsafe fn extract_raw_aggregate_entry(
                 .map(|name| format!("unsupported aggregate function: {name}"))
                 .unwrap_or_else(|| format!("unsupported aggregate function OID: {aggfnoid}"))
         })?;
-    if let AggKind::StringAgg(separator) = &mut agg_kind {
+    let is_string_agg = if let AggKind::StringAgg(separator) = &mut agg_kind {
         *separator = extract_string_agg_separator(aggref)?;
-    }
-    let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
+        true
+    } else {
+        false
+    };
     let field_refs = extract_aggref_field_refs(context, aggref, is_string_agg)?;
     let order_by =
         extract_aggref_order_by(aggref, context.sources, context.plan, context.outer_root_id)?;

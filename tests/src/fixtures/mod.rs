@@ -67,17 +67,17 @@ pub fn pg_major_version(conn: &mut PgConnection) -> usize {
         .0 as usize
 }
 
-/// Owner of the `Db` backing the `conn` fixture on this thread.
-///
-/// rstest evaluates each fixture injection point independently, so `conn`
-/// cannot borrow the test's `database` fixture value: the `Db` it connects
-/// to must be owned here. It stays alive for the whole test (keeping the
-/// test's connection valid) and is replaced — dropping the predecessor and
-/// running its synchronous cleanup — at the next fixture setup on this
-/// thread, or at thread exit. Replacement is always safe: the predecessor's
-/// test has ended and its connections are long dead.
+// Owner of the `Db` backing the `conn` fixture on this thread.
+//
+// rstest evaluates each fixture injection point independently, so `conn`
+// cannot borrow the test's `database` fixture value: the `Db` it connects
+// to must be owned here. It stays alive for the whole test (keeping the
+// test's connection valid) and is replaced — dropping the predecessor and
+// running its synchronous cleanup — at the next fixture setup on this
+// thread, or at thread exit. Replacement is always safe: the predecessor's
+// test has ended and its connections are long dead.
 thread_local! {
-    static CONN_DB: RefCell<Option<Db>> = RefCell::new(None);
+    static CONN_DB: RefCell<Option<Db>> = const { RefCell::new(None) };
 }
 
 #[fixture]

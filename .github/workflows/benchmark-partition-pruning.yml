@@ -1,0 +1,88 @@
+name: Partition pruning experiment
+on:
+  workflow_call:
+    inputs:
+      size:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  paired:
+    name: Same-index main vs 6346 (${{ inputs.size }})
+    timeout-minutes: 720
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c8gd.metal-24xl
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
+    env:
+      pg_version: 18
+      BASELINE_SHA: cd3451c19143d0106c6e7a2cb5656245df8d423f
+      PR_SHA: ea32cde9a4e0ecc1bc7ac25a6afb51af34cdbbcc
+      EXPERIMENT_SIZE: ${{ inputs.size }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify experiment changes are restricted to benchmarks and workflows
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASELINE_SHA" "$PR_SHA"
+          git merge-base --is-ancestor "$PR_SHA" HEAD
+          git diff --exit-code "$PR_SHA" HEAD -- . ':!benchmarks' ':!.github/workflows'
+          mkdir -p diagnostic-output
+          printf 'main=%s\npr=%s\nbenchmarks=%s\nsize=%s\n' "$BASELINE_SHA" "$PR_SHA" "$GITHUB_SHA" "$EXPERIMENT_SIZE" > diagnostic-output/source-commits.txt
+      - uses: runs-on/action@v2
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - uses: ./.github/actions/setup-benchmark-cluster
+        with:
+          pg_version: 18
+          global_target_segment_count: 48
+      - name: Build and preserve both uninstrumented libraries and a separate trace library
+        run: |
+          set -euo pipefail
+          pkglibdir=$(/usr/lib/postgresql/18/bin/pg_config --pkglibdir)
+          cp "$pkglibdir/pg_search.so" diagnostic-output/pr.so
+          (cd pg_search && cargo pgrx stop pg18)
+          python3 benchmarks/diagnostics/pruning_trace_patch.py
+          cargo pgrx install -p pg_search --sudo --release --pg-config /usr/lib/postgresql/18/bin/pg_config --features=pg18 --no-default-features
+          cp "$pkglibdir/pg_search.so" diagnostic-output/trace.so
+          git diff -- pg_search/src/index/reader > diagnostic-output/trace.patch
+          git restore pg_search/src/index/reader/index.rs pg_search/src/index/reader/scorer.rs
+          git checkout --detach "$BASELINE_SHA"
+          cargo pgrx install -p pg_search --sudo --release --pg-config /usr/lib/postgresql/18/bin/pg_config --features=pg18 --no-default-features
+          cp "$pkglibdir/pg_search.so" diagnostic-output/main.so
+          git checkout --detach "$GITHUB_SHA"
+          git diff --exit-code -- pg_search Cargo.lock Cargo.toml
+          sha256sum diagnostic-output/*.so > diagnostic-output/binaries.sha256
+          cargo build --release -p benchmarks
+      - name: Restore the actual Stack Overflow heap once
+        run: |
+          set -euo pipefail
+          (cd benchmarks && ../target/release/benchmarks restore-heap --dataset stackoverflow --size "$EXPERIMENT_SIZE" --pgdata /home/runner/.pgrx/data-18 --stanza bench --repo-bucket paradedb-ci-benchmarks --repo-path-prefix /snapshots --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com --repo-s3-key-type shared)
+          (cd pg_search && cargo pgrx start pg18)
+          psql postgresql://localhost:28818/postgres -v ON_ERROR_STOP=1 --single-transaction -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+          psql postgresql://localhost:28818/postgres -v ON_ERROR_STOP=1 -c 'ALTER SYSTEM SET paradedb.global_target_segment_count = 48;'
+          psql postgresql://localhost:28818/postgres -v ON_ERROR_STOP=1 -c 'SELECT pg_reload_conf();'
+      - name: Run identical queries across three layouts and both builds
+        run: python3 -u benchmarks/diagnostics/partition_pruning.py "$EXPERIMENT_SIZE"
+      - name: Preserve failure logs
+        if: failure()
+        run: |
+          mkdir -p diagnostic-output
+          cp /home/runner/.pgrx/18.log diagnostic-output/postgres-failure.log || true
+      - name: Upload measurements, plans, correctness checks and traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: partition-pruning-${{ inputs.size }}
+          path: diagnostic-output/
+          retention-days: 14
+          compression-level: 6
+          if-no-files-found: error

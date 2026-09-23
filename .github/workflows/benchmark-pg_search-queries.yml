@@ -26,6 +26,10 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      partition_pruning_experiment:
+        description: "Run the isolated main/#6346 pruning experiment without publishing results or notifications."
+        type: boolean
+        default: false
       dataset:
         description: "Dataset to benchmark on a manual run. Ignored otherwise: push and the benchmarks/benchmark-stackoverflow labels run stackoverflow; benchmark-cohere-{hnsw,ivfflat} labels run cohere."
         required: true
@@ -91,11 +95,13 @@ jobs:
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
       # using EBS would cause
     if: >-
+      !inputs.partition_pruning_experiment && (
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'pull_request' &&
         contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
+      )
       )
     env:
       pg_version: 18
@@ -543,3 +549,22 @@ jobs:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "${{ github.workflow }} Failed"
+
+  pruning-1m:
+    if: github.event_name == 'workflow_dispatch' && inputs.partition_pruning_experiment
+    permissions:
+      contents: read
+    uses: ./.github/workflows/benchmark-partition-pruning.yml
+    with:
+      size: 1m
+    secrets: inherit
+
+  pruning-20m:
+    needs: pruning-1m
+    if: github.event_name == 'workflow_dispatch' && inputs.partition_pruning_experiment
+    permissions:
+      contents: read
+    uses: ./.github/workflows/benchmark-partition-pruning.yml
+    with:
+      size: 20m
+    secrets: inherit

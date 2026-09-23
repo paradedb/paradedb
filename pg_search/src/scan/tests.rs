@@ -1062,6 +1062,7 @@ mod tests {
                 4,
                 None,
                 Some(split_points.clone()),
+                Vec::new(), // stats_attnos
             );
             (plan, reader)
         };

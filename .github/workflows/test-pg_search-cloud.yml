@@ -147,7 +147,7 @@ jobs:
     name: Publish Tested Development Image
     needs: build-source-image
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write

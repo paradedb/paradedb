@@ -7,7 +7,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/workflows/publish-development-image.yml"
-      - "docker/generate-development-dockerfile.sh"
+      - "docker/Dockerfile.antithesis-18"
       - "docker/Dockerfile.template"
       - "docker/bootstrap.sh"
   workflow_dispatch:
@@ -110,9 +110,9 @@ jobs:
           SOURCE_SHA: ${{ needs.build-extension.outputs.source_sha }}
           EXTENSION_VERSION: ${{ needs.build-extension.outputs.extension_version }}
         run: |
-          docker/generate-development-dockerfile.sh > docker/Dockerfile.development
           docker build --platform linux/arm64 \
-            --file docker/Dockerfile.development \
+            --file docker/Dockerfile.antithesis-18 \
+            --build-arg PG_SEARCH_DEB=pg_search.deb \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$SOURCE_SHA" \
             --label "com.paradedb.extension-version=$EXTENSION_VERSION" \

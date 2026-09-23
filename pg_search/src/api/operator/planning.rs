@@ -84,9 +84,11 @@ pub(super) fn estimate(
     Some(result)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::prelude::*;
     use std::cell::Cell;
 
     fn result(value: u64) -> DocsEstimate {
@@ -98,7 +100,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[pg_test]
     fn reuse_requires_an_active_scope_and_identical_input() {
         let calls = Cell::new(0);
         let compute = |_| {
@@ -126,7 +128,7 @@ mod tests {
         assert_eq!(segment_count(index), None);
     }
 
-    #[test]
+    #[pg_test]
     fn nested_planning_restores_the_outer_estimate() {
         let index = Oid::from(42u32);
         let _outer = EstimateScope::enter();
@@ -152,7 +154,7 @@ mod tests {
         assert_eq!(segment_count(index), Some(10));
     }
 
-    #[test]
+    #[pg_test]
     fn failure_is_retryable_and_unwind_drops_the_scope() {
         let index = Oid::from(42u32);
         let panic = std::panic::catch_unwind(|| {

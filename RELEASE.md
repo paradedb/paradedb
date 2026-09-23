@@ -84,6 +84,23 @@ To publish a patch release from a stable branch:
    - Upon approval (by commenting `approved` on the issue), commit, tag `v<version>`, and publish the GitHub release.
    - **Sync to `main`:** Check out `main`, copy the assembled SQL script and changelog page, update `docs/docs.json`, delete the consumed fragments from `main`, and push the sync commit to `main`.
 
+## Development Images
+
+To test a source revision without creating a GitHub Release, run **Publish Development Image**
+(`publish-development-image.yml`) from `main` in the repository whose source you want to build.
+Set `source_ref` to a branch, tag, or commit SHA. For Enterprise builds, run it in
+`paradedb/paradedb-enterprise`.
+
+The workflow builds a normal release-profile extension for PostgreSQL 18 on ARM64, installs it
+into the standard ParadeDB runtime, and smoke-tests startup and a BM25 query before publishing.
+It creates no Git tag or GitHub Release and does not change source versions or update `latest`.
+Images are tagged `18-dev-<commit-sha>-<run-id>-<attempt>` in the repository's Docker Hub image.
+
+The run summary includes the digest-pinned image reference and installed `pg_search` version.
+Use those values under **Custom image** when creating a cluster in the `paradedb` organization
+at [app.staging.paradedb.com](https://app.staging.paradedb.com). Delete the cluster when testing
+is complete. Development images currently support `linux/arm64` only.
+
 ## Enterprise Release
 
 **Releases are always performed first on `paradedb/paradedb`: see above.**

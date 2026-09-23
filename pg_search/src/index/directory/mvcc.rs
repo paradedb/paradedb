@@ -429,6 +429,12 @@ impl MVCCDirectory {
                         OpenDirectoryError::DoesNotExist(path.to_path_buf()),
                     ));
                 };
+                let segment_pins = self
+                    .pin_cushion
+                    .lock()
+                    .as_ref()
+                    .filter(|pins| pins.0.contains_key(&entry.pintest_blockno()))
+                    .map(|_| self.segment_pins());
                 Ok(Arc::new(unsafe {
                     SegmentComponentReader::new(
                         &self.indexrel,
@@ -436,6 +442,7 @@ impl MVCCDirectory {
                         path.extension()
                             .and_then(|ext| ext.to_str())
                             .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                        segment_pins,
                     )
                 }))
             }
@@ -599,6 +606,7 @@ impl Directory for MVCCDirectory {
                                 path.extension()
                                     .and_then(|ext| ext.to_str())
                                     .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                                None,
                             )
                         }))
                         .clone())
@@ -914,6 +922,7 @@ pub struct PinCushion(HashMap<pg_sys::BlockNumber, PinnedBuffer>);
 /// its reader while the shared work queue still hands out those segments holds this until the
 /// replacement reader has taken its own pins. Dropping it releases them.
 #[must_use]
+#[derive(Clone, Debug)]
 pub struct SegmentPins {
     // Held for its `Drop`, never read: releasing the `PinnedBuffer`s is the whole point.
     _pin_cushion: Arc<Mutex<Option<PinCushion>>>,
@@ -1056,9 +1065,285 @@ mod tests {
 
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::rel::PgSearchRelation;
-    use crate::postgres::storage::block::SegmentMetaEntryContent;
+    use crate::postgres::storage::block::{LinkedList, SegmentMetaEntryContent};
 
     use pgrx::prelude::*;
+
+    unsafe fn published_component_fixture() -> (
+        PgSearchRelation,
+        Vec<(PathBuf, pg_sys::BlockNumber)>,
+        Vec<u8>,
+        pg_sys::BlockNumber,
+    ) {
+        use std::io::Write;
+        use tantivy::directory::TerminatingWrite;
+
+        Spi::run("CREATE TABLE component_reads (id SERIAL, data TEXT)").unwrap();
+        Spi::run("CREATE INDEX component_reads_idx ON component_reads USING paradedb (id, data)")
+            .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'component_reads_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        let directory = MvccSatisfies::Snapshot.directory(&indexrel);
+        let index = tantivy::Index::open(directory.clone()).unwrap();
+        let previous = index.load_metas().unwrap();
+        let segment = SegmentId::generate_random();
+        let bytes: Vec<u8> = (1..=251)
+            .cycle()
+            .take(bm25_max_free_space() * 24 + 13)
+            .collect();
+        let mut files = Vec::new();
+        for component in [
+            SegmentComponent::Postings,
+            SegmentComponent::Positions,
+            SegmentComponent::Terms,
+            SegmentComponent::FastFields,
+            SegmentComponent::FieldNorms,
+            SegmentComponent::Custom(STATS_EXT.to_string()),
+            SegmentComponent::Delete,
+        ] {
+            let path = SegmentMetaEntryImmutable::path(&segment.uuid_string(), component);
+            let mut writer = directory.open_write(&path).unwrap();
+            writer.write_all(&bytes).unwrap();
+            writer.terminate().unwrap();
+            let header = directory
+                .new_files
+                .lock()
+                .get(&path)
+                .unwrap()
+                .0
+                .starting_block;
+            let temporary = directory.get_file_handle(&path).unwrap();
+            assert_eq!(temporary.read_byte(0).unwrap(), bytes[0]);
+            let before = crate::postgres::storage::buffer::shared_buffer_reads();
+            assert_eq!(
+                temporary.read_byte(bm25_max_free_space() + 7).unwrap(),
+                bytes[bm25_max_free_space() + 7]
+            );
+            assert_eq!(
+                crate::postgres::storage::buffer::shared_buffer_reads() - before,
+                1
+            );
+            let before = crate::postgres::storage::buffer::shared_buffer_reads();
+            assert_eq!(
+                temporary
+                    .read_bytes(bm25_max_free_space() * 2 + 3..bm25_max_free_space() * 2 + 13)
+                    .unwrap()
+                    .as_ref(),
+                &bytes[bm25_max_free_space() * 2 + 3..bm25_max_free_space() * 2 + 13]
+            );
+            assert_eq!(
+                crate::postgres::storage::buffer::shared_buffer_reads() - before,
+                1
+            );
+            files.push((path, header));
+        }
+        let sentinel = files[0].1;
+        let mut manager = BufferManager::new(&indexrel);
+        assert!(
+            manager
+                .get_buffer_for_cleanup_conditional(sentinel)
+                .is_some()
+        );
+        let mut published = previous.clone();
+        published.segments.push(index.new_segment_meta(segment, 1));
+        directory
+            .save_metas(&published, &previous, &mut ())
+            .unwrap();
+        drop(index);
+        drop(directory);
+        (indexrel, files, bytes, sentinel)
+    }
+
+    #[pg_test]
+    unsafe fn test_published_component_read_protection() {
+        use crate::postgres::storage::LinkedBytesList;
+        use crate::postgres::storage::buffer::shared_buffer_reads;
+
+        let (indexrel, files, bytes, sentinel) = published_component_fixture();
+        let page_size = bm25_max_free_space();
+        let mut manager = BufferManager::new(&indexrel);
+        for (path, header) in files {
+            let list = LinkedBytesList::open(&indexrel, header);
+            let escaped_block = list.block_for_ord(1).unwrap();
+            assert_ne!(escaped_block, sentinel);
+            drop(list);
+            let directory = MvccSatisfies::Snapshot.directory(&indexrel);
+            directory
+                .load_metas(&SegmentMetaInventory::default())
+                .unwrap();
+            let weak = Arc::downgrade(&directory.pin_cushion);
+            let reader = directory.get_file_handle(&path).unwrap();
+            assert_eq!(reader.read_byte(0).unwrap(), bytes[0]);
+            let before = shared_buffer_reads();
+            assert_eq!(
+                reader.read_byte(page_size * 2 + 3).unwrap(),
+                bytes[page_size * 2 + 3]
+            );
+            let escaped_range = page_size + 7..page_size + 53;
+            let escaped = reader.read_bytes(escaped_range.clone()).unwrap();
+            let clone = escaped.clone();
+            assert!(reader.read_bytes(0..0).unwrap().is_empty());
+            assert_eq!(
+                reader
+                    .read_bytes(page_size - 1..page_size + 1)
+                    .unwrap()
+                    .as_ref(),
+                &bytes[page_size - 1..page_size + 1]
+            );
+            assert_eq!(
+                reader
+                    .read_bytes(bytes.len() - 1..bytes.len() + 1)
+                    .unwrap()
+                    .as_ref(),
+                &bytes[bytes.len() - 1..]
+            );
+            assert_eq!(
+                reader
+                    .read_bytes(page_size * 3..page_size * 23)
+                    .unwrap()
+                    .as_ref(),
+                &bytes[page_size * 3..page_size * 23]
+            );
+            let buffer_accesses = || {
+                let usage = std::ptr::addr_of!(pg_sys::pgBufferUsage).read();
+                usage.shared_blks_hit + usage.shared_blks_read
+            };
+            let accesses = buffer_accesses();
+            assert_eq!(
+                reader.read_byte(page_size * 7).unwrap(),
+                bytes[page_size * 7]
+            );
+            assert_eq!(
+                buffer_accesses(),
+                accesses,
+                "16-page cache must retain page7"
+            );
+            assert_eq!(
+                reader.read_byte(page_size * 6).unwrap(),
+                bytes[page_size * 6]
+            );
+            assert_eq!(
+                buffer_accesses(),
+                accesses + 1,
+                "page6 must have been evicted"
+            );
+            assert_eq!(
+                shared_buffer_reads(),
+                before,
+                "{path:?} payload acquired a content lock"
+            );
+            assert_eq!(escaped.as_ref(), &bytes[escaped_range.clone()]);
+            assert!(
+                manager
+                    .get_buffer_for_cleanup_conditional(escaped_block)
+                    .is_none()
+            );
+            assert!(
+                manager
+                    .get_buffer_for_cleanup_conditional(sentinel)
+                    .is_none()
+            );
+            drop(directory);
+            assert!(weak.upgrade().is_some());
+            drop(reader);
+            assert!(
+                weak.upgrade().is_some(),
+                "escaped page must own segment protection"
+            );
+            assert!(
+                manager
+                    .get_buffer_for_cleanup_conditional(sentinel)
+                    .is_none()
+            );
+            assert_eq!(escaped.as_ref(), &bytes[escaped_range.clone()]);
+            drop(escaped);
+            assert!(weak.upgrade().is_some());
+            assert_eq!(clone.as_ref(), &bytes[escaped_range]);
+            drop(clone);
+            assert!(
+                weak.upgrade().is_none(),
+                "all segment protection must be released"
+            );
+            assert!(
+                manager
+                    .get_buffer_for_cleanup_conditional(sentinel)
+                    .is_some()
+            );
+            assert!(
+                manager
+                    .get_buffer_for_cleanup_conditional(escaped_block)
+                    .is_some()
+            );
+        }
+    }
+
+    #[pg_extern]
+    unsafe fn published_component_read_raise(index_oid: pg_sys::Oid, path: String) {
+        let indexrel = PgSearchRelation::open(index_oid);
+        let directory = MvccSatisfies::Snapshot.directory(&indexrel);
+        directory
+            .load_metas(&SegmentMetaInventory::default())
+            .unwrap();
+        let reader = directory.get_file_handle(Path::new(&path)).unwrap();
+        let escaped = reader
+            .read_bytes(bm25_max_free_space() + 7..bm25_max_free_space() + 53)
+            .unwrap();
+        drop(reader);
+        drop(directory);
+        assert!(!escaped.is_empty());
+        Spi::run("SELECT 1 / 0").unwrap();
+        unreachable!("expected PostgreSQL ERROR");
+    }
+
+    #[pg_test]
+    unsafe fn test_published_component_read_rollback() {
+        use crate::postgres::storage::LinkedBytesList;
+
+        let (indexrel, files, bytes, sentinel) = published_component_fixture();
+        Spi::run("CREATE OR REPLACE FUNCTION tests.published_component_read_raise(index_oid oid, path text) RETURNS void LANGUAGE c AS '$libdir/pg_search', 'published_component_read_raise_wrapper'").unwrap();
+        let oid = indexrel.oid();
+        let mut manager = BufferManager::new(&indexrel);
+        for (path, header) in files {
+            let list = LinkedBytesList::open(&indexrel, header);
+            let escaped_block = list.block_for_ord(1).unwrap();
+            drop(list);
+            for _ in 0..2 {
+                Spi::run(&format!(
+                    "DO $$ BEGIN BEGIN PERFORM tests.published_component_read_raise({oid}::oid, '{}'); RAISE EXCEPTION 'expected read failure'; EXCEPTION WHEN division_by_zero THEN NULL; END; END $$",
+                    path.display(),
+                )).unwrap();
+                for block in [sentinel, escaped_block] {
+                    let pin = manager.pinned_buffer(block);
+                    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                    pg_sys::CheckBufferIsPinnedOnce(pin.pg_buffer());
+                    drop(pin);
+                    assert!(
+                        manager.get_buffer_for_cleanup_conditional(block).is_some(),
+                        "rollback retained block {block}"
+                    );
+                }
+                let directory = MvccSatisfies::Snapshot.directory(&indexrel);
+                directory
+                    .load_metas(&SegmentMetaInventory::default())
+                    .unwrap();
+                let reader = directory.get_file_handle(&path).unwrap();
+                let range = bm25_max_free_space() + 7..bm25_max_free_space() + 53;
+                assert_eq!(
+                    reader.read_bytes(range.clone()).unwrap().as_ref(),
+                    &bytes[range]
+                );
+                drop(reader);
+                drop(directory);
+                assert!(
+                    manager
+                        .get_buffer_for_cleanup_conditional(sentinel)
+                        .is_some()
+                );
+            }
+        }
+    }
 
     #[pg_test]
     unsafe fn test_list_meta_entries() {

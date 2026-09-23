@@ -33,7 +33,7 @@ jobs:
       - family=m7g+m8g
       - cpu=16
       - ram=64
-      - image=ubuntu24-full-arm64
+      - image=ubuntu26-full-arm64
       - extras=s3-cache
     if: github.ref == 'refs/heads/main'
 

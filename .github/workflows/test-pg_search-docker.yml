@@ -69,11 +69,11 @@ jobs:
         include:
           - arch: amd64
             runner_family: m7a+m7i
-            runner_image: ubuntu24-full-x64
+            runner_image: ubuntu26-full-x64
             platform: linux/amd64
           - arch: arm64
             runner_family: m7g+m8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             platform: linux/arm64
 
     steps:
@@ -450,12 +450,12 @@ jobs:
         include:
           - arch: amd64
             runner_family: m7a+m7i
-            runner_image: ubuntu24-full-x64
+            runner_image: ubuntu26-full-x64
             platform: linux/amd64
             deb_sha_arg: PG_SEARCH_DEB_AMD64_SHA256
           - arch: arm64
             runner_family: m7g+m8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             platform: linux/arm64
             deb_sha_arg: PG_SEARCH_DEB_ARM64_SHA256
 

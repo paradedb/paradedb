@@ -37,7 +37,7 @@ jobs:
       - family=c7a+c7i
       - cpu=8
       - ram=16
-      - image=ubuntu24-full-x64
+      - image=ubuntu26-full-x64
     if: ${{ !contains(github.ref, '-rc.') }}
     defaults:
       run:

@@ -1,6 +1,10 @@
+# workflows/test-pg_search-cloud.yml
+#
+# Test pg_search (Cloud)
 # Build and publish a source image for manual testing in ParadeDB Cloud.
-# Reuse Benchmarker’s source builder and runtime overlay. PRs build and smoke-test
+# Reuse Benchmarker's source builder and runtime overlay. PRs build and smoke-test
 # locally on the runner; manual runs also publish the image for use in staging.
+
 name: Test pg_search (Cloud)
 
 on:
@@ -27,13 +31,21 @@ permissions:
 jobs:
   build-source-image:
     name: Build and Test Source Image
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - spot=false
+      - family=m7g+m8g
+      - cpu=16
+      - ram=64
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    runs-on: runs-on=${{ github.run_id }}/spot=false/family=m7g+m8g/cpu=16/ram=64/image=ubuntu24-full-arm64/extras=s3-cache
     permissions:
       contents: read
     outputs:
       source_sha: ${{ steps.image.outputs.source_sha }}
       extension_version: ${{ steps.image.outputs.extension_version }}
+
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@v7
@@ -138,6 +150,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+
     steps:
       - name: Download Tested Image
         uses: actions/download-artifact@v8

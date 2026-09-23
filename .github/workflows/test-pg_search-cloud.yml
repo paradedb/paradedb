@@ -1,0 +1,130 @@
+# workflows/test-pg_search-cloud.yml
+#
+# Test pg_search (Cloud)
+# Build and publish a source image for manual testing in ParadeDB Cloud.
+# Compile pg_search from the selected source revision and install it into a released
+# ParadeDB image, then publish it to Docker Hub for use in staging.
+
+name: Test pg_search (Cloud)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Branch, tag, or commit SHA to build for Cloud testing. Run the workflow from main."
+        required: true
+        type: string
+        default: main
+
+concurrency:
+  group: test-pg_search-cloud-${{ inputs.source_ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write # Sign the published image with Cosign.
+
+jobs:
+  test-pg_search-cloud:
+    name: Build and Publish Cloud Test Image
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - spot=false
+      - family=m7g+m8g
+      - cpu=16
+      - ram=64
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Keep image assembly from the workflow ref even when building an older SHA.
+      - name: Prepare Image Context
+        run: |
+          mkdir -p "$RUNNER_TEMP/source-image"
+          cp docker/Dockerfile.source "$RUNNER_TEMP/source-image/Dockerfile"
+
+      - name: Checkout Source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
+      - name: Build pg_search from Source
+        id: build
+        uses: paradedb/actions/build-pg_search-source@v14
+        with:
+          pg-version: "18"
+          profile: release
+          cache-prefix-key: "v1-cloud-rust-cache"
+          cache-save: true
+
+      - name: Assemble Source Image
+        id: image
+        env:
+          ARTIFACTS: ${{ steps.build.outputs.artifacts-dir }}
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          version="$(sed -nE "s/^default_version[[:space:]]*=[[:space:]]*'([^']+)'[[:space:]]*$/\1/p" "$ARTIFACTS/usr/share/postgresql/18/extension/pg_search.control")"
+          [[ "$version" =~ ^[a-zA-Z0-9._-]{1,64}$ ]]
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "extension_version=$version" >> "$GITHUB_OUTPUT"
+          cp -R "$ARTIFACTS" "$RUNNER_TEMP/source-image/artifacts"
+          docker build --pull --platform linux/arm64 \
+            --file "$RUNNER_TEMP/source-image/Dockerfile" \
+            --build-arg "BASE_IMAGE=$GITHUB_REPOSITORY:latest-pg18" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$source_sha" \
+            --label "com.paradedb.extension-version=$version" \
+            --tag paradedb-cloud-test "$RUNNER_TEMP/source-image"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
+      - name: Publish Cloud Test Image
+        id: published-image
+        env:
+          SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
+        run: |
+          image="$GITHUB_REPOSITORY:18-cloud-$SOURCE_SHA"
+          docker tag paradedb-cloud-test "$image"
+          docker push "$image"
+          digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
+          [[ "$digest" == *@sha256:* ]]
+          echo "ref=$image@${digest#*@}" >> "$GITHUB_OUTPUT"
+          echo "tag=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign Cloud Test Image
+        env:
+          IMAGE: ${{ steps.published-image.outputs.ref }}
+        run: cosign sign --yes "$IMAGE"
+
+      - name: Summarize Cloud Test Image
+        env:
+          IMAGE: ${{ steps.published-image.outputs.ref }}
+          TAG: ${{ steps.published-image.outputs.tag }}
+          SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
+          EXTENSION_VERSION: ${{ steps.image.outputs.extension_version }}
+        run: |
+          {
+            echo "Source: $GITHUB_REPOSITORY @ $SOURCE_SHA"
+            echo "Tag: $TAG"
+            echo "Image reference: $IMAGE"
+            echo "pg_search version: $EXTENSION_VERSION"
+            echo "Platform: PostgreSQL 18, linux/arm64"
+            echo 'Use the image reference and pg_search version in the staging console under the paradedb organization.'
+          } >> "$GITHUB_STEP_SUMMARY"

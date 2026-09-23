@@ -1,8 +1,10 @@
 # workflows/publish-pg_search-schema.yml
 #
 # Publish pg_search (Schema)
-# Generates the full pg_search SQL schema via `cargo pgrx schema` and uploads it as a
-# release asset.
+# Generate the pg_search SQL schema from the selected ref via `cargo pgrx schema`
+# and upload it and its signature to an existing GitHub Release. Runs on v* tag
+# pushes or manual dispatch; refs containing -rc. are skipped.
+# The version input selects the upload destination, not the source ref.
 
 name: Publish pg_search (Schema)
 
@@ -13,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to generate the schema for (e.g. 0.22.0). Defaults to the current tag."
+        description: "Existing GitHub Release version without v to receive the schema. Generated from the selected ref; select the matching release tag. Leave empty to use that tag version."
         required: false
         default: ""
 

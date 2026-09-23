@@ -1,8 +1,9 @@
 # workflows/publish-stressgres-docker.yml
 #
 # Publish Stressgres (Docker)
-# Publish Stressgres as a Docker image to Docker Hub. The workflow builds and publishes
-# the last commit from the triggering branch and tags the image with the SHA.
+# Build and publish Stressgres from the selected ref on manual dispatch.
+# Tag the image with the full commit SHA; runs on the default branch also update
+# latest. Images are built for AMD64 and ARM64, signed, and attested.
 
 name: Publish Stressgres (Docker)
 

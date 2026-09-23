@@ -1,9 +1,11 @@
 # workflows/publish-pg_search-ubuntu.yml
 #
 # Publish pg_search (Ubuntu)
-# Build and publish the pg_search extension as .deb to GitHub Releases. This workflow is
-# triggered on creation of a GitHub Tag, but beta releases get filtered out by the
-# `if` condition of the job.
+# Build pg_search from the selected ref and upload signed .deb packages
+# to an existing GitHub Release. Runs on v* tag pushes or manual dispatch; the
+# manual version input selects the upload destination, not the source ref.
+# Select the matching release tag when dispatching manually.
+# Refs containing -rc. are skipped by the job condition.
 
 name: Publish pg_search (Ubuntu)
 
@@ -14,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        description: "Existing GitHub Release version without v (e.g. 0.25.9) to receive .deb packages. Builds the selected ref; select the matching release tag. Does not change the source version."
         required: true
         default: ""
 

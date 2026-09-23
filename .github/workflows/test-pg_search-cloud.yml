@@ -28,10 +28,11 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write # Sign the published image with Cosign.
 
 jobs:
-  build-source-image:
-    name: Build and Test Source Image
+  test-pg_search-cloud:
+    name: Build and Publish Cloud Test Image
     runs-on:
       - runs-on=${{ github.run_id }}
       - spot=false
@@ -41,11 +42,6 @@ jobs:
       - image=ubuntu24-full-arm64
       - extras=s3-cache
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-    outputs:
-      source_sha: ${{ steps.image.outputs.source_sha }}
-      extension_version: ${{ steps.image.outputs.extension_version }}
 
     steps:
       - name: Checkout Workflow
@@ -130,47 +126,18 @@ jobs:
           END $$;
           SQL
 
-      - name: Save Tested Image
-        if: github.event_name == 'workflow_dispatch'
-        run: docker save paradedb-development | gzip > development-image.tar.gz
-
-      - name: Upload Tested Image
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v7
-        with:
-          name: development-image
-          path: development-image.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-
-  publish-source-image:
-    name: Publish Tested Development Image
-    needs: build-source-image
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-
-    steps:
-      - name: Download Tested Image
-        uses: actions/download-artifact@v8
-        with:
-          name: development-image
-
-      - name: Load Tested Image
-        run: docker load --input development-image.tar.gz
-
       - name: Login to Docker Hub
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Publish Development Image
-        id: image
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        id: published-image
         env:
-          SOURCE_SHA: ${{ needs.build-source-image.outputs.source_sha }}
+          SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
         run: |
           image="$GITHUB_REPOSITORY:18-dev-$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           docker tag paradedb-development "$image"
@@ -181,19 +148,22 @@ jobs:
           echo "tag=$image" >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign Development Image
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         env:
-          IMAGE: ${{ steps.image.outputs.ref }}
+          IMAGE: ${{ steps.published-image.outputs.ref }}
         run: cosign sign --yes "$IMAGE"
 
       - name: Summarize Development Image
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         env:
-          IMAGE: ${{ steps.image.outputs.ref }}
-          TAG: ${{ steps.image.outputs.tag }}
-          SOURCE_SHA: ${{ needs.build-source-image.outputs.source_sha }}
-          EXTENSION_VERSION: ${{ needs.build-source-image.outputs.extension_version }}
+          IMAGE: ${{ steps.published-image.outputs.ref }}
+          TAG: ${{ steps.published-image.outputs.tag }}
+          SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
+          EXTENSION_VERSION: ${{ steps.image.outputs.extension_version }}
         run: |
           {
             echo "Source: $GITHUB_REPOSITORY @ $SOURCE_SHA"

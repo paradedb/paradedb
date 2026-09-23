@@ -97,7 +97,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
         run: |
-          image="$GITHUB_REPOSITORY:18-cloud-$SOURCE_SHA"
+          image="$GITHUB_REPOSITORY:18-$SOURCE_SHA"
           docker tag paradedb-cloud-test "$image"
           docker push "$image"
           digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
@@ -126,5 +126,5 @@ jobs:
             echo "Image reference: $IMAGE"
             echo "pg_search version: $EXTENSION_VERSION"
             echo "Platform: PostgreSQL 18, linux/arm64"
-            echo 'Use the image reference and pg_search version in the staging console under the paradedb organization.'
+            echo 'Use the digest-pinned image reference in the staging console under the paradedb organization.'
           } >> "$GITHUB_STEP_SUMMARY"

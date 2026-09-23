@@ -2,8 +2,9 @@
 #
 # Test pg_search (Cloud)
 # Build and publish a source image for manual testing in ParadeDB Cloud.
-# Reuse Benchmarker's source builder and runtime overlay. PRs build and smoke-test
-# locally on the runner; manual runs also publish the image for use in staging.
+# Compile pg_search from the selected source revision and install it into a released
+# ParadeDB image. PRs build and smoke-test locally on the runner; manual runs also
+# publish the image to Docker Hub for use in staging.
 
 name: Test pg_search (Cloud)
 

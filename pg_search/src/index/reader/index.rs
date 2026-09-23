@@ -524,7 +524,7 @@ impl SearchIndexReader {
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
         let directory = mvcc_style.directory(index_relation);
-        let mut index = Index::open(directory.clone())?;
+        let mut index = crate::index::open_index(directory.clone())?;
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -3417,7 +3417,7 @@ mod tests {
     fn mutable_segments_remain_eligible_without_statistics() {
         let (index_rel, _heap) = segmented_index_fixture("mutable_stats_test", 1, true);
         let directory = MvccSatisfies::Snapshot.directory(&index_rel);
-        let index = Index::open(directory.clone()).unwrap();
+        let index = crate::index::open_index(directory.clone()).unwrap();
         let mutable = index
             .searchable_segments()
             .unwrap()

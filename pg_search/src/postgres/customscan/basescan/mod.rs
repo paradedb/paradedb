@@ -729,12 +729,13 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
-            let segment_count = {
-                let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-                let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-                Index::open(directory).expect("custom_scan: should be able to open index");
-                segment_count.load(Ordering::Relaxed)
-            };
+            let segment_count = crate::api::operator::planning::segment_count(bm25_index.oid())
+                .unwrap_or_else(|| {
+                    let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
+                    let segment_count = directory.total_segment_count();
+                    Index::open(directory).expect("custom_scan: should be able to open index");
+                    segment_count.load(Ordering::Relaxed)
+                });
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");

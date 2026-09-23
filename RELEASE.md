@@ -40,6 +40,20 @@ The sync workflow:
 | `version` | string  | `""`    | Target release version in semver format (e.g., `1.2.3` or `1.2.3-rc.1` for beta releases).       |
 | `beta`    | boolean | `false` | If `true`, creates a beta release (e.g., `vX.Y.Z-rc.N`) and marks it as a pre-release in GitHub. |
 
+## Release Signing
+
+The release workflow signs the release preparation commit, the commit syncing release artifacts to `main`, and an annotated release tag with a dedicated SSH signing key. The GitHub App token still authenticates pushes and triggers downstream workflows.
+
+Before running this workflow, configure the following in both `paradedb/paradedb` and `paradedb/paradedb-enterprise` (or as organization settings available to both repositories):
+
+- Secret `RELEASE_SIGNING_KEY`: a dedicated, unencrypted OpenSSH private key for release signing.
+- Variable `RELEASE_SIGNING_USER`: the GitHub account that owns the signing key, preferably a release automation account.
+- Variable `RELEASE_SIGNING_EMAIL`: a verified email address on that account, used for commit and tag attribution.
+
+Register the corresponding public key on that account as an **SSH signing key**, following [GitHub's signing-key setup](https://docs.github.com/en/authentication/managing-commit-signature-verification/adding-a-new-ssh-key-to-your-github-account). The workflow checks that the key is registered before assembling release artifacts, verifies each new signature locally, and removes the private key from the runner at the end. Missing signing settings stop the release; there is no unsigned fallback.
+
+Apply the workflow change to each stable branch used for patch releases as well as `main`. Existing release commits and tags are not rewritten.
+
 ## Triggering a Release
 
 ### Minor Releases

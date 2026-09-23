@@ -3,17 +3,11 @@
 # Test pg_search (Cloud)
 # Build and publish a source image for manual testing in ParadeDB Cloud.
 # Compile pg_search from the selected source revision and install it into a released
-# ParadeDB image. PRs build the image locally on the runner; manual runs also
-# publish the image to Docker Hub for use in staging.
+# ParadeDB image, then publish it to Docker Hub for use in staging.
 
 name: Test pg_search (Cloud)
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - ".github/workflows/test-pg_search-cloud.yml"
-      - "docker/Dockerfile.source"
   workflow_dispatch:
     inputs:
       source_ref:
@@ -23,7 +17,7 @@ on:
         default: main
 
 concurrency:
-  group: test-pg_search-cloud-${{ inputs.source_ref || github.head_ref || github.ref }}
+  group: test-pg_search-cloud-${{ inputs.source_ref }}
   cancel-in-progress: true
 
 permissions:
@@ -41,7 +35,7 @@ jobs:
       - ram=64
       - image=ubuntu24-full-arm64
       - extras=s3-cache
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout Workflow
@@ -58,7 +52,7 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.source_ref || github.sha }}
+          ref: ${{ inputs.source_ref }}
           persist-credentials: false
 
       - name: Configure RunsOn Caching
@@ -71,7 +65,7 @@ jobs:
           pg-version: "18"
           profile: release
           cache-prefix-key: "v1-cloud-rust-cache"
-          cache-save: ${{ github.event_name == 'workflow_dispatch' }}
+          cache-save: true
 
       - name: Assemble Source Image
         id: image
@@ -93,14 +87,12 @@ jobs:
             --tag paradedb-cloud-test "$RUNNER_TEMP/source-image"
 
       - name: Login to Docker Hub
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Publish Cloud Test Image
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         id: published-image
         env:
           SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
@@ -114,17 +106,14 @@ jobs:
           echo "tag=$image" >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign Cloud Test Image
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         env:
           IMAGE: ${{ steps.published-image.outputs.ref }}
         run: cosign sign --yes "$IMAGE"
 
       - name: Summarize Cloud Test Image
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         env:
           IMAGE: ${{ steps.published-image.outputs.ref }}
           TAG: ${{ steps.published-image.outputs.tag }}

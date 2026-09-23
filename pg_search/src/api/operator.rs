@@ -330,10 +330,23 @@ impl ReturnedNodePointer {
 
     unsafe fn for_support_cost(request: *mut pg_sys::SupportRequestCost) -> Self {
         unsafe {
-            // Heap execution materializes matching CTIDs, so keep its function cost high enough
-            // that PostgreSQL prefers the index AM whenever one is available.
-            (*request).startup = per_tuple_cost();
-            (*request).per_tuple = per_tuple_cost();
+            let root = (*request).root;
+            let node = (*request).node;
+            // A projected match can't steer path choice and only costs a set lookup per row.
+            if !root.is_null()
+                && (*root)
+                    .processed_tlist
+                    .cast::<pg_sys::Node>()
+                    .any(|n| std::ptr::eq(n, node))
+            {
+                (*request).startup = 0.0;
+                (*request).per_tuple = pg_sys::cpu_operator_cost;
+            } else {
+                // Heap execution materializes matching CTIDs, so keep its function cost high enough
+                // that PostgreSQL prefers the index AM whenever one is available.
+                (*request).startup = per_tuple_cost();
+                (*request).per_tuple = per_tuple_cost();
+            }
             Self::from_node(request.cast())
         }
     }

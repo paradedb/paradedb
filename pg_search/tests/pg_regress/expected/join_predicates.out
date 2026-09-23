@@ -71,7 +71,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -125,7 +125,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, supplier_id@4, id@5, __p_0_tag_0@6, ctid_1@0, id@1, __s_1_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"name","value":"TechCorp","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -200,7 +200,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, supplier_id@4, id@5, __p_0_tag_0@6, ctid_1@0, id@1, __s_1_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"match":{"field":"contact_info","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -251,7 +251,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, supplier_id@4, id@5, __p_0_tag_0@6, ctid_1@0, id@1, __s_1_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"match":{"field":"contact_info","value":"shipping","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -292,7 +292,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query="all"
      :         CooperativeExec
@@ -344,7 +344,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __s_1_tag_0@3 AND __p_0_tag_2@2
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __s_1_tag_0@3 AND __p_0_tag_2@2, projection=[ctid_0@0, id@2, ctid_1@6]
      :         FilterExec: __p_0_tag_0@3 OR __p_0_tag_1@4 OR __p_0_tag_2@5
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headphones","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}}, tag_0={"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_1={"with_index":{"query":{"match":{"field":"description","value":"headphones","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_2={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}
@@ -387,7 +387,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, supplier_id@4, id@5, __p_0_tag_0@6, ctid_1@0, id@1, __s_1_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, tag_0={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"contact_info","value":"shipping","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"UK","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
@@ -428,7 +428,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, supplier_id@3, id@4, ctid_1@0, id@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query="all"
      :         CooperativeExec
@@ -543,7 +543,7 @@ LIMIT 5;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[qgen_users, qgen_products], pruned=[qgen_products]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@0)], projection=[ctid_0@0, id@2, ctid_1@4]
      :         CooperativeExec
      :           PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -586,7 +586,7 @@ LIMIT 5;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[qgen_users, qgen_products], pruned=[qgen_products]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@0)], projection=[ctid_0@0, id@2, ctid_1@4]
      :         CooperativeExec
      :           PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}
      :         CooperativeExec
@@ -629,7 +629,7 @@ LIMIT 5;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[qgen_users, qgen_products], pruned=[qgen_products]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], filter=__qgen_products_1_tag_0@1 OR __qgen_users_0_tag_0@0
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@0)], filter=__qgen_products_1_tag_0@1 OR __qgen_users_0_tag_0@0, projection=[ctid_0@0, id@2, ctid_1@6]
      :         CooperativeExec
      :           PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -696,7 +696,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, price@1 as col_3, NULL as col_4, min_order_value@4 as col_5, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=min_order_value@1 <= price@0
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=min_order_value@1 <= price@0, projection=[ctid_0@0, price@2, id@3, ctid_1@4, min_order_value@6]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -960,7 +960,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__s_1_tag_0@2 AND __p_0_tag_0@0 OR __p_0_tag_1@1
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__s_1_tag_0@2 AND __p_0_tag_0@0 OR __p_0_tag_1@1, projection=[ctid_0@0, id@2, ctid_1@5]
      :         FilterExec: __p_0_tag_0@3 OR __p_0_tag_1@4
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}}, tag_0={"with_index":{"query":{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_1={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}

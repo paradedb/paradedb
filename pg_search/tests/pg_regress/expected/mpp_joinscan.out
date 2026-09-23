@@ -86,7 +86,7 @@ LIMIT 10;
      :   TantivyDecodeExec: decode=[title]
      :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10
      :       VisibilityFilterExec: tables=[f, p]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :           CooperativeExec
      :             PgSearchScan: table=f, segments=3, fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -143,7 +143,7 @@ LIMIT 10;
      :   │   TantivyDecodeExec: decode=[title]
      :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10
      :   │       VisibilityFilterExec: tables=[f, p]
-     :   │         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)]
+     :   │         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :   │           DistributedLeafExec:
      :   │             t0: PgSearchScan: table=f, segments={partial=1, included=1, pruned=1}, partition=id[-∞..68), fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   │             t1: PgSearchScan: table=f, segments={partial=1, included=0, pruned=2}, partition=id[68..134), fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
@@ -267,7 +267,7 @@ LIMIT 10;
      :   │   TantivyDecodeExec: decode=[title]
      :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10
      :   │       VisibilityFilterExec: tables=[f, p]
-     :   │         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)]
+     :   │         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :   │           DistributedLeafExec:
      :   │             t0: PgSearchScan: table=f, segments={partial=1, included=1, pruned=1}, partition=id[-∞..68), fetch=[title], query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
      :   │             t1: PgSearchScan: table=f, segments={partial=1, included=0, pruned=2}, partition=id[68..134), fetch=[title], query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
@@ -325,7 +325,7 @@ LIMIT 10;
      :   TantivyDecodeExec: decode=[title]
      :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10
      :       VisibilityFilterExec: tables=[f, p]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :           CooperativeExec
      :             PgSearchScan: table=f, segments=3, fetch=[title], query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
      :           CooperativeExec
@@ -384,7 +384,7 @@ LIMIT 10;
      :   │   TantivyDecodeExec: decode=[title]
      :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10
      :   │       VisibilityFilterExec: tables=[f]
-     :   │         HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)]
+     :   │         HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :   │           [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=3
      :   │           [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=3
      :   └──────────────────────────────────────────────────
@@ -451,7 +451,7 @@ LIMIT 10;
      :   │   TantivyDecodeExec: decode=[title]
      :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10
      :   │       VisibilityFilterExec: tables=[f]
-     :   │         HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)]
+     :   │         HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :   │           [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=3
      :   │           [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=3
      :   └──────────────────────────────────────────────────
@@ -959,7 +959,7 @@ LIMIT 10;
      :   TantivyDecodeExec: decode=[title]
      :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10
      :       VisibilityFilterExec: tables=[f, p]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :           CooperativeExec
      :             PgSearchScan: table=f, segments=3, fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec

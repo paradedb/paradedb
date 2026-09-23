@@ -45,7 +45,7 @@ LIMIT 10;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[t1, t2]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :         CooperativeExec
      :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -99,7 +99,7 @@ OFFSET 5 LIMIT 10;
      :   GlobalLimitExec: skip=5, fetch=10
      :     SortExec: TopK(fetch=15), expr=[id@1 ASC], preserve_partitioning=[false]
      :       VisibilityFilterExec: tables=[t1, t2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -186,7 +186,7 @@ LIMIT 5 OFFSET 10;
      :   GlobalLimitExec: skip=10, fetch=5
      :     SortExec: TopK(fetch=15), expr=[id@1 ASC], preserve_partitioning=[false]
      :       VisibilityFilterExec: tables=[t1, t2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -237,7 +237,7 @@ LIMIT 5 OFFSET 10;
      :   GlobalLimitExec: skip=10, fetch=5
      :     SortExec: TopK(fetch=15), expr=[id@1 ASC], preserve_partitioning=[false]
      :       VisibilityFilterExec: tables=[t1, t2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -402,7 +402,7 @@ LIMIT 10;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[t1, t2]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :         CooperativeExec
      :           PgSearchScan: table=t1, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -474,7 +474,7 @@ LIMIT 10;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[t1, t2, t3]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@3]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
@@ -545,7 +545,7 @@ LIMIT 10;
      :   TantivyDecodeExec: decode=[val]
      :     SegmentedTopKExec: expr=[val@1 ASC NULLS LAST], k=10
      :       VisibilityFilterExec: tables=[t1, t2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, val@2, ctid_1@3]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -562,8 +562,8 @@ JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
    Relation Tree: t1 INNER t2
    Join Cond: t1.id = t2.t1_id
@@ -574,7 +574,7 @@ LIMIT 10;
      :   TantivyDecodeExec: decode=[val], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
      :     SegmentedTopKExec: expr=[val@1 ASC NULLS LAST], k=10, metrics=[rows_input=20.00 K, rows_output=10, segments_seen=2]
      :       VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=20.00 K, output_bytes=504.5 KB, output_batches=3]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], metrics=[output_rows=20.00 K, output_bytes=960.0 KB, output_batches=3, build_mem_used=546.9 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, val@2, ctid_1@3], metrics=[output_rows=20.00 K, output_bytes=576.0 KB, output_batches=3, build_mem_used=546.9 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=468.8 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
      :           CooperativeExec
@@ -657,7 +657,7 @@ LIMIT 25;
      :   TantivyDecodeExec: decode=[val]
      :     SegmentedTopKExec: expr=[val@2 DESC, id@1 ASC NULLS LAST], k=25
      :       VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, val@2, ctid_1@4]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
      :           CooperativeExec
@@ -683,7 +683,7 @@ LIMIT 25;
      :   TantivyDecodeExec: decode=[val], metrics=[output_rows=25, output_bytes=808.0 B, output_batches=1]
      :     SegmentedTopKExec: expr=[val@2 DESC, id@1 ASC NULLS LAST], k=25, metrics=[rows_input=20.00 K, rows_output=25, segments_seen=2]
      :       VisibilityFilterExec: tables=[t1, t2], pruned=[t2], metrics=[output_rows=20.00 K, output_bytes=541.2 KB, output_batches=3]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], metrics=[output_rows=20.00 K, output_bytes=961.0 KB, output_batches=3, build_mem_used=547.1 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, val@2, ctid_1@4], metrics=[output_rows=20.00 K, output_bytes=769.0 KB, output_batches=3, build_mem_used=547.1 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=20.00 K, output_bytes=469.0 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
      :           CooperativeExec
@@ -751,7 +751,7 @@ LIMIT 10;
      :   TantivyDecodeExec: decode=[val]
      :     SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10
      :       VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, val@2, ctid_1@4]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
      :           CooperativeExec
@@ -851,7 +851,7 @@ LIMIT 15;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=15), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, ctid_1@3]
      :         CooperativeExec
      :           PgSearchScan: table=t1, segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
      :         CooperativeExec

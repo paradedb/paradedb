@@ -64,7 +64,7 @@ use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
 use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_expr::equivalence::ProjectionMapping;
-use datafusion::physical_expr::utils::reassign_expr_columns;
+use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion::physical_plan::filter_pushdown::{
     FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
@@ -391,15 +391,6 @@ fn projection_with_ctids_added(
     proj: &datafusion::logical_expr::Projection,
     beneficial: &BTreeSet<usize>,
 ) -> Result<Option<datafusion::logical_expr::Projection>> {
-    // Only leaf projections directly above TableScan should have newly-projected ctids added.
-    // Higher projections (such as the query root projection) represent intentional output
-    // projections; adding ctids to them would change the query's output schema and cause
-    // DataFusion optimizer invariant assertions to fail. Any unprojected ctid will be
-    // caught as a lineage drop by analyze_and_inject and verified below the projection.
-    if !matches!(proj.input.as_ref(), LogicalPlan::TableScan(_)) {
-        return Ok(None);
-    }
-
     let mut new_exprs = proj.expr.clone();
     let mut added = false;
     for (i, field) in proj.input.schema().fields().iter().enumerate() {
@@ -429,23 +420,50 @@ fn projection_with_ctids_added(
     }
 }
 
+/// Returns the set of plan positions already verified by existing `VisibilityFilterNode`s
+/// in `plan`. Used to ensure the optimizer rule is idempotent across repeated passes.
+fn collect_already_verified_positions(plan: &LogicalPlan) -> BTreeSet<usize> {
+    let mut verified = BTreeSet::new();
+    let _ = plan.apply(|node| {
+        if let LogicalPlan::Extension(ext) = node
+            && let Some(vf) = ext.node.as_any().downcast_ref::<VisibilityFilterNode>()
+        {
+            for &(plan_pos, _) in &vf.plan_pos_oids {
+                verified.insert(plan_pos);
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    verified
+}
+
 /// Threads a ctid column produced below `node` up through it, so a deferred
 /// scan's ctid survives every row-preserving node between the scan and the
 /// barrier where `VisibilityFilterExec` reads it. The caller only invokes this
 /// for non-barrier nodes.
 ///
-/// A projection gets the ctid added to its output. A join is rebuilt with
-/// `Join::try_new` because `with_new_exprs` keeps the join's cached schema; only
-/// `try_new` re-runs `build_join_schema` so the bubbled ctid shows up. Every
-/// other node just recomputes its schema over the rewritten children.
+/// An intermediate projection below a barrier gets the ctid added to its output.
+/// A join is rebuilt with `Join::try_new` because `with_new_exprs` keeps the join's
+/// cached schema; only `try_new` re-runs `build_join_schema` so the bubbled ctid
+/// shows up. Every other node just recomputes its schema over the rewritten children.
 fn carry_ctid_columns_upward(
     node: LogicalPlan,
     beneficial: &BTreeSet<usize>,
+    has_barrier_above: bool,
 ) -> Result<Transformed<LogicalPlan>> {
-    if let LogicalPlan::Projection(proj) = &node
-        && let Some(new_proj) = projection_with_ctids_added(proj, beneficial)?
-    {
-        return Ok(Transformed::yes(LogicalPlan::Projection(new_proj)));
+    if let LogicalPlan::Projection(proj) = &node {
+        // Only intermediate projections below a barrier should have missing beneficial
+        // ctids added so they can bubble up to that barrier. Projections on the root
+        // path without an intervening barrier define the intentional final query/subquery
+        // output schema; adding ctids to them would change the plan's schema and violate
+        // optimizer invariants. Any unprojected ctid will be caught as a lineage drop
+        // by analyze_and_inject and verified below the projection.
+        if !has_barrier_above {
+            return Ok(Transformed::no(node));
+        }
+        if let Some(new_proj) = projection_with_ctids_added(proj, beneficial)? {
+            return Ok(Transformed::yes(LogicalPlan::Projection(new_proj)));
+        }
     }
 
     if let LogicalPlan::Join(join) = &node {
@@ -469,6 +487,55 @@ fn carry_ctid_columns_upward(
     Ok(Transformed::yes(new_node.recompute_schema()?))
 }
 
+fn prepare_plan(
+    plan: LogicalPlan,
+    beneficial: &BTreeSet<usize>,
+    has_barrier_above: bool,
+) -> Result<Transformed<LogicalPlan>> {
+    let barrier_stat = barrier_status(&plan);
+    let children: Vec<LogicalPlan> = plan.inputs().into_iter().cloned().collect();
+    let mut new_children = Vec::with_capacity(children.len());
+    let mut any_modified = false;
+
+    for (idx, child) in children.into_iter().enumerate() {
+        let child_has_barrier = has_barrier_above
+            || match barrier_stat {
+                BarrierStatus::Full => true,
+                BarrierStatus::Partial(checked_idx) => idx == checked_idx,
+                BarrierStatus::None => false,
+            };
+        let res = prepare_plan(child, beneficial, child_has_barrier)?;
+        any_modified |= res.transformed;
+        new_children.push(res.data);
+    }
+
+    let node = if any_modified {
+        plan.with_new_exprs(plan.expressions(), new_children)?
+    } else {
+        plan
+    };
+
+    if let LogicalPlan::TableScan(scan) = &node
+        && let Some(provider) = pg_search_provider_from_scan(scan)
+        && let Some(plan_pos) = provider.configured_deferred_ctid_plan_position()
+        && beneficial.contains(&plan_pos)
+    {
+        provider.enable_deferred_visibility_schema();
+        let updated_scan = ensure_scan_projects_ctid(scan, plan_pos)?;
+        return Ok(Transformed::yes(LogicalPlan::TableScan(updated_scan)));
+    }
+
+    if matches!(barrier_stat, BarrierStatus::None) {
+        let res = carry_ctid_columns_upward(node, beneficial, has_barrier_above)?;
+        return Ok(Transformed::new_transformed(
+            res.data,
+            any_modified || res.transformed,
+        ));
+    }
+
+    Ok(Transformed::new_transformed(node, any_modified))
+}
+
 impl OptimizerRule for VisibilityFilterOptimizerRule {
     fn name(&self) -> &str {
         "VisibilityFilterInjection"
@@ -489,6 +556,13 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             return Ok(Transformed::no(plan));
         }
 
+        let already_verified = collect_already_verified_positions(&plan);
+        let unverified_beneficial: BTreeSet<usize> =
+            beneficial.difference(&already_verified).copied().collect();
+        if unverified_beneficial.is_empty() {
+            return Ok(Transformed::no(plan));
+        }
+
         let mut plan_pos_metadata = collect_visibility_source_metadata(&plan)?;
         plan_pos_metadata.retain(|pos, _| beneficial.contains(pos));
 
@@ -496,24 +570,7 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             return Ok(Transformed::no(plan));
         }
 
-        let prepared_plan = plan.transform_up(|node| {
-            if let LogicalPlan::TableScan(scan) = &node
-                && let Some(provider) = pg_search_provider_from_scan(scan)
-                && let Some(plan_pos) = provider.configured_deferred_ctid_plan_position()
-                && beneficial.contains(&plan_pos)
-            {
-                provider.enable_deferred_visibility_schema();
-                let updated_scan = ensure_scan_projects_ctid(scan, plan_pos)?;
-                return Ok(Transformed::yes(LogicalPlan::TableScan(updated_scan)));
-            }
-
-            if matches!(barrier_status(&node), BarrierStatus::None) {
-                return carry_ctid_columns_upward(node, &beneficial);
-            }
-
-            Ok(Transformed::no(node))
-        })?;
-
+        let prepared_plan = prepare_plan(plan, &unverified_beneficial, false)?;
         let (result, final_state) = analyze_and_inject(prepared_plan.data, &plan_pos_metadata)?;
 
         // Root boundary fallback: any plan_position still unverified must be checked here.
@@ -524,13 +581,16 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             .collect();
 
         if unverified.is_empty() {
-            return Ok(result);
+            return Ok(Transformed::new_transformed(
+                result.data,
+                prepared_plan.transformed || result.transformed,
+            ));
         }
 
         let wrapped = wrap_with_visibility_if_needed(result.data, &unverified, &plan_pos_metadata)?;
         Ok(Transformed::new_transformed(
             wrapped.data,
-            wrapped.transformed || result.transformed,
+            prepared_plan.transformed || result.transformed || wrapped.transformed,
         ))
     }
 }
@@ -770,6 +830,7 @@ fn get_force_positions(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BarrierStatus {
     None,
     Partial(usize), // a barrier only on plan positions for the child specified
@@ -1241,10 +1302,25 @@ impl ExecutionPlan for VisibilityFilterExec {
         // VisibilityFilterExec blocks ctid_* columns (this node still filters dead rows
         // and HOT-corrects them) and allows all other columns through for filter pushdown.
         let schema = self.input.schema();
-        let parent_filters = if self.projection.is_some() {
+        let parent_filters = if let Some(ref proj) = self.projection {
             parent_filters
                 .into_iter()
-                .map(|expr| reassign_expr_columns(expr, &schema))
+                .map(|expr| {
+                    expr.transform_down(|e| {
+                        if let Some(col) = e.downcast_ref::<Column>()
+                            && let Some(&input_idx) = proj.get(col.index())
+                            && input_idx < schema.fields().len()
+                        {
+                            let field = schema.field(input_idx);
+                            return Ok(Transformed::yes(Arc::new(Column::new(
+                                field.name(),
+                                input_idx,
+                            ))));
+                        }
+                        Ok(Transformed::no(e))
+                    })
+                    .map(|t| t.data)
+                })
                 .collect::<Result<Vec<_>>>()?
         } else {
             parent_filters

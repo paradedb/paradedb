@@ -82,7 +82,7 @@ LIMIT 25;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=25), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[t, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, category_id@3, id@4, ctid_1@0, id@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, query="all"
      :         CooperativeExec
@@ -151,7 +151,7 @@ LIMIT 25;
      :   ┌───── Stage 2 ── tasks=3, partitions=3
      :   │ SortExec: TopK(fetch=25), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[t, c]
-     :   │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, category_id@3, id@4, ctid_1@0, id@1]
+     :   │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      :   │       CoalescePartitionsExec
      :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
      :   │       DistributedLeafExec:
@@ -254,7 +254,7 @@ LIMIT 25;
      : │ ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      : │   SortExec: TopK(fetch=25), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      : │     VisibilityFilterExec: tables=[t, c]
-     : │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, category_id@3, id@4, ctid_1@0, id@1]
+     : │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      : │         CoalescePartitionsExec
      : │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=3
      : │         CooperativeExec

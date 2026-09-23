@@ -43,7 +43,7 @@ LIMIT 5;
      : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
      : │   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      : │     VisibilityFilterExec: tables=[le, sv], pruned=[sv]
-     : │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, series_id@1)], projection=[ctid_0@2, series_id@3, id@4, ctid_1@0, id@1]
+     : │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, series_id@1)], projection=[ctid_0@2, id@4, ctid_1@1]
      : │         CoalescePartitionsExec
      : │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2
      : │         CooperativeExec

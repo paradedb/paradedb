@@ -277,13 +277,13 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST, p_0_categories@1 ASC NULLS LAST, s_2_regions@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, b, s], pruned=[b, s]
      :       UnnestExec
-     :         ProjectionExec: expr=[ctid_0@0 as ctid_0, p_0_categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1, ctid_2@4 as ctid_2, regions@5 as s_2_regions]
+     :         ProjectionExec: expr=[ctid_0@0 as ctid_0, p_0_categories@1 as p_0_categories, id@2 as id, regions@3 as s_2_regions, ctid_1@4 as ctid_1, ctid_2@5 as ctid_2]
      :           UnnestExec
-     :             ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1, ctid_2@4 as ctid_2, regions@5 as regions]
-     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(brand_id@2, id@4)], projection=[ctid_0@3, categories@4, id@5, ctid_1@6, ctid_2@0, regions@1]
+     :             ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, regions@3 as regions, ctid_1@4 as ctid_1, ctid_2@5 as ctid_2]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(brand_id@1, id@3)], projection=[ctid_0@3, categories@4, id@5, regions@0, ctid_1@7, ctid_2@2]
      :                 CooperativeExec
      :                   PgSearchScan: table=s, segments=1, query="all"
-     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@2)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, categories@1, id@2, ctid_1@4, id@5]
+     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@1)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, categories@1, id@2, id@4, ctid_1@7]
      :                   CooperativeExec
      :                     PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :                   CooperativeExec
@@ -395,7 +395,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, b]
-     :       FilterExec: b_1_tags@3 = bestseller
+     :       FilterExec: b_1_tags@3 = bestseller, projection=[ctid_0@0, id@1, ctid_1@2]
      :         UnnestExec
      :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
      :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, ctid_1@3, tags@4]
@@ -512,7 +512,7 @@ LIMIT 2;
      :     VisibilityFilterExec: tables=[p, b], pruned=[b]
      :       UnnestExec
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@1)], projection=[ctid_0@0, categories@1, id@2, ctid_1@3]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], projection=[ctid_0@0, categories@1, id@2, ctid_1@4]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
@@ -560,7 +560,7 @@ LIMIT 3;
      :     VisibilityFilterExec: tables=[p, b], pruned=[b]
      :       UnnestExec
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@1)], projection=[ctid_0@0, categories@1, id@2, ctid_1@3]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], projection=[ctid_0@0, categories@1, id@2, ctid_1@4]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
@@ -610,8 +610,8 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, b_1_tags@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, b], pruned=[b]
      :       UnnestExec
-     :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, ctid_1@3, tags@4]
+     :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, tags@2 as b_1_tags, ctid_1@3 as ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, tags@3, ctid_1@6]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Category","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
@@ -710,7 +710,7 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[p, b], pruned=[b]
      :       UnnestExec
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@1)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, categories@1, id@2, ctid_1@4]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, categories@1, id@2, ctid_1@6]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=2, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec

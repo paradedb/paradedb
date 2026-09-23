@@ -166,7 +166,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
      : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[users, orders]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@0)]
      :         CooperativeExec
      :           PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
@@ -191,7 +191,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
      : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[users, orders]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@0)]
      :         CooperativeExec
      :           PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec

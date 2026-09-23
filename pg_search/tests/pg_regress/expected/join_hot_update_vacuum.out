@@ -174,7 +174,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@3 as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[o]
-     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, user_id@1)], projection=[ctid_0@2, user_id@3, id@4, ctid_1@0, id@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, user_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
      :         CooperativeExec
      :           PgSearchScan: table=u, segments=1, visibility=eager, query="all"
      :         CooperativeExec

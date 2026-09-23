@@ -87,7 +87,7 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[title]
      :     SegmentedTopKExec: expr=[title@2 DESC, post_id@3 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[p, c], pruned=[c]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=2, fetch=[title], query={"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -130,11 +130,11 @@ LIMIT 5;
      :     TantivyFetchExec: fetch=[author]
      :       SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5
      :         VisibilityFilterExec: tables=[p, c], pruned=[p]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@1)], projection=[ctid_1@2, author@4, id@5, ctid_0@1]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
-     :               PgSearchScan: table=c, segments=2, dynamic_filters=1, query="all"
+     :               PgSearchScan: table=c, segments=2, dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT c.id, c.author
@@ -171,7 +171,7 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[author]
      :     SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[p, c], pruned=[p]
-     :         NestedLoopJoinExec: join_type=Inner, filter=post_id@1 < id@0
+     :         NestedLoopJoinExec: join_type=Inner, filter=post_id@1 < id@0, projection=[ctid_1@2, author@4, id@5, ctid_0@1]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -213,7 +213,7 @@ LIMIT 5;
      : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=5), expr=[title@2 DESC, post_id@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, c], pruned=[c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@0)]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=2, eager=[title], query={"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -298,7 +298,7 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[title]
      :     SegmentedTopKExec: expr=[title@2 DESC, id@1 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[p]
-     :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, post_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, post_id@0)], projection=[ctid_0@0, id@1, title@2]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=2, fetch=[title], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -326,8 +326,8 @@ FROM lmp_comments a JOIN lmp_comments b ON a.post_id = b.post_id
 WHERE a.body ||| 'comment'
 ORDER BY a.author ASC, b.author DESC, a.id ASC, b.id ASC
 LIMIT 5;
-                                                                                                                                QUERY PLAN                                                                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: a.id, a.author, b.author, b.id
    Relation Tree: a INNER b
@@ -339,9 +339,9 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[author, author]
      :     SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, author@4 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[a, b]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(post_id@1, post_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(post_id@1, post_id@1)], projection=[ctid_0@0, author@2, id@3, ctid_1@4, author@6, id@7]
      :           CooperativeExec
-     :             PgSearchScan: table=a, segments=2, fetch=[author], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"comment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=a, segments=2, fetch=[author], query={"with_index":{"query":{"match":{"field":"body","value":"comment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=b, segments=2, fetch=[author], dynamic_filters=1, query="all"
 (16 rows)
@@ -382,12 +382,12 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[author]
      :     SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST, id@4 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[c, p, c2], pruned=[p]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@4, post_id@1)]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)], projection=[ctid_0@2, author@4, id@5, ctid_1@0, id@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, post_id@1)], projection=[ctid_0@0, author@1, id@2, ctid_2@5, id@7, ctid_1@4]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@1)], projection=[ctid_0@2, author@4, id@5, id@0, ctid_1@1]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
-     :               PgSearchScan: table=c, segments=2, fetch=[author], dynamic_filters=2, query="all"
+     :               PgSearchScan: table=c, segments=2, fetch=[author], dynamic_filters=1, query="all"
      :           CooperativeExec
      :             PgSearchScan: table=c2, segments=2, dynamic_filters=1, query="all"
 (19 rows)
@@ -441,7 +441,7 @@ LIMIT 5;
      :     TantivyFetchExec: fetch=[author]
      :       SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5
      :         VisibilityFilterExec: tables=[p, c], pruned=[p]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(handle@1, post_id@1)]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(handle@0, post_id@1)], projection=[ctid_1@2, author@4, id@5, ctid_0@1]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"bio","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
@@ -483,11 +483,11 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[author]
      :     SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[p, c], pruned=[p]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@1)], projection=[ctid_1@2, author@4, id@5, ctid_0@1]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"bio","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=c, segments=2, fetch=[author], dynamic_filters=1, query="all"
+     :             PgSearchScan: table=c, segments=2, fetch=[author], dynamic_filters=2, query="all"
 (16 rows)
 
 SELECT c.id, c.author
@@ -614,8 +614,8 @@ FROM lmp_comments c1 JOIN lmp_comments c2 ON c1.post_id = c2.id
 WHERE c1.body ||| 'comment'
 ORDER BY c1.author, c2.author
 LIMIT 5;
-                                                                                                                                 QUERY PLAN                                                                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c1.author, c2.author
    Relation Tree: c1 INNER c2
@@ -627,9 +627,9 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[author, author]
      :     SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, author@3 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[c1, c2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(post_id@1, id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(post_id@1, id@1)], projection=[ctid_0@0, author@2, ctid_1@3, author@5]
      :           CooperativeExec
-     :             PgSearchScan: table=c1, segments=2, fetch=[author], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"comment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=c1, segments=2, fetch=[author], query={"with_index":{"query":{"match":{"field":"body","value":"comment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=c2, segments=2, fetch=[author], dynamic_filters=1, query="all"
 (16 rows)
@@ -865,7 +865,7 @@ LIMIT 5;
      :     TantivyFetchExec: fetch=[title]
      :       SegmentedTopKExec: expr=[title@2 DESC, post_id@3 ASC NULLS LAST], k=5
      :         VisibilityFilterExec: tables=[p, c], pruned=[c]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@0)]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
@@ -907,7 +907,7 @@ LIMIT 5;
      : SortExec: TopK(fetch=5), expr=[col_2@1 DESC, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
      :   ProjectionExec: expr=[id@0 as col_1, title@1 as col_2, ctid_0@2 as ctid_0]
      :     VisibilityFilterExec: tables=[p, c], pruned=[c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@0)]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -962,7 +962,7 @@ LIMIT 5;
      :   │   TantivyDecodeExec: decode=[title]
      :   │     SegmentedTopKExec: expr=[title@2 DESC, post_id@3 ASC NULLS LAST], k=5
      :   │       VisibilityFilterExec: tables=[p, c], pruned=[c]
-     :   │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)]
+     :   │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@0)]
      :   │           CoalescePartitionsExec
      :   │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
      :   │           DistributedLeafExec:

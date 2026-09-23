@@ -62,7 +62,7 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :   TantivyDecodeExec: decode=[tag]
      :     SegmentedTopKExec: expr=[tag@3 ASC NULLS LAST, id@1 ASC NULLS LAST], k=25
      :       VisibilityFilterExec: tables=[f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, k@4, id@5, ctid_1@0, k@1, tag@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, id@5, ctid_1@0, tag@2]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :           CooperativeExec
@@ -114,7 +114,7 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :   TantivyDecodeExec: decode=[tag]
      :     SegmentedTopKExec: expr=[tag@3 DESC, id@1 ASC NULLS LAST], k=25
      :       VisibilityFilterExec: tables=[f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, k@4, id@5, ctid_1@0, k@1, tag@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, id@5, ctid_1@0, tag@2]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :           CooperativeExec
@@ -166,7 +166,7 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :   TantivyDecodeExec: decode=[tag]
      :     SegmentedTopKExec: expr=[tag@3 ASC, id@1 ASC NULLS LAST], k=25
      :       VisibilityFilterExec: tables=[f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, k@4, id@5, ctid_1@0, k@1, tag@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, id@5, ctid_1@0, tag@2]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :           CooperativeExec
@@ -220,7 +220,7 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.i
      :   TantivyDecodeExec: decode=[tag]
      :     SegmentedTopKExec: expr=[tag@4 ASC NULLS LAST, id@1 ASC NULLS LAST], k=25
      :       VisibilityFilterExec: tables=[f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], filter=id@1 <= id@0, projection=[ctid_0@4, k@5, id@6, ctid_1@0, k@1, id@2, tag@3]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], filter=id@1 <= id@0, projection=[ctid_0@4, id@6, ctid_1@0, id@2, tag@3]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :           CooperativeExec
@@ -273,7 +273,7 @@ SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :   TantivyDecodeExec: decode=[amt]
      :     SegmentedTopKExec: expr=[amt@3 ASC NULLS LAST, id@1 ASC NULLS LAST], k=25
      :       VisibilityFilterExec: tables=[f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, k@4, id@5, ctid_1@0, k@1, amt@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, id@5, ctid_1@0, amt@2]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=2, fetch=[amt], visibility=eager, query="all"
      :           CooperativeExec
@@ -329,7 +329,7 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :   TantivyDecodeExec: decode=[tag]
      :     SegmentedTopKExec: expr=[tag@3 ASC NULLS LAST, id@1 ASC NULLS LAST], k=25
      :       VisibilityFilterExec: tables=[f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, k@4, id@5, ctid_1@0, k@1, tag@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, id@5, ctid_1@0, tag@2]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :           CooperativeExec
@@ -385,7 +385,7 @@ SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.
      :   TantivyDecodeExec: decode=[tag]
      :     SegmentedTopKExec: expr=[tag@3 ASC NULLS LAST, id@1 ASC NULLS LAST], k=25
      :       VisibilityFilterExec: tables=[f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, k@4, id@5, ctid_1@0, k@1, tag@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@3, id@5, ctid_1@0, tag@2]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :           CooperativeExec
@@ -597,7 +597,7 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=40), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[f]
-     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@2, k@3, id@4, ctid_1@0, k@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=2, visibility=eager, query="all"
      :         CooperativeExec
@@ -654,8 +654,8 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt ||| 'alpha' ORDER BY d.tag, r.tag LIMIT 5;
-                                                                                                                             QUERY PLAN                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, r.tag
    Relation Tree: d INNER r
@@ -667,9 +667,9 @@ SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt |
      :   TantivyDecodeExec: decode=[tag]
      :     SegmentedTopKExec: expr=[tag@1 ASC NULLS LAST, tag@3 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[d, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(k@1, k@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, tag@5]
      :           CooperativeExec
-     :             PgSearchScan: table=d, segments=2, fetch=[tag], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"txt","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=d, segments=2, fetch=[tag], query={"with_index":{"query":{"match":{"field":"txt","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
 (16 rows)

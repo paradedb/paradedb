@@ -643,7 +643,7 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[name_c]
      :     SegmentedTopKExec: expr=[name_c@1 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[p, s]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, name_c@2, ctid_1@3]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, fetch=[name_c], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -698,7 +698,7 @@ LIMIT 5;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec

@@ -1739,7 +1739,7 @@ LIMIT 3;
      :   SortExec: TopK(fetch=3), expr=[rating@1 DESC], preserve_partitioning=[false]
      :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
      :       VisibilityFilterExec: tables=[p, pc]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@1)], projection=[ctid_0@2, category@3, rating@4, ctid_1@0, name@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@1)], projection=[ctid_0@2, rating@4, ctid_1@0]
      :           CooperativeExec
      :             PgSearchScan: table=pc, segments=1, query="all"
      :           CooperativeExec
@@ -1814,7 +1814,7 @@ LIMIT 3;
      :   SortExec: TopK(fetch=3), expr=[score@3 DESC], preserve_partitioning=[false]
      :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_1: Ok(Field { name: "window_agg_1", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_2: Ok(Field { name: "window_agg_2", data_type: Float64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_3: Ok(Field { name: "window_agg_3", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_4: Ok(Field { name: "window_agg_4", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
      :       VisibilityFilterExec: tables=[p, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -1871,7 +1871,7 @@ LIMIT 3;
      :   SortExec: TopK(fetch=3), expr=[score@3 DESC], preserve_partitioning=[false]
      :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_1: Ok(Field { name: "window_agg_1", data_type: Float64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_4: Ok(Field { name: "window_agg_4", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
      :       VisibilityFilterExec: tables=[p, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec

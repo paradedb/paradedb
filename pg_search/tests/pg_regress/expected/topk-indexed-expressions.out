@@ -275,7 +275,7 @@ ORDER BY upper(p.name) ASC
      :   TantivyDecodeExec: decode=[name]
      :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5
      :       VisibilityFilterExec: tables=[p, s]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, fetch=[name], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -321,7 +321,7 @@ ORDER BY s.name ASC
      :     TantivyFetchExec: fetch=[name]
      :       SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5
      :         VisibilityFilterExec: tables=[p, s]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec

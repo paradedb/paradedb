@@ -171,8 +171,8 @@ LIMIT 10;
      : ProjectionExec: expr=[fileid@1 as col_1, page_number@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2]
      :   SortExec: TopK(fetch=10), expr=[fileid@1 ASC NULLS LAST, page_number@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[documents, files, pages], pruned=[documents, files]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, fileid@1)]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentid@2)], projection=[ctid_0@0, ctid_1@2, id@3]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fileid@1)], projection=[ctid_2@3, fileid@4, page_number@5, ctid_0@1, ctid_1@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, documentid@1)], projection=[id@2, ctid_0@1, ctid_1@4]
      :           CooperativeExec
      :             PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec

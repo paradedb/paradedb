@@ -74,7 +74,7 @@ LIMIT 3;
      :     TantivyFetchExec: fetch=[title]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3
      :         VisibilityFilterExec: tables=[f]
-     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)]
+     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2]
      :             CooperativeExec
      :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec

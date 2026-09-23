@@ -73,7 +73,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, supplier_id@4, id@5, __p_0_tag_0@6, ctid_1@0, id@1, __s_1_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"match":{"field":"description","value":"display","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -117,7 +117,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __s_1_tag_0@2, projection=[ctid_0@3, supplier_id@4, id@5, __p_0_tag_0@6, __p_0_tag_1@7, ctid_1@0, id@1, __s_1_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __s_1_tag_0@2, projection=[ctid_0@3, id@5, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"match":{"field":"description","value":"acoustic","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -162,7 +162,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@0, id@2, ctid_1@4]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}}, tag_0={"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -207,7 +207,7 @@ LIMIT 4;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@1 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=4), expr=[price@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __p_0_tag_2@2 OR __s_1_tag_0@3, projection=[ctid_0@3, supplier_id@4, price@5, __p_0_tag_0@6, __p_0_tag_1@7, __p_0_tag_2@8, ctid_1@0, id@1, __s_1_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __p_0_tag_2@2 OR __s_1_tag_0@3, projection=[ctid_0@3, price@5, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"match":{"field":"description","value":"hardware","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -308,7 +308,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[w, r, o]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, __w_0_tag_0@5, ctid_1@6, org_id@7, __r_1_tag_0@8, ctid_2@0, id@1, __o_2_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
      :         CooperativeExec
      :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"location","value":"Munich","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@1, __r_1_tag_0@3]
@@ -359,7 +359,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[w, r, o]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(org_id@4, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(org_id@4, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@0, id@1, ctid_1@3, ctid_2@6]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@2)], projection=[ctid_0@0, id@2, __w_0_tag_0@3, ctid_1@4, org_id@5, __r_1_tag_0@7]
      :           CooperativeExec
      :             PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"match":{"field":"title","value":"quantum","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
@@ -411,7 +411,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[w, r, o]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, __w_0_tag_0@5, ctid_1@6, org_id@7, __r_1_tag_0@8, ctid_2@0, id@1, __o_2_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
      :         CooperativeExec
      :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"field","value":"Cloud","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@1, __r_1_tag_0@3]
@@ -497,7 +497,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[w, r]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[ctid_0@0, id@2, ctid_1@4]
      :         CooperativeExec
      :           PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"match":{"field":"title","value":"nonexistent_quantum_xyz","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -541,7 +541,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[w, r, o]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, __w_0_tag_0@5, ctid_1@6, org_id@7, __r_1_tag_0@8, ctid_2@0, id@1, __o_2_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
      :         CooperativeExec
      :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"name","value":"NonExistentOrg","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@1, __r_1_tag_0@3]
@@ -589,7 +589,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[w, r]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[ctid_0@0, id@2, ctid_1@4]
      :         CooperativeExec
      :           PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"term":{"field":"year","value":2024}}, tag_0={"with_index":{"query":{"match":{"field":"title","value":"quantum","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec

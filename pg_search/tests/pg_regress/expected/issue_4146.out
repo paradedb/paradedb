@@ -413,10 +413,10 @@ LIMIT 50;
      : SortExec: TopK(fetch=50), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
      :   AggregateExec: mode=Single, gby=[id@1 as col_1, title@2 as col_2, parents@3 as col_3], aggr=[min(d_0.ctid_0) as ctid_0]
      :     VisibilityFilterExec: tables=[d, f, p], pruned=[f, p]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@1, id@5)], projection=[ctid_0@2, id@3, title@4, parents@5, ctid_1@6, id@7, ctid_2@0, fileId@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@0, id@4)], projection=[ctid_0@2, id@3, title@4, parents@5, ctid_1@7, ctid_2@1]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null}}
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@2)], projection=[ctid_0@0, id@1, title@2, parents@3, ctid_1@4, id@5]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, title@2, parents@3, id@4, ctid_1@6]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
      :           CooperativeExec

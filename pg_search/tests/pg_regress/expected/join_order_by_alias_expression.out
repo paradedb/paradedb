@@ -52,7 +52,7 @@ LIMIT 10;
      :   TantivyDecodeExec: decode=[company_name_words, company_name]
      :     SegmentedTopKExec: expr=[company_name@3 ASC NULLS LAST, contact_id@4 ASC NULLS LAST], k=10
      :       VisibilityFilterExec: tables=[cccf, ti], pruned=[ti]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@1)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@0)], projection=[ctid_0@0, company_id@1, company_name_words@2, company_name@3, contact_id@4, ctid_1@6]
      :           CooperativeExec
      :             PgSearchScan: table=cccf, segments=1, fetch=[company_name_words, company_name], dynamic_filters=1, query="all"
      :           CooperativeExec

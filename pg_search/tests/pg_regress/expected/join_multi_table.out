@@ -199,7 +199,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, supplier_id@4, id@5, __p_0_tag_0@6, ctid_1@0, id@1, __s_1_tag_0@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"match":{"field":"contact_info","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -291,7 +291,7 @@ LIMIT 10;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, ctid_2@4]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[ctid_0@0, category_id@1, id@3, ctid_1@4]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
@@ -336,7 +336,7 @@ LIMIT 10;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, ctid_2@4]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_0@2, category_id@3, id@5, ctid_1@0]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
@@ -382,8 +382,8 @@ LIMIT 5;
      : ProjectionExec: expr=[NULL as col_1, pdb.score()@0 as col_2, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=5), expr=[pdb.score()@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s, c], pruned=[s, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@2, id@1)]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@3, id@1)], projection=[pdb.score()@0, ctid_0@1, category_id@2, ctid_1@4]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@2, id@0)], projection=[pdb.score()@0, ctid_0@1, ctid_1@3, ctid_2@5]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@3, id@0)], projection=[pdb.score()@0, ctid_0@1, category_id@2, ctid_1@5]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -426,8 +426,8 @@ LIMIT 5;
      : ProjectionExec: expr=[NULL as col_1, pdb.score()@0 as col_2, ctid_1@1 as ctid_1]
      :   SortExec: TopK(fetch=5), expr=[pdb.score()@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s, c], pruned=[p, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[ctid_0@3, category_id@4, pdb.score()@0, ctid_1@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@0, id@0)], projection=[pdb.score()@1, ctid_1@2, ctid_0@3, ctid_2@5]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[category_id@3, pdb.score()@0, ctid_1@1, ctid_0@5]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -495,7 +495,7 @@ LIMIT 5;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, NULL as col_4, id@1 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2, ctid_3@4 as ctid_3]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[l1, l2, l3, l4]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l4_id@4)], projection=[ctid_0@2, id@3, ctid_1@4, ctid_2@5, l4_id@6, ctid_3@0, id@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l4_id@4)], projection=[ctid_0@2, id@3, ctid_1@4, ctid_2@5, ctid_3@0]
      :         CooperativeExec
      :           PgSearchScan: table=l4, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"deepest","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@3, id@2)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@4, l4_id@5]
@@ -546,9 +546,9 @@ LIMIT 5;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_3@2 as ctid_3]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[l1, l2, l3, l4], pruned=[l2, l3]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@4, id@1)]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@3, id@2)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@4, l4_id@5]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l2_id@1, id@2)], projection=[ctid_0@0, id@2, ctid_1@3, l3_id@4]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@2, id@1)], projection=[ctid_0@0, id@1, ctid_3@5, ctid_1@3, ctid_2@4]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@2, id@1)], projection=[ctid_0@0, id@1, l4_id@4, ctid_1@3, ctid_2@6]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l2_id@1, id@1)], projection=[ctid_0@0, id@2, l3_id@3, ctid_1@5]
      :             CooperativeExec
      :               PgSearchScan: table=l1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"name","phrase":"L1-A","slop":null}}}}
      :             CooperativeExec
@@ -594,9 +594,9 @@ LIMIT 5;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_3@2 as ctid_3]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[l1, l2, l3, l4], pruned=[l2, l3]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@4, id@1)]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@3, id@2)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@4, l4_id@5]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, l2_id@1)], projection=[ctid_0@3, id@5, ctid_1@0, l3_id@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@2, id@1)], projection=[ctid_0@0, id@1, ctid_3@5, ctid_1@3, ctid_2@4]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@2, id@1)], projection=[ctid_0@0, id@1, l4_id@4, ctid_1@3, ctid_2@6]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l2_id@1)], projection=[ctid_0@3, id@5, l3_id@0, ctid_1@2]
      :             CooperativeExec
      :               PgSearchScan: table=l2, segments=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"name","phrase":"L2-B","slop":null}}}}
      :             CooperativeExec

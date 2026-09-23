@@ -75,7 +75,9 @@ use crate::scan::Scanner;
 use crate::scan::deferred_encode::is_deferred_field;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::pre_filter::{PreFilter, collect_filters, try_dynamic_filter_pushdown};
+use crate::scan::pre_filter::{
+    PreFilter, collect_filters, is_available_for_pre_filter, try_dynamic_filter_pushdown,
+};
 use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -1244,6 +1246,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 .which_fast_fields
                 .iter()
                 .any(|wff| matches!(wff, WhichFastField::Score));
+            let which_fast_fields = scanner_config.which_fast_fields.clone();
             let mut scanner = Scanner::new(
                 search_results,
                 scanner_config.batch_size_hint,
@@ -1272,8 +1275,12 @@ impl ExecutionPlan for PgSearchScanPlan {
             let mut pushdown_metric_recorded = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let (pre_filters, score_threshold) =
-                    build_filters(&dynamic_filters, &schema, score_column_schema_idx);
+                let (pre_filters, score_threshold) = build_filters(
+                    &dynamic_filters,
+                    &schema,
+                    &which_fast_fields,
+                    score_column_schema_idx,
+                );
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {
@@ -1450,11 +1457,13 @@ impl ExecutionPlan for PgSearchScanPlan {
 ///
 /// Only filter predicates that can be lowered to fast-field or term-ordinal
 /// comparisons are retained. Anything else (unsupported types, non-comparison
-/// operators) is silently dropped — the parent operator is still responsible
-/// for enforcing the full predicate, so correctness is not affected.
+/// operators, columns the scanner doesn't have yet when pre-filters run) is
+/// silently dropped — the parent operator is still responsible for enforcing
+/// the full predicate, so correctness is not affected.
 fn build_filters(
     dynamic_filters: &[Arc<dyn PhysicalExpr>],
     schema: &SchemaRef,
+    which_fast_fields: &[WhichFastField],
     score_col_schema_idx: Option<usize>,
 ) -> (Vec<PreFilter>, Option<Score>) {
     let mut filters = Vec::new();
@@ -1480,6 +1489,14 @@ fn build_filters(
             );
         }
     }
+    // See #6399: a semi-join on ctid pushes `ctid` bounds down to the probe side.
+    filters.retain(|filter| {
+        filter.required_columns.iter().all(|&idx| {
+            which_fast_fields
+                .get(idx)
+                .is_some_and(is_available_for_pre_filter)
+        })
+    });
     (filters, score_threshold)
 }
 

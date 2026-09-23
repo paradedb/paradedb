@@ -77,6 +77,17 @@ jobs:
             echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Checkout Workflow
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Keep image assembly from the workflow ref even when benchmarking an older SHA.
+      - name: Prepare Image Context
+        run: |
+          mkdir -p "$RUNNER_TEMP/source-image"
+          cp docker/Dockerfile.source "$RUNNER_TEMP/source-image/Dockerfile"
+
       - name: Checkout pg_search Source at ref=${{ steps.determine-ref.outputs.ref }}
         uses: actions/checkout@v7
         with:
@@ -105,8 +116,7 @@ jobs:
       - name: Assemble ParadeDB image (pg_search from source)
         run: |
           set -euo pipefail
-          ctx="$(mktemp -d)"
-          cp docker/Dockerfile.source "${ctx}/Dockerfile"
+          ctx="$RUNNER_TEMP/source-image"
           cp -R "${{ steps.build-pg_search.outputs.artifacts-dir }}" "${ctx}/artifacts"
           # --pull to refetch the rolling latest-pg18 base, not a stale local layer.
           docker build \

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790063966791,
+  "lastUpdate": 1790150492659,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -5176,6 +5176,53 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.256,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "cd3451c19143d0106c6e7a2cb5656245df8d423f",
+          "message": "fix: bump Tantivy to the streaming merge tip (#6433)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nMove the Tantivy pin from `91abdcf3` to tip `9e5996f`.\n\n## Why\n\nStacked on #6432 so the streaming-merge bump can be reviewed without the\nvector API rewrite. `9e5996f` streams postings positions during sorted\nmerges instead of buffering every position for a term. `88693e48`,\nincluded in that range, stops cloning vector buffers when a segment is\nserialized without doc-id remapping.\n\n## How\n\n`Cargo.toml` / `Cargo.lock` rev bump only. pg_search's clusterer is\nunchanged from the parent PR. The Nix `cargoHash` matches this lockfile.\n\n## Tests\n\n- Existing pg_search suite against the new Tantivy pin\n\nCo-authored-by: Cursor <cursoragent@cursor.com>",
+          "timestamp": "2026-09-22T22:55:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/cd3451c19143d0106c6e7a2cb5656245df8d423f"
+        },
+        "date": 1790150487221,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6335698127711056,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.555,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.936,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.04,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.159,
             "unit": "ms"
           }
         ]

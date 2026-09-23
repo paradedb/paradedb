@@ -291,20 +291,12 @@ impl ExecutionPlan for TantivyFetchExec {
 
         // num_rows propagates (1:1 row count)
         // Logical distinct_count propagates as Inexact (fetch may merge ordinals).
-        // Fetched/ctid columns:
+        // Fetched columns:
         //   null_count -> Absent (fetch may introduce NULLs for unresolvable rows)
         //   min_value/max_value/sum_value -> Absent (domain change)
         for field in &self.fetch_fields {
             if let Some(col_stats) = stats.column_statistics.get_mut(field.col_idx) {
                 col_stats.distinct_count = col_stats.distinct_count.to_inexact();
-                col_stats.null_count = Precision::Absent;
-                col_stats.min_value = Precision::Absent;
-                col_stats.max_value = Precision::Absent;
-                col_stats.sum_value = Precision::Absent;
-            }
-        }
-        for ctid_col in &self.ctid_columns {
-            if let Some(col_stats) = stats.column_statistics.get_mut(ctid_col.col_idx) {
                 col_stats.null_count = Precision::Absent;
                 col_stats.min_value = Precision::Absent;
                 col_stats.max_value = Precision::Absent;

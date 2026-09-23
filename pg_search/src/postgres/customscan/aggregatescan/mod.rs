@@ -115,6 +115,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_ta
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
@@ -1964,6 +1965,18 @@ impl AggregateScan {
 
         // First call: build and execute the DataFusion plan
         if first_call {
+            let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+            for source in state
+                .custom_state()
+                .datafusion_state
+                .as_ref()
+                .expect("DataFusion state must be initialized")
+                .plan
+                .sources()
+            {
+                predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+            }
+
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()

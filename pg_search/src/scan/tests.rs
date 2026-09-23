@@ -77,7 +77,7 @@ mod tests {
             WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
 
-        let ffhelper = FFHelper::with_fields(&reader, &fields);
+        let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
 
         // Ensure current transaction changes are visible
         unsafe {
@@ -86,7 +86,8 @@ mod tests {
             pg_sys::PushActiveSnapshot(snap);
         }
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+            .with_ffhelper(Arc::clone(&ffhelper));
 
         let partition = crate::scan::execution_plan::ScanState {
             source_idx: None,
@@ -98,7 +99,7 @@ mod tests {
                 score_needed: false,
                 scan_mode: crate::scan::ScanMode::all(),
             },
-            ffhelper: ffhelper.into(),
+            ffhelper: Arc::clone(&ffhelper),
             visibility: Box::new(visibility),
             reader: reader.clone(),
         };
@@ -741,7 +742,7 @@ mod tests {
             WhichFastField::Ctid,
             WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
-        let ffhelper = FFHelper::with_fields(&reader, &fields);
+        let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
 
         unsafe {
             pg_sys::CommandCounterIncrement();
@@ -749,7 +750,8 @@ mod tests {
             pg_sys::PushActiveSnapshot(snap);
         }
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+            .with_ffhelper(Arc::clone(&ffhelper));
 
         let partition = crate::scan::execution_plan::ScanState {
             source_idx: None,
@@ -761,7 +763,7 @@ mod tests {
                 score_needed: false,
                 scan_mode: crate::scan::ScanMode::all(),
             },
-            ffhelper: ffhelper.into(),
+            ffhelper: Arc::clone(&ffhelper),
             visibility: Box::new(visibility),
             reader: reader.clone(),
         };
@@ -1011,7 +1013,6 @@ mod tests {
             WhichFastField::Ctid,
             WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
-
         unsafe {
             pg_sys::CommandCounterIncrement();
             let snap = pg_sys::GetTransactionSnapshot();
@@ -1034,6 +1035,11 @@ mod tests {
             let reader =
                 SearchIndexReader::open(&index_rel, query.clone(), false, MvccSatisfies::Snapshot)
                     .unwrap();
+            let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
+            let visibility = Box::new(
+                HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+                    .with_ffhelper(Arc::clone(&ffhelper)),
+            );
             let scan_state = crate::scan::execution_plan::ScanState {
                 source_idx: None,
                 planner_estimated_rows: 100,
@@ -1044,10 +1050,8 @@ mod tests {
                     score_needed: false,
                     scan_mode: crate::scan::ScanMode::standard(query.clone()),
                 },
-                ffhelper: FFHelper::with_fields(&reader, &fields).into(),
-                visibility: Box::new(HeapVisibilityChecker::with_rel_and_snap(
-                    &heap_rel, snapshot,
-                )),
+                ffhelper,
+                visibility,
                 reader: reader.clone(),
             };
             let plan = PgSearchScanPlan::new(

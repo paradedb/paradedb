@@ -793,7 +793,7 @@ fn rewrite(
                 return Ok(Transformed::no(node));
             }
             let input = Arc::clone(&children[0]);
-            if keep.is_empty() && fetch.ctid_columns().is_empty() {
+            if keep.is_empty() {
                 return Ok(Transformed::yes(input));
             }
             return Ok(Transformed::yes(Arc::new(

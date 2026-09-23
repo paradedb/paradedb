@@ -16,17 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Physical optimizer rule that wires FFHelper instances from PgSearchScanPlan
-//! into the node that owns MVCC visibility checking, for ctid resolution.
+//! into the VisibilityFilterExec that resolves ctid columns.
 //!
 //! Visibility checking needs real ctids, but when deferred visibility is enabled
 //! the ctid columns hold packed DocAddresses. This rule finds the PgSearchScanPlan
-//! that owns each ctid column and wires its FFHelper into the owning node so it can
-//! resolve the packed addresses itself.
-//!
-//! The owning node is either a `VisibilityFilterExec`, or a `SegmentedTopKExec` that
-//! has absorbed a `VisibilityFilterExec` (see `SegmentedTopKRule`) and now performs
-//! the visibility checks inline. Both expose the same `plan_pos_oids` and
-//! `set_ctid_resolver` interface, so this rule handles them identically.
+//! that owns each ctid column and wires its FFHelper into the `VisibilityFilterExec` that
+//! resolves them.
 //!
 //! This is interior mutation only (Mutex-based wiring), with no structural plan changes.
 
@@ -38,9 +33,15 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 
 use crate::index::fast_fields_helper::FFHelper;
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
-use crate::scan::segmented_topk_exec::SegmentedTopKExec;
-use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
+
+/// The index relation OID and [`FFHelper`] needed to resolve deferred packed `DocAddress` values
+/// into real CTIDs for a specific table in a multi-table or deferred scan.
+///
+/// Wired by [`VisibilityCtidResolverRule`] from the source [`PgSearchScanPlan`] into the physical
+/// execution node performing visibility checking ([`VisibilityFilterExec`]).
+pub type CtidResolver = (u32, Arc<FFHelper>);
 
 #[derive(Debug)]
 pub struct VisibilityCtidResolverRule;
@@ -65,42 +66,22 @@ impl PhysicalOptimizerRule for VisibilityCtidResolverRule {
     }
 }
 
-/// Walk the plan tree. When we find a VisibilityFilterExec or a
-/// SegmentedTopKExec that has absorbed one, wire FFHelpers from matching
-/// PgSearchScanPlans in the subtree.
+/// Walk the plan tree. When we find a VisibilityFilterExec,
+/// wire FFHelpers from matching PgSearchScanPlans in the subtree.
 fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
-    // The ctid-resolving TantivyFetchExec below a VisibilityFilterExec (or an absorbed
-    // SegmentedTopKExec) turns packed doc-addresses into real ctids. A fetch that only
-    // resolves string ordinals carries no ctid columns and is skipped.
-    if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
-        for ctid_column in fetch.ctid_columns() {
-            let plan_pos = ctid_column.plan_position;
+    // VisibilityFilterExec owns ctid resolution for its plan positions.
+    if let Some(vf) = plan.downcast_ref::<VisibilityFilterExec>() {
+        for &(plan_pos, _) in vf.plan_pos_oids() {
             let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
                 .ok_or_else(|| {
                 DataFusionError::Internal(format!(
                     "VisibilityCtidResolverRule: no PgSearchScanPlan found \
-                     for deferred ctid plan_position {plan_pos}"
+                     for VisibilityFilterExec deferred ctid plan_position {plan_pos}"
                 ))
             })?;
-            fetch.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+            vf.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
     }
-
-    // SegmentedTopKExec may have absorbed a VisibilityFilterExec and now
-    // owns ctid resolution for the same plan positions.
-    if let Some(stk) = plan.downcast_ref::<SegmentedTopKExec>() {
-        for &(plan_pos, _) in stk.plan_pos_oids() {
-            let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
-                .ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "VisibilityCtidResolverRule: no PgSearchScanPlan found \
-                         for SegmentedTopKExec deferred ctid plan_position {plan_pos}"
-                ))
-            })?;
-            stk.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
-        }
-    }
-
     for child in plan.children() {
         walk_plan(child)?;
     }
@@ -112,7 +93,7 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
 fn find_ffhelper_for_plan_position(
     plan: &dyn ExecutionPlan,
     plan_position: usize,
-) -> Option<(u32, Arc<FFHelper>)> {
+) -> Option<CtidResolver> {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>()
         && scan.deferred_ctid_plan_position() == Some(plan_position)
     {
@@ -131,7 +112,7 @@ fn find_ffhelper_for_plan_position(
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::find_ffhelper_for_plan_position;
+    use super::{VisibilityCtidResolverRule, find_ffhelper_for_plan_position};
     use std::sync::Arc;
 
     use arrow_schema::{Schema, SchemaRef};
@@ -158,8 +139,8 @@ mod tests {
             0,
             Some(7),
             1,
-            None,       // parallel_state
-            None,       // range_split_points
+            None,
+            None,
             Vec::new(), // stats_attnos
         );
 
@@ -168,7 +149,6 @@ mod tests {
         assert!(Arc::ptr_eq(&found, &ffhelper));
         assert!(find_ffhelper_for_plan_position(&scan, 6).is_none());
     }
-
     fn sort_schema() -> SchemaRef {
         use arrow_schema::{DataType, Field};
         Arc::new(Schema::new(vec![Field::new(
@@ -178,99 +158,49 @@ mod tests {
         )]))
     }
 
-    fn dummy_lex_ordering(schema: &SchemaRef) -> datafusion::physical_expr::LexOrdering {
-        use arrow_schema::SortOptions;
-        use datafusion::physical_expr::expressions::Column;
-        use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
-
-        let sort_expr = PhysicalSortExpr {
-            expr: Arc::new(Column::new("sort_col", 0)),
-            options: SortOptions::default(),
-        };
-        // We need the schema to create EquivalenceProperties, not used here
-        let _ = schema;
-        LexOrdering::new(vec![sort_expr]).expect("single-element LexOrdering must succeed")
-    }
-
     #[pg_test]
-    fn stk_plan_pos_oids_returns_empty_without_visibility_data() {
-        use crate::scan::segmented_topk_exec::SegmentedTopKExec;
-
-        let schema = sort_schema();
-        let ffhelper = Arc::new(FFHelper::empty());
-        let scan = PgSearchScanPlan::new(
-            None,
-            schema.clone(),
-            SearchQueryInput::All,
-            None,
-            Vec::new(),
-            Some(ffhelper.clone()),
-            0,
-            None,
-            1,
-            None,       // parallel_state
-            None,       // range_split_points
-            Vec::new(), // stats_attnos
-        );
-        let stk = SegmentedTopKExec::new(
-            Arc::new(scan),
-            dummy_lex_ordering(&schema),
-            vec![],
-            ffhelper,
-            5,
-            None,
-            None,
-        );
-
-        // No visibility data absorbed → plan_pos_oids must be empty.
-        assert!(
-            stk.plan_pos_oids().is_empty(),
-            "plan_pos_oids should be empty when no VisibilityFilterExec was absorbed"
-        );
-    }
-
-    #[pg_test]
-    fn stk_plan_pos_oids_returns_absorbed_data() {
-        use crate::scan::segmented_topk_exec::{AbsorbedVisibilityData, SegmentedTopKExec};
+    fn wires_ctid_resolver_to_visibility_filter_exec() {
+        use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+        use datafusion::physical_optimizer::PhysicalOptimizerRule;
         use pgrx::pg_sys;
 
-        let plan_pos = 3_usize;
+        let plan_pos = 2_usize;
         let schema = sort_schema();
         let ffhelper_scan = Arc::new(FFHelper::empty());
-        let scan = PgSearchScanPlan::new(
+        let scan = Arc::new(PgSearchScanPlan::new(
             None,
             schema.clone(),
             SearchQueryInput::All,
             None,
             Vec::new(),
             Some(ffhelper_scan.clone()),
-            0,
+            42,
             Some(plan_pos),
             1,
-            None,       // parallel_state
-            None,       // range_split_points
-            Vec::new(), // stats_attnos
-        );
-
-        let vis_data = Arc::new(AbsorbedVisibilityData::new(
-            vec![(plan_pos, pg_sys::Oid::INVALID)],
-            vec!["test_table".to_string()],
-        ));
-        let stk = SegmentedTopKExec::new(
-            Arc::new(scan),
-            dummy_lex_ordering(&schema),
-            vec![],
-            Arc::new(FFHelper::empty()),
-            5,
-            Some(vis_data),
             None,
+            None,
+            Vec::new(), // stats_attnos
+        ));
+
+        let vf = Arc::new(
+            VisibilityFilterExec::new(
+                scan,
+                vec![(plan_pos, pg_sys::Oid::INVALID)],
+                vec!["test_table".to_string()],
+            )
+            .expect("VisibilityFilterExec::new should succeed"),
         );
 
-        let pos_oids = stk.plan_pos_oids();
-        assert_eq!(pos_oids.len(), 1, "one plan_pos_oid should be present");
-        assert_eq!(pos_oids[0].0, plan_pos, "plan_position should match");
+        let rule = VisibilityCtidResolverRule;
+        let config = datafusion::common::config::ConfigOptions::default();
+        let optimized = rule
+            .optimize(vf.clone(), &config)
+            .expect("optimize should succeed");
 
-        // Wire a resolver and verify no panic.
-        stk.set_ctid_resolver(plan_pos, 0, ffhelper_scan);
+        let vf_opt = optimized
+            .downcast_ref::<VisibilityFilterExec>()
+            .expect("optimized node should still be VisibilityFilterExec");
+        assert_eq!(vf_opt.plan_pos_oids().len(), 1);
+        assert_eq!(vf_opt.plan_pos_oids()[0].0, plan_pos);
     }
 }

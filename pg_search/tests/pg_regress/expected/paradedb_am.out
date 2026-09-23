@@ -125,8 +125,8 @@ JOIN categories c ON i.category_id = c.id
 WHERE i.content ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                          QUERY PLAN                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, c.name
    Relation Tree: i INNER c
@@ -137,13 +137,12 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[i, c]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3]
-     :           CooperativeExec
-     :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3]
+     :         CooperativeExec
+     :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
+(15 rows)
 
 SELECT i.id, c.name
 FROM items i

@@ -827,7 +827,8 @@ impl PgSearchTableProvider {
         // checks. A dispatched worker inherits the decision.
         let check_visibility = self.scan_info.mvcc_visibility != MvccVisibility::Raw;
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
-            .with_check_visibility(check_visibility);
+            .with_check_visibility(check_visibility)
+            .with_ffhelper(Arc::clone(&scan_ffhelper));
 
         let pruning = reader.segment_pruning_estimate();
         let total_estimated_rows = self

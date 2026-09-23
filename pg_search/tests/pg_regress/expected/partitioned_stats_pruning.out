@@ -44,8 +44,8 @@ FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
-                                                                                                              QUERY PLAN                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: u.id, p.id
    Relation Tree: u INNER p
@@ -56,13 +56,12 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[u, p]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, id@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=6, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=u, segments=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=6, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(15 rows)
 
 SELECT u.id, p.id
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
@@ -121,8 +120,8 @@ FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
-                                                                                                                                                     QUERY PLAN                                                                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                    QUERY PLAN                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: u.id, p.id
    Relation Tree: u INNER p
@@ -138,18 +137,17 @@ LIMIT 10;
      :   ┌───── Stage 1 ── tasks=3, partitions=3
      :   │ SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[u, p]
-     :   │     TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, id@2]
-     :   │         DistributedLeafExec:
-     :   │           t0: PgSearchScan: table=p, segments={partial=0, included=3, pruned=3}, partition=owner_user_id[-∞..10001), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │           t1: PgSearchScan: table=p, segments={partial=1, included=1, pruned=4}, partition=owner_user_id[10001..15001), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │           t2: PgSearchScan: table=p, segments={partial=1, included=1, pruned=4}, partition=owner_user_id[15001..∞), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         DistributedLeafExec:
-     :   │           t0: PgSearchScan: table=u, segments={partial=0, included=2, pruned=2}, partition=id[-∞..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │           t1: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │           t2: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(owner_user_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, id@2]
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=3, pruned=3}, partition=owner_user_id[-∞..10001), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=1, included=1, pruned=4}, partition=owner_user_id[10001..15001), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=1, included=1, pruned=4}, partition=owner_user_id[15001..∞), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=u, segments={partial=0, included=2, pruned=2}, partition=id[-∞..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t1: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[10001..15001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t2: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[15001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   └──────────────────────────────────────────────────
-(26 rows)
+(25 rows)
 
 SELECT u.id, p.id
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id

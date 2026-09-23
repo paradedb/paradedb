@@ -40,7 +40,7 @@ All changes to ParadeDB happen through GitHub Pull Requests. Here is the recomme
 4. Install [prek](https://github.com/j178/prek) hooks within your fork with `prek install` to ensure code quality and consistency with upstream.
 5. Make your changes. If you've added new functionality, please add tests. We will not merge a feature without appropriate tests.
 6. Add release fragments (if applicable):
-   - Changelog fragment: If your PR introduces a user-facing feature, fix, or improvement, add a fragment in `docs/changelog/unreleased/<PR_NUMBER>.<category>.mdx` (e.g. `1234.bugfix.mdx` or `1234.feature.mdx`). Include frontmatter specifying the section header:
+   - Changelog fragment: If your PR introduces a user-facing feature, fix, or improvement, add a fragment in `docs/project/changelog/unreleased/<PR_NUMBER>.<category>.mdx` (e.g. `1234.bugfix.mdx` or `1234.feature.mdx`). Include frontmatter specifying the section header:
 
      ```markdown
      ---

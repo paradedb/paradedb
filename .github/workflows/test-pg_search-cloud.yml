@@ -12,7 +12,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/workflows/test-pg_search-cloud.yml"
-      - "docker/Dockerfile.benchmarker"
+      - "docker/Dockerfile.source"
   workflow_dispatch:
     inputs:
       source_ref:
@@ -56,7 +56,7 @@ jobs:
       - name: Prepare Image Context
         run: |
           mkdir -p "$RUNNER_TEMP/source-image"
-          cp docker/Dockerfile.benchmarker "$RUNNER_TEMP/source-image/Dockerfile"
+          cp docker/Dockerfile.source "$RUNNER_TEMP/source-image/Dockerfile"
 
       - name: Checkout Source
         uses: actions/checkout@v7

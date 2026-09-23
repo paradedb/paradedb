@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# docker/Dockerfile.benchmarker
+# docker/Dockerfile.source
 #
 # Full, runnable ParadeDB image built from THIS repo's source, for the
 # benchmarker and source-image publishing workflows.

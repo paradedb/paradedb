@@ -106,7 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           ctx="$(mktemp -d)"
-          cp docker/Dockerfile.benchmarker "${ctx}/Dockerfile"
+          cp docker/Dockerfile.source "${ctx}/Dockerfile"
           cp -R "${{ steps.build-pg_search.outputs.artifacts-dir }}" "${ctx}/artifacts"
           # --pull to refetch the rolling latest-pg18 base, not a stale local layer.
           docker build \

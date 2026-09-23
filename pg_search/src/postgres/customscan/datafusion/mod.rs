@@ -40,6 +40,7 @@ pub mod memory;
 pub mod numeric_agg;
 pub mod spill;
 pub mod timestamp_to_date;
+pub mod topk_agg;
 pub mod translator;
 
 /// All pg_search aggregate UDAFs, registered into SessionState so plans referencing
@@ -51,6 +52,7 @@ pub fn all_pg_search_udafs() -> Vec<Arc<AggregateUDF>> {
         numeric_agg::numeric_bytes_sum_udaf(),
         numeric_agg::numeric_bytes_avg_udaf(),
         cardinality_agg::tantivy_cardinality_udaf(),
+        topk_agg::topk_as_agg_udaf(),
     ]
 }
 

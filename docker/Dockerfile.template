@@ -11,7 +11,8 @@ RUN set -eux; \
     rm /tmp/pg_search.deb; \
     apt-get dist-clean; \
     mkdir /symbols; \
-    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so
+    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so; \
+    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so.dbg /symbols/pg_search.so.dbg
 # %%ANTITHESIS_END%%
 # %%STANDARD_BEGIN%%
 # Install pg_search from GitHub Releases

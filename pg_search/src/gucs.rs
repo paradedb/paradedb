@@ -35,6 +35,20 @@ pub enum PlannerWarnings {
     Error,
 }
 
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum DisjunctionPruning {
+    #[default]
+    #[name = c"auto"]
+    Auto,
+    #[name = c"wand"]
+    Wand,
+    #[name = c"maxscore"]
+    MaxScore,
+}
+
+static DISJUNCTION_PRUNING: GucSetting<DisjunctionPruning> =
+    GucSetting::<DisjunctionPruning>::new(DisjunctionPruning::Auto);
+
 /// Spill DataFusion sorts and aggregates (and the join operators DataFusion can spill) to
 /// a `BufFile` temp file on `work_mem` overflow, instead of erroring. Off by default.
 static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -371,6 +385,15 @@ pub fn init() {
           scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
           an error instead. When set to 'off', suppresses checks and warnings.",
         &PLANNER_WARNINGS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.disjunction_pruning",
+        c"Pruning algorithm for scored term disjunctions",
+        c"'auto' selects per segment; 'wand' or 'maxscore' overrides the automatic cutoffs for eligible score-ordered top-k disjunctions. Other query paths are unchanged.",
+        &DISJUNCTION_PRUNING,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -861,6 +884,14 @@ pub fn enable_bitmap_intersection() -> bool {
 
 pub fn planner_warnings() -> PlannerWarnings {
     PLANNER_WARNINGS.get()
+}
+
+pub fn disjunction_pruning() -> tantivy::query::DisjunctionPruning {
+    match DISJUNCTION_PRUNING.get() {
+        DisjunctionPruning::Auto => tantivy::query::DisjunctionPruning::Auto,
+        DisjunctionPruning::Wand => tantivy::query::DisjunctionPruning::BlockWand,
+        DisjunctionPruning::MaxScore => tantivy::query::DisjunctionPruning::BlockMaxScore,
+    }
 }
 
 pub fn enable_join_custom_scan() -> bool {

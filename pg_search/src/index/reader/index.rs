@@ -889,14 +889,7 @@ impl SearchIndexReader {
 
     pub fn weight(&self) -> Box<dyn Weight> {
         self.query
-            .weight(if self.need_scores {
-                tantivy::query::EnableScoring::enabled_from_searcher(&self.searcher)
-            } else {
-                tantivy::query::EnableScoring::Disabled {
-                    schema: self.schema.tantivy_schema(),
-                    searcher_opt: Some(&self.searcher),
-                }
-            })
+            .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("weight should be constructable")
     }
 
@@ -2257,6 +2250,7 @@ impl SearchIndexManifest {
 pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {
     if need_scores {
         EnableScoring::enabled_from_searcher(searcher)
+            .with_disjunction_pruning(crate::gucs::disjunction_pruning())
     } else {
         EnableScoring::disabled_from_searcher(searcher)
     }

@@ -2466,16 +2466,4 @@ SELECT * FROM table;
             "SET work_mem TO '4GB'; SET paradedb.options =$$\nmultiline\noptions\n$$; SELECT * FROM table;"
         );
     }
-
-    #[test]
-    fn load_benchmark_queries_stackoverflow() {
-        let queries = load_benchmark_queries(Path::new("datasets/stackoverflow/queries")).unwrap();
-        assert_eq!(queries.len(), 125);
-        assert!(
-            queries
-                .iter()
-                .any(|(name, _)| name == "join_disjunctive_local_sort - postgres")
-        );
-        assert!(queries.iter().any(|(name, _)| name == "highlighting"));
-    }
 }

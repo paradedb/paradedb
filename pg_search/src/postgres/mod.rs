@@ -1320,3 +1320,69 @@ pub struct ClaimedSegmentData {
     deleted_docs: u32,
     max_doc: u32,
 }
+
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) mod test_support {
+    use super::*;
+
+    /// A leader-populated parallel state with one source holding `view`, palloc'd in the
+    /// current memory context, for tests that decode a dispatched scan as a worker would.
+    pub(crate) fn parallel_state_for_view(view: SegmentView) -> *mut ParallelScanState {
+        let args = ParallelScanArgs {
+            all_sources: vec![view],
+            query: Vec::new(),
+            with_aggregates: false,
+            with_segment_info: false,
+        };
+        let size = ParallelScanState::size_of(&args.all_nsegments(), &args.query, false, false);
+        unsafe {
+            let state = pg_sys::palloc0(size).cast::<ParallelScanState>();
+            (*state).create_and_populate(args);
+            state
+        }
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::reader::index::SearchIndexReader;
+    use crate::index::reader::index::test_support::{range_query, segmented_index_fixture};
+    use crate::index::segment_pruning::STATS_OPENS;
+    use std::sync::atomic::Ordering::Relaxed;
+
+    /// A lazily checked-out scan decides each segment as it is claimed, so a participant never
+    /// reads statistics for segments it does not own.
+    #[pg_test]
+    fn lazy_checkout_decides_only_claimed_segments() {
+        let (index_rel, _heap) = segmented_index_fixture("lazy_claim_pruning", 4, false);
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            range_query("id", 11, 20),
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let view = reader.segment_view();
+        assert_eq!(view.len(), 4);
+        // Share only two of the four segments, so the other two are never claimed.
+        let claimable_view = SegmentView::new(view.entries()[..2].to_vec());
+        let claimable = claimable_view.ids().collect::<Vec<_>>();
+        let state = test_support::parallel_state_for_view(claimable_view);
+
+        STATS_OPENS.store(0, Relaxed);
+        let hits = reader.search_lazy(state, None, 0).count();
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            2,
+            "only the two claimable segments are decided"
+        );
+        assert_eq!(
+            hits,
+            reader.search_segments(claimable.into_iter()).count(),
+            "claimed candidates are searched exactly once"
+        );
+    }
+}

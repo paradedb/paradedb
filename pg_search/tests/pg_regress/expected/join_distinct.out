@@ -1224,6 +1224,164 @@ LIMIT 10;
 (4 rows)
 
 SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_aggregate_custom_scan = on;
+-- =============================================================================
+-- TEST 21: JOIN + DISTINCT without search operator — declines gracefully to native PG
+-- Queries joining BM25-indexed tables without ParadeDB search operators must NOT
+-- be intercepted by JoinScan or AggregateScan unless enable_custom_scan_without_operator is on.
+-- All columns (join keys, distinct targets, and category_id filter) are fast fields
+-- to ensure no other gate (e.g. non-fast-field) causes the decline.
+-- =============================================================================
+-- Without search operator, query falls back to native PostgreSQL (quiet decline)
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name;
+                    QUERY PLAN                     
+---------------------------------------------------
+ Unique
+   ->  Sort
+         Sort Key: p.name, s.name
+         ->  Nested Loop
+               Join Filter: (p.supplier_id = s.id)
+               ->  Seq Scan on dist_products p
+                     Filter: (category_id = 301)
+               ->  Seq Scan on dist_suppliers s
+(8 rows)
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name;
+       name       | supplier_name 
+------------------+---------------
+ Headphones       | TechCorp
+ Keyboard         | TechCorp
+ TechCorp         | TechCorp
+ Webcam           | QualityFirst
+ Wireless Charger | TechCorp
+(5 rows)
+
+-- With LIMIT: both JoinScan and AggregateScan decline quietly without operator
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name
+LIMIT 2;
+                       QUERY PLAN                        
+---------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, s.name
+               ->  Nested Loop
+                     Join Filter: (p.supplier_id = s.id)
+                     ->  Seq Scan on dist_products p
+                           Filter: (category_id = 301)
+                     ->  Seq Scan on dist_suppliers s
+(9 rows)
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name
+LIMIT 2;
+    name    | supplier_name 
+------------+---------------
+ Headphones | TechCorp
+ Keyboard   | TechCorp
+(2 rows)
+
+-- With enable_custom_scan_without_operator = on, custom scans claim the queries:
+-- 1. Without LIMIT, AggregateScan claims the query
+SET paradedb.enable_custom_scan_without_operator = on;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: p.name
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: dist_products_bm25_idx (p), dist_suppliers_bm25_idx (s)
+         Group By: name
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[name@0 as name, name@1 as name], aggr=[]
+           :   TantivyDecodeExec: decode=[name]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[name@0, name@2]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, fetch=[name], visibility=eager, query={"term":{"field":"category_id","value":301}}
+           :       CooperativeExec
+           :         PgSearchScan: table=s, segments=1, eager=[name], dynamic_filters=1, visibility=eager, query="all"
+(14 rows)
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
+       name       | supplier_name 
+------------------+---------------
+ Headphones       | TechCorp
+ Keyboard         | TechCorp
+ TechCorp         | TechCorp
+ Webcam           | QualityFirst
+ Wireless Charger | TechCorp
+(5 rows)
+
+-- 2. With LIMIT, JoinScan claims the query
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name
+LIMIT 2;
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 2
+   Distinct: true
+   Order By: p.name asc, s.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=2), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[name@1 as col_1, name@3 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=2, query={"term":{"field":"category_id","value":301}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(16 rows)
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name
+LIMIT 2;
+    name    | supplier_name 
+------------+---------------
+ Headphones | TechCorp
+ Keyboard   | TechCorp
+(2 rows)
+
+RESET paradedb.enable_custom_scan_without_operator;
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================

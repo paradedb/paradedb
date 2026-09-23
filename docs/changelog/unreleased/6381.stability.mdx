@@ -1,5 +1,0 @@
----
-header: stability
----
-
-A query that reads a JSON path now returns NULL for a segment whose documents never carry that key, instead of failing with `` `metadata.brand` is missing or is not configured as columnar ``. A segment writes a column for a JSON path only when one of its documents has the key, so a row inserted after `CREATE INDEX` without the key used to break the scan (#6363).

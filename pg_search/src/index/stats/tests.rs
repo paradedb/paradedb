@@ -19,7 +19,6 @@ mod tests {
     use std::ops::Bound;
 
     use pgrx::prelude::*;
-    use tantivy::Index;
     use tantivy::index::SegmentId;
 
     use super::super::*;
@@ -40,7 +39,7 @@ mod tests {
     /// Every persisted segment's `.stats`, with the tantivy field for `field_name`.
     fn segment_stats(indexrel: &PgSearchRelation, field_name: &str) -> (Field, Vec<SegmentStats>) {
         let directory = MvccSatisfies::Snapshot.directory(indexrel);
-        let index = Index::open(directory.clone()).unwrap();
+        let index = crate::index::open_index(directory.clone()).unwrap();
         let field = index.schema().get_field(field_name).unwrap();
         let stats = index
             .searchable_segments()
@@ -82,7 +81,7 @@ mod tests {
         )
         .unwrap();
         let indexrel = open_index("stats_src_idx");
-        let index = Index::open(MvccSatisfies::Snapshot.directory(&indexrel)).unwrap();
+        let index = crate::index::open_index(MvccSatisfies::Snapshot.directory(&indexrel)).unwrap();
         let schema = index.schema();
         let (_, stats) = segment_stats(&indexrel, "id");
         let [stats] = stats.as_slice() else {
@@ -296,10 +295,8 @@ mod tests {
         let mut pruned_somewhere = false;
         for partition in 0..3 {
             let range = boundaries.partition_range(partition).unwrap();
-            let expected = ranges
-                .iter()
-                .filter(|r| r.intersects(&range.lower, &range.upper))
-                .count();
+            let (lower, upper) = range.values().unwrap();
+            let expected = ranges.iter().filter(|r| r.intersects(lower, upper)).count();
             let chosen = segments_for_partition(&reader, &boundaries, partition);
             assert_eq!(chosen.len(), expected, "partition {partition}");
             pruned_somewhere |= chosen.len() < stats.len();
@@ -405,7 +402,7 @@ mod tests {
                 "its own segment and the unboxed one: {chosen:?}"
             );
             everywhere = Some(match everywhere {
-                None => chosen,
+                None => chosen.into(),
                 Some(prev) => prev.into_iter().filter(|id| chosen.contains(id)).collect(),
             });
         }
@@ -472,7 +469,8 @@ mod tests {
         };
         for partition in 0..4 {
             let range = boundaries.partition_range(partition).unwrap();
-            let expected = if late_row.intersects(&range.lower, &range.upper) {
+            let (lower, upper) = range.values().unwrap();
+            let expected = if late_row.intersects(lower, upper) {
                 2
             } else {
                 1
@@ -575,10 +573,8 @@ mod tests {
         let mut pruned_somewhere = false;
         for partition in 0..3 {
             let range = boundaries.partition_range(partition).unwrap();
-            let expected = ranges
-                .iter()
-                .filter(|r| r.intersects(&range.lower, &range.upper))
-                .count();
+            let (lower, upper) = range.values().unwrap();
+            let expected = ranges.iter().filter(|r| r.intersects(lower, upper)).count();
             let chosen = segments_for_partition(&reader, &boundaries, partition);
             assert_eq!(chosen.len(), expected, "partition {partition}");
             pruned_somewhere |= chosen.len() < stats.len();
@@ -599,6 +595,46 @@ mod tests {
             "#
         ))
         .unwrap();
+    }
+
+    /// A sampled range partition may name a normalized key the build would have refused. Its
+    /// statistics do not order like the split points, so every segment is kept.
+    #[pg_test]
+    fn normalized_text_keys_keep_every_segment() {
+        Spi::run(
+            r#"
+            CREATE TABLE stats_text_norm (id BIGSERIAL PRIMARY KEY, name TEXT);
+            CREATE INDEX stats_text_norm_idx ON stats_text_norm USING paradedb (id, name)
+                WITH (target_segment_count = 8, background_layer_sizes = '0',
+                      text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true, "normalizer": "lowercase"}}');
+            SET paradedb.global_mutable_segment_rows = 0;
+            INSERT INTO stats_text_norm (name) SELECT 'Zed' || i FROM generate_series(1, 10) i;
+            INSERT INTO stats_text_norm (name) SELECT 'alice' || i FROM generate_series(1, 10) i;
+            RESET paradedb.global_mutable_segment_rows;
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("stats_text_norm_idx");
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        assert_eq!(reader.segment_ids().len(), 2);
+        // Lowercased statistics would wrongly place the 'Zed' segment above this split point.
+        let boundaries = RangePartitioning {
+            partition_by: FieldName::from("name"),
+            split_points: vec![PdbOwnedValue::Str("b".into())],
+        };
+        for partition in 0..2 {
+            assert_eq!(
+                segments_for_partition(&reader, &boundaries, partition).len(),
+                2,
+                "partition {partition}"
+            );
+        }
     }
 
     /// Routing compares raw text, but the partition query reads the fast column. A normalizer

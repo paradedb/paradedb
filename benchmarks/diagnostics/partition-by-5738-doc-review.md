@@ -76,10 +76,13 @@ speedup for unrelated queries.
 ## Default range-join change: source audit and required experiment
 
 The current source declares
-`ENABLE_RANGE_PARTITIONED_JOIN` as `GucSetting<bool>::new(false)` in
-`pg_search/src/gucs.rs`, and the joinscan README documents the default as
-`false`. The range-partitioning rule checks this GUC before constructing the
-range plan. Existing benchmark and regression cases set it to `on` explicitly;
+`ENABLE_RANGE_PARTITIONED_JOIN` as `GucSetting<bool>::new(false)` at
+`pg_search/src/gucs.rs:59`, defines the GUC and its “Default is false” help
+text at `pg_search/src/gucs.rs:387-394`, and the joinscan README documents the
+default as `false` at `pg_search/src/postgres/customscan/joinscan/README.md:108-112`.
+The range-partitioning rule checks this GUC before constructing the range plan
+at `pg_search/src/postgres/customscan/joinscan/range_partitioning_rule.rs:301-310`.
+Existing benchmark and regression cases set it to `on` explicitly;
 `join_lateral_unnest.sql` deliberately sets it to `off` as a negative control.
 
 Changing the default is therefore a separate code change, not a benchmark-only
@@ -106,4 +109,3 @@ selected larger size, then add representative post-insert/reindex measurements.
 The call-stack run [36012492217](https://github.com/paradedb/paradedb/actions/runs/36012492217)
 is still collecting `perf record -g` reports; function-level CPU claims must
 wait for that artifact.
-

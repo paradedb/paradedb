@@ -23,6 +23,11 @@
 //! Like `block_tracker`, this is compiled out unless the `io_stats` feature is
 //! enabled, in which case the per-segment counters are merged into the
 //! `Segment Info` JSON shown by `EXPLAIN (ANALYZE, VERBOSE)`.
+//! Base and Tantivy aggregate scans expose component buffer hits during `ExecCustomScan`.
+//! Aggregate scans also report reads and separate parallel-worker measurements.
+
+#[cfg(feature = "io_stats")]
+pub mod trace;
 
 #[cfg(feature = "io_stats")]
 mod imp {
@@ -123,6 +128,7 @@ mod imp {
 
     #[inline]
     pub fn record<R>(component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
+        let _component = super::trace::file_read(component);
         if !ACTIVE.get() {
             return read();
         }

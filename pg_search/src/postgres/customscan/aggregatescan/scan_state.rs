@@ -18,6 +18,8 @@
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::index::reader::index::SearchIndexManifest;
+#[cfg(feature = "io_stats")]
+use crate::index::reader::io_stats::trace::Trace;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
@@ -130,6 +132,8 @@ pub struct WrappedAggregateProjection {
 
 #[derive(Default)]
 pub struct AggregateScanState {
+    #[cfg(feature = "io_stats")]
+    pub io_trace: Trace,
     pub state: ExecutionState,
     pub indexrelid: pg_sys::Oid,
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,

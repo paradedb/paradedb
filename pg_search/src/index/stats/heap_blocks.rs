@@ -56,6 +56,8 @@
 //! `VisibilityChecker` performs the VM comparison once per eligible segment
 //! and snapshot, caches the resulting ranges, and uses them to filter subsequent batches.
 
+#[cfg(feature = "io_stats")]
+use crate::index::reader::io_stats::trace;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
 use std::sync::Arc;
@@ -304,6 +306,8 @@ impl HeapBlockMap {
         docs: u32,
         pages_per_vm: u32,
     ) -> io::Result<Self> {
+        #[cfg(feature = "io_stats")]
+        let _io = trace::external("Visibility Presence");
         let presence = presence.read_bytes()?;
         if presence.len() < HEADER
             || &presence[..4] != b"HBP1"
@@ -543,6 +547,8 @@ impl BoundaryReader {
         {
             return Ok(values.get_val((index % BOUNDARY_CHUNK_SIZE) as u32));
         }
+        #[cfg(feature = "io_stats")]
+        let _io = trace::external("Visibility Boundaries");
         let chunks = self.count.div_ceil(BOUNDARY_CHUNK_SIZE);
         let payload_start = BOUNDARY_HEADER + (chunks + 1) * 8;
         if self.values.is_none() {

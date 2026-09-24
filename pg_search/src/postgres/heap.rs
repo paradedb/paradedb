@@ -25,6 +25,8 @@ use std::sync::Arc;
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, HashMap};
 use crate::index::fast_fields_helper::FFHelper;
+#[cfg(feature = "io_stats")]
+use crate::index::reader::io_stats::trace;
 use crate::index::stats::SegmentStats;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::rel::PgSearchRelation;
@@ -314,6 +316,8 @@ impl VisibilityChecker {
                 // `vm_readbuf` (which can `ereport`), so we MUST go through the guarded
                 // wrapper. This also (re)pins `vmbuff` to the correct mapBlock so the
                 // fast path can be taken on subsequent calls.
+                #[cfg(feature = "io_stats")]
+                let _io = trace::external("Visibility Map");
                 pg_sys::visibilitymap_get_status(self.heaprel.as_ptr(), blockno, &mut self.vmbuff)
             };
 
@@ -351,7 +355,11 @@ impl VisibilityChecker {
             {
                 break 'proof false;
             }
-            let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+            let ctids = {
+                #[cfg(feature = "io_stats")]
+                let _io = trace::external("Visibility Bounds");
+                segment.fast_fields().u64(CTID_FIELD_NAME)?
+            };
             if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc()
             {
                 break 'proof false;
@@ -634,7 +642,11 @@ impl VisibilityChecker {
 
         let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
         raw_ctids.resize(doc_ids.len(), None);
-        ffhelper.ctid(segment_ord).as_u64s(doc_ids, &mut raw_ctids);
+        {
+            #[cfg(feature = "io_stats")]
+            let _io = trace::external("Visibility CTIDs");
+            ffhelper.ctid(segment_ord).as_u64s(doc_ids, &mut raw_ctids);
+        }
 
         if !self.check_visibility {
             results.copy_from_slice(&raw_ctids);
@@ -705,6 +717,8 @@ impl VisibilityChecker {
             let locked_buffer = if needs_heap_check {
                 if current_block != blockno {
                     drop(current_buffer.take());
+                    #[cfg(feature = "io_stats")]
+                    let _io = trace::external("Visibility Heap");
                     current_buffer = Some(self.bman.get_buffer(blockno));
                     current_block = blockno;
                 }
@@ -742,6 +756,8 @@ impl VisibilityChecker {
             None => {
                 if self.cached_heap_block != blockno {
                     drop(self.cached_heap_pin.take());
+                    #[cfg(feature = "io_stats")]
+                    let _io = trace::external("Visibility Heap");
                     self.cached_heap_pin = Some(self.bman.pinned_buffer(blockno));
                     self.cached_heap_block = blockno;
                 }

@@ -52,7 +52,11 @@ use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::agg_result::AggregationResults;
-use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
+use tantivy::aggregation::intermediate_agg_result::{
+    IntermediateAggregationResult, IntermediateAggregationResults, IntermediateBucketResult,
+    IntermediateMetricResult,
+};
+use tantivy::aggregation::metric::{IntermediateCount, IntermediateStats};
 use tantivy::aggregation::{
     AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
 };
@@ -315,12 +319,41 @@ impl<'a> ParallelAggregationWorker<'a> {
             Some(AggregateRequest::Sql(clause)) => clause.use_min_sentinel_fields(),
             _ => HashSet::default(),
         };
+        let bare_doc_count = matches!(
+            self.aggregation.as_ref(),
+            Some(AggregateRequest::Sql(clause)) if clause.is_bare_doc_count()
+        );
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
         let schema = indexrel.schema()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
             set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
+        }
+
+        if bare_doc_count {
+            let count = reader.count_matched_docs(self.config.solve_mvcc)?;
+            let mut results = IntermediateAggregationResults::default();
+            for (name, aggregation) in aggregations {
+                let result = match aggregation.agg {
+                    AggregationVariants::Filter(_) => {
+                        IntermediateAggregationResult::Bucket(IntermediateBucketResult::Filter {
+                            doc_count: count,
+                            sub_aggregations: IntermediateAggregationResults::default(),
+                        })
+                    }
+                    AggregationVariants::Count(_) => IntermediateAggregationResult::Metric(
+                        IntermediateMetricResult::Count(IntermediateCount::from_stats(
+                            IntermediateStats::from_parts(count, 0.0, 0.0, 0.0),
+                        )),
+                    ),
+                    _ => unreachable!(
+                        "bare document counts must be filter or value_count aggregates"
+                    ),
+                };
+                results.push(name, result)?;
+            }
+            return Ok(Some(results));
         }
 
         let nworkers = self.state.launched_workers();
@@ -497,7 +530,7 @@ pub fn execute_aggregate(
             {
                 cell.fill(source);
             }
-            let count = reader.count_matched_docs()?;
+            let count = reader.count_matched_docs(false)?;
             let mut results = AggregationResults::default();
             // Key "0" matches `CollectAggregations::collect`'s enumeration of
             // the single aggregate.
@@ -964,6 +997,10 @@ pub mod interrupt_collector {
     }
 
     impl<C: Collector> InterruptableCollector<C> {
+        pub(crate) fn inner(&self) -> &C {
+            &self.inner
+        }
+
         pub fn new(inner: C) -> Self {
             Self { inner }
         }
@@ -1080,6 +1117,13 @@ pub mod mvcc_collector {
 
     #[allow(clippy::arc_with_non_send_sync)]
     impl<C: Collector> MVCCFilterCollector<C> {
+        pub(crate) fn is_segment_all_visible(
+            &self,
+            segment: &SegmentReader,
+        ) -> tantivy::Result<bool> {
+            self.lock.lock().is_segment_all_visible(segment)
+        }
+
         pub fn new(wrapped: C, vischeck: VisibilityChecker) -> Self {
             Self {
                 inner: wrapped,

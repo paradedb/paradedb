@@ -331,38 +331,38 @@ impl VisibilityChecker {
         {
             return Ok(visible);
         }
-        let visible = self.prove_segment_all_visible(segment)?;
+        // prove segment is all visible
+        let visible = 'proof: {
+            if self.snapshot.is_null()
+                || unsafe { (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC }
+                || !self
+                    .ffhelper
+                    .as_ref()
+                    .is_some_and(|helper| helper.is_immutable_segment(segment.segment_id()))
+                || segment.num_docs() == 0
+            {
+                break 'proof false;
+            }
+            let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+            if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc()
+            {
+                break 'proof false;
+            }
+            let (Ok(first), Ok(last)) = (
+                u32::try_from(ctids.min_value() >> 16),
+                u32::try_from(ctids.max_value() >> 16),
+            ) else {
+                break 'proof false;
+            };
+            let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
+            if vm_pages > 64 {
+                break 'proof false;
+            }
+            // Read CTID bounds before fresh VM bits; FFHelper retains the VACUUM cleanup pin.
+            self.is_range_all_visible(first, last)
+        };
         self.segment_visibility = Some((segment.segment_id(), visible));
         Ok(visible)
-    }
-
-    fn prove_segment_all_visible(&mut self, segment: &SegmentReader) -> tantivy::Result<bool> {
-        if self.snapshot.is_null()
-            || unsafe { (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC }
-            || !self
-                .ffhelper
-                .as_ref()
-                .is_some_and(|helper| helper.is_immutable_segment(segment.segment_id()))
-            || segment.num_docs() == 0
-        {
-            return Ok(false);
-        }
-        let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
-        if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc() {
-            return Ok(false);
-        }
-        let (Ok(first), Ok(last)) = (
-            u32::try_from(ctids.min_value() >> 16),
-            u32::try_from(ctids.max_value() >> 16),
-        ) else {
-            return Ok(false);
-        };
-        let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
-        if vm_pages > 64 {
-            return Ok(false);
-        }
-        // Read CTID bounds before fresh VM bits; FFHelper retains the VACUUM cleanup pin.
-        Ok(self.is_range_all_visible(first, last))
     }
 
     fn is_range_all_visible(

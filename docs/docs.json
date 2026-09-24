@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "[ParadeDB Cloud coming soon: join the waitlist for early access](https://www.paradedb.com/cloud)",
+    "content": "[ParadeDB Cloud is now available in private preview](https://app.paradedb.com)",
     "dismissible": false
   },
   "navigation": {
@@ -543,6 +543,10 @@
   },
   "navbar": {
     "links": [
+      {
+        "label": "Sign Up",
+        "href": "https://app.paradedb.com"
+      },
       {
         "label": "Community",
         "href": "https://paradedb.com/slack"

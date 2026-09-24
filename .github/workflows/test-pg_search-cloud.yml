@@ -58,13 +58,6 @@ jobs:
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 
-      - name: Resolve Runtime Base Image
-        id: base-image
-        run: |
-          image="$GITHUB_REPOSITORY:latest-pg18"
-          docker pull "$image"
-          echo "image=$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')" >> "$GITHUB_OUTPUT"
-
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -85,7 +78,8 @@ jobs:
           context: .
           file: ${{ runner.temp }}/source-image/Dockerfile
           platforms: linux/arm64
-          build-args: BASE_IMAGE=${{ steps.base-image.outputs.image }}
+          build-args: BASE_IMAGE=${{ github.repository }}:latest-pg18
+          pull: true
           push: true
           tags: ${{ steps.image.outputs.tag }}
           cache-from: type=gha,scope=cloud-source-pg18-arm64

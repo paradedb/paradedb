@@ -5,7 +5,9 @@
 # The build context is the repository source at the selected revision.
 
 ARG BASE_IMAGE=paradedb/paradedb:latest-pg18
-FROM ${BASE_IMAGE} AS builder
+FROM ${BASE_IMAGE} AS base
+
+FROM base AS builder
 
 # Build tools stay in this stage; the runtime starts from the clean base image.
 # hadolint ignore=DL3002
@@ -39,7 +41,7 @@ RUN cargo pgrx package --package pg_search --profile release \
     test -s /artifacts/usr/lib/postgresql/18/lib/pg_search.so && \
     test -s /artifacts/usr/share/postgresql/18/extension/pg_search.control
 
-FROM ${BASE_IMAGE} AS runtime
+FROM base AS runtime
 
 # Remove the released extension before installing the source build so old SQL
 # scripts cannot survive the overlay. CREATE EXTENSION then uses only the source

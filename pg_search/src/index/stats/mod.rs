@@ -490,7 +490,7 @@ impl SegmentStats {
             .file
             .open_read_with_idx(field, heap_blocks::BOUNDARIES_IDX)
         else {
-            // Older prototype segments used a different boundary encoding at index 4.
+            // Older prototypes used unchunked boundary encodings at indices 4 and 5.
             return Ok(None);
         };
         heap_blocks::HeapBlockMap::open(presence, boundaries, max_doc, pages_per_vm).map(Some)

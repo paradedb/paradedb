@@ -8,6 +8,7 @@ SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
 SET paradedb.vector_clustering_threshold = 64;
 SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_stats = on;
 CREATE FUNCTION quant_fixture_vector(d integer, n integer)
 RETURNS vector
 LANGUAGE SQL IMMUTABLE PARALLEL SAFE
@@ -505,6 +506,7 @@ BEGIN
     RETURN jsonb_path_exists(plan, 'strict $.**."Segment Info"');
 END;
 $$;
+RESET paradedb.vector_stats;
 SELECT quant_explain_has_segment_info() AS segment_info_shown_by_default;
  segment_info_shown_by_default 
 -------------------------------

@@ -4,6 +4,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 SET paradedb.vector_clustering_threshold = 64;
 SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_stats = on;
 
 CREATE FUNCTION quant_fixture_vector(d integer, n integer)
 RETURNS vector
@@ -459,6 +460,7 @@ BEGIN
 END;
 $$;
 
+RESET paradedb.vector_stats;
 SELECT quant_explain_has_segment_info() AS segment_info_shown_by_default;
 SET paradedb.vector_stats = on;
 SELECT quant_explain_has_segment_info() AS segment_info_shown_with_vector_stats;

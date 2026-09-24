@@ -37,6 +37,10 @@ on:
         options:
           - date
           - unchanged
+      profile_pruning:
+        description: "Capture DataFusion plans and system-wide perf counters for selected pruning cases."
+        type: boolean
+        default: false
       dataset:
         description: "Dataset to benchmark on a manual run. Ignored otherwise: push and the benchmarks/benchmark-stackoverflow labels run stackoverflow; benchmark-cohere-{hnsw,ivfflat} labels run cohere."
         required: true
@@ -565,6 +569,7 @@ jobs:
     with:
       size: 1m
       suite: ${{ inputs.pruning_suite || 'date' }}
+      profile: ${{ inputs.profile_pruning || false }}
     secrets: inherit
 
   pruning-20m:

@@ -8,6 +8,9 @@ on:
       suite:
         type: string
         default: date
+      profile:
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -26,6 +29,7 @@ jobs:
       PR_SHA: ea32cde9a4e0ecc1bc7ac25a6afb51af34cdbbcc
       EXPERIMENT_SIZE: ${{ inputs.size }}
       EXPERIMENT_SUITE: ${{ inputs.suite }}
+      PROFILE_PRUNING: ${{ inputs.profile }}
     steps:
       - uses: actions/checkout@v7
         with:

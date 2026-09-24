@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import shutil
 import statistics
+import subprocess
 import sys
 
 import partition_pruning as paired
@@ -150,6 +151,45 @@ def trace(layout, selected):
     paired.save(f'{layout}-trace-summary.json', summary)
 
 
+PROFILE_CASES = (
+    ('join_foreign_filter_local_sort__range_partitioned', 'users_reputation'),
+    ('join_aggregate_count__range_partitioned', 'users_reputation'),
+    ('filtered_lowcard', 'posts_type'),
+    ('join_semi_filter__range_partitioned', 'comments_score'),
+)
+
+
+def profile_cases(layout, version, selected):
+    """Capture DataFusion plans and system-wide perf counters for selected cases."""
+    wanted = list(PROFILE_CASES) if layout == 'bm25_layout_original' else [
+        (query, arm) for query, arm in PROFILE_CASES if arm in layout
+    ]
+    if not wanted:
+        return
+    for query, _arm in wanted:
+        parts = selected[query]
+        setup = ';\n'.join(parts[:-1])
+        setup = setup + ';\n' if setup else ''
+        sql = setup + parts[-1]
+        stem = f'{layout}-{version}-{query}'
+        plan = paired.psql(
+            setup + 'SET track_io_timing=on; EXPLAIN (ANALYZE, VERBOSE, BUFFERS, SETTINGS) ' + parts[-1]
+        )
+        (paired.OUT / f'{stem}-operator-plan.txt').write_text(plan)
+        command = [
+            'sudo', 'perf', 'stat', '-a', '-x,',
+            '-e', 'cycles,instructions,branches,branch-misses,cache-misses',
+            '-o', str(paired.OUT / f'{stem}-perf.csv'), '--',
+            'sh', '-c',
+            'for i in $(seq 1 15); do psql "$1" -Xq -v ON_ERROR_STOP=1 -c "$2" >/dev/null; done',
+            'profile', paired.URL, sql,
+        ]
+        result = subprocess.run(command, cwd=paired.ROOT, text=True, capture_output=True)
+        (paired.OUT / f'{stem}-perf.stderr').write_text(result.stderr)
+        if result.returncode != 0:
+            raise RuntimeError(f'perf failed for {stem}: {result.stderr}')
+
+
 def layout_summary(samples):
     """Compare layouts within each binary, separately from main-vs-PR effects."""
     baseline = samples['bm25_layout_original']
@@ -214,6 +254,8 @@ def main():
                         paired.save(layout + '-index-identity.json', inventory)
                     assert paired.identity() == inventory, 'Index changed during measurement'
                     results = evidence(label, selected, keys)
+                    if os.environ.get('PROFILE_PRUNING') == 'true':
+                        profile_cases(layout, version, selected)
                     if expected is None:
                         expected = results
                     mismatches = [name for name in expected if expected[name] != results[name]]

@@ -62,6 +62,8 @@ static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(tr
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+static ENABLE_COUNT_BITMAP_UNION: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
     GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
@@ -365,6 +367,15 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_count_bitmap_union",
+        c"Count term unions using bitmap population counts",
+        c"Applies to all-visible segments without index deletions",
+        &ENABLE_COUNT_BITMAP_UNION,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -876,6 +887,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_count_bitmap_union() -> bool {
+    ENABLE_COUNT_BITMAP_UNION.get()
 }
 
 pub fn enable_bitmap_intersection() -> bool {

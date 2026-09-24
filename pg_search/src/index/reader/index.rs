@@ -29,6 +29,7 @@ use crate::api::version::Version;
 use crate::api::{
     CTID_FIELD_NAME, FieldName, HashMap, HashSet, OrderByFeature, OrderByInfo, SortDirection,
 };
+use crate::gucs;
 use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -61,7 +62,9 @@ use tantivy::collector::sort_key::{
 use tantivy::collector::{Collector, Count, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{EnableScoring, QueryClone, QueryParser, TermQuery, Weight};
+use tantivy::query::{
+    BooleanQuery, EnableScoring, Occur, QueryClone, QueryParser, TermQuery, Weight,
+};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
@@ -829,7 +832,15 @@ impl SearchIndexReader {
     pub fn try_count_visible_docs(&self) -> tantivy::Result<Option<usize>> {
         let query = unbox_query(self.query.as_ref());
         let is_term_query = query.is::<TermQuery>();
-        if !is_term_query {
+        let is_term_union = gucs::enable_count_bitmap_union()
+            && query.downcast_ref::<BooleanQuery>().is_some_and(|boolean| {
+                boolean.get_minimum_number_should_match() <= 1
+                    && boolean.clauses().len() >= 2
+                    && boolean.clauses().iter().all(|(occur, clause)| {
+                        *occur == Occur::Should && unbox_query(clause.as_ref()).is::<TermQuery>()
+                    })
+            });
+        if !is_term_query && !is_term_union {
             return Ok(None);
         }
         let heaprel = self
@@ -851,6 +862,18 @@ impl SearchIndexReader {
             let all_visible = all_visible_segments.contains(&segment.segment_id());
             count += if all_visible && is_term_query && segment.alive_bitset().is_none() {
                 weight.count(segment)? as usize
+            } else if all_visible && is_term_union && segment.alive_bitset().is_none() {
+                let mut scorer = weight.scorer(segment, 1.0)?;
+                let mut segment_count = 0;
+                loop {
+                    check_for_interrupts!();
+                    let batch_count = scorer.count_including_deleted_chunk();
+                    if batch_count == 0 {
+                        break;
+                    }
+                    segment_count += batch_count as usize;
+                }
+                segment_count
             } else {
                 filtered.collect_segment(weight.as_ref(), ordinal as SegmentOrdinal, segment)?
             };

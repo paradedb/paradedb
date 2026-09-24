@@ -338,7 +338,8 @@ impl<'a> ParallelAggregationWorker<'a> {
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
-            let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
+            let mvcc_collector =
+                MVCCFilterCollector::new(base_collector, vischeck, reader.all_visible_segments()?);
             reader.collect(InterruptableCollector::new(mvcc_collector))
         } else {
             reader.collect(InterruptableCollector::new(base_collector))
@@ -1065,16 +1066,18 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::api::CTID_FIELD_NAME;
+    use crate::api::{CTID_FIELD_NAME, HashSet};
     use crate::index::fast_fields_helper::FFType;
     #[cfg(feature = "io_stats")]
     use crate::index::reader::io_stats::trace;
     use crate::postgres::heap::VisibilityChecker;
+    use tantivy::index::SegmentId;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
     use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
 
     pub struct MVCCFilterCollector<C: Collector> {
+        all_visible_segments: HashSet<SegmentId>,
         inner: C,
         lock: Arc<Mutex<VisibilityChecker>>,
     }
@@ -1093,22 +1096,29 @@ pub mod mvcc_collector {
         ) -> tantivy::Result<Self::Child> {
             let inner = self.inner.for_segment(segment_local_id, segment)?;
             let requires_scoring = self.inner.requires_scoring();
+            let lock = (!self.all_visible_segments.contains(&segment.segment_id()))
+                .then(|| self.lock.clone());
+            let capacity = if lock.is_some() { BATCH_SIZE } else { 0 };
 
             Ok(MVCCFilterSegmentCollector {
                 inner,
-                lock: self.lock.clone(),
-                ctid_ff: FFType::new(segment.fast_fields(), CTID_FIELD_NAME),
-                doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                ctid_ff: if lock.is_some() {
+                    FFType::new(segment.fast_fields(), CTID_FIELD_NAME)
+                } else {
+                    FFType::Junk
+                },
+                lock,
+                doc_buffer: Vec::with_capacity(capacity),
                 score_buffer: if requires_scoring {
-                    Vec::with_capacity(BATCH_SIZE)
+                    Vec::with_capacity(capacity)
                 } else {
                     Vec::new()
                 },
-                ctids_buffer: Vec::with_capacity(BATCH_SIZE),
-                visibility_buffer: Vec::with_capacity(BATCH_SIZE),
-                filtered_doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                ctids_buffer: Vec::with_capacity(capacity),
+                visibility_buffer: Vec::with_capacity(capacity),
+                filtered_doc_buffer: Vec::with_capacity(capacity),
                 filtered_score_buffer: if requires_scoring {
-                    Vec::with_capacity(BATCH_SIZE)
+                    Vec::with_capacity(capacity)
                 } else {
                     Vec::new()
                 },
@@ -1130,8 +1140,13 @@ pub mod mvcc_collector {
 
     #[allow(clippy::arc_with_non_send_sync)]
     impl<C: Collector> MVCCFilterCollector<C> {
-        pub fn new(wrapped: C, vischeck: VisibilityChecker) -> Self {
+        pub fn new(
+            wrapped: C,
+            vischeck: VisibilityChecker,
+            all_visible_segments: HashSet<SegmentId>,
+        ) -> Self {
             Self {
+                all_visible_segments,
                 inner: wrapped,
                 lock: Arc::new(Mutex::new(vischeck)),
             }
@@ -1140,7 +1155,7 @@ pub mod mvcc_collector {
 
     pub struct MVCCFilterSegmentCollector<SC: SegmentCollector> {
         inner: SC,
-        lock: Arc<Mutex<VisibilityChecker>>,
+        lock: Option<Arc<Mutex<VisibilityChecker>>>,
         ctid_ff: FFType,
 
         // Incoming buffers
@@ -1176,7 +1191,11 @@ pub mod mvcc_collector {
             }
 
             // Determine which ctids are visible.
-            let mut vischeck = self.lock.lock();
+            let mut vischeck = self
+                .lock
+                .as_ref()
+                .expect("buffered docs need visibility checks")
+                .lock();
             self.visibility_buffer.resize(self.doc_buffer.len(), None);
             {
                 #[cfg(feature = "io_stats")]
@@ -1226,6 +1245,10 @@ pub mod mvcc_collector {
         type Fruit = SC::Fruit;
 
         fn collect(&mut self, doc: DocId, score: Score) {
+            if self.lock.is_none() {
+                self.inner.collect(doc, score);
+                return;
+            }
             self.doc_buffer.push(doc);
             if self.requires_scoring {
                 self.score_buffer.push(score);
@@ -1237,6 +1260,10 @@ pub mod mvcc_collector {
         }
 
         fn collect_block(&mut self, docs: &[DocId]) {
+            if self.lock.is_none() {
+                self.inner.collect_block(docs);
+                return;
+            }
             self.doc_buffer.extend_from_slice(docs);
             if self.requires_scoring {
                 // collect_block does not provide scores, but we must maintain score_buffer alignment.

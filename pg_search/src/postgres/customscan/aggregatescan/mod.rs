@@ -879,7 +879,11 @@ impl CustomScan for AggregateScan {
             for (label, values) in [
                 ("Buffer Hits", trace.hits()),
                 ("Buffer Reads", trace.reads()),
+                ("Count Segments", trace.count_segments()),
             ] {
+                if values.is_empty() {
+                    continue;
+                }
                 explainer.add_group(label, |explainer| {
                     for (component, count) in values {
                         explainer.add_unsigned_integer(&component, count, None);
@@ -888,9 +892,14 @@ impl CustomScan for AggregateScan {
             }
             for (worker, data) in trace.workers() {
                 explainer.add_group(&format!("Worker {worker}"), |explainer| {
-                    for (label, values) in
-                        [("Buffer Hits", data.hits()), ("Buffer Reads", data.reads())]
-                    {
+                    for (label, values) in [
+                        ("Buffer Hits", data.hits()),
+                        ("Buffer Reads", data.reads()),
+                        ("Count Segments", data.count_segments()),
+                    ] {
+                        if values.is_empty() {
+                            continue;
+                        }
                         explainer.add_group(label, |explainer| {
                             for (component, count) in values {
                                 explainer.add_unsigned_integer(&component, count, None);

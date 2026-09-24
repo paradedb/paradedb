@@ -50,6 +50,7 @@ pub struct Data {
     total: Counts,
     components: BTreeMap<String, Counts>,
     workers: BTreeMap<usize, Data>,
+    count_segments: BTreeMap<String, u64>,
 }
 
 impl Data {
@@ -75,6 +76,13 @@ impl Data {
         self.values(|counts| counts.reads)
     }
 
+    pub fn count_segments(&self) -> Vec<(String, u64)> {
+        self.count_segments
+            .iter()
+            .map(|(label, count)| (label.clone(), *count))
+            .collect()
+    }
+
     fn merge(&mut self, other: Self) {
         self.total.add(other.total);
         for (component, counts) in other.components {
@@ -82,6 +90,9 @@ impl Data {
         }
         for (worker, data) in other.workers {
             self.workers.entry(worker).or_default().merge(data);
+        }
+        for (label, count) in other.count_segments {
+            *self.count_segments.entry(label).or_default() += count;
         }
     }
 }
@@ -178,6 +189,10 @@ impl Trace {
         self.0.borrow().clone()
     }
 
+    pub fn count_segments(&self) -> Vec<(String, u64)> {
+        self.0.borrow().count_segments()
+    }
+
     pub fn workers(&self) -> BTreeMap<usize, Data> {
         self.0.borrow().workers.clone()
     }
@@ -193,6 +208,24 @@ pub fn add_worker(worker: usize, data: Data) {
                 .entry(worker)
                 .or_default()
                 .merge(data);
+        }
+    });
+}
+
+pub fn count_segment(all_visible: bool) {
+    ACTIVE.with_borrow(|active| {
+        if let Some(context) = active {
+            let label = if all_visible {
+                "All Visible"
+            } else {
+                "MVCC Checked"
+            };
+            *context
+                .data
+                .borrow_mut()
+                .count_segments
+                .entry(label.into())
+                .or_default() += 1;
         }
     });
 }

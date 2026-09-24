@@ -25,8 +25,11 @@ use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuff
 use crate::postgres::utils;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use pgrx::pg_sys;
-use pgrx::{PgList, PgTupleDesc};
+use pgrx::{PgList, PgTupleDesc, check_for_interrupts};
 use tantivy::TantivyDocument;
+
+use util::HEAPBLOCKS_PER_BYTE;
+pub(crate) use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
 
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
@@ -267,6 +270,47 @@ impl VisibilityChecker {
             self.blockvis.1 = status != 0;
         }
         self.blockvis.1
+    }
+
+    pub(crate) fn is_range_all_visible(
+        &mut self,
+        first: pg_sys::BlockNumber,
+        last: pg_sys::BlockNumber,
+    ) -> bool {
+        if first > last || last >= self.nblocks {
+            return false;
+        }
+        const VISIBLE_MASK: u8 = (u8::MAX as u32 / ((1 << pg_sys::BITS_PER_HEAPBLOCK) - 1)
+            * pg_sys::VISIBILITYMAP_ALL_VISIBLE) as u8;
+        self.blockvis = (pg_sys::InvalidBlockNumber, false);
+        let mut block = first;
+        while block <= last {
+            check_for_interrupts!();
+            if !self.is_block_all_visible(block) {
+                return false;
+            }
+            if !block.is_multiple_of(HEAPBLOCKS_PER_BYTE) || last - block < HEAPBLOCKS_PER_BYTE - 1
+            {
+                block += 1;
+                continue;
+            }
+            let local_block = block % HEAPBLOCKS_PER_VM_PAGE;
+            let bytes =
+                (last - block + 1).min(HEAPBLOCKS_PER_VM_PAGE - local_block) / HEAPBLOCKS_PER_BYTE;
+            // is_block_all_visible pins the VM page; only scan complete bytes in our range.
+            unsafe {
+                let map = pg_sys::PageGetContents(pg_sys::BufferGetPage(self.vmbuff))
+                    .cast::<u8>()
+                    .add((local_block / HEAPBLOCKS_PER_BYTE) as usize);
+                for byte in 0..bytes as usize {
+                    if map.add(byte).read_volatile() & VISIBLE_MASK != VISIBLE_MASK {
+                        return false;
+                    }
+                }
+            }
+            block += bytes * HEAPBLOCKS_PER_BYTE;
+        }
+        true
     }
 
     /// Single-ctid visibility check for callers probing one doc at a time

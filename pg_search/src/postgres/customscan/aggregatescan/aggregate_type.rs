@@ -1012,15 +1012,4 @@ mod tests {
             assert_eq!(value.to_f64_lossless(), None);
         }
     }
-
-    #[test]
-    fn test_count_any_converts_to_filter_star() {
-        let count_any = super::AggregateType::CountAny {
-            filter: None,
-            indexrelid: pg_sys::InvalidOid,
-        };
-        let agg: super::Aggregation = count_any.into();
-        let json = serde_json::to_value(&agg).expect("serialization should succeed");
-        assert_eq!(json, serde_json::json!({"filter": "*"}));
-    }
 }

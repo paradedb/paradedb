@@ -19,7 +19,8 @@
 //! return the same rows, in the same order, as the default `SortExec` Top-K path.
 //! Each query runs with the GUC off and then on, and the row vectors are compared,
 //! both serially and under MPP, where the aggregate splits into a Partial per
-//! worker and a Final on the leader.
+//! worker and a Final on the leader. DISTINCT queries run too, where the GUC-on
+//! path absorbs the DISTINCT into the aggregate instead of a GROUP BY.
 
 use rstest::*;
 use sqlx::PgConnection;
@@ -176,6 +177,52 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
         JOIN tka_t2 t2 ON t1.id = t2.t1_id
         WHERE t1.val ||| 'val 42 77'
         ORDER BY paradedb.score(t1.id) DESC, t1.id ASC, t2.id ASC
+        LIMIT 8
+        "#,
+        8,
+    );
+
+    // DISTINCT: each t1 row joins two t2 rows, so every (id, rating) pair
+    // appears twice before deduplication. With the GUC on, the DISTINCT is
+    // absorbed into the Top-K aggregate instead of running as a GROUP BY.
+    assert_paths_agree::<(i32, Option<i32>)>(
+        &mut conn,
+        r#"
+        SELECT DISTINCT t1.id, t1.rating
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.rating DESC NULLS FIRST, t1.id ASC
+        OFFSET 3 LIMIT 10
+        "#,
+        10,
+    );
+
+    // DISTINCT over heavily repeated keys from both sides: six rating values
+    // including NULL by eleven qty values, so the distinct set is far smaller
+    // than the join and every group has many duplicates to collapse.
+    assert_paths_agree::<(Option<i32>, i32)>(
+        &mut conn,
+        r#"
+        SELECT DISTINCT t1.rating, t2.qty
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.rating DESC NULLS FIRST, t2.qty ASC
+        LIMIT 12
+        "#,
+        12,
+    );
+
+    // DISTINCT with a score in the key and in the ORDER BY.
+    assert_paths_agree::<(i32, f32)>(
+        &mut conn,
+        r#"
+        SELECT DISTINCT t1.id, paradedb.score(t1.id)
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val 42 77'
+        ORDER BY paradedb.score(t1.id) DESC, t1.id ASC
         LIMIT 8
         "#,
         8,

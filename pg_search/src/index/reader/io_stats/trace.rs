@@ -16,23 +16,81 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::pg_sys;
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::ptr::addr_of;
 use std::rc::Rc;
 use tantivy::index::SegmentComponent;
 
 type SharedData = Rc<RefCell<Data>>;
 
-#[derive(Default)]
-struct Data {
-    total: u64,
-    components: BTreeMap<String, u64>,
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+struct Counts {
+    hits: u64,
+    reads: u64,
+}
+
+impl Counts {
+    fn since(self, before: Self) -> Self {
+        Self {
+            hits: self.hits.saturating_sub(before.hits),
+            reads: self.reads.saturating_sub(before.reads),
+        }
+    }
+
+    fn add(&mut self, other: Self) {
+        self.hits += other.hits;
+        self.reads += other.reads;
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct Data {
+    total: Counts,
+    components: BTreeMap<String, Counts>,
+    workers: BTreeMap<usize, Data>,
+}
+
+impl Data {
+    fn values(&self, select: impl Fn(Counts) -> u64) -> Vec<(String, u64)> {
+        let total = select(self.total);
+        let mut values = vec![("Total".into(), total)];
+        values.extend(self.components.iter().filter_map(|(component, counts)| {
+            let value = select(*counts);
+            (value > 0).then(|| (component.clone(), value))
+        }));
+        let other = total.saturating_sub(self.components.values().copied().map(select).sum());
+        if other > 0 {
+            values.push(("Other".into(), other));
+        }
+        values
+    }
+
+    pub fn hits(&self) -> Vec<(String, u64)> {
+        self.values(|counts| counts.hits)
+    }
+
+    pub fn reads(&self) -> Vec<(String, u64)> {
+        self.values(|counts| counts.reads)
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.total.add(other.total);
+        for (component, counts) in other.components {
+            self.components.entry(component).or_default().add(counts);
+        }
+        for (worker, data) in other.workers {
+            self.workers.entry(worker).or_default().merge(data);
+        }
+    }
 }
 
 #[derive(Clone)]
 struct Context {
     data: SharedData,
     component: String,
+    columnar: &'static str,
 }
 
 thread_local! {
@@ -44,31 +102,33 @@ pub struct Trace(SharedData);
 
 pub struct Scope {
     previous: Option<Context>,
-    total: Option<(SharedData, i64)>,
+    total: Option<(SharedData, Counts)>,
 }
 
 pub struct External {
     context: Option<Context>,
-    before: i64,
+    before: Counts,
     name: &'static str,
 }
 
 impl Drop for External {
     fn drop(&mut self) {
         if let Some(context) = &self.context {
-            *context
+            context
                 .data
                 .borrow_mut()
                 .components
                 .entry(self.name.into())
-                .or_default() += snapshot().saturating_sub(self.before) as u64;
+                .or_default()
+                .add(snapshot().since(self.before));
         }
+        ACTIVE.set(self.context.take());
     }
 }
 
 pub fn external(name: &'static str) -> External {
     External {
-        context: ACTIVE.with_borrow(Clone::clone),
+        context: ACTIVE.take(),
         before: snapshot(),
         name,
     }
@@ -77,14 +137,20 @@ pub fn external(name: &'static str) -> External {
 impl Drop for Scope {
     fn drop(&mut self) {
         if let Some((data, before)) = &self.total {
-            data.borrow_mut().total += snapshot().saturating_sub(*before) as u64;
+            data.borrow_mut().total.add(snapshot().since(*before));
         }
         ACTIVE.set(self.previous.take());
     }
 }
 
-fn snapshot() -> i64 {
-    unsafe { std::ptr::addr_of!(pg_sys::pgBufferUsage.shared_blks_hit).read() }
+fn snapshot() -> Counts {
+    unsafe {
+        let usage = addr_of!(pg_sys::pgBufferUsage).read();
+        Counts {
+            hits: usage.shared_blks_hit as u64,
+            reads: usage.shared_blks_read as u64,
+        }
+    }
 }
 
 impl Trace {
@@ -92,6 +158,7 @@ impl Trace {
         let previous = ACTIVE.replace(Some(Context {
             data: self.0.clone(),
             component: "Metadata".into(),
+            columnar: "Columnar Fields",
         }));
         Scope {
             previous,
@@ -100,19 +167,47 @@ impl Trace {
     }
 
     pub fn hits(&self) -> Vec<(String, u64)> {
-        let data = self.0.borrow();
-        let mut hits = vec![("Total".into(), data.total)];
-        hits.extend(
-            data.components
-                .iter()
-                .filter(|(_, hits)| **hits > 0)
-                .map(|(component, hits)| (component.clone(), *hits)),
-        );
-        let other = data.total.saturating_sub(data.components.values().sum());
-        if other > 0 {
-            hits.push(("Other".into(), other));
+        self.0.borrow().hits()
+    }
+
+    pub fn reads(&self) -> Vec<(String, u64)> {
+        self.0.borrow().reads()
+    }
+
+    pub fn data(&self) -> Data {
+        self.0.borrow().clone()
+    }
+
+    pub fn workers(&self) -> BTreeMap<usize, Data> {
+        self.0.borrow().workers.clone()
+    }
+}
+
+pub fn add_worker(worker: usize, data: Data) {
+    ACTIVE.with_borrow(|active| {
+        if let Some(context) = active {
+            context
+                .data
+                .borrow_mut()
+                .workers
+                .entry(worker)
+                .or_default()
+                .merge(data);
         }
-        hits
+    });
+}
+
+pub fn columnar(name: &'static str) -> Scope {
+    let previous = ACTIVE.with_borrow_mut(|active| {
+        let previous = active.clone();
+        if let Some(context) = active {
+            context.columnar = name;
+        }
+        previous
+    });
+    Scope {
+        previous,
+        total: None,
     }
 }
 
@@ -123,12 +218,13 @@ pub fn buffer<R>(read: impl FnOnce() -> R) -> R {
     };
     let before = snapshot();
     let result = read();
-    *context
+    context
         .data
         .borrow_mut()
         .components
         .entry(context.component)
-        .or_default() += snapshot().saturating_sub(before) as u64;
+        .or_default()
+        .add(snapshot().since(before));
     result
 }
 
@@ -143,7 +239,7 @@ pub fn file_read(component: &SegmentComponent) -> Scope {
                 "fieldnorm" => "Field Norms",
                 "pnorm" => "Posting Norms",
                 "bpnorm" => "Packed Posting Norms",
-                "fast" => "Columnar Fields",
+                "fast" => context.columnar,
                 "store" => "Document Store",
                 "temp" => "Temporary Store",
                 "del" => "Liveness Bitmap",

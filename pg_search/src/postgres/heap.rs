@@ -21,6 +21,8 @@ use std::sync::Arc;
 
 use crate::api::version::Version;
 use crate::index::fast_fields_helper::{FFHelper, TidReader};
+#[cfg(feature = "io_stats")]
+use crate::index::reader::io_stats::trace;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
@@ -130,10 +132,14 @@ impl<'a> TidBatch<'a> {
 
         match reader {
             TidReader::Legacy(col) => {
+                #[cfg(feature = "io_stats")]
+                let _io = trace::columnar("Visibility CTIDs");
                 scratch.legacy_ctids.resize(docs.len(), None);
                 col.first_vals(docs, scratch.legacy_ctids.as_mut_slice());
             }
             TidReader::Split { block, .. } => {
+                #[cfg(feature = "io_stats")]
+                let _io = trace::columnar("Visibility Blocks");
                 scratch.blocks.resize(docs.len(), 0);
                 block.u32_vals(docs, scratch.blocks.as_mut_slice());
             }
@@ -249,6 +255,8 @@ impl<'a> TidBatch<'a> {
         if !self.is_split || self.has_read_all_offsets || self.scratch.missed.is_empty() {
             return;
         }
+        #[cfg(feature = "io_stats")]
+        let _io = trace::columnar("Visibility Offsets");
         let TidReader::Split { offset, .. } = self.reader else {
             unreachable!()
         };
@@ -301,6 +309,8 @@ impl<'a> TidBatch<'a> {
         if !self.is_split || self.has_read_all_offsets {
             return;
         }
+        #[cfg(feature = "io_stats")]
+        let _io = trace::columnar("Visibility Offsets");
         let TidReader::Split { offset, .. } = self.reader else {
             unreachable!()
         };
@@ -522,6 +532,8 @@ impl VisibilityChecker {
         if blockno == self.blockvis.0 {
             return self.blockvis.1;
         }
+        #[cfg(feature = "io_stats")]
+        let _io = trace::external("Visibility Map");
         self.blockvis.0 = blockno;
 
         let vm_block_no = blockno / util::HEAPBLOCKS_PER_PAGE;
@@ -720,6 +732,8 @@ impl VisibilityChecker {
             batch.read_missed_offsets();
             batch.sort_missed_by_block();
 
+            #[cfg(feature = "io_stats")]
+            let _io = trace::external("Visibility Heap");
             let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
             let mut current_block = pg_sys::InvalidBlockNumber;
 

@@ -23,8 +23,8 @@
 //! Like `block_tracker`, this is compiled out unless the `io_stats` feature is
 //! enabled, in which case the per-segment counters are merged into the
 //! `Segment Info` JSON shown by `EXPLAIN (ANALYZE, VERBOSE)`.
-//! Base scans also expose a `Buffer Hits` breakdown for component accesses during
-//! `ExecCustomScan`, including reader setup and heap visibility checks.
+//! Base and Tantivy aggregate scans expose component buffer hits during `ExecCustomScan`.
+//! Aggregate scans also report reads and separate parallel-worker measurements.
 
 #[cfg(feature = "io_stats")]
 pub mod trace;

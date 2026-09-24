@@ -873,6 +873,34 @@ impl CustomScan for AggregateScan {
             .aggregate_clause
             .add_to_explainer(explainer);
 
+        #[cfg(feature = "io_stats")]
+        if explainer.is_analyze() && explainer.is_verbose() {
+            let trace = &state.custom_state().io_trace;
+            for (label, values) in [
+                ("Buffer Hits", trace.hits()),
+                ("Buffer Reads", trace.reads()),
+            ] {
+                explainer.add_group(label, |explainer| {
+                    for (component, count) in values {
+                        explainer.add_unsigned_integer(&component, count, None);
+                    }
+                });
+            }
+            for (worker, data) in trace.workers() {
+                explainer.add_group(&format!("Worker {worker}"), |explainer| {
+                    for (label, values) in
+                        [("Buffer Hits", data.hits()), ("Buffer Reads", data.reads())]
+                    {
+                        explainer.add_group(label, |explainer| {
+                            for (component, count) in values {
+                                explainer.add_unsigned_integer(&component, count, None);
+                            }
+                        });
+                    }
+                });
+            }
+        }
+
         // Add note about recursive cost estimation if GUC is enabled
         if gucs::explain_recursive_estimates() && explainer.is_verbose() {
             explainer.add_text(
@@ -973,6 +1001,8 @@ impl CustomScan for AggregateScan {
         if state.custom_state().is_datafusion_backend() {
             Self::exec_datafusion_aggregate(state)
         } else {
+            #[cfg(feature = "io_stats")]
+            let _io = state.custom_state().io_trace.enter();
             Self::exec_tantivy_aggregate(state)
         }
     }

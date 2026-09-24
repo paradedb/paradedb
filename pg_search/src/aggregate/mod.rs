@@ -1140,7 +1140,7 @@ pub mod mvcc_collector {
         doc_buffer: Vec<DocId>,
         score_buffer: Vec<Score>,
 
-        // Processing buffers
+        // Entry i records whether doc_buffer[i] is visible to the query snapshot.
         visibility_buffer: Vec<bool>,
 
         // Outgoing buffers

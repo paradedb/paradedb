@@ -65,7 +65,7 @@ WHERE v.vector_format = 'ivf';
 
 -- ...and the per-cluster sizes are memberships, which under primary-only
 -- assignment total exactly the distinct-doc count.
-SELECT sum(vector_total_memberships) = sum(vector_num_vectors)
+SELECT sum(vector_total_rows) = sum(vector_num_vectors)
          AS cluster_sizes_are_memberships
 FROM paradedb.vector_info('remerge_idx', 'vec')
 WHERE vector_format = 'ivf';

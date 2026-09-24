@@ -25,7 +25,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -34,7 +34,7 @@ use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
 use crate::index::stats::PartitionSegments;
-use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::heap::{HEAPBLOCKS_PER_VM_PAGE, VisibilityChecker};
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
@@ -49,6 +49,7 @@ use crate::scan::info::RowEstimate;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::Result;
+use pgrx::pg_sys;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::collector::sort_key::{
@@ -56,6 +57,7 @@ use tantivy::collector::sort_key::{
     SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
+use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
@@ -811,6 +813,57 @@ impl SearchIndexReader {
     /// [`SegmentPins`].
     pub fn segment_pins(&self) -> SegmentPins {
         self.directory.segment_pins()
+    }
+
+    pub fn all_visible_segments(&self) -> tantivy::Result<HashSet<SegmentId>> {
+        let mut all_visible = HashSet::default();
+        for (_, segment) in self.candidate_segment_readers() {
+            if self.is_all_visible(segment)? {
+                all_visible.insert(segment.segment_id());
+            }
+        }
+        Ok(all_visible)
+    }
+
+    /// Prove that an immutable segment's heap range is visible to the active MVCC snapshot.
+    /// A false result means that individual tuples still need visibility checks.
+    pub fn is_all_visible(&self, segment: &SegmentReader) -> tantivy::Result<bool> {
+        if !unsafe { pg_sys::ActiveSnapshotSet() } {
+            return Ok(false);
+        }
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        if unsafe { (*snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC }
+            || self.directory.is_mutable(&segment.segment_id())
+        {
+            return Ok(false);
+        }
+        if segment.num_docs() == 0 {
+            return Ok(false);
+        }
+        let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+        if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc() {
+            return Ok(false);
+        }
+        let (Ok(first), Ok(last)) = (
+            u32::try_from(ctids.min_value() >> 16),
+            u32::try_from(ctids.max_value() >> 16),
+        ) else {
+            return Ok(false);
+        };
+        // Bound speculative VM work to 512 KiB with standard 8 KiB pages.
+        let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
+        if vm_pages > 64 {
+            return Ok(false);
+        }
+
+        // Read CTID bounds before fresh VM bits. Our cleanup pin prevents VACUUM from
+        // retiring these index entries before publishing all-visible bits.
+        let heaprel = self
+            .index_rel
+            .heap_relation()
+            .expect("index should belong to a heap relation");
+        let mut visibility = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
+        Ok(visibility.is_range_all_visible(first, last))
     }
 
     pub fn need_scores(&self) -> bool {
@@ -2088,7 +2141,12 @@ impl SearchIndexReader {
 
         // Optionally wrap in MVCC visibility filtering, if requested.
         if let Some(vischeck) = aux_collector.vischeck {
-            let collector = MVCCFilterCollector::new(compound_collector, vischeck);
+            let collector = MVCCFilterCollector::new(
+                compound_collector,
+                vischeck,
+                self.all_visible_segments()
+                    .expect("segment visibility check should succeed"),
+            );
             let fruits = self.collect_segment_readers(readers, &collector, weight.as_ref());
             let (top_docs, aggregation_results) = collector
                 .merge_fruits(fruits)

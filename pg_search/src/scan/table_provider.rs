@@ -532,6 +532,7 @@ impl PgSearchTableProvider {
         ffhelper: Arc<FFHelper>,
         partition_count: usize,
         parallel_state: Option<*mut ParallelScanState>,
+        stats_attnos: Vec<Option<i16>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let deferred = self.deferred_fields();
         let deferred_ctid_plan_position = self.deferred_ctid_plan_position();
@@ -565,6 +566,7 @@ impl PgSearchTableProvider {
                 partition_count,
                 parallel_state,
                 self.range_split_points.clone(),
+                stats_attnos,
             )
             .with_table_alias(table_alias),
         ))
@@ -597,6 +599,7 @@ impl PgSearchTableProvider {
         planner_estimated_rows: u64,
         source_idx: Option<usize>,
         partition_count: usize,
+        stats_attnos: Vec<Option<i16>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let which_fast_fields = if self.is_deferred_visibility_active() {
             which_fast_fields
@@ -637,6 +640,7 @@ impl PgSearchTableProvider {
             table_ffhelper,
             partition_count,
             parallel_state,
+            stats_attnos,
         )
     }
 }
@@ -727,6 +731,28 @@ impl PgSearchTableProvider {
         };
 
         let (projected_fields, projected_schema) = self.projected_fields_and_schema(projection)?;
+
+        // Build stats_attnos: map each output schema column to its heap attnum for pg_statistic NDV lookup.
+        // Use index options attributes which map field names to heap attnums.
+        // FieldSource::Heap { attno } is zero-based (heap_attno-1, see postgres/utils.rs:766), while pg_statistic needs 1-based attnum.
+        let index_rel = PgSearchRelation::open(self.scan_info.indexrelid);
+        let stats_attnos: Vec<Option<i16>> = projected_schema
+            .fields()
+            .iter()
+            .map(|field| {
+                index_rel
+                    .options()
+                    .attributes()
+                    .get(&crate::api::FieldName::from(field.name().as_str()))
+                    .and_then(|attr| match &attr.source {
+                        crate::postgres::utils::FieldSource::Heap { attno } => {
+                            Some((*attno + 1) as i16)
+                        }
+                        _ => None,
+                    })
+            })
+            .collect();
+
         let heap_relid = self.scan_info.heaprelid;
         let index_relid = self.scan_info.indexrelid;
         let expr_context = self.expr_context;
@@ -845,6 +871,7 @@ impl PgSearchTableProvider {
             total_estimated_rows,
             self.source_idx,
             partition_count,
+            stats_attnos,
         )
     }
 }

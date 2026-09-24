@@ -27,6 +27,7 @@ pub mod utils;
 use async_std::task::block_on;
 use rstest::*;
 use sqlx::{self, PgConnection};
+use std::cell::RefCell;
 use std::sync::Once;
 
 pub use crate::fixtures::db::*;
@@ -66,10 +67,28 @@ pub fn pg_major_version(conn: &mut PgConnection) -> usize {
         .0 as usize
 }
 
+// Owner of the `Db` backing the `conn` fixture on this thread.
+//
+// rstest evaluates each fixture injection point independently, so `conn`
+// cannot borrow the test's `database` fixture value: the `Db` it connects
+// to must be owned here. It stays alive for the whole test (keeping the
+// test's connection valid) and is replaced — dropping the predecessor and
+// running its synchronous cleanup — at the next fixture setup on this
+// thread, or at thread exit. Replacement is always safe: the predecessor's
+// test has ended and its connections are long dead.
+thread_local! {
+    static CONN_DB: RefCell<Option<Db>> = const { RefCell::new(None) };
+}
+
 #[fixture]
-pub fn conn(database: Db) -> PgConnection {
+pub fn conn() -> PgConnection {
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+        .try_init();
+    ensure_dst_init();
     block_on(async {
-        let mut conn = database.connection().await;
+        // A fresh database per test: never reuse the predecessor slot.
+        let db = Db::new().await;
+        let mut conn = db.connection().await;
 
         // pg_search uses pgvector's types for vector fields in ParadeDB indexes, so
         // pgvector must be available first. CASCADE installs it automatically.
@@ -95,6 +114,9 @@ pub fn conn(database: Db) -> PgConnection {
             .await
             .expect("could not set long-running-statement logging");
 
+        // Retain ownership (see CONN_DB): dropping `db` here would run
+        // synchronous cleanup underneath the connection just built.
+        CONN_DB.with(|cell| *cell.borrow_mut() = Some(db));
         conn
     })
 }

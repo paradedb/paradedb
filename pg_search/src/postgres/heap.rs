@@ -478,7 +478,7 @@ impl VisibilityChecker {
             return Ok(None);
         }
         let ffhelper = self.ffhelper.clone().expect("FFHelper must be configured");
-        let Some(segment) = ffhelper.immutable_segment(segment_ord) else {
+        let Some(segment) = ffhelper.immutable_segment_reader(segment_ord) else {
             return Ok(None);
         };
         let Some(stats) = SegmentStats::of_reader(segment)? else {

@@ -209,7 +209,11 @@
   },
   {
     "source": "/documentation/sorting/boost",
-    "destination": "/reference/full-text/boost"
+    "destination": "/reference/full-text/relevance-tuning"
+  },
+  {
+    "source": "/reference/full-text/boost",
+    "destination": "/reference/full-text/relevance-tuning"
   },
   {
     "source": "/documentation/full-text/highlight",
@@ -462,6 +466,10 @@
   {
     "source": "/deploy/ci/gitlab-ci",
     "destination": "/operate/deploy/ci/gitlab-ci"
+  },
+  {
+    "source": "/changelog/0.25.10",
+    "destination": "/project/changelog/0.25.10"
   },
   {
     "source": "/changelog/0.25.9",

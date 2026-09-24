@@ -34,7 +34,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
-      - retry=when-interrupted
+      - spot=false # Disable spot instances for publish jobs to make sure they don't fail
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
@@ -54,8 +54,8 @@ jobs:
             os_codename: resolute
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: ubuntu:26.04
             pg_version: 15
             arch: amd64
@@ -64,7 +64,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: ubuntu:26.04
             pg_version: 15
             arch: arm64
@@ -72,8 +72,8 @@ jobs:
             os_codename: resolute
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: ubuntu:26.04
             pg_version: 16
             arch: amd64
@@ -82,7 +82,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: ubuntu:26.04
             pg_version: 16
             arch: arm64
@@ -90,8 +90,8 @@ jobs:
             os_codename: resolute
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: ubuntu:26.04
             pg_version: 17
             arch: amd64
@@ -100,7 +100,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: ubuntu:26.04
             pg_version: 17
             arch: arm64
@@ -108,8 +108,8 @@ jobs:
             os_codename: resolute
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: ubuntu:26.04
             pg_version: 18
             arch: amd64
@@ -118,7 +118,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: ubuntu:26.04
             pg_version: 18
             arch: arm64
@@ -127,8 +127,8 @@ jobs:
             os_codename: noble
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: ubuntu:24.04
             pg_version: 15
             arch: amd64
@@ -137,7 +137,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: ubuntu:24.04
             pg_version: 15
             arch: arm64
@@ -145,8 +145,8 @@ jobs:
             os_codename: noble
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: ubuntu:24.04
             pg_version: 16
             arch: amd64
@@ -155,7 +155,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: ubuntu:24.04
             pg_version: 16
             arch: arm64
@@ -163,8 +163,8 @@ jobs:
             os_codename: noble
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: ubuntu:24.04
             pg_version: 17
             arch: amd64
@@ -173,7 +173,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: ubuntu:24.04
             pg_version: 17
             arch: arm64
@@ -181,8 +181,8 @@ jobs:
             os_codename: noble
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: ubuntu:24.04
             pg_version: 18
             arch: amd64
@@ -191,14 +191,14 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: ubuntu:24.04
             pg_version: 18
             arch: arm64
 
     steps:
       - name: Install Dependencies
-        uses: paradedb/actions/apt-install@v13
+        uses: paradedb/actions/apt-install@v14
         with:
           packages: >-
             sudo wget git ca-certificates curl gnupg gpg lsb-release
@@ -214,7 +214,7 @@ jobs:
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
       - name: Install GitHub CLI
-        uses: paradedb/actions/apt-install@v13
+        uses: paradedb/actions/apt-install@v14
         with:
           packages: gh
 
@@ -394,7 +394,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: failure()
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

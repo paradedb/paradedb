@@ -48,7 +48,7 @@ SELECT count(*) FROM tbl_ltree WHERE category @@@ pdb.term('Top.Science.Biology'
    Index: idx_ltree
    Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Top.Science.Biology"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 -- Test sorting by ltree column (lexicographic order)

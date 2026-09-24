@@ -211,6 +211,22 @@ impl From<MetricResult> for AggregateResult {
     }
 }
 
+fn metric_or_filter_to_aggregate_result(
+    result: &TantivyAggregationResult,
+) -> Option<AggregateResult> {
+    match result {
+        TantivyAggregationResult::MetricResult(metric) => Some(MetricResult(metric.clone()).into()),
+        TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket))
+            if filter_bucket.sub_aggregations.0.is_empty() =>
+        {
+            Some(AggregateResult::Metric(TantivySingleMetricResult {
+                value: Some(filter_bucket.doc_count as f64),
+            }))
+        }
+        _ => None,
+    }
+}
+
 /// Convert an AggregateResult to a PostgreSQL Datum
 /// This is the shared logic for converting both Custom (JSON) and Metric aggregates
 ///
@@ -477,17 +493,12 @@ impl AggregationResults {
             entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
 
             for (_name, result) in entries {
-                match result {
-                    TantivyAggregationResult::MetricResult(metric) => {
-                        row.aggregates
-                            .push(Some(MetricResult(metric.clone()).into()));
-                    }
-                    other => {
-                        let json_value = serde_json::to_value(other).unwrap_or_else(|e| {
-                            pgrx::error!("Failed to serialize aggregate: {}", e)
-                        });
-                        row.aggregates.push(Some(AggregateResult::Json(json_value)));
-                    }
+                if let Some(agg_res) = metric_or_filter_to_aggregate_result(result) {
+                    row.aggregates.push(Some(agg_res));
+                } else {
+                    let json_value = serde_json::to_value(result)
+                        .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregate: {}", e));
+                    row.aggregates.push(Some(AggregateResult::Json(json_value)));
                 }
             }
         }
@@ -521,12 +532,18 @@ impl AggregationResults {
                 TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket))
                     if !is_custom =>
                 {
-                    // Standard filter aggregate (not custom)
-                    let mut sub_rows = Vec::new();
-                    let sub = AggregationResults(filter_bucket.sub_aggregations.0);
-                    sub.flatten_ungrouped(&mut sub_rows, agg_types);
-                    for sub_row in sub_rows {
-                        aggregates.extend(sub_row.aggregates);
+                    if filter_bucket.sub_aggregations.0.is_empty() {
+                        aggregates.push(Some(AggregateResult::Metric(TantivySingleMetricResult {
+                            value: Some(filter_bucket.doc_count as f64),
+                        })));
+                    } else {
+                        // Standard filter aggregate (not custom)
+                        let mut sub_rows = Vec::new();
+                        let sub = AggregationResults(filter_bucket.sub_aggregations.0);
+                        sub.flatten_ungrouped(&mut sub_rows, agg_types);
+                        for sub_row in sub_rows {
+                            aggregates.extend(sub_row.aggregates);
+                        }
                     }
                 }
                 // For all other results (custom aggregates and other bucket types), serialize as JSON
@@ -641,17 +658,13 @@ impl AggregationResults {
 
                     if matched {
                         for res in current.values() {
-                            match res {
-                                TantivyAggregationResult::MetricResult(metric) => {
-                                    found_metrics.push(Some(MetricResult(metric.clone()).into()));
-                                }
-                                other => {
-                                    let json_value =
-                                        serde_json::to_value(other).unwrap_or_else(|e| {
-                                            pgrx::error!("Failed to serialize aggregate: {}", e)
-                                        });
-                                    found_metrics.push(Some(AggregateResult::Json(json_value)));
-                                }
+                            if let Some(agg_res) = metric_or_filter_to_aggregate_result(res) {
+                                found_metrics.push(Some(agg_res));
+                            } else {
+                                let json_value = serde_json::to_value(res).unwrap_or_else(|e| {
+                                    pgrx::error!("Failed to serialize aggregate: {}", e)
+                                });
+                                found_metrics.push(Some(AggregateResult::Json(json_value)));
                             }
                         }
                     }

@@ -6,6 +6,8 @@ canonical: https://www.paradedb.com/docs/reference/full-text/score
 
 BM25 scores measure how relevant a document is for a given query. Higher scores indicate higher relevance.
 
+To adjust term frequency saturation and length normalization per field, see [BM25 Parameters](/reference/indexing/create-index#bm25-parameters).
+
 ## Basic Usage
 
 The `pdb.score(<key_field>)` function produces a BM25 score and can be added to any query where any of the ParadeDB operators are present.

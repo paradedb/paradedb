@@ -25,11 +25,11 @@ jobs:
       # General-purpose m-family — Docker buildx is RAM-heavy.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
-      - retry=when-interrupted
-      - family=m7a+m7i
+      - spot=false # Disable spot instances for publish jobs to make sure they don't fail
+      - family=m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=8
       - ram=32
-      - image=ubuntu24-full-x64
+      - image=ubuntu26-full-x64
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
 
     steps:
@@ -128,7 +128,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: failure()
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

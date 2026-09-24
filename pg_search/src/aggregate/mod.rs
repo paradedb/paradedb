@@ -1047,8 +1047,6 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::api::CTID_FIELD_NAME;
-    use crate::index::fast_fields_helper::FFType;
     use crate::postgres::heap::VisibilityChecker;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
@@ -1077,14 +1075,13 @@ pub mod mvcc_collector {
             Ok(MVCCFilterSegmentCollector {
                 inner,
                 lock: self.lock.clone(),
-                ctid_ff: FFType::new(segment.fast_fields(), CTID_FIELD_NAME),
+                segment_ord: segment_local_id,
                 doc_buffer: Vec::with_capacity(BATCH_SIZE),
                 score_buffer: if requires_scoring {
                     Vec::with_capacity(BATCH_SIZE)
                 } else {
                     Vec::new()
                 },
-                ctids_buffer: Vec::with_capacity(BATCH_SIZE),
                 visibility_buffer: Vec::with_capacity(BATCH_SIZE),
                 filtered_doc_buffer: Vec::with_capacity(BATCH_SIZE),
                 filtered_score_buffer: if requires_scoring {
@@ -1121,14 +1118,13 @@ pub mod mvcc_collector {
     pub struct MVCCFilterSegmentCollector<SC: SegmentCollector> {
         inner: SC,
         lock: Arc<Mutex<VisibilityChecker>>,
-        ctid_ff: FFType,
+        segment_ord: SegmentOrdinal,
 
         // Incoming buffers
         doc_buffer: Vec<DocId>,
         score_buffer: Vec<Score>,
 
         // Processing buffers
-        ctids_buffer: Vec<Option<u64>>,
         visibility_buffer: Vec<Option<u64>>,
 
         // Outgoing buffers
@@ -1146,15 +1142,14 @@ pub mod mvcc_collector {
                 return;
             }
 
-            // Get the ctids for these docs.
-            self.ctids_buffer.resize(self.doc_buffer.len(), None);
-            self.ctid_ff
-                .as_u64s(&self.doc_buffer, &mut self.ctids_buffer);
-
-            // Determine which ctids are visible.
+            // Determine which docs are visible.
             let mut vischeck = self.lock.lock();
             self.visibility_buffer.resize(self.doc_buffer.len(), None);
-            vischeck.check_batch(&self.ctids_buffer, &mut self.visibility_buffer);
+            vischeck.check_segment_docs(
+                self.segment_ord,
+                &self.doc_buffer,
+                &mut self.visibility_buffer,
+            );
             drop(vischeck);
 
             // Filter visible docs.

@@ -26,3 +26,34 @@ SELECT 'Hello world! 你好!'::pdb.jieba::text[];
  {hello," ",world,!," ",你好,!}
 (1 row)
 ```
+
+## Search Mode
+
+The Jieba tokenizer enables `search_mode` by default, which splits compound words
+into smaller tokens in addition to keeping the original words:
+
+```sql
+SELECT '南京市长江大桥'::pdb.jieba::text[];
+```
+
+```ini Expected Response
+                      text
+------------------------------------------------
+ {南京,京市,南京市,长江,大桥,长江大桥}
+(1 row)
+```
+
+To keep only the original words, set `search_mode=false`. This can be useful when
+tokenizing a search query to avoid matching documents that contain only part of a
+compound word:
+
+```sql
+SELECT '南京市长江大桥'::pdb.jieba('search_mode=false')::text[];
+```
+
+```ini Expected Response
+        text
+---------------------
+ {南京市,长江大桥}
+(1 row)
+```

@@ -97,7 +97,6 @@ ParadeDB integrates with the tools you already use, with more on the way.
 - [Fly.io](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/fly)
 - [DigitalOcean](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/digitalocean)
 - [Dokku](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/dokku)
-- More coming (Heroku, and others)
 
 ## Community & Support
 

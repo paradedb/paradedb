@@ -321,8 +321,8 @@ pub async fn build_join_aggregate_plan(
     // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
     // bounded TopK heap.
     if let Some(topk) = topk {
-        let sort_col_name = topk.sort_target.resolve_sort_col_name(targetlist, plan);
-        let sort_expr = datafusion::prelude::col(&sort_col_name)
+        let sort_column = topk.sort_target.resolve_sort_column(targetlist, plan);
+        let sort_expr = Expr::Column(sort_column)
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         df = df.sort(vec![sort_expr])?;
         df = df.limit(0, Some(topk.k))?;

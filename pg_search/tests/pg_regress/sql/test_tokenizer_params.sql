@@ -52,6 +52,11 @@ CREATE INDEX idx_jieba ON test_tokenizer_params
 USING paradedb (id, (content::pdb.jieba('chinese_convert=t2s')));
 DROP INDEX idx_jieba;
 
+-- jieba: search_mode
+CREATE INDEX idx_jieba ON test_tokenizer_params
+USING paradedb (id, (content::pdb.jieba('search_mode=false')));
+DROP INDEX idx_jieba;
+
 -------------------------------------------------------------
 -- Tokenizer-specific params rejected by wrong tokenizer
 -------------------------------------------------------------

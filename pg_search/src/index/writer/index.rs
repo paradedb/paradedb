@@ -301,7 +301,7 @@ impl SerialIndexWriter {
         }
 
         let directory = mvcc_satisfies.directory(index_relation);
-        let mut index = Index::open(directory)?;
+        let mut index = crate::index::open_index(directory)?;
         stats::register(&mut index);
         if has_vector_field {
             set_ivf_clusterer(&mut index, index_relation.options());
@@ -526,7 +526,7 @@ impl SearchIndexMerger {
     ) -> Result<SearchIndexMerger> {
         let directory = mvcc_satisfies.directory(indexrel);
         let schema = indexrel.schema()?;
-        let mut index = Index::open(directory.clone())?;
+        let mut index = crate::index::open_index(directory.clone())?;
         stats::register(&mut index);
         if schema.has_vector_field() {
             set_ivf_clusterer(&mut index, indexrel.options());

@@ -1,0 +1,2 @@
+-- pdb.agg without GROUP BY (mvcc disabled)
+SET paradedb.enable_aggregate_custom_scan TO off; SELECT pdb.agg('{"value_count": {"field": "ctid"}}', false) FROM stackoverflow_posts WHERE body ||| 'error';

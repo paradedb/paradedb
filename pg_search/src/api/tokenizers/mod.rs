@@ -93,6 +93,7 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         "jieba" => SearchTokenizer::Jieba {
             chinese_convert: None,
+            search_mode: true,
             filters: SearchTokenizerFilters::default(),
         },
         "ngram" => SearchTokenizer::Ngram {
@@ -238,8 +239,12 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
         }
         SearchTokenizer::Jieba {
             chinese_convert,
+            search_mode,
             filters,
         } => {
+            if let Some(v) = parsed.get("search_mode").and_then(|p| p.as_bool()) {
+                *search_mode = v;
+            }
             *chinese_convert = parsed
                 .get("chinese_convert")
                 .and_then(|p| p.as_str())
@@ -481,6 +486,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
 
         SearchTokenizer::Jieba {
             chinese_convert,
+            search_mode,
             filters,
         } => {
             let jieba_typmod = JiebaTypmod::try_from(typmod).unwrap_or_else(|e| {
@@ -488,6 +494,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             });
             *filters = jieba_typmod.filters;
             *chinese_convert = jieba_typmod.chinese_convert;
+            *search_mode = jieba_typmod.search_mode;
         }
 
         SearchTokenizer::ICUTokenizer(filters) => {

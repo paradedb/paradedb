@@ -44,15 +44,12 @@ pub extern "C-unwind" fn ambuild(
     let mut index_relation = unsafe { PgSearchRelation::from_pg(indexrel) };
     index_relation.set_is_create_index();
 
-    // Capture the relation's inherent WAL-needed flag before any deferred-WAL override.
+    // Capture the relation's inherent WAL-needed flag before suppressing WAL during build.
     let needs_wal = index_relation.need_wal();
 
-    let deferred_wal = cfg!(feature = "deferred_wal");
-    if deferred_wal {
-        // we don't need to WAL log if our deferred_wal feature is turned on
-        // otherwise we'll let Postgres decide for us if this new index needs WAL or not
-        index_relation.set_need_wal(false);
-    }
+    // Do not emit WAL records inside the tuple insertion/page building loop.
+    // Instead, log all pages to the WAL at the end of the build via log_newpage_range.
+    index_relation.set_need_wal(false);
 
     unsafe {
         build_empty(&index_relation);
@@ -83,8 +80,8 @@ pub extern "C-unwind" fn ambuild(
 
     pgrx::debug1!("build_index: flushing buffers");
 
-    // if we're configured to defer WAL logging, now is the time to do it
-    if deferred_wal && needs_wal {
+    // At the conclusion of the build, log all pages to the WAL if required.
+    if needs_wal {
         let nblocks = unsafe {
             pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM)
         };

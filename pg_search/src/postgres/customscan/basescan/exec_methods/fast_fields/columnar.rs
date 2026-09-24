@@ -332,7 +332,8 @@ impl ColumnarExecState {
             .visibility_checker
             .as_ref()
             .expect("ColumnarExecState: visibility_checker should be initialized")
-            .clone();
+            .clone()
+            .with_ffhelper(Arc::clone(ffhelper));
 
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
             which_fast_fields: self.scanner_fast_fields.clone(),

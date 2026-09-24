@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.25.9",
+        "version": "v0.25.10",
         "tabs": [
           {
             "tab": "Start",
@@ -154,7 +154,7 @@
                     "group": "Relevance Tuning",
                     "pages": [
                       "reference/full-text/score",
-                      "reference/full-text/boost",
+                      "reference/full-text/relevance-tuning",
                       "reference/full-text/highlight"
                     ]
                   }
@@ -316,6 +316,7 @@
                   {
                     "group": "v0.25",
                     "pages": [
+                      "project/changelog/0.25.10",
                       "project/changelog/0.25.9",
                       "project/changelog/0.25.8",
                       "project/changelog/0.25.7",

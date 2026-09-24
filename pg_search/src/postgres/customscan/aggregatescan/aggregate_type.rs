@@ -44,6 +44,7 @@ use pgrx::pg_sys::{
 };
 use pgrx::prelude::*;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
+use tantivy::aggregation::bucket::FilterAggregation;
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
     SumAggregation,
@@ -703,10 +704,9 @@ impl From<AggregateType> for Aggregation {
 impl From<AggregateType> for AggregationVariants {
     fn from(val: AggregateType) -> Self {
         match val {
-            AggregateType::CountAny { .. } => AggregationVariants::Count(CountAggregation {
-                field: CTID_FIELD_NAME.to_string(),
-                missing: None,
-            }),
+            AggregateType::CountAny { .. } => {
+                AggregationVariants::Filter(FilterAggregation::new("*".to_string()))
+            }
             AggregateType::Count { field, missing, .. } => {
                 AggregationVariants::Count(CountAggregation { field, missing })
             }

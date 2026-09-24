@@ -25,7 +25,7 @@ mod tests {
     use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
     use crate::postgres::rel::PgSearchRelation;
     use crate::query::SearchQueryInput;
-    use crate::scan::execution_plan::PgSearchScanPlan;
+    use crate::scan::execution_plan::{PgSearchScanPlan, ReceivedClassification};
     use crate::schema::SearchFieldType;
     use datafusion::common::stats::Precision;
     use datafusion::execution::TaskContext;
@@ -77,7 +77,7 @@ mod tests {
             WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
 
-        let ffhelper = FFHelper::with_fields(&reader, &fields);
+        let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
 
         // Ensure current transaction changes are visible
         unsafe {
@@ -86,7 +86,8 @@ mod tests {
             pg_sys::PushActiveSnapshot(snap);
         }
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+            .with_ffhelper(Arc::clone(&ffhelper));
 
         let partition = crate::scan::execution_plan::ScanState {
             source_idx: None,
@@ -98,7 +99,7 @@ mod tests {
                 score_needed: false,
                 scan_mode: crate::scan::ScanMode::all(),
             },
-            ffhelper: ffhelper.into(),
+            ffhelper: Arc::clone(&ffhelper),
             visibility: Box::new(visibility),
             reader: reader.clone(),
         };
@@ -519,6 +520,91 @@ mod tests {
         assert_eq!(build_1.split_points.len(), 0);
     }
 
+    /// Execute the generated bounds: a pure-negative NULL clause has the right shape but
+    /// returns no rows in Tantivy unless it also has a positive All clause.
+    #[pg_test]
+    fn test_range_partition_queries_cover_nulls_once() {
+        use crate::api::FieldName;
+        use crate::index::stats::segments_for_partition;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue::{I64, Null};
+        use crate::scan::range_partitioning::RangePartitioning;
+
+        Spi::run(
+            "CREATE TABLE null_partition_rows (id bigint PRIMARY KEY, value bigint);
+             CREATE INDEX null_partition_rows_idx ON null_partition_rows
+             USING paradedb (id, value)
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO null_partition_rows VALUES (1, NULL), (2, -10), (3, 10), (4, 20), (5, NULL);
+             RESET paradedb.global_mutable_segment_rows;",
+        ).unwrap();
+        unsafe { pg_sys::CommandCounterIncrement() };
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'null_partition_rows_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let index_rel = PgSearchRelation::open(oid);
+        for scoring in [false, true] {
+            let reader = SearchIndexReader::open(
+                &index_rel,
+                SearchQueryInput::All,
+                scoring,
+                MvccSatisfies::Snapshot,
+            )
+            .unwrap();
+            for (split_points, expected) in [
+                (vec![], vec![vec![1, 2, 3, 4, 5]]),
+                (vec![I64(10)], vec![vec![1, 2, 5], vec![3, 4]]),
+                (vec![Null], vec![vec![1, 5], vec![2, 3, 4]]),
+                (vec![Null, Null], vec![vec![1, 5], vec![], vec![2, 3, 4]]),
+                (
+                    vec![Null, Null, I64(10)],
+                    vec![vec![1, 5], vec![], vec![2], vec![3, 4]],
+                ),
+                (
+                    vec![I64(10), I64(10)],
+                    vec![vec![1, 2, 5], vec![], vec![3, 4]],
+                ),
+            ] {
+                let partitioning = RangePartitioning {
+                    partition_by: FieldName::from("value"),
+                    split_points,
+                };
+                for (partition, expected_ids) in expected.into_iter().enumerate() {
+                    let query = partitioning.partition_bounds(partition);
+                    let exact = reader.and_query_input(&query);
+                    let ids = segments_for_partition(&reader, &partitioning, partition);
+                    let collect_ids =
+                        |results: crate::index::reader::index::MultiSegmentSearchResults| {
+                            let mut ids = results
+                                .map(|(_, doc)| {
+                                    reader
+                                        .searcher()
+                                        .segment_reader(doc.segment_ord)
+                                        .fast_fields()
+                                        .i64("id")
+                                        .unwrap()
+                                        .first(doc.doc_id)
+                                        .unwrap()
+                                })
+                                .collect::<Vec<_>>();
+                            ids.sort_unstable();
+                            ids
+                        };
+                    assert_eq!(
+                        collect_ids(exact.search()),
+                        expected_ids,
+                        "compiled bounds {query:?}, scoring={scoring}"
+                    );
+                    assert_eq!(
+                        collect_ids(exact.search_segments(ids.into_iter())),
+                        expected_ids,
+                        "routed bounds {query:?}, scoring={scoring}"
+                    );
+                }
+            }
+        }
+    }
+
     #[pg_test]
     fn test_range_partitioning_points_nulls() {
         use crate::api::FieldName;
@@ -542,9 +628,13 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        // partition 0: upper is NULL -> only NULL rows (All AND NOT Exists).
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        assert!(matches!(
+            p0,
+            SearchQueryInput::Boolean { ref must, .. }
+                if matches!(must.as_slice(), [SearchQueryInput::All])
+        ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
         let p1 = build.partition_bounds(1);
@@ -576,15 +666,19 @@ mod tests {
         assert_eq!(build.split_points[0], PdbOwnedValue::Null);
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
 
-        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        // partition 0: upper is NULL -> only NULL rows (All AND NOT Exists).
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        assert!(matches!(
+            p0,
+            SearchQueryInput::Boolean { ref must, .. }
+                if matches!(must.as_slice(), [SearchQueryInput::All])
+        ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
         let p1 = build.partition_bounds(1);
         assert!(matches!(p1, SearchQueryInput::Empty));
 
-        // partition 2: lower is Null (Unbounded), upper is Unbounded -> Range
+        // partition 2: both bounds are Unbounded -> Exists (all non-NULL values)
         let p2 = build.partition_bounds(2);
         assert!(matches!(p2, SearchQueryInput::FieldedQuery { .. }));
     }
@@ -611,7 +705,7 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::I64(10));
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is 10 -> Range OR Boolean(NOT Exists)
+        // partition 0: upper is 10 -> Range OR Boolean(All AND NOT Exists)
         let p0 = build.partition_bounds(0);
         assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
 
@@ -647,7 +741,7 @@ mod tests {
             WhichFastField::Ctid,
             WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
-        let ffhelper = FFHelper::with_fields(&reader, &fields);
+        let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
 
         unsafe {
             pg_sys::CommandCounterIncrement();
@@ -655,7 +749,8 @@ mod tests {
             pg_sys::PushActiveSnapshot(snap);
         }
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+            .with_ffhelper(Arc::clone(&ffhelper));
 
         let partition = crate::scan::execution_plan::ScanState {
             source_idx: None,
@@ -667,7 +762,7 @@ mod tests {
                 score_needed: false,
                 scan_mode: crate::scan::ScanMode::all(),
             },
-            ffhelper: ffhelper.into(),
+            ffhelper: Arc::clone(&ffhelper),
             visibility: Box::new(visibility),
             reader: reader.clone(),
         };
@@ -867,78 +962,112 @@ mod tests {
         assert!(points.to_datafusion(&schema, 7).is_none());
     }
 
+    /// Like [`get_relation_oids`], but built as four range partitions of 25 rows, so the segments
+    /// are 1..=25, 26..=50, 51..=75 and 76..=100.
+    fn get_partitioned_relation_oids() -> (pg_sys::Oid, pg_sys::Oid) {
+        Spi::run("SET client_min_messages = 'debug1';").unwrap();
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) SELECT 'test ' || i FROM generate_series(1, 100) i;")
+            .unwrap();
+        Spi::run(
+            "CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple))
+             WITH (partition_by = 'id', target_segment_count = 4)",
+        )
+        .unwrap();
+
+        let heap_oid = Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 't' AND relkind = 'r';",
+        )
+        .expect("spi")
+        .unwrap();
+
+        let index_oid = Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
+        )
+        .expect("spi")
+        .unwrap();
+
+        (heap_oid, index_oid)
+    }
+
     #[pg_test]
     #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioned_assigned_execution() {
+        use crate::api::FieldName;
+        use crate::index::reader::index::test_support::range_query;
+        use crate::index::segment_pruning::{EMPIRICAL_READS, STATS_OPENS};
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
         use arrow_array::Int64Array;
         use datafusion::physical_plan::Partitioning;
         use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
+        use std::sync::atomic::Ordering::Relaxed;
+        use tantivy::index::SegmentId;
 
-        let (heap_oid, index_oid) = get_relation_oids();
+        let (heap_oid, index_oid) = get_partitioned_relation_oids();
         let heap_rel = PgSearchRelation::open(heap_oid);
         let index_rel = PgSearchRelation::open(index_oid);
-
-        let reader = SearchIndexReader::open(
-            &index_rel,
-            SearchQueryInput::All,
-            false,
-            MvccSatisfies::Snapshot,
-        )
-        .unwrap();
 
         let fields = vec![
             WhichFastField::Ctid,
             WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
-        let ffhelper = FFHelper::with_fields(&reader, &fields);
-
         unsafe {
             pg_sys::CommandCounterIncrement();
             let snap = pg_sys::GetTransactionSnapshot();
             pg_sys::PushActiveSnapshot(snap);
         }
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        let scan_state = crate::scan::execution_plan::ScanState {
-            source_idx: None,
-            planner_estimated_rows: 100,
-            scanner_config: crate::scan::execution_plan::ScannerConfig {
-                which_fast_fields: fields.clone(),
-                heap_relid: heap_oid.into(),
-                batch_size_hint: None,
-                score_needed: false,
-                scan_mode: crate::scan::ScanMode::all(),
-            },
-            ffhelper: ffhelper.into(),
-            visibility: Box::new(visibility),
-            reader: reader.clone(),
-        };
-
-        // Table t has ids 1..=100; split points [25, 50, 75] give partitions
-        // (-inf, 25), [25, 50), [50, 75), [75, inf).
+        // Table t has ids 1..=100; split points [25, 51, 75] give partitions
+        // (-inf, 25), [25, 51), [51, 75), [75, inf).
         let split_points = crate::scan::range_partitioning::RangeSplitPoints {
-            partition_by: crate::api::FieldName::from("id"),
+            partition_by: FieldName::from("id"),
             points: vec![
-                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(25),
-                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(50),
-                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(75),
+                PdbOwnedValue::I64(25),
+                PdbOwnedValue::I64(51),
+                PdbOwnedValue::I64(75),
             ],
         };
 
-        let plan = PgSearchScanPlan::new(
-            Some(scan_state),
-            build_arrow_schema(&fields),
-            SearchQueryInput::All,
-            None,
-            Vec::new(),
-            None,
-            index_oid.into(),
-            None,
-            4,
-            None,
-            Some(split_points),
-        );
+        let make_plan = |query: SearchQueryInput| {
+            let reader =
+                SearchIndexReader::open(&index_rel, query.clone(), false, MvccSatisfies::Snapshot)
+                    .unwrap();
+            let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
+            let visibility = Box::new(
+                HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+                    .with_ffhelper(Arc::clone(&ffhelper)),
+            );
+            let scan_state = crate::scan::execution_plan::ScanState {
+                source_idx: None,
+                planner_estimated_rows: 100,
+                scanner_config: crate::scan::execution_plan::ScannerConfig {
+                    which_fast_fields: fields.clone(),
+                    heap_relid: heap_oid.into(),
+                    batch_size_hint: None,
+                    score_needed: false,
+                    scan_mode: crate::scan::ScanMode::standard(query.clone()),
+                },
+                ffhelper,
+                visibility,
+                reader: reader.clone(),
+            };
+            let plan = PgSearchScanPlan::new(
+                Some(scan_state),
+                build_arrow_schema(&fields),
+                query,
+                None,
+                Vec::new(),
+                None,
+                index_oid.into(),
+                None,
+                4,
+                None,
+                Some(split_points.clone()),
+            );
+            (plan, reader)
+        };
+        let (plan, reader) = make_plan(SearchQueryInput::All);
 
         // The planner-facing original retains all four global ranges. Only the variant sent to
         // one distributed task advertises a single local partition.
@@ -956,8 +1085,19 @@ mod tests {
             Precision::Inexact(25)
         );
 
-        // As one of four task variants: this one owns partition 1 alone.
+        // As one of four task variants: this one owns partition 1 alone. Assignment is where
+        // the leader classifies segments, so it is the only step allowed to open statistics.
+        STATS_OPENS.store(0, Relaxed);
+        let unassigned = plan.clone();
         let plan = plan.with_assigned_partition(1);
+        let leader_opens = STATS_OPENS.load(Relaxed);
+        assert!(leader_opens > 0, "assignment classifies from statistics");
+        let classified = plan.partition_segments.clone().unwrap();
+        // [25, 51) fully includes 26..=50, partially includes 1..=25 through id 25, and prunes
+        // the two segments above it.
+        assert_eq!(classified.included.len(), 1);
+        assert_eq!(classified.partially_included.len(), 1);
+        assert_eq!(classified.pruned.len(), 2);
 
         assert!(plan.repartition(2).is_err());
         assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
@@ -980,14 +1120,66 @@ mod tests {
         let proto_converter = DefaultPhysicalProtoConverter {};
         let encoded = plan.encode_for_dispatch(&proto_converter).unwrap();
         let task_context = TaskContext::default();
-        let plan = PgSearchScanPlan::decode_for_dispatch(
-            &encoded,
-            None,
-            None,
-            &task_context,
-            &proto_converter,
-        )
-        .unwrap();
+        let decode = |bytes: &[u8], parallel_state| {
+            PgSearchScanPlan::decode_for_dispatch(
+                bytes,
+                parallel_state,
+                None,
+                &task_context,
+                &proto_converter,
+            )
+        };
+
+        for _ in 0..3 {
+            let copy = decode(&encoded, None).unwrap();
+            let copy = copy.downcast_ref::<PgSearchScanPlan>().unwrap();
+            assert_eq!(copy.partition_segments.as_ref(), Some(&classified));
+        }
+        assert_eq!(STATS_OPENS.load(Relaxed), leader_opens);
+
+        // Each bad shape keeps the segment count, so only identity can reject it. Under the
+        // shared view that is an error; outside it the copy classifies again.
+        let mut stale = classified.clone();
+        stale.pruned[0] = SegmentId::generate_random();
+        let mut duplicated = classified.clone();
+        duplicated.pruned[0] = classified.included[0];
+        let mut short = classified.clone();
+        short.pruned.pop();
+        for bad in [&stale, &duplicated, &short] {
+            assert!(
+                unassigned
+                    .assign_partition(1, Some(ReceivedClassification::SharedView(bad.clone())))
+                    .is_err(),
+                "{bad:?}"
+            );
+        }
+        // This copy shares the leader's opened statistics, so reclassification shows up as
+        // field decodes rather than component opens.
+        let reads_before = EMPIRICAL_READS.load(Relaxed);
+        let recomputed = unassigned
+            .assign_partition(1, Some(ReceivedClassification::Snapshot(stale.clone())))
+            .unwrap();
+        assert_eq!(recomputed.partition_segments.as_ref(), Some(&classified));
+        assert!(EMPIRICAL_READS.load(Relaxed) > reads_before);
+        drop(recomputed);
+        drop(unassigned);
+
+        // Under the leader's parallel state the worker replays the leader's view.
+        let parallel_state =
+            crate::postgres::test_support::parallel_state_for_view(reader.segment_view());
+        let mut stale_plan = (*plan).clone();
+        stale_plan.partition_segments = Some(stale);
+        let stale_encoded = stale_plan.encode_for_dispatch(&proto_converter).unwrap();
+        assert!(decode(&stale_encoded, Some(parallel_state)).is_err());
+        let plan = decode(&encoded, Some(parallel_state)).unwrap();
+        assert_eq!(
+            plan.downcast_ref::<PgSearchScanPlan>()
+                .unwrap()
+                .partition_segments
+                .as_ref(),
+            Some(&classified)
+        );
+        assert_eq!(STATS_OPENS.load(Relaxed), leader_opens);
 
         assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
         assert!(matches!(
@@ -1002,7 +1194,7 @@ mod tests {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();
-        let collect_ids = |partition: usize| {
+        let collect_ids = |plan: &Arc<dyn ExecutionPlan>, partition: usize| {
             let mut stream = plan
                 .execute(partition, Arc::new(TaskContext::default()))
                 .unwrap();
@@ -1022,10 +1214,37 @@ mod tests {
             ids
         };
 
-        // Local partition 0 must map to global partition 1, not merely any 25-row range.
-        assert_eq!(collect_ids(0), (25_i64..50).collect::<Vec<_>>());
+        // Local partition 0 must map to global partition 1, not merely any 26-row range.
+        assert_eq!(collect_ids(&plan, 0), (25_i64..=50).collect::<Vec<_>>());
+        assert_eq!(STATS_OPENS.load(Relaxed), leader_opens);
 
         // The state is consumed exactly once.
         assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());
+
+        // A predicate on the partition column still prunes after dispatch. The worker opens
+        // statistics while sizing the plan in `PgSearchScanPlan::new`, then decides per
+        // segment during execution.
+        let (filtered, _) = make_plan(range_query("id", 30, 40));
+        let filtered = filtered.with_assigned_partition(1);
+        let filtered_encoded = filtered.encode_for_dispatch(&proto_converter).unwrap();
+        let opens_before_decode = STATS_OPENS.load(Relaxed);
+        let worker = decode(&filtered_encoded, Some(parallel_state)).unwrap();
+        assert_eq!(
+            worker
+                .downcast_ref::<PgSearchScanPlan>()
+                .unwrap()
+                .partition_segments,
+            filtered.partition_segments
+        );
+        assert!(
+            STATS_OPENS.load(Relaxed) > opens_before_decode,
+            "the worker must open statistics for its own predicate"
+        );
+        let reads_before_execution = EMPIRICAL_READS.load(Relaxed);
+        assert_eq!(collect_ids(&worker, 0), (30_i64..=40).collect::<Vec<_>>());
+        assert!(
+            EMPIRICAL_READS.load(Relaxed) > reads_before_execution,
+            "execution must decide each searched segment against the predicate"
+        );
     }
 }

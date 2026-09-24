@@ -590,6 +590,7 @@ pub(crate) mod pdb {
         Jieba,
         SearchTokenizer::Jieba {
             chinese_convert: None,
+            search_mode: true,
             filters: SearchTokenizerFilters::default(),
         },
         tokenize_jieba,

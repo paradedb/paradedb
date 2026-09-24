@@ -34,7 +34,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
-      - retry=when-interrupted
+      - spot=false # Disable spot instances for publish jobs to make sure they don't fail
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
@@ -53,8 +53,8 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 15
             arch: x86_64
@@ -62,15 +62,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi9:latest
             pg_version: 15
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 16
             arch: x86_64
@@ -78,15 +78,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi9:latest
             pg_version: 16
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 17
             arch: x86_64
@@ -94,15 +94,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi9:latest
             pg_version: 17
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 18
             arch: x86_64
@@ -110,7 +110,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi9:latest
             pg_version: 18
             arch: aarch64
@@ -118,8 +118,8 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 15
             arch: x86_64
@@ -127,15 +127,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi10:latest
             pg_version: 15
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 16
             arch: x86_64
@@ -143,15 +143,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi10:latest
             pg_version: 16
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 17
             arch: x86_64
@@ -159,15 +159,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi10:latest
             pg_version: 17
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 18
             arch: x86_64
@@ -175,7 +175,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi10:latest
             pg_version: 18
             arch: aarch64
@@ -413,7 +413,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: failure()
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

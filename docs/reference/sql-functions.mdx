@@ -43,12 +43,12 @@ The aggregate form `pdb.term_set(value bigint)` still exists for compatibility, 
 
 Modifier casts attach scoring, fuzzy, or slop settings to another query expression.
 
-| Cast or typmod                                          | Use                                                      | Reference                                                       |
-| ------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------- |
-| `::pdb.fuzzy(distance, prefix, transposition_cost_one)` | Allow edit-distance matching for match and term queries. | [Fuzzy](/reference/full-text/fuzzy)                             |
-| `::pdb.boost(factor)`                                   | Multiply a query's contribution to BM25 score.           | [Relevance Tuning](/reference/full-text/boost)                  |
-| `::pdb.const(score)`                                    | Assign a constant score to a query.                      | [Constant Scoring](/reference/full-text/boost#constant-scoring) |
-| `::pdb.slop(distance)`                                  | Allow gaps or transpositions in phrase queries.          | [Phrase Slop](/reference/full-text/phrase#adding-slop)          |
+| Cast or typmod                                          | Use                                                      | Reference                                                                  |
+| ------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `::pdb.fuzzy(distance, prefix, transposition_cost_one)` | Allow edit-distance matching for match and term queries. | [Fuzzy](/reference/full-text/fuzzy)                                        |
+| `::pdb.boost(factor)`                                   | Multiply a query's contribution to BM25 score.           | [Relevance Tuning](/reference/full-text/relevance-tuning)                  |
+| `::pdb.const(score)`                                    | Assign a constant score to a query.                      | [Constant Scoring](/reference/full-text/relevance-tuning#constant-scoring) |
+| `::pdb.slop(distance)`                                  | Allow gaps or transpositions in phrase queries.          | [Phrase Slop](/reference/full-text/phrase#adding-slop)                     |
 
 ## Proximity Builders
 

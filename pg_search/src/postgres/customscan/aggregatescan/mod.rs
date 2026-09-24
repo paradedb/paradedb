@@ -1471,7 +1471,8 @@ impl AggregateScan {
         let is_join_distinct = shape.is_distinct()
             && builder.args().input_rel().reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL
             && gucs::enable_join_custom_scan();
-        match Self::try_build_datafusion_aggregate_path(builder, shape, pdb_route) {
+        match Self::try_build_datafusion_aggregate_path(builder, has_paradedb_agg, shape, pdb_route)
+        {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
@@ -1499,6 +1500,7 @@ impl AggregateScan {
     /// that owe the planner a NOTICE.
     fn try_build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
+        has_paradedb_agg: bool,
         shape: GroupingShape,
         pdb_route: Option<PdbAggRoute>,
     ) -> Result<pg_sys::CustomPath, AggregatePathDecline> {
@@ -1621,6 +1623,15 @@ impl AggregateScan {
         let (mut plan, multi_table_clauses) =
             unsafe { extract_join_tree_from_parse(root, &sources, path_info) }
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
+
+        let is_join = input_rel.reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL;
+        if is_join
+            && !has_paradedb_agg
+            && !gucs::enable_custom_scan_without_operator()
+            && !plan.has_search_predicate()
+        {
+            return Err(AggregatePathDecline::Quiet);
+        }
 
         // Extract aggregate target list (GROUP BY + aggregates)
         let extracted_target = unsafe {
@@ -2635,9 +2646,24 @@ unsafe fn detect_join_aggregate_topk(
 
     // Try group column: ORDER BY category, ORDER BY name, etc.
     if let Some(gc_idx) = extracted_target.group_index(sort_expr) {
-        // The sort expression must be a simple Var (group column reference).
-        if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
-            return None;
+        let gc = &targetlist.group_columns[gc_idx];
+        match gc.transform {
+            GroupingTransform::Identity => {
+                // The sort expression must be a simple Var (group column reference).
+                if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
+                    return None;
+                }
+            }
+            GroupingTransform::TimestampToDate => {
+                if (*sort_expr).type_ != pg_sys::NodeTag::T_FuncExpr {
+                    return None;
+                }
+
+                let func_expr = sort_expr.cast::<pg_sys::FuncExpr>();
+                if (*func_expr).funcid.to_u32() != pg_sys::F_DATE_TIMESTAMP {
+                    return None;
+                }
+            }
         }
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering

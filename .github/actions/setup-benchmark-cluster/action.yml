@@ -99,7 +99,7 @@ runs:
         cargo pgrx start pg${{ inputs.pg_version }}
 
     - name: Install pgBackRest
-      uses: paradedb/actions/apt-install@v13
+      uses: paradedb/actions/apt-install@v14
       with:
         packages: pgbackrest
 

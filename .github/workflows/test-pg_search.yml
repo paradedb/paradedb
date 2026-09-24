@@ -48,13 +48,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Base: system Postgres on ARM Ubuntu 24.04 for all versions.
+        # Base: system Postgres on ARM Ubuntu 26.04 for all versions.
         pg_version: [15, 16, 17, 18]
         pg_impl: [system]
         cpu: [8]
         ram: [16]
         runner_family: [c7g+c8g]
-        runner_image: [ubuntu24-full-arm64]
+        runner_image: [ubuntu26-full-arm64]
         arch: [arm64]
         include:
           # pgrx compiles Postgres from source with --enable-cassert and --enable-debug,
@@ -68,15 +68,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             arch: arm64
           # Add AMD run for PG 18 (system Postgres)
           - pg_version: 18
             pg_impl: system
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             arch: amd64
 
     steps:
@@ -105,7 +105,7 @@ jobs:
           cache_save: ${{ github.event_name == 'schedule' && github.ref_name == github.event.repository.default_branch }}
 
       - name: Install required system tools
-        uses: paradedb/actions/apt-install@v13
+        uses: paradedb/actions/apt-install@v14
         with:
           packages: >-
             --no-install-recommends
@@ -140,7 +140,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.pgrx
-          key: pgrx-pg-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
+          key: pgrx-pg-${{ matrix.runner_image }}-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Initialize pgrx Environment (pgrx Download)
         if: matrix.pg_impl == 'pgrx' && steps.cache-pgrx-pg.outputs.cache-hit != 'true'

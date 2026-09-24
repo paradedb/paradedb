@@ -91,6 +91,15 @@ impl FFHelper {
         Self::default()
     }
 
+    /// Constructs an [`FFHelper`] that only provides `ctid` lookups.
+    ///
+    /// NOTE: Use of this constructor should be very rare. In most cases a scan loads more than one
+    /// column, so the scan should use a multi-column reader constructed with [`Self::with_fields`]
+    /// to share segment caches and reader state across all projected columns including `ctid`.
+    pub fn for_ctid(reader: &SearchIndexReader) -> Self {
+        Self::with_fields(reader, &[])
+    }
+
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
         Self(Some(FFInner {
             searcher: reader.searcher().clone(),

@@ -97,7 +97,6 @@ use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
-use tantivy::Index;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -729,10 +728,13 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
+            // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
+            // execution may skip some of these segments.
             let segment_count = {
                 let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
                 let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-                Index::open(directory).expect("custom_scan: should be able to open index");
+                crate::index::open_index(directory)
+                    .expect("custom_scan: should be able to open index");
                 segment_count.load(Ordering::Relaxed)
             };
             let schema = bm25_index

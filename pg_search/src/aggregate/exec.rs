@@ -26,7 +26,7 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-use crate::index::fast_fields_helper::FFType;
+use crate::index::fast_fields_helper::{FFHelper, FFType};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -95,7 +95,9 @@ impl AggregationExec for Aggregations {
         }
         let collector = DistributedAggregationCollector::from_aggs(self.clone(), params);
         let vischeck = (solve_mvcc && !use_cardinality_fast_path).then(|| {
+            let ffhelper = Arc::new(FFHelper::for_ctid(reader));
             VisibilityChecker::with_rel_and_snap(heaprel, unsafe { pg_sys::GetActiveSnapshot() })
+                .with_ffhelper(ffhelper)
         });
         (collector, vischeck)
     }

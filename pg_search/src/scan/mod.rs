@@ -45,3 +45,4 @@ pub use batch_scanner::Scanner;
 pub use info::{GlobalPredicateIndex, ScanInfo, ScanMode, TagIndex, TaggedQuery};
 pub use table_provider::PgSearchTableProvider;
 pub(crate) use table_provider::VisibilityMode;
+pub use visibility_ctid_resolver_rule::CtidResolver;

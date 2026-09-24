@@ -33,11 +33,11 @@ jobs:
       # Compute-optimized c-family — Rust schema generation is CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
-      - retry=when-interrupted
-      - family=c7a+c7i
+      - spot=false # Disable spot instances for publish jobs to make sure they don't fail
+      - family=c8a+c8i
       - cpu=8
       - ram=16
-      - image=ubuntu24-full-x64
+      - image=ubuntu26-full-x64
     if: ${{ !contains(github.ref, '-rc.') }}
     defaults:
       run:
@@ -64,7 +64,7 @@ jobs:
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v3-rust-cache"
+          prefix-key: "v3-rust-cache-ubuntu-26.04" # Match the build OS used by the shared toolchain cache.
           shared-key: pg${{ env.pg_version }}
           cache-targets: true
           cache-all-crates: true
@@ -110,7 +110,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: failure()
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

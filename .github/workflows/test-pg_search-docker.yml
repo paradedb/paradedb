@@ -27,6 +27,11 @@ on:
       ref:
         required: true
         type: string
+      spot:
+        description: "Use Spot instances for Docker tests."
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: test-pg_search-docker-${{ github.head_ref || inputs.ref || github.ref }}
@@ -44,6 +49,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - spot=${{ toJSON(inputs.spot) != 'false' }} # Keep Spot enabled when direct runs have no spot input
       - retry=when-interrupted
       - family=${{ matrix.runner_family }}
       - cpu=4
@@ -62,12 +68,12 @@ jobs:
           - arm64
         include:
           - arch: amd64
-            runner_family: m7a+m7i
-            runner_image: ubuntu24-full-x64
+            runner_family: m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
+            runner_image: ubuntu26-full-x64
             platform: linux/amd64
           - arch: arm64
-            runner_family: m7g+m8g
-            runner_image: ubuntu24-full-arm64
+            runner_family: m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
+            runner_image: ubuntu26-full-arm64
             platform: linux/arm64
 
     steps:
@@ -427,6 +433,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - spot=${{ toJSON(inputs.spot) != 'false' }} # Keep Spot enabled when direct runs have no spot input
       - retry=when-interrupted
       - family=${{ matrix.runner_family }}
       - cpu=4
@@ -442,13 +449,13 @@ jobs:
           - arm64
         include:
           - arch: amd64
-            runner_family: m7a+m7i
-            runner_image: ubuntu24-full-x64
+            runner_family: m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
+            runner_image: ubuntu26-full-x64
             platform: linux/amd64
             deb_sha_arg: PG_SEARCH_DEB_AMD64_SHA256
           - arch: arm64
-            runner_family: m7g+m8g
-            runner_image: ubuntu24-full-arm64
+            runner_family: m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
+            runner_image: ubuntu26-full-arm64
             platform: linux/arm64
             deb_sha_arg: PG_SEARCH_DEB_ARM64_SHA256
 

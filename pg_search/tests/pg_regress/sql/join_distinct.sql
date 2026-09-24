@@ -752,6 +752,80 @@ ORDER BY p.name
 LIMIT 10;
 
 SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_aggregate_custom_scan = on;
+
+-- =============================================================================
+-- TEST 21: JOIN + DISTINCT without search operator — declines gracefully to native PG
+-- Queries joining BM25-indexed tables without ParadeDB search operators must NOT
+-- be intercepted by JoinScan or AggregateScan unless enable_custom_scan_without_operator is on.
+-- All columns (join keys, distinct targets, and category_id filter) are fast fields
+-- to ensure no other gate (e.g. non-fast-field) causes the decline.
+-- =============================================================================
+
+-- Without search operator, query falls back to native PostgreSQL (quiet decline)
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name;
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name;
+
+-- With LIMIT: both JoinScan and AggregateScan decline quietly without operator
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name
+LIMIT 2;
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name
+LIMIT 2;
+
+-- With enable_custom_scan_without_operator = on, custom scans claim the queries:
+-- 1. Without LIMIT, AggregateScan claims the query
+SET paradedb.enable_custom_scan_without_operator = on;
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name;
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name;
+
+-- 2. With LIMIT, JoinScan claims the query
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name
+LIMIT 2;
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.category_id = 301
+ORDER BY p.name
+LIMIT 2;
+
+RESET paradedb.enable_custom_scan_without_operator;
 
 -- =============================================================================
 -- CLEANUP

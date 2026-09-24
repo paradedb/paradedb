@@ -98,7 +98,7 @@ cargo run -- --help
 
 Each benchmark run uses a single dataset located under `datasets/$name`. The heap must already be present — loaded by `load-heap` (which reads from the dataset's `data-source` at the given `--size`) or restored from a snapshot.
 
-The queries that are benchmarked for a dataset are located directly under `datasets/$name/queries/`, or under `datasets/$name/queries/{index}/` when index variants need different SQL. Each query file represents a single query: when a single file contains multiple queries, the first query in the file is considered to be the canonical/idiomatic way to write the query, and any additional queries in the file are considered alternative ways to write the query. The canonical query may not always be the fastest (yet!) but we strive to make the canonical query perform as well as a non-idiomatic, slightly contorted query might.
+The queries that are benchmarked for a dataset are located directly under `datasets/$name/queries/`, or under `datasets/$name/queries/{index}/` when index variants need different SQL. Queries can be defined either as a nested directory (e.g. `queries/{query}/` containing a `README.md` and one or more `.sql` files representing variants such as `postgres.sql`, `hash_partitioned.sql`, `range_partitioned.sql`) or as a standalone `queries/{query}.sql` file. Each SQL file contains a single query. When multiple variants are present in a query directory, they are benchmarked and charted together under the `{query} - {variant}` naming convention.
 
 ### Dataset Directory Layout
 
@@ -108,7 +108,7 @@ The queries that are benchmarked for a dataset are located directly under `datas
 - `create_tables.sql`
 - `indexes/{index}.sql` (one file per index variant, e.g. `bm25`, `hnsw`, `ivfflat`; chosen with `benchmark --index`)
 - `prewarm.sql`
-- `queries/*.sql` or `queries/{index}/*.sql`
+- `queries/{query}/*.sql` or `queries/{query}.sql` (or under `queries/{index}/`)
 - `after_create_index.sql` (optional)
 
 ### Preparing Datasets

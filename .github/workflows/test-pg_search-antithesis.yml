@@ -111,10 +111,10 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m7a+m7i
+      - family=m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=16
       - ram=64
-      - image=ubuntu24-full-x64
+      - image=ubuntu26-full-x64
       - extras=s3-cache
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
     container:
@@ -128,7 +128,7 @@ jobs:
 
     steps:
       - name: Install Dependencies
-        uses: paradedb/actions/apt-install@v13
+        uses: paradedb/actions/apt-install@v14
         with:
           packages: sudo git ca-certificates curl gnupg lsb-release binutils
 
@@ -152,7 +152,7 @@ jobs:
       # See https://antithesis.com/docs/reference/sdk/rust/instrumentation
       - name: Build pg_search from source
         id: build
-        uses: paradedb/actions/build-pg_search-source@v13
+        uses: paradedb/actions/build-pg_search-source@v14
         with:
           pg-version: ${{ env.PG_VERSION }}
           profile: dst
@@ -245,10 +245,10 @@ jobs:
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m7a+m7i
+      - family=m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=16
       - ram=64
-      - image=ubuntu24-full-x64
+      - image=ubuntu26-full-x64
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
@@ -399,10 +399,15 @@ jobs:
           || needs.build-antithesis-pg_search-deb.result == 'failure'
           || needs.antithesis-trigger-test-run.result == 'failure')
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: read
     steps:
       - name: Notify Slack on Failure
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
+          suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
+          job_results: ${{ toJSON(needs) }}
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "Nightly Antithesis Run Failed"

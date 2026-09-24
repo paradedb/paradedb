@@ -486,12 +486,13 @@ impl SegmentStats {
         else {
             return Ok(None);
         };
-        let boundaries = self
+        let Some(boundaries) = self
             .file
             .open_read_with_idx(field, heap_blocks::BOUNDARIES_IDX)
-            .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "missing heap-block boundaries")
-            })?;
+        else {
+            // Older prototype segments used a different boundary encoding at index 4.
+            return Ok(None);
+        };
         heap_blocks::HeapBlockMap::open(presence, boundaries, max_doc, pages_per_vm).map(Some)
     }
 

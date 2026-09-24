@@ -56,9 +56,12 @@
 
 use std::io::{self, Write};
 use std::ops::Range;
+use std::sync::Arc;
 
-use tantivy::HasLen;
-use tantivy::columnar::{Cardinality, ColumnarReader, DynamicColumn};
+use tantivy::columnar::column_values::{
+    CodecType, load_u64_based_column_values, serialize_u64_based_column_values,
+};
+use tantivy::columnar::{Cardinality, ColumnValues, ColumnarReader, DynamicColumn};
 use tantivy::directory::{CompositeWrite, FileSlice, OwnedBytes};
 use tantivy::index::{Segment, SegmentComponent};
 
@@ -66,11 +69,10 @@ use crate::api::CTID_FIELD_NAME;
 use crate::postgres::heap::HEAPBLOCKS_PER_PAGE;
 
 pub(super) const PRESENCE_IDX: usize = 3;
-pub(super) const BOUNDARIES_IDX: usize = 4;
+pub(super) const BOUNDARIES_IDX: usize = 5;
 const HEADER: usize = 24;
 const ENTRY: usize = 16;
 const SPARSE: u32 = 1 << 31;
-const BOUNDARY_GROUP: usize = 128;
 
 fn invalid() -> io::Error {
     io::Error::new(
@@ -233,29 +235,12 @@ fn encode(
         return Err(invalid());
     }
     starts.push(start);
-    let groups = starts.len().div_ceil(BOUNDARY_GROUP);
-    let mut boundaries = vec![0; groups * 8];
-    for (group, values) in starts.chunks(BOUNDARY_GROUP).enumerate() {
-        let offset = boundaries.len() as u64;
-        boundaries[group * 8..group * 8 + 8].copy_from_slice(&offset.to_le_bytes());
-        let base = values[0];
-        let bits = 32 - (values[values.len() - 1] - base).leading_zeros();
-        boundaries.extend_from_slice(&base.to_le_bytes());
-        boundaries.extend_from_slice(&bits.to_le_bytes());
-        let start = boundaries.len();
-        boundaries.resize(start + (values.len() * bits as usize).div_ceil(8) + 8, 0);
-        for (i, value) in values.iter().enumerate() {
-            let bit = i * bits as usize;
-            let offset = start + bit / 8;
-            let packed = u64::from(*value - base) << (bit % 8);
-            for (dst, src) in boundaries[offset..offset + 8]
-                .iter_mut()
-                .zip(packed.to_le_bytes())
-            {
-                *dst |= src;
-            }
-        }
-    }
+    let mut boundaries = Vec::new();
+    serialize_u64_based_column_values(
+        &starts.as_slice(),
+        &[CodecType::BlockwiseLinearV2],
+        &mut boundaries,
+    )?;
     Ok((presence, boundaries))
 }
 
@@ -488,79 +473,33 @@ impl HeapBlockMap {
 }
 
 struct BoundaryReader {
-    directory: ReadWindow,
-    values: ReadWindow,
+    file: FileSlice,
+    values: Option<Arc<dyn ColumnValues<u32>>>,
     count: usize,
 }
 
 impl BoundaryReader {
-    /// Creates a lazy boundary reader with separate directory and packed-value windows.
+    /// Defers opening the boundary column until a heap block needs visibility checks.
     fn new(file: FileSlice, count: usize) -> Self {
         Self {
-            directory: ReadWindow::new(file.clone()),
-            values: ReadWindow::new(file),
+            file,
+            values: None,
             count,
         }
     }
 
-    /// Reads one boundary directly through its group offset, base, and packed delta.
+    /// Reads a boundary through Tantivy's lazy compressed column reader.
     fn get(&mut self, index: usize) -> io::Result<u32> {
         if index >= self.count {
             return Err(invalid());
         }
-        let group = index / BOUNDARY_GROUP;
-        let offset = u64::from_le_bytes(self.directory.read(group * 8, 8)?.try_into().unwrap());
-        let offset = usize::try_from(offset).map_err(|_| invalid())?;
-        if offset < self.count.div_ceil(BOUNDARY_GROUP) * 8 {
-            return Err(invalid());
+        if self.values.is_none() {
+            let values = load_u64_based_column_values::<u32>(self.file.clone())?;
+            if values.num_vals() as usize != self.count {
+                return Err(invalid());
+            }
+            self.values = Some(values);
         }
-        let header = self.values.read(offset, 8)?;
-        let base = u32_at(header, 0);
-        let bits = u32_at(header, 4) as usize;
-        if bits > 32 {
-            return Err(invalid());
-        }
-        let bit = index % BOUNDARY_GROUP * bits;
-        let word = u64::from_le_bytes(
-            self.values
-                .read(offset + 8 + bit / 8, 8)?
-                .try_into()
-                .unwrap(),
-        );
-        let delta = (word >> (bit % 8)) & ((1u64 << bits) - 1);
-        base.checked_add(delta as u32).ok_or_else(invalid)
-    }
-}
-
-struct ReadWindow {
-    file: FileSlice,
-    offset: usize,
-    bytes: OwnedBytes,
-}
-
-impl ReadWindow {
-    /// Creates an empty read window without fetching file bytes.
-    fn new(file: FileSlice) -> Self {
-        Self {
-            file,
-            offset: 0,
-            bytes: OwnedBytes::empty(),
-        }
-    }
-
-    /// Reads a checked byte range, reusing or refilling an aligned file window.
-    fn read(&mut self, offset: usize, len: usize) -> io::Result<&[u8]> {
-        let end = offset.checked_add(len).ok_or_else(invalid)?;
-        if end > self.file.len() {
-            return Err(invalid());
-        }
-        if offset < self.offset || end > self.offset + self.bytes.len() {
-            self.offset = offset / 4096 * 4096;
-            self.bytes = self
-                .file
-                .slice(self.offset..(self.offset + 8192).max(end).min(self.file.len()))
-                .read_bytes()?;
-        }
-        Ok(&self.bytes[offset - self.offset..end - self.offset])
+        Ok(self.values.as_ref().unwrap().get_val(index as u32))
     }
 }

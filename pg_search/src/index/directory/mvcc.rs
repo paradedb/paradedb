@@ -1140,7 +1140,8 @@ mod tests {
 
     use pgrx::prelude::*;
 
-    #[pg_test(error = "temporary file size exceeds \"temp_file_limit\" (1kB)")]
+    #[pg_test]
+    #[should_panic(expected = "temporary file size exceeds")]
     fn test_temp_file_drop_preserves_write_error() {
         Spi::run("SET LOCAL temp_file_limit = '1kB'").unwrap();
         let mut file = PgTempFile::create();

@@ -7,14 +7,14 @@
 #
 # Unlike Dockerfile.paradedb-18 (which downloads a *released* pg_search .deb),
 # this overlays a pg_search that was compiled from the working tree onto a
-# released ParadeDB image. The compile happens on the runner via the
-# paradedb/actions/build-pg_search-source composite action (a plain native build,
-# so cargo caching actually works); this Dockerfile just swaps in the result.
+# released ParadeDB image. Dockerfile.source-build compiles against the same
+# base image so the extension does not depend on newer runner system libraries.
+# This Dockerfile just swaps in the result.
 # Everything else (Postgres, tuning, bootstrap, other extensions) matches the
 # published image, so only pg_search differs from the release.
 #
-# Build context must contain an `artifacts/usr/` tree as staged by the action
-# (the action's `artifacts-dir` output). Pass BASE_IMAGE to pick the release.
+# Build context must contain the exported `artifacts/usr/` tree.
+# Pass the same BASE_IMAGE to both Dockerfiles to pick the release.
 
 ARG BASE_IMAGE=paradedb/paradedb:latest-pg18
 FROM ${BASE_IMAGE}
@@ -26,3 +26,8 @@ RUN rm -f /usr/lib/postgresql/18/lib/pg_search*.so \
     /usr/share/postgresql/18/extension/pg_search*.control \
     /usr/share/postgresql/18/extension/pg_search*.sql
 COPY artifacts/usr/ /usr/
+
+# initdb loads the preloaded extensions, catching missing libraries or symbol
+# versions before a benchmark downloads its dataset or Cloud publishes an image.
+RUN gosu postgres initdb --no-sync --auth=trust -D /tmp/pg-search-smoke && \
+    rm -rf /tmp/pg-search-smoke

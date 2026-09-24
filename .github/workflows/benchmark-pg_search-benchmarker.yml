@@ -87,6 +87,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/source-image"
           cp docker/Dockerfile.source "$RUNNER_TEMP/source-image/Dockerfile"
+          cp docker/Dockerfile.source-build "$RUNNER_TEMP/source-image/"
+          cp docker/source-build.dockerignore "$RUNNER_TEMP/source-image/Dockerfile.source-build.dockerignore"
 
       - name: Checkout pg_search Source at ref=${{ steps.determine-ref.outputs.ref }}
         uses: actions/checkout@v7
@@ -104,25 +106,34 @@ jobs:
 
       # ---- Build the ParadeDB image from source ----------------------------
 
-      - name: Build pg_search from source
-        id: build-pg_search
-        uses: paradedb/actions/build-pg_search-source@v14
+      - name: Resolve Runtime Base Image
+        id: base-image
+        env:
+          BASE_IMAGE: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
+        run: |
+          docker pull "$BASE_IMAGE"
+          echo "image=$(docker image inspect "$BASE_IMAGE" --format '{{index .RepoDigests 0}}')" >> "$GITHUB_OUTPUT"
+
+      - name: Set Up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build pg_search against the runtime image
+        uses: docker/build-push-action@v7
         with:
-          pg-version: ${{ env.pg_version }}
-          cache-prefix-key: "v2-benchmarks-rust-cache-ubuntu-26.04"
-          cache-save: "true"
-          cache-on-failure: "true"
+          context: .
+          file: ${{ runner.temp }}/source-image/Dockerfile.source-build
+          build-args: BASE_IMAGE=${{ steps.base-image.outputs.image }}
+          outputs: type=local,dest=${{ runner.temp }}/source-image/artifacts
+          cache-from: type=gha,scope=benchmarker-source-pg18-arm64
+          cache-to: type=gha,mode=max,scope=benchmarker-source-pg18-arm64
 
       - name: Assemble ParadeDB image (pg_search from source)
         run: |
           set -euo pipefail
           ctx="$RUNNER_TEMP/source-image"
-          cp -R "${{ steps.build-pg_search.outputs.artifacts-dir }}" "${ctx}/artifacts"
-          # --pull to refetch the rolling latest-pg18 base, not a stale local layer.
           docker build \
-            --pull \
             --file "${ctx}/Dockerfile" \
-            --build-arg BASE_IMAGE="${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}" \
+            --build-arg BASE_IMAGE="${{ steps.base-image.outputs.image }}" \
             --tag "${IMAGE_TAG}" \
             "${ctx}"
 

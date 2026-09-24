@@ -27,16 +27,19 @@ use tantivy::vector::{
 use tantivy::{Index, TantivyError};
 
 use crate::postgres::options::{
-    BM25IndexOptions, DEFAULT_MAX_LEAF_SIZE, DEFAULT_TRAINING_SAMPLE_RATIO,
+    BM25IndexOptions, DEFAULT_MAX_LEAF_SIZE, DEFAULT_TRAINING_SAMPLE_RATIO, VectorRouter,
 };
 
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
 
-/// The IVF centroid router every pg_search index builds and opens: a stacked
-/// IVF over the trained centroids. Tantivy persists the router kind in each
-/// segment's `.centroids` file and refuses to open a segment under a
-/// different kind, so this is a build-time constant, not a GUC.
-pub const IVF_ROUTER: RouterKind = RouterKind::Stacked;
+impl From<VectorRouter> for RouterKind {
+    fn from(router: VectorRouter) -> Self {
+        match router {
+            VectorRouter::Graph => RouterKind::Rng,
+            VectorRouter::Ivf => RouterKind::Stacked,
+        }
+    }
+}
 
 struct AssignClusterer {
     dim: usize,
@@ -241,11 +244,13 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
     }
 }
 
-/// Select the IVF router on an opened index. Every `Index::open` in pg_search
-/// goes through this: tantivy requires a configured router both to build IVF
-/// segments at merge time and to open existing ones for search.
-pub fn set_ivf_router(index: &mut Index) -> tantivy::Result<()> {
-    index.set_ivf_router(IVF_ROUTER)
+/// Select the index's `vector_router` on an opened index. Every `Index::open`
+/// in pg_search goes through this: tantivy requires a configured router to
+/// build IVF segments at merge time. Existing segments open under the router
+/// kind persisted in their `.centroids` file, so altering `vector_router`
+/// only affects segments built afterwards.
+pub fn set_ivf_router(index: &mut Index, options: &BM25IndexOptions) -> tantivy::Result<()> {
+    index.set_ivf_router(options.vector_router().into())
 }
 
 /// Installs the configured IVF clusterer on an index.
@@ -300,6 +305,12 @@ mod tests {
         assert_eq!(clusterer.config.max_leaf_size, 100);
     }
 
+    #[test]
+    fn vector_router_maps_to_router_kind() {
+        assert_eq!(RouterKind::from(VectorRouter::Graph), RouterKind::Rng);
+        assert_eq!(RouterKind::from(VectorRouter::Ivf), RouterKind::Stacked);
+    }
+
     /// The router is fixed per index: setting it twice with the same kind is
     /// idempotent, so opening the same `Index` through several paths is safe.
     #[test]
@@ -307,8 +318,12 @@ mod tests {
         use tantivy::schema::Schema;
 
         let mut index = Index::create_in_ram(Schema::builder().build());
-        set_ivf_router(&mut index).expect("first set");
-        set_ivf_router(&mut index).expect("same kind again");
-        assert!(index.set_ivf_router(RouterKind::Rng).is_err());
+        index
+            .set_ivf_router(VectorRouter::default().into())
+            .expect("first set");
+        index
+            .set_ivf_router(VectorRouter::default().into())
+            .expect("same kind again");
+        assert!(index.set_ivf_router(RouterKind::Stacked).is_err());
     }
 }

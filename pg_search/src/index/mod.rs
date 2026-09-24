@@ -29,23 +29,24 @@ pub use directory::*;
 pub use search::*;
 
 use crate::api::FieldName;
+use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
 use anyhow::{Context, Result};
 use rand::{TryRng, rngs::SysRng};
 use tantivy::columnar::CodecType;
-use tantivy::directory::Directory;
 use tantivy::schema::FieldType;
 use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer};
 use tantivy::{Index, IndexSettings};
 
 /// Open the tantivy index behind `directory` the way every pg_search reader
-/// and writer must: with the IVF centroid router selected. Tantivy refuses
-/// to open an IVF segment for search, or to build one at merge time,
+/// and writer must: with the index's IVF centroid router selected. Tantivy
+/// refuses to open an IVF segment for search, or to build one at merge time,
 /// without a configured router.
-pub fn open_index<D: Into<Box<dyn Directory>>>(directory: D) -> tantivy::Result<Index> {
+pub fn open_index(directory: MVCCDirectory) -> tantivy::Result<Index> {
+    let indexrel = directory.indexrel().clone();
     let mut index = Index::open(directory)?;
-    crate::vector::clusterer::set_ivf_router(&mut index)?;
+    crate::vector::clusterer::set_ivf_router(&mut index, indexrel.options())?;
     Ok(index)
 }
 

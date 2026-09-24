@@ -170,7 +170,7 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (training_sample_ratio=0.32, max_leaf_size=100);
+WITH (training_sample_ratio=0.32, max_leaf_size=100, vector_router='graph');
 ```
 
 <ParamField body="training_sample_ratio" default={0.32}>
@@ -186,6 +186,25 @@ WITH (training_sample_ratio=0.32, max_leaf_size=100);
   centroid count depends on the clustering result. This setting is independent
   of `training_sample_ratio` and does not cap the number of indexed vectors
   assigned to a cluster.
+</ParamField>
+<ParamField body="vector_router" default="graph">
+  How a query finds the clusters worth probing. Either `graph` or `ivf`:
+
+- `graph` searches a neighborhood graph built over the cluster centroids.
+- `ivf` searches a small stacked IVF index built over the cluster centroids.
+  It is usually the better choice for low-dimensional vectors (128 or fewer
+  dimensions). Its search depth is tuned with
+  [`paradedb.vector_router_recall`](/reference/vector/tuning).
+
+<Warning>
+  Do not use `ivf` for vectors with more than 128 dimensions. It has not been
+  tested at those dimensions; use `graph` instead.
+</Warning>
+
+Changing `vector_router` with `ALTER INDEX ... SET` applies to segments
+built afterwards; existing segments keep the router they were built with.
+Run `REINDEX` to rebuild every segment with the new router.
+
 </ParamField>
 
 <Note>

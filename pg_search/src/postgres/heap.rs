@@ -19,7 +19,6 @@ use std::collections::VecDeque;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::aggregate::mvcc_collector::MVCCFilterSegmentCollector;
 use crate::api::CTID_FIELD_NAME;
 use crate::api::version::Version;
 use crate::index::fast_fields_helper::FFHelper;
@@ -32,7 +31,6 @@ use parking_lot::Mutex;
 use pgrx::pg_sys;
 use pgrx::{PgList, PgTupleDesc, check_for_interrupts};
 use tantivy::SegmentReader;
-use tantivy::collector::SegmentCollector;
 use tantivy::columnar::Cardinality;
 use tantivy::index::SegmentId;
 use tantivy::{DocId, SegmentOrdinal, TantivyDocument};
@@ -317,20 +315,11 @@ impl VisibilityChecker {
         self.blockvis.1
     }
 
-    pub fn filter_segment<SC: SegmentCollector>(
+    pub(crate) fn for_segment(
         checker: &Arc<Mutex<Self>>,
-        segment_ord: SegmentOrdinal,
         segment: &SegmentReader,
-        inner: SC,
-        requires_scoring: bool,
-    ) -> tantivy::Result<MVCCFilterSegmentCollector<SC>> {
-        let lock = (!checker.lock().is_segment_all_visible(segment)?).then(|| checker.clone());
-        Ok(MVCCFilterSegmentCollector::new(
-            inner,
-            lock,
-            segment_ord,
-            requires_scoring,
-        ))
+    ) -> tantivy::Result<Option<Arc<Mutex<Self>>>> {
+        Ok((!checker.lock().is_segment_all_visible(segment)?).then(|| checker.clone()))
     }
 
     pub(crate) fn is_segment_all_visible(

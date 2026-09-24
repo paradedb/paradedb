@@ -1070,13 +1070,29 @@ pub mod mvcc_collector {
             segment: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
             let inner = self.inner.for_segment(segment_local_id, segment)?;
-            VisibilityChecker::filter_segment(
-                &self.lock,
-                segment_local_id,
-                segment,
+            let requires_scoring = self.inner.requires_scoring();
+            let lock = VisibilityChecker::for_segment(&self.lock, segment)?;
+            let capacity = if lock.is_some() { BATCH_SIZE } else { 0 };
+
+            Ok(MVCCFilterSegmentCollector {
                 inner,
-                self.inner.requires_scoring(),
-            )
+                lock,
+                segment_ord: segment_local_id,
+                doc_buffer: Vec::with_capacity(capacity),
+                score_buffer: if requires_scoring {
+                    Vec::with_capacity(capacity)
+                } else {
+                    Vec::new()
+                },
+                visibility_buffer: Vec::with_capacity(capacity),
+                filtered_doc_buffer: Vec::with_capacity(capacity),
+                filtered_score_buffer: if requires_scoring {
+                    Vec::with_capacity(capacity)
+                } else {
+                    Vec::new()
+                },
+                requires_scoring,
+            })
         }
 
         fn requires_scoring(&self) -> bool {
@@ -1100,6 +1116,7 @@ pub mod mvcc_collector {
             }
         }
     }
+
     pub struct MVCCFilterSegmentCollector<SC: SegmentCollector> {
         inner: SC,
         lock: Option<Arc<Mutex<VisibilityChecker>>>,
@@ -1122,35 +1139,6 @@ pub mod mvcc_collector {
     unsafe impl<C: SegmentCollector> Sync for MVCCFilterSegmentCollector<C> {}
 
     impl<SC: SegmentCollector> MVCCFilterSegmentCollector<SC> {
-        pub(crate) fn new(
-            inner: SC,
-            lock: Option<Arc<Mutex<VisibilityChecker>>>,
-            segment_ord: SegmentOrdinal,
-            requires_scoring: bool,
-        ) -> Self {
-            let capacity = if lock.is_some() { BATCH_SIZE } else { 0 };
-
-            Self {
-                inner,
-                lock,
-                segment_ord,
-                doc_buffer: Vec::with_capacity(capacity),
-                score_buffer: if requires_scoring {
-                    Vec::with_capacity(capacity)
-                } else {
-                    Vec::new()
-                },
-                visibility_buffer: Vec::with_capacity(capacity),
-                filtered_doc_buffer: Vec::with_capacity(capacity),
-                filtered_score_buffer: if requires_scoring {
-                    Vec::with_capacity(capacity)
-                } else {
-                    Vec::new()
-                },
-                requires_scoring,
-            }
-        }
-
         fn flush(&mut self) {
             if self.doc_buffer.is_empty() {
                 return;

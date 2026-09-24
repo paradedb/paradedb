@@ -19,6 +19,7 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::buffile::{BufFileReleaseGuard, create_temp_buffile};
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
@@ -64,13 +65,17 @@ pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXT
 /// immutable segment-component map.
 struct PgTempFile {
     file: *mut pg_sys::BufFile,
+    release_guard: Arc<BufFileReleaseGuard>,
 }
 
 impl PgTempFile {
     fn create() -> Self {
-        let file = unsafe { pg_sys::BufFileCreateTemp(false) };
-        assert!(!file.is_null(), "BufFileCreateTemp returned null");
-        Self { file }
+        let release_guard = BufFileReleaseGuard::register();
+        let file = unsafe { create_temp_buffile() };
+        Self {
+            file,
+            release_guard,
+        }
     }
 }
 
@@ -120,7 +125,9 @@ impl Seek for PgTempFile {
 
 impl Drop for PgTempFile {
     fn drop(&mut self) {
-        unsafe { pg_sys::BufFileClose(self.file) }
+        if self.release_guard.may_close() {
+            unsafe { pg_sys::BufFileClose(self.file) }
+        }
     }
 }
 
@@ -1132,6 +1139,13 @@ mod tests {
     use crate::postgres::storage::block::SegmentMetaEntryContent;
 
     use pgrx::prelude::*;
+
+    #[pg_test(error = "temporary file size exceeds \"temp_file_limit\" (1kB)")]
+    fn test_temp_file_drop_preserves_write_error() {
+        Spi::run("SET LOCAL temp_file_limit = '1kB'").unwrap();
+        let mut file = PgTempFile::create();
+        file.write_all(&[0u8; pg_sys::BLCKSZ as usize * 2]).unwrap();
+    }
 
     #[pg_test]
     unsafe fn test_list_meta_entries() {

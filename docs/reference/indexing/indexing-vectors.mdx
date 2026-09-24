@@ -167,123 +167,31 @@ embedding: { metric: :ip }      # inner product
 ParadeDB uses a SPANN-style vector index, which is similar to an IVF index but with additional structures to improve
 recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and indexed. All are set at index build time and apply to every vector field in the index. An example:
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (key_field='id', centroid_ratio=0.01, training_sample_ratio=0.32, cluster_replication=1);
+WITH (training_sample_ratio=0.32, max_leaf_size=100);
 ```
 
-```ts Drizzle
-import { indexing } from "@paradedb/drizzle-paradedb";
-
-// In the pgTable definition:
-(table) => [
-  indexing
-    .paradedbIndex("search_idx", {
-      centroidRatio: 0.01,
-      clusterReplication: 1,
-    })
-    .on(
-      table.id,
-      table.description,
-      table.category,
-      indexing.vectorField(table.embedding, "cosine"),
-    ),
-];
-```
-
-```python Django
-from django.db import connection
-from paradedb.indexes import ParadeDBIndex
-
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "description": {},
-                "category": {},
-                "embedding": {"metric": "cosine"},
-            },
-            key_field="id",
-            name="search_idx",
-            centroid_ratio=0.01,
-            cluster_replication=1,
-        ),
-    )
-```
-
-```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(MockItem.description),
-    indexing.ParadeDBField(MockItem.category),
-    indexing.VectorField(MockItem.embedding, metric="cosine"),
-    postgresql_using="paradedb",
-    postgresql_with={
-        "key_field": "id",
-        **indexing.VectorIndexOptions(
-            centroid_ratio=0.01,
-            cluster_replication=1,
-        ),
-    },
-)
-
-with engine.begin() as conn:
-    idx.create(conn)
-```
-
-```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    description: {},
-    category: {},
-    embedding: { metric: :cosine }
-  },
-  key_field: :id,
-  name: :search_idx,
-  index_options: {
-    centroid_ratio: 0.01,
-    cluster_replication: 1
-  }
-)
-```
-
-```cs EF Core
-modelBuilder.Entity<MockItem>()
-    .HasParadeDbIndex("search_idx", e => e.Id)
-    .HasField(e => e.Description)
-    .HasField(e => e.Category)
-    .HasField(e => e.Embedding, VectorMetric.Cosine)
-    .HasCentroidRatio(0.01)
-    .HasClusterReplication(1);
-```
-
-</CodeGroup>
-
-<ParamField body="centroid_ratio" default={0.01}>
-  Vectors are clustered by proximity, and a centroid is a cluster's
-  representative vector. This setting controls the number of centroids to build,
-  as a fraction of the number of indexed vectors (`num_centroids =
-  centroid_ratio * num_vectors`). More centroids produce smaller clusters,
-  improving recall at the cost of a slower, more memory-intensive build. Must be
-  between `0.000001` and `1.0`.
-</ParamField>
 <ParamField body="training_sample_ratio" default={0.32}>
-  The fraction of indexed vectors sampled to train the k-means clustering at
-  build time. Higher values yield better-quality centroids at the cost of a
-  slower, more memory-intensive build. Must be between `0.000001` and `1.0`,
-  where `1.0` trains on every vector. The default samples `0.32 * num_vectors`.
+  The fraction of indexed vectors sampled to train the clustering at build time.
+  Must be between `0.000001` and `1.0`; `1.0` trains on every vector. The
+  default samples 32% of the vectors. Larger samples can improve centroid
+  quality at the cost of a slower, more memory-intensive build.
 </ParamField>
-<ParamField body="cluster_replication" default={1}>
-  Accepted for compatibility. Vectors are currently assigned to their single
-  nearest cluster regardless of this value.
+<ParamField body="max_leaf_size" default={100}>
+  The maximum number of sampled training vectors in a leaf of the hierarchical
+  clustering tree. Must be an integer between `1` and `2147483647`. Smaller
+  values generally produce more centroids and smaller clusters; the actual
+  centroid count depends on the clustering result. This setting is independent
+  of `training_sample_ratio` and does not cap the number of indexed vectors
+  assigned to a cluster.
 </ParamField>
+
+<Note>
+  These options replace `centroid_ratio` and `training_samples_per_centroid`.
+  The old names are no longer accepted. Recreate indexes that explicitly store
+  either old option using the new options; `REINDEX` alone does not remove
+  obsolete index options. The new defaults sample 32% of vectors and use a
+  maximum training leaf size of 100.
+</Note>

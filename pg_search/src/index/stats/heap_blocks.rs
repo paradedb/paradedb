@@ -1,42 +1,56 @@
 // Copyright (c) 2023-2026 ParadeDB, Inc.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Visibility checking for a segment sorted by CTID:
+//! Imagine a segment containing documents 0–6, corresponding to these heap pages:
 //!
 //! ```text
 //! doc ID:             0  1  2  3  4  5  6
 //! heap block:        10 10 11 11 11 15 15
+//! ```
 //!
+//! We want to go efficiently from distinct heap blocks to the document IDs that need
+//! visibility checks. CTID sorting keeps each block's documents contiguous, so we can
+//! represent them as ranges.
+//!
+//! First, a page presence bitmap records which heap blocks occur in the segment:
+//!
+//! ```text
+//! heap block:        10 11 12 13 14 15
+//! presence:           1  1  0  0  0  1
+//! ```
+//!
+//! We intersect presence with the complement of PostgreSQL's VM all-visible bits to
+//! identify the pages that still need visibility checks:
+//!
+//! ```text
 //! heap block:        10 11 12 13 14 15
 //! presence:           1  1  0  0  0  1
 //! VM all-visible:     1  0  1  1  1  1
-//! needs checking:     0  1  0  0  0  0
-//!                        |
-//!                        v
-//! rank(block 11) = 1 -> boundaries [0, 2, 5, 7] -> doc IDs [2, 5)
-//!
-//! query matches [0, 3, 6] -> only doc 3 needs a visibility check
+//!                         |
+//!             presence AND NOT all-visible
+//!                         v
+//! needs checking:     0  1  0  0  0  0  -> heap block 11
 //! ```
 //!
-//! CTID sorting keeps each heap block's documents together. Three structures let us move
-//! from heap blocks to document ranges without walking every document:
+//! Next, rank gives the page's position among the present pages, and boundaries translate
+//! that position into a document range. We only read boundaries for pages needing checks:
 //!
-//! - **Presence** records which heap blocks occur in the segment. It uses a bitmap for
-//!   dense blocks and a short list for sparse blocks, grouped by PostgreSQL visibility-map
-//!   (VM) page so we can check all blocks covered by that page together.
-//! - **Rank** gives a block's position among the present blocks. In the example, block 11
-//!   is the second present block, so its rank is 1. Bitmap checkpoints and popcounts make
-//!   this lookup cheap; sparse lists already provide the position.
-//! - **Boundaries** map that rank to a contiguous document range. They are compressed in
-//!   independently readable groups, so looking up one range doesn't require decoding
-//!   earlier boundaries.
+//! ```text
+//! present blocks:    [10, 11, 15]
+//! rank:                0   1   2
+//! boundaries:        [0,  2,  5,  7]
 //!
-//! Presence and boundaries are written into the segment's `.stats` file at flush and merge.
-//! On the first eligible query batch, `VisibilityChecker` compares presence with the VM
-//! and reads boundaries only for blocks that aren't all-visible. It caches the resulting
-//! document ranges for its snapshot, then checks only query matches within those ranges.
-//! If every present block is all-visible, no boundary reads or per-document visibility
-//! checks are needed. Segments without this metadata use the existing visibility path.
+//! heap block 11 -> rank 1 -> [boundaries[1], boundaries[2]) -> doc IDs [2, 5)
+//!                                                                  |
+//! query matches: [0, 3, 6] -----------------------------------------+
+//!                                                                  v
+//!                                                      only doc 3 needs checking
+//! ```
+//!
+//! Presence is stored compactly as bitmaps or sparse lists, with rank checkpoints for
+//! bitmaps and independently readable, compressed boundaries. These live in the segment's
+//! `.stats` file. `VisibilityChecker` performs the VM comparison once per eligible segment
+//! and snapshot, caches the resulting ranges, and uses them to filter subsequent batches.
 
 use std::io::{self, Write};
 use std::ops::Range;

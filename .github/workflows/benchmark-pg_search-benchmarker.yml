@@ -87,8 +87,6 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/source-image"
           cp docker/Dockerfile.source "$RUNNER_TEMP/source-image/Dockerfile"
-          cp docker/Dockerfile.source-build "$RUNNER_TEMP/source-image/"
-          cp docker/source-build.dockerignore "$RUNNER_TEMP/source-image/Dockerfile.source-build.dockerignore"
 
       - name: Checkout pg_search Source at ref=${{ steps.determine-ref.outputs.ref }}
         uses: actions/checkout@v7
@@ -117,25 +115,16 @@ jobs:
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build pg_search against the runtime image
+      - name: Build ParadeDB image from source
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ${{ runner.temp }}/source-image/Dockerfile.source-build
+          file: ${{ runner.temp }}/source-image/Dockerfile
           build-args: BASE_IMAGE=${{ steps.base-image.outputs.image }}
-          outputs: type=local,dest=${{ runner.temp }}/source-image/artifacts
+          load: true
+          tags: ${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=benchmarker-source-pg18-arm64
           cache-to: type=gha,mode=max,scope=benchmarker-source-pg18-arm64
-
-      - name: Assemble ParadeDB image (pg_search from source)
-        run: |
-          set -euo pipefail
-          ctx="$RUNNER_TEMP/source-image"
-          docker build \
-            --file "${ctx}/Dockerfile" \
-            --build-arg BASE_IMAGE="${{ steps.base-image.outputs.image }}" \
-            --tag "${IMAGE_TAG}" \
-            "${ctx}"
 
       # ---- Set up and run benchmarker --------------------------------------
 

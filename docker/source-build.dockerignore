@@ -1,4 +1,0 @@
-# Include source fixtures excluded by the general image-packaging .dockerignore.
-.git
-**/target
-benchmarker

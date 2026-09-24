@@ -48,8 +48,6 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/source-image"
           cp docker/Dockerfile.source "$RUNNER_TEMP/source-image/Dockerfile"
-          cp docker/Dockerfile.source-build "$RUNNER_TEMP/source-image/"
-          cp docker/source-build.dockerignore "$RUNNER_TEMP/source-image/Dockerfile.source-build.dockerignore"
 
       - name: Checkout Source
         uses: actions/checkout@v7
@@ -70,33 +68,39 @@ jobs:
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build pg_search against the runtime image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ runner.temp }}/source-image/Dockerfile.source-build
-          build-args: BASE_IMAGE=${{ steps.base-image.outputs.image }}
-          outputs: type=local,dest=${{ runner.temp }}/source-image/artifacts
-          cache-from: type=gha,scope=cloud-source-pg18-arm64
-          cache-to: type=gha,mode=max,scope=cloud-source-pg18-arm64
-
-      - name: Assemble Source Image
+      - name: Resolve Source Metadata
         id: image
-        env:
-          ARTIFACTS: ${{ runner.temp }}/source-image/artifacts
         run: |
           source_sha="$(git rev-parse HEAD)"
-          version="$(sed -nE "s/^default_version[[:space:]]*=[[:space:]]*'([^']+)'[[:space:]]*$/\1/p" "$ARTIFACTS/usr/share/postgresql/18/extension/pg_search.control")"
+          version=$(python3 - <<'PYTHON'
+          import tomllib
+          from pathlib import Path
+          package = tomllib.loads(Path("pg_search/Cargo.toml").read_text())["package"]
+          version = package["version"]
+          if isinstance(version, dict):
+              version = tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"]
+          print(version)
+          PYTHON
+          )
           [[ "$version" =~ ^[a-zA-Z0-9._-]{1,64}$ ]]
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo "extension_version=$version" >> "$GITHUB_OUTPUT"
-          docker build --platform linux/arm64 \
-            --file "$RUNNER_TEMP/source-image/Dockerfile" \
-            --build-arg "BASE_IMAGE=${{ steps.base-image.outputs.image }}" \
-            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
-            --label "org.opencontainers.image.revision=$source_sha" \
-            --label "com.paradedb.extension-version=$version" \
-            --tag paradedb-cloud-test "$RUNNER_TEMP/source-image"
+
+      - name: Build Source Image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ runner.temp }}/source-image/Dockerfile
+          platforms: linux/arm64
+          build-args: BASE_IMAGE=${{ steps.base-image.outputs.image }}
+          load: true
+          tags: paradedb-cloud-test
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.image.outputs.source_sha }}
+            com.paradedb.extension-version=${{ steps.image.outputs.extension_version }}
+          cache-from: type=gha,scope=cloud-source-pg18-arm64
+          cache-to: type=gha,mode=max,scope=cloud-source-pg18-arm64
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4

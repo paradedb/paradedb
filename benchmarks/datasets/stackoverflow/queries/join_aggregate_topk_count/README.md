@@ -11,7 +11,6 @@
 ## Query Info (statistics from 20m dataset):
 
 - 'javascript' selectivity on stackoverflow_posts.body: ~4%
-- badges has no partition_by, so there is no range-partitioned variant
 
 ## Comparison Strategy
 

@@ -1,8 +1,4 @@
----
-title: Diagnosing Quantized Vector Indexes
-description: Check whether quantized vector estimates match your data
-canonical: https://www.paradedb.com/docs/reference/vector/diagnosing-quantized-indexes
----
+# Diagnosing Quantized Vector Indexes
 
 Quantization stores compact codes beside full-precision vectors. During a scan, ParadeDB filters candidates using per-row error bars, then reranks the surviving candidates exactly.
 

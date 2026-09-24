@@ -118,6 +118,10 @@ impl Weight for SharedQuery {
         self.0.get().scorer(reader, boost)
     }
 
+    fn scorer_estimate(&self, reader: &SegmentReader) -> tantivy::Result<Option<(u32, u64)>> {
+        self.0.get().scorer_estimate(reader)
+    }
+
     fn pruning_scorer(
         &self,
         reader: &SegmentReader,

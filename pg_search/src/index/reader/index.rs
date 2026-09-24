@@ -1861,18 +1861,24 @@ impl SearchIndexReader {
         }
         let largest_reader = self.searcher.segment_reader(0);
         let weight = self.weight();
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("counting docs in the largest segment should not fail");
-
-        // investigate the size_hint.  it will often give us a good enough value
-        let mut count = scorer.size_hint() as usize;
-        let mut cost = scorer.cost();
-        if count == 0 {
-            // but when it doesn't, we need to do a full count
-            count = scorer.count_including_deleted() as usize;
-            cost = cost.max(count as u64);
-        }
+        let (count, mut cost) = match weight
+            .scorer_estimate(largest_reader)
+            .expect("estimating docs in the largest segment should not fail")
+        {
+            Some((count, cost)) => (count as usize, cost),
+            None => {
+                let mut scorer = weight
+                    .scorer(largest_reader, 1.0)
+                    .expect("counting docs in the largest segment should not fail");
+                let mut count = scorer.size_hint() as usize;
+                let mut cost = scorer.cost();
+                if count == 0 {
+                    count = scorer.count_including_deleted() as usize;
+                    cost = cost.max(count as u64);
+                }
+                (count, cost)
+            }
+        };
         if let Some(shortest_posting_list) = self.shortest_posting_list(largest_reader) {
             cost = cost.max(shortest_posting_list);
         }

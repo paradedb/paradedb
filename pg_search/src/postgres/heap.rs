@@ -539,8 +539,6 @@ impl VisibilityChecker {
         if blockno == self.blockvis.0 {
             return self.blockvis.1;
         }
-        #[cfg(feature = "io_stats")]
-        let _io = trace::external("Visibility Map");
         self.blockvis.0 = blockno;
 
         let vm_block_no = blockno / util::HEAPBLOCKS_PER_PAGE;
@@ -566,6 +564,8 @@ impl VisibilityChecker {
                 // `vm_readbuf` (which can `ereport`), so we MUST go through the guarded
                 // wrapper. This also (re)pins `vmbuff` to the correct mapBlock so the
                 // fast path can be taken on subsequent calls.
+                #[cfg(feature = "io_stats")]
+                let _io = trace::external("Visibility Map");
                 let status = pg_sys::visibilitymap_get_status(
                     self.heaprel.as_ptr(),
                     blockno,

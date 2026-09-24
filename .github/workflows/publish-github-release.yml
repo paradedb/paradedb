@@ -1,9 +1,10 @@
 # workflows/publish-github-release.yml
 #
 # Publish GitHub Release
-# Assemble release artifacts, create a version tag, and publish a GitHub Release from
-# the selected ref. Beta releases require an -rc.N version and create a prerelease
-# without advancing the source branch. Tag pushes trigger downstream publishing.
+# Orchestrates fragment assembly, version syncing, and publishes a ParadeDB GitHub Release.
+# This workflow is triggered manually via the GitHub Actions UI and releases the selected branch or tag.
+# Beta releases require an -rc.N version and create a prerelease without advancing the branch.
+# The new version tag triggers the other publishing workflows.
 #
 # Conditionals checking for `paradedb/paradedb` ensure that artifact assembly,
 # version bumps, and release commits only run on the community repository.
@@ -15,12 +16,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "New release version without the v prefix (e.g. 0.26.0 or 0.26.0-rc.0 for a beta)."
+        description: "The version to release, without the v prefix (e.g. 0.26.0 or 0.26.0-rc.0 for a beta)."
         type: string
         required: true
         default: ""
       beta:
-        description: "Create a GitHub prerelease and tag without advancing the selected branch. Requires an -rc.N version; skips manual approval."
+        description: "Whether this release is a beta release. Requires an -rc.N version and skips manual approval. Creates a prerelease and tag without advancing the selected branch. Defaults to false."
         type: boolean
         required: false
         default: false

@@ -1,18 +1,20 @@
 # workflows/publish-paradedb-docker.yml
 #
 # Publish ParadeDB (Docker)
-# Build, test, and publish Docker images using .deb packages from an existing GitHub
-# Release. The selected ref supplies Dockerfiles and workflow code; pg_search is
-# not compiled from that ref. The release packages must already be available.
+# Publish ParadeDB as Docker images to Docker Hub after the pg_search .deb packages have
+# been published to GitHub Releases. The selected branch or tag provides the Dockerfiles
+# and workflow code. The images use the release packages instead of building pg_search from source.
+# Stable releases default to all supported PostgreSQL versions, while versions containing
+# a dash only build PostgreSQL 18. This workflow also publishes the mountable extension image
+# for PostgreSQL 18, except for beta (-rc.) releases.
 #
-# Release-tag runs of publish-pg_search-debian.yml dispatch this workflow after
-# uploading packages, using the same release tag. Manual runs can republish images.
-# Stable releases default to all supported PostgreSQL majors; prerelease versions
-# containing a dash use PostgreSQL 18 only. Beta (-rc.) releases skip the mountable
-# extension image, Dockerfile-update PRs, and ORM notifications.
+# Once the runnable Docker images are published, notify ORM wrapper repositories via
+# repository_dispatch so they can run compatibility checks against the new version.
+# Beta releases skip these notifications and the Dockerfile update PRs.
 #
-# Stable runnable-image publication also notifies ORM repositories so they can run
-# compatibility checks. Mountable extension images are published for PostgreSQL 18.
+# This workflow is dispatched by `publish-pg_search-debian.yml` after a release tag build
+# uploads the Debian packages. It runs on the same release tag as the other publishing jobs.
+# It can also be run manually to republish images.
 
 name: Publish ParadeDB (Docker)
 
@@ -20,15 +22,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Existing GitHub Release version without v (e.g. 0.25.9). Packages must already be uploaded. Select its release tag as the workflow ref; this does not build pg_search from source."
+        description: "The existing GitHub Release version to publish Docker images for, without the v prefix (e.g. 0.25.9). The .deb packages must already be uploaded. Select the matching release tag when running this workflow. This does not build pg_search from source."
         required: true
         default: ""
       pg_version:
-        description: "PostgreSQL majors for runnable images, as a JSON array (e.g. [18] or [15, 16, 17, 18]). Versions containing a dash use [18]. Extension images use PostgreSQL 18."
+        description: "The PostgreSQL major version(s) to build ParadeDB for, as a JSON array (e.g. [18] or [15, 16, 17, 18]). Versions containing a dash always use [18]. Extension images always use PostgreSQL 18."
         required: false
         default: "[15, 16, 17, 18]"
       images:
-        description: "Publish runnable database images, mountable extension images, or both. Beta (-rc.) releases skip extension images."
+        description: "Which images to publish. Choose runnable database images, mountable extension images, or both. Beta (-rc.) releases skip extension images."
         required: false
         type: choice
         default: all

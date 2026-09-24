@@ -28,6 +28,15 @@ layouts.
 
 CI run: [35967678542](https://github.com/paradedb/paradedb/actions/runs/35967678542).
 
+To repeat the paired run without publishing benchmark results, dispatch the
+workflow from this experiment branch with `partition_pruning_experiment=true`,
+`pruning_suite=unchanged`, `dataset=stackoverflow`,
+`use_benchmarks_from_ref=true`, and `publish_baseline=false`. The workflow
+records the source SHAs and the PostgreSQL settings in the artifact before it
+builds either library. The benchmark runner can also be inspected directly at
+`benchmarks/diagnostics/partition_layouts.py`; it refuses to run outside
+GitHub Actions and refuses sizes other than `1m` in this first pass.
+
 ## Layouts and measured scope
 
 The unchanged SQL files were copied byte-for-byte from the baseline commit.

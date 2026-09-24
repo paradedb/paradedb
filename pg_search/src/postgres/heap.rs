@@ -498,6 +498,50 @@ impl VisibilityChecker {
         })?))
     }
 
+    /// Checks visibility without fetching CTIDs for documents outside unresolved ranges.
+    pub(crate) fn check_segment_docs_mask(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+        doc_ids: &[DocId],
+        mask: &mut [bool],
+    ) {
+        assert_eq!(doc_ids.len(), mask.len());
+        mask.fill(true);
+        if doc_ids.is_empty() || !self.check_visibility {
+            return;
+        }
+        let ranges = doc_ids
+            .is_sorted()
+            .then(|| self.segment_check_ranges(segment_ord))
+            .flatten();
+        let mut ctids = Vec::new();
+        let mut check = |start: usize, end: usize| {
+            if start == end {
+                return;
+            }
+            ctids.resize(end - start, None);
+            self.check_segment_docs(segment_ord, &doc_ids[start..end], &mut ctids);
+            for (visible, ctid) in mask[start..end].iter_mut().zip(&ctids) {
+                *visible = ctid.is_some();
+            }
+        };
+        if let Some(ranges) = ranges {
+            let mut start = 0;
+            let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
+            for range in &ranges[first_range..] {
+                start += doc_ids[start..].partition_point(|&doc| doc < range.start);
+                if start == doc_ids.len() {
+                    break;
+                }
+                let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
+                check(start, end);
+                start = end;
+            }
+        } else {
+            check(0, doc_ids.len());
+        }
+    }
+
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from
     /// the configured [`FFHelper`].
     ///

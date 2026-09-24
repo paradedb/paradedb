@@ -1141,7 +1141,7 @@ pub mod mvcc_collector {
         score_buffer: Vec<Score>,
 
         // Processing buffers
-        visibility_buffer: Vec<Option<u64>>,
+        visibility_buffer: Vec<bool>,
 
         // Outgoing buffers
         filtered_doc_buffer: Vec<DocId>,
@@ -1164,8 +1164,8 @@ pub mod mvcc_collector {
                 .as_ref()
                 .expect("buffered docs need visibility checks")
                 .lock();
-            self.visibility_buffer.resize(self.doc_buffer.len(), None);
-            vischeck.check_segment_docs(
+            self.visibility_buffer.resize(self.doc_buffer.len(), false);
+            vischeck.check_segment_docs_mask(
                 self.segment_ord,
                 &self.doc_buffer,
                 &mut self.visibility_buffer,
@@ -1178,8 +1178,8 @@ pub mod mvcc_collector {
                 self.filtered_score_buffer.clear();
             }
 
-            for (i, visible_ctid) in self.visibility_buffer.iter().enumerate() {
-                if visible_ctid.is_some() {
+            for (i, &visible) in self.visibility_buffer.iter().enumerate() {
+                if visible {
                     self.filtered_doc_buffer.push(self.doc_buffer[i]);
                     if self.requires_scoring {
                         self.filtered_score_buffer.push(self.score_buffer[i]);

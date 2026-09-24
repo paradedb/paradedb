@@ -2096,7 +2096,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "4.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-09-19-045947#3e711f71eeb266824619f27aef7d1a60b6a704ee"
+source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-09-24-211026#c6a236029ee3eb41668814a6d981a5446e7645b7"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2114,7 +2114,6 @@ dependencies = [
  "log",
  "moka",
  "num-traits",
- "object_store",
  "pin-project",
  "prost",
  "rand 0.9.5",
@@ -7303,7 +7302,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",

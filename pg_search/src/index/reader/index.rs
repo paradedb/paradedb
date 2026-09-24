@@ -23,6 +23,7 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
 use crate::api::{
@@ -50,17 +51,17 @@ use crate::scan::info::RowEstimate;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::Result;
-use pgrx::pg_sys;
+use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::collector::sort_key::{
     ComparatorEnum, SortByBytes, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue,
     SortByString,
 };
-use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
+use tantivy::collector::{Collector, Count, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::query::{EnableScoring, QueryClone, QueryParser, TermQuery, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
@@ -823,6 +824,38 @@ impl SearchIndexReader {
             total += u64::from(weight.count(segment_reader)?);
         }
         Ok(total)
+    }
+
+    pub fn try_count_visible_docs(&self) -> tantivy::Result<Option<usize>> {
+        let query = unbox_query(self.query.as_ref());
+        let is_term_query = query.is::<TermQuery>();
+        if !is_term_query {
+            return Ok(None);
+        }
+        let heaprel = self
+            .index_rel
+            .heap_relation()
+            .expect("index should belong to a heap relation");
+        let visibility =
+            VisibilityChecker::with_rel_and_snap(&heaprel, unsafe { pg_sys::GetActiveSnapshot() });
+        let all_visible_segments = self.all_visible_segments()?;
+        let filtered = InterruptableCollector::new(MVCCFilterCollector::new(
+            Count,
+            visibility,
+            all_visible_segments.clone(),
+        ));
+        let weight = self.weight();
+        let mut count = 0;
+        for (ordinal, segment) in self.searcher.segment_readers().iter().enumerate() {
+            check_for_interrupts!();
+            let all_visible = all_visible_segments.contains(&segment.segment_id());
+            count += if all_visible && is_term_query && segment.alive_bitset().is_none() {
+                weight.count(segment)? as usize
+            } else {
+                filtered.collect_segment(weight.as_ref(), ordinal as SegmentOrdinal, segment)?
+            };
+        }
+        Ok(Some(count))
     }
 
     pub fn weight(&self) -> Box<dyn Weight> {
@@ -2065,6 +2098,13 @@ impl SearchIndexManifest {
             &self.components().directory,
         )
     }
+}
+
+fn unbox_query(mut query: &dyn Query) -> &dyn Query {
+    while let Some(boxed) = query.downcast_ref::<Box<dyn Query>>() {
+        query = boxed.as_ref();
+    }
+    query
 }
 
 pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {

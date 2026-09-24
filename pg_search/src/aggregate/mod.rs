@@ -25,6 +25,7 @@ use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
+use crate::gucs;
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 #[cfg(feature = "io_stats")]
@@ -35,7 +36,9 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::customscan::aggregatescan::build::{
+    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey,
+};
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
@@ -53,8 +56,14 @@ use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::agg_result::AggregationResults;
-use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
+use tantivy::aggregation::agg_result::{
+    AggregationResult, AggregationResults, BucketResult, FilterBucketResult, MetricResult,
+};
+use tantivy::aggregation::intermediate_agg_result::{
+    IntermediateAggregationResult, IntermediateAggregationResults, IntermediateBucketResult,
+    IntermediateMetricResult,
+};
+use tantivy::aggregation::metric::{IntermediateCount, IntermediateStats, SingleMetricResult};
 use tantivy::aggregation::{
     AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
 };
@@ -313,6 +322,37 @@ impl<'a> ParallelAggregationWorker<'a> {
             self.query.needs_tokenizer(),
         )?;
 
+        if self.config.solve_mvcc
+            && let Some(AggregateRequest::Sql(clause)) = self.aggregation.as_ref()
+            && clause.is_bare_doc_count()
+            && !reader.need_scores()
+            && !self.query.has_heap_filters()
+            && !self.query.has_postgres_expressions()
+            && let Some(count) = reader.try_count_visible_docs()?
+        {
+            let count = count as u64;
+            let metric = IntermediateAggregationResult::Metric(IntermediateMetricResult::Count(
+                IntermediateCount::from_stats(IntermediateStats::from_parts(count, 0.0, 0.0, 0.0)),
+            ));
+            let value = if matches!(
+                clause.aggregates().next(),
+                Some(AggregateType::CountAny { .. })
+            ) {
+                IntermediateAggregationResult::Bucket(IntermediateBucketResult::Filter {
+                    doc_count: count,
+                    sub_aggregations: IntermediateAggregationResults::default(),
+                })
+            } else {
+                metric.clone()
+            };
+            let mut result = IntermediateAggregationResults::default();
+            result.push("0".to_string(), value)?;
+            if gucs::add_doc_count_to_aggs() {
+                result.push(DocCountKey::NAME.to_string(), metric)?;
+            }
+            return Ok(Some(result));
+        }
+
         let use_min_sentinel_fields = match self.aggregation.as_ref() {
             Some(AggregateRequest::Sql(clause)) => clause.use_min_sentinel_fields(),
             _ => HashSet::default(),
@@ -498,7 +538,8 @@ pub fn execute_aggregate(
         // on delete-free segments, a scoreless docset drain otherwise —
         // skipping the aggregation framework's per-doc column iteration.
         if !solve_mvcc
-            && matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count())
+            && let AggregateRequest::Sql(clause) = &agg_req
+            && clause.is_bare_doc_count()
         {
             // Serial execution: the scorers claim private cursors.
             if let Some(bitmap_exec) = bitmap_exec.as_deref_mut()
@@ -509,19 +550,23 @@ pub fn execute_aggregate(
                 cell.fill(source);
             }
             let count = reader.count_matched_docs()?;
+            let value = if matches!(
+                clause.aggregates().next(),
+                Some(AggregateType::CountAny { .. })
+            ) {
+                AggregationResult::BucketResult(BucketResult::Filter(FilterBucketResult {
+                    doc_count: count,
+                    sub_aggregations: AggregationResults::default(),
+                }))
+            } else {
+                AggregationResult::MetricResult(MetricResult::Count(SingleMetricResult {
+                    value: Some(count as f64),
+                }))
+            };
             let mut results = AggregationResults::default();
             // Key "0" matches `CollectAggregations::collect`'s enumeration of
             // the single aggregate.
-            results.0.insert(
-                "0".to_string(),
-                tantivy::aggregation::agg_result::AggregationResult::MetricResult(
-                    tantivy::aggregation::agg_result::MetricResult::Count(
-                        tantivy::aggregation::metric::SingleMetricResult {
-                            value: Some(count as f64),
-                        },
-                    ),
-                ),
-            );
+            results.0.insert("0".to_string(), value);
             return Ok(results);
         }
 

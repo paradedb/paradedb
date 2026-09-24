@@ -26,8 +26,9 @@ use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, TidReader};
 #[cfg(feature = "io_stats")]
 use crate::index::reader::io_stats::trace;
-use crate::index::stats::SegmentStats;
+use crate::index::stats::{EmpiricalStats, SegmentStats};
 use crate::postgres::composite::CompositeSlotValues;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
 use crate::postgres::utils::{self, TidBlock, TidOffset};
@@ -588,6 +589,34 @@ impl VisibilityChecker {
         self.blockvis.1
     }
 
+    pub(crate) fn is_range_all_visible(&mut self, first: u32, last: u32) -> bool {
+        if first > last || last >= self.nblocks {
+            return false;
+        }
+        self.blockvis = (pg_sys::InvalidBlockNumber, false);
+        let mut block = u64::from(first);
+        while block <= u64::from(last) {
+            pgrx::check_for_interrupts!();
+            let blockno = block as u32;
+            let offset = blockno % util::HEAPBLOCKS_PER_PAGE;
+            let count = (last - blockno + 1).min(util::HEAPBLOCKS_PER_PAGE - offset);
+            if !self.is_block_all_visible(blockno) || self.vm_page_ptr.is_null() {
+                return false;
+            }
+            let map = unsafe {
+                slice::from_raw_parts(
+                    self.vm_page_ptr,
+                    (util::HEAPBLOCKS_PER_PAGE / util::HEAPBLOCKS_PER_BYTE) as usize,
+                )
+            };
+            if !util::is_range_all_visible(map, offset, offset + count - 1) {
+                return false;
+            }
+            block += u64::from(count);
+        }
+        true
+    }
+
     /// Clear all-visible heap blocks from a bitmap starting at a 32-block-aligned address.
     /// Missing VM pages and blocks beyond the relation remain set for tuple checking.
     pub(crate) fn retain_invisible_blocks(&mut self, first_block: u32, mut blocks: &mut [u32]) {
@@ -705,12 +734,30 @@ impl VisibilityChecker {
         let Ok(field) = segment.schema().get_field(TID_BLOCK_FIELD_NAME) else {
             return Ok(None);
         };
-        let map = {
+        let (stats, bounds) = {
             #[cfg(feature = "io_stats")]
             let _io = trace::external("Visibility Presence");
             let Some(stats) = SegmentStats::of_reader(segment)? else {
                 return Ok(None);
             };
+            let bounds = stats.empirical(field)?;
+            (stats, bounds)
+        };
+        if let Some(EmpiricalStats {
+            min: PdbOwnedValue::U64(first),
+            max: PdbOwnedValue::U64(last),
+            nullable: false,
+        }) = bounds
+            && let (Ok(first), Ok(last)) = (u32::try_from(first), u32::try_from(last))
+            && first <= last
+            && last / util::HEAPBLOCKS_PER_PAGE - first / util::HEAPBLOCKS_PER_PAGE < 64
+            && self.is_range_all_visible(first, last)
+        {
+            return Ok(Some(Vec::new()));
+        }
+        let map = {
+            #[cfg(feature = "io_stats")]
+            let _io = trace::external("Visibility Presence");
             stats.heap_blocks(field, segment.max_doc(), util::HEAPBLOCKS_PER_PAGE)?
         };
         let Some(mut map) = map else {
@@ -1481,6 +1528,25 @@ mod util {
     /// every page boundary, and the unguarded fast path forces a `vm_readbuf` (a safety-contract
     /// violation that also thrashes the VM cache).
     pub const HEAPBLOCKS_PER_PAGE: u32 = MAPSIZE * HEAPBLOCKS_PER_BYTE;
+
+    pub(super) fn is_range_all_visible(map: &[u8], first: u32, last: u32) -> bool {
+        let start = (first / HEAPBLOCKS_PER_BYTE) as usize;
+        let end = (last / HEAPBLOCKS_PER_BYTE) as usize;
+        let first_mask = 0x55_u8 << ((first % HEAPBLOCKS_PER_BYTE) * 2);
+        let last_mask = 0x55_u8 >> ((HEAPBLOCKS_PER_BYTE - 1 - last % HEAPBLOCKS_PER_BYTE) * 2);
+        if start == end {
+            let mask = first_mask & last_mask;
+            return map[start] & mask == mask;
+        }
+        if map[start] & first_mask != first_mask || map[end] & last_mask != last_mask {
+            return false;
+        }
+        let mut words = map[start + 1..end].chunks_exact(8);
+        words.all(|bytes| {
+            u64::from_le_bytes(bytes.try_into().unwrap()) & 0x5555_5555_5555_5555
+                == 0x5555_5555_5555_5555
+        }) && words.remainder().iter().all(|byte| byte & 0x55 == 0x55)
+    }
 
     pub(super) fn clear_visible_blocks(map: &[u8], blocks: &mut [u32]) {
         for (bytes, blocks) in map.chunks_exact(8).zip(blocks) {

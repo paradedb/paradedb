@@ -105,8 +105,8 @@ struct BenchmarkArgs {
     #[arg(long, default_value_t = true, num_args = 1)]
     dirty: bool,
 
-    /// Fraction of data to dirty (e.g. 0.05 for 5% dirty / 95% visible).
-    #[arg(long, default_value_t = 0.05)]
+    /// Fraction of data to dirty (e.g. 0.005 for 0.5% dirty / 99.5% visible).
+    #[arg(long, default_value_t = 0.005)]
     dirty_fraction: f64,
 
     /// Skip index creation (and the after-create-index hook). Assumes the index already exists;
@@ -1146,11 +1146,18 @@ fn load_parquet_into(url: &str, table: &str, source: &str) -> anyhow::Result<()>
     Ok(())
 }
 
+fn format_percent(pct: f64) -> String {
+    if (pct.round() - pct).abs() < 1e-6 {
+        format!("{pct:.0}")
+    } else {
+        format!("{pct:.1}")
+    }
+}
+
 async fn process_dirty_sql(
     conn: &mut PgConnection,
     args: &BenchmarkArgs,
-    dirty_pct: u32,
-    visible_pct: u32,
+    visible_label: &str,
 ) -> anyhow::Result<()> {
     let dirty_sql = format!("datasets/{}/dirty.sql", args.dataset);
     if !Path::new(&dirty_sql).exists() {
@@ -1161,18 +1168,23 @@ async fn process_dirty_sql(
         );
     }
 
-    println!("Dirtying tables ({dirty_pct}% dirty / {visible_pct}% visible)...");
+    let dirty_pct = args.dirty_fraction * 100.0;
+    let dirty_pct_str = format_percent(dirty_pct);
+    let modulus = (1.0 / args.dirty_fraction).round().max(1.0) as u64;
+
+    println!(
+        "Dirtying tables ({dirty_pct_str}% dirty / {visible_label}% visible, 1 tuple per {modulus} blocks)..."
+    );
     let statements = queries(Path::new(&dirty_sql));
 
     let mut vars = HashMap::new();
-    vars.insert("dirty_pct".to_string(), dirty_pct.to_string());
+    vars.insert("dirty_pct".to_string(), dirty_pct_str);
     vars.insert(
         "dirty_fraction".to_string(),
         args.dirty_fraction.to_string(),
     );
-    let modulus = 100u32.checked_div(dirty_pct).map_or(100, |m| m.max(1));
     vars.insert("dirty_modulus".to_string(), modulus.to_string());
-    vars.insert("visible_pct".to_string(), visible_pct.to_string());
+    vars.insert("visible_pct".to_string(), visible_label.to_string());
     if let Some(size) = args.size.as_deref() {
         vars.insert("dataset_size".to_string(), dataset_rows(size)?.to_string());
     }
@@ -1190,13 +1202,26 @@ async fn process_dirty_sql(
 
     for statement in statements {
         let statement = substitute_vars(&statement, &vars)?;
-        sqlx::query(AssertSqlSafe(statement.as_str()))
+        let start = std::time::Instant::now();
+        let rows_affected = sqlx::query(AssertSqlSafe(statement.as_str()))
             .execute(&mut *conn)
             .await
             .with_context(|| {
                 let preview: String = statement.chars().take(60).collect();
                 format!("Failed to run dirty statement: {preview}")
-            })?;
+            })?
+            .rows_affected();
+        let preview: String = statement
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("")
+            .chars()
+            .take(50)
+            .collect();
+        println!(
+            "  Executed '{preview}' in {:.2?} ({rows_affected} rows modified)",
+            start.elapsed()
+        );
     }
 
     sqlx::raw_sql("CHECKPOINT;")
@@ -1345,14 +1370,15 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
         .collect();
 
     if args.dirty && !sensitive_queries.is_empty() && args.dirty_fraction > 0.0 {
-        let dirty_pct = (args.dirty_fraction * 100.0).round() as u32;
-        let visible_pct = 100u32.saturating_sub(dirty_pct);
+        let visible_pct = (1.0 - args.dirty_fraction) * 100.0;
+        let visible_pct_str = format_percent(visible_pct);
 
-        process_dirty_sql(&mut utility_conn, args, dirty_pct, visible_pct).await?;
+        process_dirty_sql(&mut utility_conn, args, &visible_pct_str).await?;
 
         for query_item in sensitive_queries {
             let query = substitute_vars(&query_item.query, &query_params)?;
-            let dirty_query_type = format!("{} ({}% visible)", query_item.query_type, visible_pct);
+            let dirty_query_type =
+                format!("{} ({}% visible)", query_item.query_type, visible_pct_str);
             if let Some(res) = execute_benchmark_query(
                 &mut utility_conn,
                 args,
@@ -1576,9 +1602,9 @@ async fn write_test_info(file: &mut File, args: &BenchmarkArgs) -> anyhow::Resul
     writeln!(file, "| Vacuum      | {} |", args.vacuum)?;
     writeln!(
         file,
-        "| Dirty       | {} ({:.0}% visible) |",
+        "| Dirty       | {} ({}% visible) |",
         args.dirty,
-        (1.0 - args.dirty_fraction) * 100.0
+        format_percent((1.0 - args.dirty_fraction) * 100.0)
     )?;
 
     let mut conn = PgConnection::connect(&args.url)
@@ -2663,8 +2689,26 @@ SELECT * FROM table;
             "postgresql://localhost/postgres",
             "--index",
             "bm25",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Benchmark(args) => {
+                assert!(args.dirty);
+                assert_eq!(args.dirty_fraction, 0.005);
+            }
+            _ => panic!("Expected Commands::Benchmark"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "benchmarks",
+            "benchmark",
+            "--url",
+            "postgresql://localhost/postgres",
+            "--index",
+            "bm25",
             "--dirty",
-            "true",
+            "false",
             "--dirty-fraction",
             "0.10",
         ])
@@ -2672,10 +2716,20 @@ SELECT * FROM table;
 
         match cli.command {
             Commands::Benchmark(args) => {
-                assert!(args.dirty);
+                assert!(!args.dirty);
                 assert_eq!(args.dirty_fraction, 0.10);
             }
             _ => panic!("Expected Commands::Benchmark"),
         }
+    }
+
+    #[test]
+    fn formats_percent_cleanly() {
+        assert_eq!(format_percent(99.5), "99.5");
+        assert_eq!(format_percent(95.0), "95");
+        assert_eq!(format_percent(99.0), "99");
+        assert_eq!(format_percent(0.5), "0.5");
+        assert_eq!(format_percent(0.0), "0");
+        assert_eq!(format_percent(100.0), "100");
     }
 }

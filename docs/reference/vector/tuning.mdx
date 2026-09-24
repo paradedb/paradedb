@@ -29,12 +29,13 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
   themselves organized into a small routing index; below `1.0`, the router stops
   scanning that index once the estimated chance that the best clusters have been
   found reaches this target, and `1.0` scans a fixed fraction of it instead.
-  Must be between `0.000001` and `1.0`. Only applies to vectors of fewer than
-  256 dimensions; higher-dimensional vectors always use the fixed fraction.
+  Must be between `0.000001` and `1.0`. Only applies to indexes built with
+  `vector_router = 'ivf'`, and only to vectors of 128 or fewer dimensions;
+  higher-dimensional vectors always use the fixed fraction.
 </ParamField>
 
 <Note>
-  Recall also depends on the index's `training_sample_ratio` and
-  `max_leaf_size`, set at build time. See [Index
+  Recall also depends on the index's `vector_router`, `training_sample_ratio`
+  and `max_leaf_size`, set at build time. See [Index
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>

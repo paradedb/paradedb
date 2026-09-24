@@ -2,4 +2,4 @@
 header: features
 ---
 
-Vector indexes now route queries to clusters through a stacked IVF index over the centroids instead of a neighborhood graph. For vectors under 256 dimensions the router stops ranking clusters once the estimated recall reaches the new `paradedb.vector_router_recall` GUC (default `0.99`); higher-dimensional vectors, or a target of `1.0`, rank a fixed fraction of the routing index.
+Added the `vector_router` index option, which picks how vector queries find the clusters to probe: `graph` (the default) uses a neighborhood graph over the centroids, and `ivf` uses a stacked IVF index over them, which is intended only for vectors of 128 or fewer dimensions. With `ivf`, the router stops ranking clusters once the estimated recall reaches the new `paradedb.vector_router_recall` GUC (default `0.99`); a target of `1.0` ranks a fixed fraction of the routing index instead. Changing the router with `ALTER INDEX` applies to newly built segments; run `REINDEX` to rebuild every segment with it.

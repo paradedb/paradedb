@@ -27,15 +27,19 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
 use crate::postgres::utils;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
+use parking_lot::Mutex;
 use pgrx::pg_sys;
 use pgrx::{PgList, PgTupleDesc, check_for_interrupts};
-use tantivy::SegmentReader;
+use tantivy::collector::SegmentCollector;
 use tantivy::columnar::Cardinality;
 use tantivy::index::SegmentId;
 use tantivy::{DocId, SegmentOrdinal, TantivyDocument};
+use tantivy::{Score, SegmentReader};
 
 use util::HEAPBLOCKS_PER_BYTE;
 use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
+
+pub(crate) const VISIBILITY_BATCH_SIZE: usize = 2048;
 
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
@@ -147,6 +151,115 @@ crate::impl_safe_drop!(VisibilityChecker, |self| {
         }
     }
 });
+
+pub struct SegmentVisibilityFilter<SC: SegmentCollector> {
+    inner: SC,
+    lock: Option<Arc<Mutex<VisibilityChecker>>>,
+    segment_ord: SegmentOrdinal,
+
+    doc_buffer: Vec<DocId>,
+    score_buffer: Vec<Score>,
+
+    visibility_buffer: Vec<Option<u64>>,
+
+    filtered_doc_buffer: Vec<DocId>,
+    filtered_score_buffer: Vec<Score>,
+
+    requires_scoring: bool,
+}
+unsafe impl<C: SegmentCollector> Send for SegmentVisibilityFilter<C> {}
+unsafe impl<C: SegmentCollector> Sync for SegmentVisibilityFilter<C> {}
+
+impl<SC: SegmentCollector> SegmentVisibilityFilter<SC> {
+    fn flush(&mut self) {
+        if self.doc_buffer.is_empty() {
+            return;
+        }
+
+        let mut vischeck = self
+            .lock
+            .as_ref()
+            .expect("buffered docs need visibility checks")
+            .lock();
+        self.visibility_buffer.resize(self.doc_buffer.len(), None);
+        vischeck.check_segment_docs(
+            self.segment_ord,
+            &self.doc_buffer,
+            &mut self.visibility_buffer,
+        );
+        drop(vischeck);
+
+        self.filtered_doc_buffer.clear();
+        if self.requires_scoring {
+            self.filtered_score_buffer.clear();
+        }
+
+        for (i, visible_ctid) in self.visibility_buffer.iter().enumerate() {
+            if visible_ctid.is_some() {
+                self.filtered_doc_buffer.push(self.doc_buffer[i]);
+                if self.requires_scoring {
+                    self.filtered_score_buffer.push(self.score_buffer[i]);
+                }
+            }
+        }
+
+        if self.requires_scoring {
+            for (doc, score) in self
+                .filtered_doc_buffer
+                .iter()
+                .zip(self.filtered_score_buffer.iter())
+            {
+                self.inner.collect(*doc, *score);
+            }
+        } else if !self.filtered_doc_buffer.is_empty() {
+            self.inner.collect_block(&self.filtered_doc_buffer);
+        }
+
+        self.doc_buffer.clear();
+        if self.requires_scoring {
+            self.score_buffer.clear();
+        }
+    }
+}
+
+impl<SC: SegmentCollector> SegmentCollector for SegmentVisibilityFilter<SC> {
+    type Fruit = SC::Fruit;
+
+    fn collect(&mut self, doc: DocId, score: Score) {
+        if self.lock.is_none() {
+            self.inner.collect(doc, score);
+            return;
+        }
+        self.doc_buffer.push(doc);
+        if self.requires_scoring {
+            self.score_buffer.push(score);
+        }
+
+        if self.doc_buffer.len() >= VISIBILITY_BATCH_SIZE {
+            self.flush();
+        }
+    }
+
+    fn collect_block(&mut self, docs: &[DocId]) {
+        if self.lock.is_none() {
+            self.inner.collect_block(docs);
+            return;
+        }
+        self.doc_buffer.extend_from_slice(docs);
+        if self.requires_scoring {
+            self.score_buffer.resize(self.doc_buffer.len(), 0.0);
+        }
+
+        if self.doc_buffer.len() >= VISIBILITY_BATCH_SIZE {
+            self.flush();
+        }
+    }
+
+    fn harvest(mut self) -> Self::Fruit {
+        self.flush();
+        self.inner.harvest()
+    }
+}
 
 impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
@@ -312,6 +425,41 @@ impl VisibilityChecker {
             self.blockvis.1 = status != 0;
         }
         self.blockvis.1
+    }
+
+    pub fn filter_segment<SC: SegmentCollector>(
+        checker: &Arc<Mutex<Self>>,
+        segment_ord: SegmentOrdinal,
+        segment: &SegmentReader,
+        inner: SC,
+        requires_scoring: bool,
+    ) -> tantivy::Result<SegmentVisibilityFilter<SC>> {
+        let lock = (!checker.lock().is_segment_all_visible(segment)?).then(|| checker.clone());
+        let capacity = if lock.is_some() {
+            VISIBILITY_BATCH_SIZE
+        } else {
+            0
+        };
+
+        Ok(SegmentVisibilityFilter {
+            inner,
+            lock,
+            segment_ord,
+            doc_buffer: Vec::with_capacity(capacity),
+            score_buffer: if requires_scoring {
+                Vec::with_capacity(capacity)
+            } else {
+                Vec::new()
+            },
+            visibility_buffer: Vec::with_capacity(capacity),
+            filtered_doc_buffer: Vec::with_capacity(capacity),
+            filtered_score_buffer: if requires_scoring {
+                Vec::with_capacity(capacity)
+            } else {
+                Vec::new()
+            },
+            requires_scoring,
+        })
     }
 
     pub(crate) fn is_segment_all_visible(

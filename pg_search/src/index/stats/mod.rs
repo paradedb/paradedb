@@ -42,6 +42,7 @@ use crate::postgres::storage::block::STATS_EXT;
 use crate::postgres::types::is_datetime_type;
 use crate::schema::{SearchField, SearchFieldType};
 
+mod heap_blocks;
 mod plugin;
 mod pruning;
 #[cfg(any(test, feature = "pg_test"))]
@@ -470,6 +471,27 @@ impl SegmentStats {
         Ok(self
             .read::<LogicalWire>(field, LOGICAL_IDX)?
             .map(LogicalBounds::from))
+    }
+
+    pub(crate) fn heap_blocks(
+        &self,
+        field: Field,
+        max_doc: u32,
+        pages_per_vm: u32,
+    ) -> io::Result<Option<heap_blocks::HeapBlockMap>> {
+        let Some(presence) = self
+            .file
+            .open_read_with_idx(field, heap_blocks::PRESENCE_IDX)
+        else {
+            return Ok(None);
+        };
+        let boundaries = self
+            .file
+            .open_read_with_idx(field, heap_blocks::BOUNDARIES_IDX)
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "missing heap-block boundaries")
+            })?;
+        heap_blocks::HeapBlockMap::open(presence, boundaries, max_doc, pages_per_vm).map(Some)
     }
 
     fn read<T: DeserializeOwned>(&self, field: Field, idx: usize) -> io::Result<Option<T>> {

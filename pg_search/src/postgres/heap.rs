@@ -16,13 +16,16 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 use std::sync::Arc;
 
 use crate::api::version::Version;
+use crate::api::{HashMap, TID_BLOCK_FIELD_NAME};
+use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, TidReader};
 #[cfg(feature = "io_stats")]
 use crate::index::reader::io_stats::trace;
+use crate::index::stats::SegmentStats;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
@@ -377,6 +380,7 @@ pub struct VisibilityChecker {
     // TODO: Make this non-optional in the future once all call sites provide an FFHelper.
     ffhelper: Option<Arc<FFHelper>>,
     tid_scratch: TidScratch,
+    segment_checks: HashMap<SegmentOrdinal, Option<Arc<[Range<DocId>]>>>,
 }
 
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
@@ -425,17 +429,20 @@ impl VisibilityChecker {
                 check_visibility: true,
                 ffhelper: None,
                 tid_scratch: TidScratch::default(),
+                segment_checks: HashMap::default(),
             }
         }
     }
 
     /// Attaches an [`FFHelper`] for resolving segment `DocId`s to ctids directly.
     pub fn with_ffhelper(mut self, ffhelper: Arc<FFHelper>) -> Self {
+        self.segment_checks.clear();
         self.ffhelper = Some(ffhelper);
         self
     }
 
     pub fn set_ffhelper(&mut self, ffhelper: Arc<FFHelper>) {
+        self.segment_checks.clear();
         self.ffhelper = Some(ffhelper);
     }
 
@@ -602,7 +609,108 @@ impl VisibilityChecker {
         doc_ids: &[DocId],
         mask: &mut [bool],
     ) {
+        assert_eq!(doc_ids.len(), mask.len());
+        if doc_ids.is_empty() {
+            return;
+        }
+        debug_assert!(doc_ids.windows(2).all(|docs| docs[0] <= docs[1]));
+        if gucs::enable_heap_block_visibility() && self.check_visibility {
+            if !self.segment_checks.contains_key(&segment_ord) {
+                let ranges = self
+                    .prepare_segment_checks(segment_ord)
+                    .expect("failed to read heap-block presence map")
+                    .map(Arc::from);
+                self.segment_checks.insert(segment_ord, ranges);
+            }
+            if let Some(ranges) = self.segment_checks[&segment_ord].clone() {
+                mask.fill(true);
+                let mut range_idx = ranges.partition_point(|range| range.end <= doc_ids[0]);
+                let mut start = 0;
+                while start < doc_ids.len() && range_idx < ranges.len() {
+                    let range = &ranges[range_idx];
+                    start += doc_ids[start..].partition_point(|&doc| doc < range.start);
+                    let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
+                    if start < end {
+                        self.check_segment_docs_inner(
+                            segment_ord,
+                            &doc_ids[start..end],
+                            VisibilityTarget::Mask(&mut mask[start..end]),
+                            false,
+                        );
+                    }
+                    start = end;
+                    range_idx += 1;
+                }
+                return;
+            }
+        }
         self.check_segment_docs_inner(segment_ord, doc_ids, VisibilityTarget::Mask(mask), false);
+    }
+
+    fn prepare_segment_checks(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+    ) -> tantivy::Result<Option<Vec<Range<DocId>>>> {
+        if self.snapshot.is_null()
+            || unsafe { (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC }
+        {
+            return Ok(None);
+        }
+        let ffhelper = self.ffhelper.clone().expect("FFHelper must be configured");
+        let Some(segment) = ffhelper.immutable_segment(segment_ord) else {
+            return Ok(None);
+        };
+        if !segment
+            .sort_by_field()
+            .is_some_and(|sort| sort.field == TID_BLOCK_FIELD_NAME)
+        {
+            return Ok(None);
+        }
+        let Ok(field) = segment.schema().get_field(TID_BLOCK_FIELD_NAME) else {
+            return Ok(None);
+        };
+        let map = {
+            #[cfg(feature = "io_stats")]
+            let _io = trace::external("Visibility Presence");
+            let Some(stats) = SegmentStats::of_reader(segment)? else {
+                return Ok(None);
+            };
+            stats.heap_blocks(field, segment.max_doc(), util::HEAPBLOCKS_PER_PAGE)?
+        };
+        let Some(mut map) = map else {
+            return Ok(None);
+        };
+        self.blockvis = (pg_sys::InvalidBlockNumber, false);
+        Ok(Some(map.missing_ranges(|block, present| {
+            self.invisible_blocks(block, present)
+        })?))
+    }
+
+    fn invisible_blocks(&mut self, block: u32, present: u32) -> u32 {
+        if block >= self.nblocks {
+            return present;
+        }
+        self.is_block_all_visible(block);
+        if self.vm_page_ptr.is_null() {
+            return present;
+        }
+        let offset = (block % util::HEAPBLOCKS_PER_PAGE / util::HEAPBLOCKS_PER_BYTE) as usize;
+        let mut visible =
+            unsafe { u64::from_le(self.vm_page_ptr.add(offset).cast::<u64>().read_unaligned()) }
+                & 0x5555_5555_5555_5555;
+        if visible == 0x5555_5555_5555_5555 && self.nblocks - block >= 32 {
+            return 0;
+        }
+        visible = (visible | (visible >> 1)) & 0x3333_3333_3333_3333;
+        visible = (visible | (visible >> 2)) & 0x0f0f_0f0f_0f0f_0f0f;
+        visible = (visible | (visible >> 4)) & 0x00ff_00ff_00ff_00ff;
+        visible = (visible | (visible >> 8)) & 0x0000_ffff_0000_ffff;
+        visible = (visible | (visible >> 16)) & 0xffff_ffff;
+        let remaining = self.nblocks - block;
+        if remaining < 32 {
+            visible &= (1u64 << remaining) - 1;
+        }
+        present & !(visible as u32)
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from
@@ -1335,6 +1443,8 @@ impl<'a> HeapDocFetcher<'a> {
 ///
 /// See `heap::VisibilityChecker::is_block_all_visible` for an example of a caller that
 /// speculatively checks the C function's fast-path precondition before bypassing the wrapper.
+pub(crate) use util::HEAPBLOCKS_PER_PAGE;
+
 mod util {
     use pgrx::pg_sys;
 

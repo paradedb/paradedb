@@ -42,6 +42,7 @@ use tantivy::{
     Index, PluginMergeContext, PluginWriter, PluginWriterContext, SegmentPlugin, TantivyError,
 };
 
+use super::heap_blocks;
 use super::{
     EMPIRICAL_IDX, EmpiricalStats, EmpiricalWire, LOGICAL_IDX, LogicalBounds, LogicalBoundsByField,
     LogicalWire, STATS_EXT, SegmentStats,
@@ -142,6 +143,7 @@ fn write_stats(
             .for_field_with_idx(field, LOGICAL_IDX)
             .write_all(&bytes)?;
     }
+    heap_blocks::write(segment, &mut write)?;
     write.close()?;
     Ok(())
 }

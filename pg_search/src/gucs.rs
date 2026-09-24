@@ -258,6 +258,8 @@ static HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS: GucSetting<i32> =
 /// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
 static HASH_JOIN_SINGLE_PARTITION_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(1024 * 1024);
 
+static ENABLE_HEAP_BLOCK_VISIBILITY: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
 /// sorted segments. When `false`, the planner never returns the gallop
 /// strategy regardless of density, and pushed-down InList filters fall
@@ -324,7 +326,20 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+pub fn enable_heap_block_visibility() -> bool {
+    ENABLE_HEAP_BLOCK_VISIBILITY.get()
+}
+
 pub fn init() {
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_heap_block_visibility",
+        c"Use heap-block presence maps to prepare segment visibility checks",
+        c"Prototype: disable to compare with per-document block decoding",
+        &ENABLE_HEAP_BLOCK_VISIBILITY,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 

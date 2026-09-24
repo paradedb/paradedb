@@ -473,7 +473,10 @@ impl VisibilityChecker {
     }
 
     /// Caches the document ranges needing visibility checks for this segment and snapshot.
-    fn segment_check_ranges(&mut self, segment_ord: SegmentOrdinal) -> Option<Arc<[Range<DocId>]>> {
+    fn doc_id_ranges_needing_visibility_checks(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+    ) -> Option<Arc<[Range<DocId>]>> {
         if !self.segment_checks.contains_key(&segment_ord) {
             // Intersect the immutable segment’s presence map with the VM once per snapshot.
             let ranges = (|| -> tantivy::Result<Option<Vec<Range<DocId>>>> {
@@ -525,7 +528,7 @@ impl VisibilityChecker {
         }
         let ranges = doc_ids
             .is_sorted()
-            .then(|| self.segment_check_ranges(segment_ord))
+            .then(|| self.doc_id_ranges_needing_visibility_checks(segment_ord))
             .flatten();
         let mut ctids = Vec::new();
         let mut check = |start: usize, end: usize| {
@@ -621,7 +624,7 @@ impl VisibilityChecker {
             results.copy_from_slice(&raw_ctids);
         } else if !resolve_hot
             && doc_ids.is_sorted()
-            && let Some(ranges) = self.segment_check_ranges(segment_ord)
+            && let Some(ranges) = self.doc_id_ranges_needing_visibility_checks(segment_ord)
         {
             results.copy_from_slice(&raw_ctids);
             let mut start = 0;

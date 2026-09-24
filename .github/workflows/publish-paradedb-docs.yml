@@ -1,8 +1,7 @@
 # workflows/publish-paradedb-docs.yml
 #
 # Publish ParadeDB (Docs)
-# Publish the documentation to our Mintlify site. This workflow runs on GitHub Tag
-# creation or manually, but skips beta releases.
+# Publish the documentation to our Mintlify documentation site.
 
 name: Publish ParadeDB (Docs)
 

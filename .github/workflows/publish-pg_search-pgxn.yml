@@ -2,9 +2,6 @@
 #
 # Publish pg_search (PGXN)
 # Bundle and publish the pg_search extension source to the PostgreSQL Extension Network (PGXN).
-# This workflow runs `make dist` on the selected branch or tag and uses the version in Cargo.toml.
-# It is triggered on creation of a v* GitHub Tag or run manually, but beta (-rc.) releases get
-# filtered out by the `if` condition of the job. Select the release tag when running it manually.
 
 name: Publish pg_search (PGXN)
 

@@ -1,13 +1,8 @@
 # workflows/publish-pg_search-postgresapp.yml
 #
 # Publish pg_search (Postgres.app)
-# Build and publish the pg_search extension as signed Postgres.app .pkg installers to an existing GitHub Release.
-# This workflow is triggered on creation of a v* GitHub Tag or run manually.
-# Manual runs build the selected branch or tag and upload to the release specified by the
-# version input. Select the matching release tag when running this workflow manually.
-# Beta (-rc.) releases get filtered out by the `if` condition of the job.
-# After uploading, open a PR to PostgresApp/PostgresApp updating the version and download
-# URL in docs/_data/extensions/<pg>/pg_search.json (the source for https://postgresapp.com/extensions/).
+# Build and publish the pg_search extension for Postgres.app as signed .pkg installers to
+# GitHub Releases, then open a PR to PostgresApp/PostgresApp updating the version and download URL.
 
 name: Publish pg_search (Postgres.app)
 
@@ -18,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The existing GitHub Release version to upload to, without the v prefix (e.g. 0.25.9). This builds the selected branch or tag without changing the source version. Select the matching release tag when running this workflow."
+        description: "The existing GitHub Release version to upload to, without the v prefix (e.g. 0.25.9). Builds the selected branch or tag."
         required: true
         default: ""
 

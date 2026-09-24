@@ -104,11 +104,24 @@ impl AggregateUDFImpl for TopKAgg {
         ))])
     }
 
-    /// The ORDER BY still reaches `accumulator()` either way. Declaring
-    /// insensitivity is what stops the planner from putting a SortExec under
-    /// the aggregate to satisfy it.
+    /// `Beneficial`, not `Insensitive`: both keep the planner from putting a
+    /// SortExec under the aggregate (`get_aggregate_expr_req` imposes no input
+    /// ordering for either), but `AggregateFunctionExpr::order_bys()` returns
+    /// nothing for an insensitive aggregate, and that accessor is what the proto
+    /// serializer reads. An insensitive Top-K therefore reaches MPP workers
+    /// without its ORDER BY and fails there. `Beneficial` keeps the ordering on
+    /// every path, including `create_accumulator`.
     fn order_sensitivity(&self) -> AggregateOrderSensitivity {
-        AggregateOrderSensitivity::Insensitive
+        AggregateOrderSensitivity::Beneficial
+    }
+
+    /// Required for a `Beneficial` aggregate. Whether the input happens to be
+    /// ordered changes nothing here; the heap sorts regardless.
+    fn with_beneficial_ordering(
+        self: Arc<Self>,
+        _beneficial_ordering: bool,
+    ) -> Result<Option<Arc<dyn AggregateUDFImpl>>> {
+        Ok(Some(self))
     }
 
     fn accumulator(

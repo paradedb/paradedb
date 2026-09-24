@@ -53,7 +53,7 @@ jobs:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
-      - image=ubuntu24-full-arm64
+      - image=ubuntu26-full-arm64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
       # using EBS would cause

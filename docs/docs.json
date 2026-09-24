@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "[ParadeDB Cloud coming soon: join the waitlist for early access](https://www.paradedb.com/cloud)",
+    "content": "[ParadeDB Cloud is now available in private preview](https://auth.paradedb.com/sign-up)",
     "dismissible": false
   },
   "navigation": {
@@ -544,16 +544,12 @@
   "navbar": {
     "links": [
       {
+        "label": "Sign Up",
+        "href": "https://auth.paradedb.com/sign-up"
+      },
+      {
         "label": "Community",
         "href": "https://paradedb.com/slack"
-      },
-      {
-        "label": "Blog",
-        "href": "https://www.paradedb.com/blog"
-      },
-      {
-        "label": "Learn",
-        "href": "https://www.paradedb.com/learn"
       }
     ],
     "primary": {

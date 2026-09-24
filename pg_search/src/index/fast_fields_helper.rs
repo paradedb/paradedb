@@ -138,6 +138,7 @@ impl FFHelper {
         &self.inner().segment_caches
     }
 
+    /// Returns the pinned reader only when the segment has immutable document IDs.
     pub(crate) fn immutable_segment(&self, segment_ord: SegmentOrdinal) -> Option<&SegmentReader> {
         matches!(
             self.inner().segment_view.entries()[segment_ord as usize].docs,

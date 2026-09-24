@@ -24,7 +24,6 @@ use std::sync::Arc;
 
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, HashMap};
-use crate::gucs;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::stats::SegmentStats;
 use crate::postgres::composite::CompositeSlotValues;
@@ -415,6 +414,7 @@ impl VisibilityChecker {
         true
     }
 
+    /// Clears all-visible heap blocks from the candidate bitmap, pinning each VM page once.
     fn retain_invisible_blocks(&mut self, first_block: u32, mut blocks: &mut [u32]) {
         assert!(first_block.is_multiple_of(32));
         let mut block = u64::from(first_block);
@@ -455,6 +455,7 @@ impl VisibilityChecker {
         !self.check_visibility || self.resolve_visible(ctid, None, false).is_some()
     }
 
+    /// Caches the document ranges needing visibility checks for this segment and snapshot.
     fn segment_check_ranges(&mut self, segment_ord: SegmentOrdinal) -> Option<Arc<[Range<DocId>]>> {
         if !self.segment_checks.contains_key(&segment_ord) {
             let ranges = self
@@ -466,6 +467,7 @@ impl VisibilityChecker {
         self.segment_checks[&segment_ord].clone()
     }
 
+    /// Intersects an immutable segment’s presence map with the VM, or returns `None` for fallback.
     fn prepare_segment_checks(
         &mut self,
         segment_ord: SegmentOrdinal,
@@ -561,7 +563,6 @@ impl VisibilityChecker {
         if !self.check_visibility {
             results.copy_from_slice(&raw_ctids);
         } else if !resolve_hot
-            && gucs::enable_heap_block_visibility()
             && doc_ids.is_sorted()
             && let Some(ranges) = self.segment_check_ranges(segment_ord)
         {
@@ -1236,6 +1237,7 @@ mod util {
     /// violation that also thrashes the VM cache).
     pub const HEAPBLOCKS_PER_PAGE: u32 = MAPSIZE * HEAPBLOCKS_PER_BYTE;
 
+    /// Extracts the all-visible bits from PostgreSQL’s two-bit VM entries and clears matching blocks.
     pub(super) fn clear_visible_blocks(map: &[u8], blocks: &mut [u32]) {
         for (bytes, blocks) in map.chunks_exact(8).zip(blocks) {
             if *blocks == 0 {

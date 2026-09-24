@@ -323,22 +323,7 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
-static ENABLE_HEAP_BLOCK_VISIBILITY: GucSetting<bool> = GucSetting::<bool>::new(true);
-
-pub fn enable_heap_block_visibility() -> bool {
-    ENABLE_HEAP_BLOCK_VISIBILITY.get()
-}
-
 pub fn init() {
-    GucRegistry::define_bool_guc(
-        c"paradedb.enable_heap_block_visibility",
-        c"Use heap-block presence maps to prepare segment visibility checks",
-        c"Only documents on heap blocks not proven all-visible need visibility checks",
-        &ENABLE_HEAP_BLOCK_VISIBILITY,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 

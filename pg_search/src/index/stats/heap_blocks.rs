@@ -1,9 +1,67 @@
 // Copyright (c) 2023-2026 ParadeDB, Inc.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! VM-page directory followed by sparse u16 block offsets or dense u32 bitmaps with rank
-//! checkpoints every 256 blocks. A separate stream packs groups of 128 document boundaries,
-//! allowing direct reads only for blocks that need visibility checks.
+//! Compact heap-block presence and document boundaries for segment visibility checks.
+//!
+//! Sorting a segment by CTID makes the documents from each heap block contiguous. At flush
+//! and merge, we derive those runs from `ctid >> 16` and store two entries in the existing
+//! `.stats` composite file, keyed by the CTID field: presence at index 3 and boundaries at
+//! index 4. No postings list or separate segment component is needed. Segments without a
+//! full, CTID-sorted column omit these entries and use ordinary visibility checks.
+//!
+//! # Physical layout
+//!
+//! The presence entry starts with an `HBP1` header containing the VM-page span, document
+//! count, distinct block count, directory length, and sort direction. Each 16-byte directory
+//! entry identifies one PostgreSQL visibility-map (VM) page and records its starting block
+//! ordinal, payload offset, and block count/encoding. Grouping by VM page lets the checker
+//! pin that page once and process all of its represented heap blocks together.
+//!
+//! Each payload uses whichever representation is smaller: sorted `u16` block offsets within
+//! the VM page, or a dense bitmap of `u32` words with leading/trailing empty words omitted.
+//! Dense payloads include `u16` rank checkpoints every eight words (256 heap blocks). A
+//! block's ordinal is the directory's starting ordinal plus its local rank: its position
+//! in the sparse list, or a checkpoint plus at most eight popcounts in the dense bitmap.
+//!
+//! The boundary entry contains cumulative document counts in ascending heap-block order,
+//! including a final sentinel. Groups of 128 boundaries store a base and bit-packed deltas;
+//! a directory of `u64` byte offsets locates each group independently. Reading boundary `i`
+//! does not require decoding earlier groups or values. For ascending CTIDs, block ordinal
+//! `i` maps to `[boundary[i], boundary[i + 1])`. For descending CTIDs, the range is
+//! `[num_docs - boundary[i + 1], num_docs - boundary[i])`.
+//!
+//! # Visibility flow
+//!
+//! On the first eligible document batch for a segment, `VisibilityChecker` loads its
+//! presence entry and expands each payload into a scratch bitmap. It clears blocks whose
+//! VM all-visible bit is set, then uses rank to read boundaries only for the remaining
+//! blocks. Boundary reads use small cached file windows; when every block is all-visible,
+//! no boundary bytes need to be read. Adjacent document ranges are coalesced and cached for
+//! this checker and snapshot. Subsequent sorted batches only check visibility for documents
+//! in those ranges. Mutable segments, missing metadata, non-MVCC snapshots, unsorted batches,
+//! and calls requiring exact HOT resolution retain the ordinary path.
+//!
+//! For example, an ascending segment might contain:
+//!
+//! ```text
+//! doc ID:             0  1  2  3  4  5  6
+//! heap block:        10 10 11 11 11 15 15
+//!
+//! heap block:        10 11 12 13 14 15
+//! presence:           1  1  0  0  0  1
+//! VM all-visible:     1  0  1  1  1  1
+//! needs checking:     0  1  0  0  0  0
+//!
+//! block ordinals:    10 -> 0, 11 -> 1, 15 -> 2
+//! boundaries:        [0, 2, 5, 7]
+//! block 11:          rank = 1 -> document range [2, 5)
+//! query matches:     [0, 3, 6] -> only doc 3 needs a visibility check
+//! ```
+//!
+//! This metadata proves visibility, not query membership or segment liveness: query
+//! evaluation still applies Tantivy's deletes. The checker also still decodes requested
+//! CTIDs to preserve its existing return interface. Cached visibility proofs stay within
+//! the checker's snapshot, and the immutable reader retains the segment's cleanup pin.
 
 use std::io::{self, Write};
 use std::ops::Range;
@@ -38,6 +96,7 @@ fn u32_at(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
 }
 
+/// Writes presence and boundary entries from the finished CTID column at flush or merge.
 pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Result<()> {
     if !segment
         .index()
@@ -96,6 +155,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
     Ok(())
 }
 
+/// Encodes ascending heap-block runs into VM-page payloads and packed document boundaries.
 fn encode(
     runs: &[(u32, u32)],
     descending: bool,
@@ -217,6 +277,7 @@ pub(crate) struct HeapBlockMap {
 }
 
 impl HeapBlockMap {
+    /// Loads and validates presence metadata while deferring boundary reads until needed.
     pub(super) fn open(
         presence: FileSlice,
         boundaries: FileSlice,
@@ -324,6 +385,7 @@ impl HeapBlockMap {
         })
     }
 
+    /// Filters presence through the VM callback and returns coalesced ranges in document order.
     pub(crate) fn missing_ranges(
         &mut self,
         mut retain_invisible: impl FnMut(u32, &mut [u32]),
@@ -441,6 +503,7 @@ struct BoundaryReader {
 }
 
 impl BoundaryReader {
+    /// Creates a lazy boundary reader with separate directory and packed-value windows.
     fn new(file: FileSlice, count: usize) -> Self {
         Self {
             directory: ReadWindow::new(file.clone()),
@@ -449,6 +512,7 @@ impl BoundaryReader {
         }
     }
 
+    /// Reads one boundary directly through its group offset, base, and packed delta.
     fn get(&mut self, index: usize) -> io::Result<u32> {
         if index >= self.count {
             return Err(invalid());
@@ -484,6 +548,7 @@ struct ReadWindow {
 }
 
 impl ReadWindow {
+    /// Creates an empty read window without fetching file bytes.
     fn new(file: FileSlice) -> Self {
         Self {
             file,
@@ -492,6 +557,7 @@ impl ReadWindow {
         }
     }
 
+    /// Reads a checked byte range, reusing or refilling an aligned file window.
     fn read(&mut self, offset: usize, len: usize) -> io::Result<&[u8]> {
         let end = offset.checked_add(len).ok_or_else(invalid)?;
         if end > self.file.len() {

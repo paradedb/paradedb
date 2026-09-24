@@ -473,6 +473,7 @@ impl SegmentStats {
             .map(LogicalBounds::from))
     }
 
+    /// Opens optional heap-block presence metadata, leaving document boundaries lazily loaded.
     pub(crate) fn heap_blocks(
         &self,
         field: Field,

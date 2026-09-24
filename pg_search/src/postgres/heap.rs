@@ -679,28 +679,29 @@ impl VisibilityChecker {
             return;
         }
         debug_assert!(doc_ids.windows(2).all(|docs| docs[0] <= docs[1]));
-        if gucs::enable_heap_block_visibility() && self.check_visibility {
-            if let Some(ranges) = self.segment_check_ranges(segment_ord) {
-                mask.fill(true);
-                let mut range_idx = ranges.partition_point(|range| range.end <= doc_ids[0]);
-                let mut start = 0;
-                while start < doc_ids.len() && range_idx < ranges.len() {
-                    let range = &ranges[range_idx];
-                    start += doc_ids[start..].partition_point(|&doc| doc < range.start);
-                    let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
-                    if start < end {
-                        self.check_segment_docs_inner(
-                            segment_ord,
-                            &doc_ids[start..end],
-                            VisibilityTarget::Mask(&mut mask[start..end]),
-                            false,
-                        );
-                    }
-                    start = end;
-                    range_idx += 1;
+        if gucs::enable_heap_block_visibility()
+            && self.check_visibility
+            && let Some(ranges) = self.segment_check_ranges(segment_ord)
+        {
+            mask.fill(true);
+            let mut range_idx = ranges.partition_point(|range| range.end <= doc_ids[0]);
+            let mut start = 0;
+            while start < doc_ids.len() && range_idx < ranges.len() {
+                let range = &ranges[range_idx];
+                start += doc_ids[start..].partition_point(|&doc| doc < range.start);
+                let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
+                if start < end {
+                    self.check_segment_docs_inner(
+                        segment_ord,
+                        &doc_ids[start..end],
+                        VisibilityTarget::Mask(&mut mask[start..end]),
+                        false,
+                    );
                 }
-                return;
+                start = end;
+                range_idx += 1;
             }
+            return;
         }
         self.check_segment_docs_inner(segment_ord, doc_ids, VisibilityTarget::Mask(mask), false);
     }
@@ -1553,10 +1554,11 @@ mod util {
             return false;
         }
         let mut words = map[start + 1..end].chunks_exact(8);
-        words.all(|bytes| {
-            u64::from_le_bytes(bytes.try_into().unwrap()) & 0x5555_5555_5555_5555
-                == 0x5555_5555_5555_5555
-        }) && words.remainder().iter().all(|byte| byte & 0x55 == 0x55)
+        let visible = words.by_ref().fold(u64::MAX, |visible, bytes| {
+            visible & u64::from_le_bytes(bytes.try_into().unwrap())
+        });
+        visible & 0x5555_5555_5555_5555 == 0x5555_5555_5555_5555
+            && words.remainder().iter().all(|byte| byte & 0x55 == 0x55)
     }
 
     pub(super) fn clear_visible_blocks(map: &[u8], blocks: &mut [u32]) {

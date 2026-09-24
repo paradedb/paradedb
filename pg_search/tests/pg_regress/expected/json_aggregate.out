@@ -37,7 +37,7 @@ WHERE id @@@ paradedb.exists('metadata.category');
    Index: idx_json_agg
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 -- Execute the query
@@ -64,7 +64,7 @@ WHERE id @@@ paradedb.term('metadata.category', 'electronics');
    Index: idx_json_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 -- Execute the query
@@ -92,7 +92,7 @@ WHERE id @@@ paradedb.exists('metadata.category')
    Index: idx_json_agg
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"metadata.category"}}}},{"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 -- Execute the query
@@ -419,7 +419,7 @@ WHERE id @@@ paradedb.boolean(
        "Index": "idx_json_agg",                                                                                                                                                                         +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"exists\":{\"field\":\"metadata.category\"}},{\"term\":{\"field\":\"metadata.category\",\"value\":\"electronics\"}}]}}}}",+
        "  Applies to Aggregates": "COUNT(*)",                                                                                                                                                           +
-       "  Aggregate Definition": "{\"0\":{\"value_count\":{\"field\":\"ctid\",\"missing\":null}}}"                                                                                                      +
+       "  Aggregate Definition": "{\"0\":{\"filter\":\"*\"}}"                                                                                                                                           +
      },                                                                                                                                                                                                 +
      "Triggers": [                                                                                                                                                                                      +
      ]                                                                                                                                                                                                  +
@@ -456,7 +456,7 @@ WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
    Index: idx_json_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.nonexistent","value":"value"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -472,14 +472,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.all();
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+                          QUERY PLAN                           
+---------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_agg
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -520,7 +520,7 @@ WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
    Index: idx_json_deep_agg
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"nested_data.level1.level2.level3.level4.value"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -543,7 +543,7 @@ WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'tar
    Index: idx_json_deep_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"nested_data.level1.level2.level3.level4.value","value":"target1"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -590,7 +590,7 @@ WHERE id @@@ paradedb.term('doc.type', 'sensor');
    Index: idx_json_mixed_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"doc.type","value":"sensor"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -614,7 +614,7 @@ WHERE id @@@ paradedb.term('doc.type', 'sensor')
    Index: idx_json_mixed_agg
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"doc.type","value":"sensor"}}}},{"with_index":{"query":{"term":{"field":"doc.device.location","value":"warehouse"}}}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -639,7 +639,7 @@ WHERE id @@@ paradedb.term('doc.type', 'transaction')
    Index: idx_json_mixed_agg
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"doc.type","value":"transaction"}}}},{"with_index":{"query":{"term":{"field":"doc.payment.method","value":"credit"}}}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -671,7 +671,7 @@ WHERE id @@@ paradedb.boolean(
    Index: idx_json_mixed_agg
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"doc.type","value":"sensor"}},{"term":{"field":"doc.device.location","value":"office"}}]}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -716,7 +716,7 @@ WHERE id @@@ paradedb.term('data.tags', 'urgent');
    Index: idx_json_array_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"data.tags","value":"urgent"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -739,7 +739,7 @@ WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
    Index: idx_json_array_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"data.metadata.priority","value":"high"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 

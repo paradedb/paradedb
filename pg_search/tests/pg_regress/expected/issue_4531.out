@@ -80,8 +80,8 @@ FROM products_4531 p
 WHERE p.description ||| 'widget'
   AND p.supplier_id IN (SELECT s.id FROM suppliers_4531 s)
 ORDER BY p.id DESC LIMIT 10;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id
    Relation Tree: p SEMI s
@@ -92,13 +92,12 @@ ORDER BY p.id DESC LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)], projection=[ctid_0@0, id@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, visibility=eager, query="all"
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)], projection=[ctid_0@0, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, visibility=eager, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT p.id
 FROM products_4531 p

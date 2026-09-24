@@ -41,7 +41,7 @@ jobs:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
-      - image=ubuntu24-full-arm64
+      - image=ubuntu26-full-arm64
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
@@ -77,6 +77,17 @@ jobs:
             echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Checkout Workflow
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Keep image assembly from the workflow ref even when benchmarking an older SHA.
+      - name: Prepare Image Context
+        run: |
+          mkdir -p "$RUNNER_TEMP/source-image"
+          cp docker/Dockerfile.source "$RUNNER_TEMP/source-image/Dockerfile"
+
       - name: Checkout pg_search Source at ref=${{ steps.determine-ref.outputs.ref }}
         uses: actions/checkout@v7
         with:
@@ -98,15 +109,14 @@ jobs:
         uses: paradedb/actions/build-pg_search-source@v14
         with:
           pg-version: ${{ env.pg_version }}
-          cache-prefix-key: "v2-benchmarks-rust-cache"
+          cache-prefix-key: "v2-benchmarks-rust-cache-ubuntu-26.04"
           cache-save: "true"
           cache-on-failure: "true"
 
       - name: Assemble ParadeDB image (pg_search from source)
         run: |
           set -euo pipefail
-          ctx="$(mktemp -d)"
-          cp docker/Dockerfile.benchmarker "${ctx}/Dockerfile"
+          ctx="$RUNNER_TEMP/source-image"
           cp -R "${{ steps.build-pg_search.outputs.artifacts-dir }}" "${ctx}/artifacts"
           # --pull to refetch the rolling latest-pg18 base, not a stale local layer.
           docker build \

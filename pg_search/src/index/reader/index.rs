@@ -23,6 +23,7 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
+use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
@@ -56,7 +57,7 @@ use tantivy::collector::sort_key::{
     ComparatorEnum, SortByBytes, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue,
     SortByString,
 };
-use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
+use tantivy::collector::{Collector, Count, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
@@ -505,7 +506,7 @@ pub(crate) mod test_support {
         );
         assert_eq!(reader.search().count(), expected, "{query:?}");
         assert_eq!(
-            reader.count_matched_docs().unwrap(),
+            reader.count_matched_docs(false).unwrap(),
             expected as u64,
             "{query:?}"
         );
@@ -923,18 +924,39 @@ impl SearchIndexReader {
         tantivy_query.weight(enable_scoring(need_scores, self.searcher()))
     }
 
-    /// Count matched docs by summing `Weight::count` across segments.
-    ///
-    /// For term-like queries (term, or term wrapped in boost/const-score) on
-    /// segments without deletes this reads the stored doc_freq from the term
-    /// dictionary without touching postings; other queries drain their
-    /// docsets without scoring or collection overhead. Counts raw index
-    /// entries: no MVCC filtering.
-    pub fn count_matched_docs(&self) -> tantivy::Result<u64> {
+    /// Count directly when MVCC filtering is disabled or a term's segment is all-visible.
+    /// Other segments use the existing interruptible MVCC collector.
+    pub fn count_matched_docs(&self, solve_mvcc: bool) -> tantivy::Result<u64> {
+        let mut query = self.query();
+        while let Some(boxed) = query.downcast_ref::<Box<dyn Query>>() {
+            query = boxed.as_ref();
+        }
+        let is_term_query = query.is::<tantivy::query::TermQuery>();
         let weight = self.weight();
+        let mut fallback = None;
         let mut total = 0u64;
-        for (_, segment_reader) in self.candidate_segment_readers() {
-            total += u64::from(weight.count(segment_reader)?);
+        for (ordinal, segment) in self.candidate_segment_readers() {
+            pgrx::check_for_interrupts!();
+            if !solve_mvcc || (is_term_query && self.is_all_visible(segment)?) {
+                total += u64::from(weight.count(segment)?);
+            } else {
+                let collector = fallback.get_or_insert_with(|| {
+                    let heaprel = self
+                        .index_rel
+                        .heap_relation()
+                        .expect("index should belong to a heap relation");
+                    let visibility = VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
+                        pg_sys::GetActiveSnapshot()
+                    })
+                    .with_ffhelper(Arc::new(FFHelper::for_ctid(self)));
+                    InterruptableCollector::new(MVCCFilterCollector::new(
+                        Count,
+                        visibility,
+                        HashSet::default(),
+                    ))
+                });
+                total += collector.collect_segment(weight.as_ref(), ordinal, segment)? as u64;
+            }
         }
         Ok(total)
     }

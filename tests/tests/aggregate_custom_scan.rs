@@ -66,6 +66,72 @@ fn test_count(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn test_count_segment_visibility(
+    mut conn: PgConnection,
+    #[values(0, 2)] workers: i32,
+    #[values(false, true)] doc_count: bool,
+) {
+    format!(
+        "SET max_parallel_workers_per_gather = {workers};
+         SET paradedb.add_doc_count_to_aggs = {doc_count};
+         SET paradedb.min_rows_per_worker = 0;
+         SET paradedb.global_mutable_segment_rows = 0;
+         CREATE TABLE visible_counts (id bigint PRIMARY KEY, body text, note integer DEFAULT 0)
+             WITH (fillfactor=50, autovacuum_enabled=false);
+         CREATE INDEX visible_counts_idx ON visible_counts USING paradedb (id, body)
+             WITH (target_segment_count=32, mutable_segment_rows=0,
+                   layer_sizes='10TB', background_layer_sizes='10TB');"
+    )
+    .execute(&mut conn);
+    for start in [1, 10001, 20001] {
+        format!(
+            "INSERT INTO visible_counts (id, body)
+             SELECT i, CASE WHEN i % 2 = 0 THEN 'alpha beta' ELSE 'beta' END
+             FROM generate_series({start}, {}) i",
+            start + 9999
+        )
+        .execute(&mut conn);
+    }
+    for stage in 0..4 {
+        match stage {
+            1 | 3 => "VACUUM (ANALYZE, INDEX_CLEANUP ON) visible_counts".execute(&mut conn),
+            2 => {
+                "DELETE FROM visible_counts WHERE id BETWEEN 12000 AND 12099;
+                 UPDATE visible_counts SET body='gamma' WHERE id BETWEEN 12200 AND 12299;
+                 UPDATE visible_counts SET note=1 WHERE id BETWEEN 15000 AND 15099;"
+                    .execute(&mut conn);
+            }
+            _ => {}
+        }
+        for (search, predicate) in [
+            ("alpha", "body LIKE '%alpha%'"),
+            ("alpha OR beta", "body LIKE '%alpha%' OR body LIKE '%beta%'"),
+            ("absent", "body LIKE '%absent%'"),
+        ] {
+            let query = format!("SELECT count(*) FROM visible_counts WHERE body @@@ '{search}'");
+            assert_uses_custom_scan(&mut conn, true, &query);
+            let expected = format!("SELECT count(*) FROM visible_counts WHERE {predicate}")
+                .fetch_one::<(i64,)>(&mut conn);
+            assert_eq!(
+                query.fetch_one::<(i64,)>(&mut conn),
+                expected,
+                "stage {stage}"
+            );
+            let custom = format!(
+                r#"SELECT pdb.agg('{{"value_count":{{"field":"ctid"}}}}', 'transaction')
+                   FROM visible_counts WHERE body @@@ '{search}'"#
+            );
+            let (result,) = custom.fetch_one::<(Option<Value>,)>(&mut conn);
+            if expected.0 == 0 && doc_count {
+                assert_eq!(result, None);
+            } else {
+                assert_eq!(result.unwrap()["value"].as_f64(), Some(expected.0 as f64));
+            }
+        }
+    }
+}
+
+#[rstest]
 #[case(0, true)]
 #[case(9_007_199_254_740_992, true)]
 #[case(9_007_199_254_740_993, false)]

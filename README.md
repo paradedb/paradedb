@@ -16,7 +16,7 @@
 
 <h3 align="center">
   <a href="https://paradedb.com">Website</a> &bull;
-  <a href="https://app.paradedb.com">Cloud</a> &bull;
+  <a href="https://auth.paradedb.com/sign-up">Cloud</a> &bull;
   <a href="https://www.paradedb.com/docs/start/introduction">Docs</a> &bull;
   <a href="https://paradedb.com/slack">Community</a> &bull;
   <a href="https://paradedb.com/blog/">Blog</a> &bull;
@@ -34,7 +34,7 @@
 
 ## Installation
 
-[ParadeDB Cloud](https://app.paradedb.com) is now available in private preview. Sign up to use ParadeDB without managing infrastructure.
+[ParadeDB Cloud](https://auth.paradedb.com/sign-up) is now available in private preview. Sign up to use ParadeDB without managing infrastructure.
 
 To install ParadeDB locally in a fresh Docker container and drop straight into a `psql` session:
 

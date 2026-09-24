@@ -798,6 +798,10 @@ impl SearchIndexReader {
         self.directory.segment_pins()
     }
 
+    pub(crate) fn cleanup_pin(&self) -> Arc<PinnedBuffer> {
+        self._cleanup_lock.clone()
+    }
+
     pub fn need_scores(&self) -> bool {
         self.need_scores
     }

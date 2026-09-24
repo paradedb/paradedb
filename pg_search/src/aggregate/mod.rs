@@ -953,6 +953,17 @@ mod scrub_missing_sentinel_value_tests {
     }
 }
 
+// Batch size used by both the MVCC visibility collector and the interrupt-check collector.
+//
+// This is significantly larger than COLLECT_BLOCK_BUFFER_LEN (64) to reduce the overhead
+// of visibility checks. Specifically:
+// 1. It amortizes the dynamic dispatch overhead of looking up ctids from the fast field.
+// 2. It allows `VisibilityChecker` to process ctids in sorted order, which is critical because
+//    checking visibility requires acquiring locks on the visibility map (VM) pages and potentially
+//    tuple locks on the heap. Accessing these in a sorted, batched manner reduces lock contention
+//    and random I/O.
+const COLLECTOR_BATCH_SIZE: usize = 2048;
+
 pub mod interrupt_collector {
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
@@ -1005,7 +1016,7 @@ pub mod interrupt_collector {
         #[inline]
         fn maybe_check_interrupt(&mut self, docs: usize) {
             self.docs_since_check += docs;
-            if self.docs_since_check >= crate::postgres::heap::VISIBILITY_BATCH_SIZE {
+            if self.docs_since_check >= super::COLLECTOR_BATCH_SIZE {
                 self.docs_since_check = 0;
                 pgrx::check_for_interrupts!();
             }
@@ -1036,8 +1047,10 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::postgres::heap::{SegmentVisibilityFilter, VisibilityChecker};
-    use tantivy::{SegmentOrdinal, SegmentReader};
+    use crate::postgres::heap::VisibilityChecker;
+    use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
+
+    use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
 
     pub struct MVCCFilterCollector<C: Collector> {
         inner: C,
@@ -1049,7 +1062,7 @@ pub mod mvcc_collector {
 
     impl<C: Collector> Collector for MVCCFilterCollector<C> {
         type Fruit = C::Fruit;
-        type Child = SegmentVisibilityFilter<C::Child>;
+        type Child = MVCCFilterSegmentCollector<C::Child>;
 
         fn for_segment(
             &self,
@@ -1085,6 +1098,151 @@ pub mod mvcc_collector {
                 inner: wrapped,
                 lock: Arc::new(Mutex::new(vischeck)),
             }
+        }
+    }
+    pub struct MVCCFilterSegmentCollector<SC: SegmentCollector> {
+        inner: SC,
+        lock: Option<Arc<Mutex<VisibilityChecker>>>,
+        segment_ord: SegmentOrdinal,
+
+        // Incoming buffers
+        doc_buffer: Vec<DocId>,
+        score_buffer: Vec<Score>,
+
+        // Processing buffers
+        visibility_buffer: Vec<Option<u64>>,
+
+        // Outgoing buffers
+        filtered_doc_buffer: Vec<DocId>,
+        filtered_score_buffer: Vec<Score>,
+
+        requires_scoring: bool,
+    }
+    unsafe impl<C: SegmentCollector> Send for MVCCFilterSegmentCollector<C> {}
+    unsafe impl<C: SegmentCollector> Sync for MVCCFilterSegmentCollector<C> {}
+
+    impl<SC: SegmentCollector> MVCCFilterSegmentCollector<SC> {
+        pub(crate) fn new(
+            inner: SC,
+            lock: Option<Arc<Mutex<VisibilityChecker>>>,
+            segment_ord: SegmentOrdinal,
+            requires_scoring: bool,
+        ) -> Self {
+            let capacity = if lock.is_some() { BATCH_SIZE } else { 0 };
+
+            Self {
+                inner,
+                lock,
+                segment_ord,
+                doc_buffer: Vec::with_capacity(capacity),
+                score_buffer: if requires_scoring {
+                    Vec::with_capacity(capacity)
+                } else {
+                    Vec::new()
+                },
+                visibility_buffer: Vec::with_capacity(capacity),
+                filtered_doc_buffer: Vec::with_capacity(capacity),
+                filtered_score_buffer: if requires_scoring {
+                    Vec::with_capacity(capacity)
+                } else {
+                    Vec::new()
+                },
+                requires_scoring,
+            }
+        }
+
+        fn flush(&mut self) {
+            if self.doc_buffer.is_empty() {
+                return;
+            }
+
+            // Determine which docs are visible.
+            let mut vischeck = self
+                .lock
+                .as_ref()
+                .expect("buffered docs need visibility checks")
+                .lock();
+            self.visibility_buffer.resize(self.doc_buffer.len(), None);
+            vischeck.check_segment_docs(
+                self.segment_ord,
+                &self.doc_buffer,
+                &mut self.visibility_buffer,
+            );
+            drop(vischeck);
+
+            // Filter visible docs.
+            self.filtered_doc_buffer.clear();
+            if self.requires_scoring {
+                self.filtered_score_buffer.clear();
+            }
+
+            for (i, visible_ctid) in self.visibility_buffer.iter().enumerate() {
+                if visible_ctid.is_some() {
+                    self.filtered_doc_buffer.push(self.doc_buffer[i]);
+                    if self.requires_scoring {
+                        self.filtered_score_buffer.push(self.score_buffer[i]);
+                    }
+                }
+            }
+
+            // Pass to inner collector
+            if self.requires_scoring {
+                for (doc, score) in self
+                    .filtered_doc_buffer
+                    .iter()
+                    .zip(self.filtered_score_buffer.iter())
+                {
+                    self.inner.collect(*doc, *score);
+                }
+            } else if !self.filtered_doc_buffer.is_empty() {
+                self.inner.collect_block(&self.filtered_doc_buffer);
+            }
+
+            self.doc_buffer.clear();
+            if self.requires_scoring {
+                self.score_buffer.clear();
+            }
+        }
+    }
+
+    impl<SC: SegmentCollector> SegmentCollector for MVCCFilterSegmentCollector<SC> {
+        type Fruit = SC::Fruit;
+
+        fn collect(&mut self, doc: DocId, score: Score) {
+            if self.lock.is_none() {
+                self.inner.collect(doc, score);
+                return;
+            }
+            self.doc_buffer.push(doc);
+            if self.requires_scoring {
+                self.score_buffer.push(score);
+            }
+
+            if self.doc_buffer.len() >= BATCH_SIZE {
+                self.flush();
+            }
+        }
+
+        fn collect_block(&mut self, docs: &[DocId]) {
+            if self.lock.is_none() {
+                self.inner.collect_block(docs);
+                return;
+            }
+            self.doc_buffer.extend_from_slice(docs);
+            if self.requires_scoring {
+                // collect_block does not provide scores, but we must maintain score_buffer alignment.
+                // We pad with 0.0 or equivalent.
+                self.score_buffer.resize(self.doc_buffer.len(), 0.0);
+            }
+
+            if self.doc_buffer.len() >= BATCH_SIZE {
+                self.flush();
+            }
+        }
+
+        fn harvest(mut self) -> Self::Fruit {
+            self.flush();
+            self.inner.harvest()
         }
     }
 }

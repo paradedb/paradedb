@@ -551,12 +551,21 @@ impl VisibilityChecker {
         if let Some(ranges) = ranges {
             let mut start = 0;
             let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
-            for range in &ranges[first_range..] {
+            let mut remaining_ranges = &ranges[first_range..];
+            while let Some((range, rest)) = remaining_ranges.split_first() {
+                remaining_ranges = rest;
                 start += doc_ids[start..].partition_point(|&doc| doc < range.start);
                 if start == doc_ids.len() {
                     break;
                 }
                 let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
+                if start == end {
+                    // Jump over ranges that end before the next query match.
+                    let skip =
+                        remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
+                    remaining_ranges = &remaining_ranges[skip..];
+                    continue;
+                }
                 check(start, end);
                 start = end;
             }
@@ -636,12 +645,21 @@ impl VisibilityChecker {
             results.copy_from_slice(&raw_ctids);
             let mut start = 0;
             let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
-            for range in &ranges[first_range..] {
+            let mut remaining_ranges = &ranges[first_range..];
+            while let Some((range, rest)) = remaining_ranges.split_first() {
+                remaining_ranges = rest;
                 start += doc_ids[start..].partition_point(|&doc| doc < range.start);
                 if start == doc_ids.len() {
                     break;
                 }
                 let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
+                if start == end {
+                    // Jump over ranges that end before the next query match.
+                    let skip =
+                        remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
+                    remaining_ranges = &remaining_ranges[skip..];
+                    continue;
+                }
                 self.check_raw_ctids_impl(&raw_ctids[start..end], &mut results[start..end], false);
                 start = end;
             }

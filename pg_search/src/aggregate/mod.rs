@@ -19,12 +19,15 @@ pub mod exec;
 
 use std::error::Error;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
+use crate::gucs;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 #[cfg(feature = "io_stats")]
@@ -40,6 +43,7 @@ use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -50,6 +54,7 @@ use crate::query::tid_bitmap_stream::{BitmapCell, BitmapCursorSource};
 use crate::schema::SearchIndexSchema;
 
 use pgrx::{check_for_interrupts, pg_sys};
+use tantivy::SegmentOrdinal;
 use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
@@ -503,13 +508,28 @@ pub fn execute_aggregate(
             query.needs_tokenizer(),
         )?;
 
-        // Fast path: a bare doc count without MVCC filtering is answerable by
-        // `Weight::count` — a stored-doc_freq metadata read for term queries
-        // on delete-free segments, a scoreless docset drain otherwise —
-        // skipping the aggregation framework's per-doc column iteration.
-        if !solve_mvcc
-            && matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count())
-        {
+        let bare_count =
+            matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count());
+        let count_without_mvcc = bare_count
+            && (!solve_mvcc
+                || (pg_sys::max_parallel_workers_per_gather == 0
+                    && gucs::enable_heap_block_visibility()
+                    && {
+                        let heaprel = index
+                            .heap_relation()
+                            .expect("index should belong to a heap relation");
+                        let mut visibility = VisibilityChecker::with_rel_and_snap(
+                            &heaprel,
+                            pg_sys::GetActiveSnapshot(),
+                        )
+                        .with_ffhelper(Arc::new(FFHelper::for_ctid(&reader)));
+                        (0..reader.segment_readers().len()).all(|ord| {
+                            check_for_interrupts!();
+                            visibility.is_segment_all_visible(ord as SegmentOrdinal)
+                        })
+                    }));
+
+        if count_without_mvcc {
             // Serial execution: the scorers claim private cursors.
             if let Some(bitmap_exec) = bitmap_exec.as_deref_mut()
                 && let Some(cell) = query.bitmap_cell()

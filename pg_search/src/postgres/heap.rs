@@ -680,14 +680,7 @@ impl VisibilityChecker {
         }
         debug_assert!(doc_ids.windows(2).all(|docs| docs[0] <= docs[1]));
         if gucs::enable_heap_block_visibility() && self.check_visibility {
-            if !self.segment_checks.contains_key(&segment_ord) {
-                let ranges = self
-                    .prepare_segment_checks(segment_ord)
-                    .expect("failed to read heap-block presence map")
-                    .map(Arc::from);
-                self.segment_checks.insert(segment_ord, ranges);
-            }
-            if let Some(ranges) = self.segment_checks[&segment_ord].clone() {
+            if let Some(ranges) = self.segment_check_ranges(segment_ord) {
                 mask.fill(true);
                 let mut range_idx = ranges.partition_point(|range| range.end <= doc_ids[0]);
                 let mut start = 0;
@@ -710,6 +703,24 @@ impl VisibilityChecker {
             }
         }
         self.check_segment_docs_inner(segment_ord, doc_ids, VisibilityTarget::Mask(mask), false);
+    }
+
+    pub(crate) fn is_segment_all_visible(&mut self, segment_ord: SegmentOrdinal) -> bool {
+        gucs::enable_heap_block_visibility()
+            && self
+                .segment_check_ranges(segment_ord)
+                .is_some_and(|ranges| ranges.is_empty())
+    }
+
+    fn segment_check_ranges(&mut self, segment_ord: SegmentOrdinal) -> Option<Arc<[Range<DocId>]>> {
+        if !self.segment_checks.contains_key(&segment_ord) {
+            let ranges = self
+                .prepare_segment_checks(segment_ord)
+                .expect("failed to read heap-block visibility metadata")
+                .map(Arc::from);
+            self.segment_checks.insert(segment_ord, ranges);
+        }
+        self.segment_checks[&segment_ord].clone()
     }
 
     fn prepare_segment_checks(

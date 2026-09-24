@@ -49,6 +49,7 @@ use crate::scan::info::RowEstimate;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::Result;
+use pgrx::check_for_interrupts;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::collector::sort_key::{
@@ -881,8 +882,10 @@ impl SearchIndexReader {
         let weight = self.weight();
         let mut total = 0u64;
         for (_, segment_reader) in self.candidate_segment_readers() {
+            check_for_interrupts!();
             total += u64::from(weight.count(segment_reader)?);
         }
+        check_for_interrupts!();
         Ok(total)
     }
 

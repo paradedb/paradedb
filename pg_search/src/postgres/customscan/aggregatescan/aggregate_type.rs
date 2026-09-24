@@ -44,6 +44,7 @@ use pgrx::pg_sys::{
 };
 use pgrx::prelude::*;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
+use tantivy::aggregation::bucket::FilterAggregation;
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
     SumAggregation,
@@ -703,10 +704,9 @@ impl From<AggregateType> for Aggregation {
 impl From<AggregateType> for AggregationVariants {
     fn from(val: AggregateType) -> Self {
         match val {
-            AggregateType::CountAny { .. } => AggregationVariants::Count(CountAggregation {
-                field: CTID_FIELD_NAME.to_string(),
-                missing: None,
-            }),
+            AggregateType::CountAny { .. } => {
+                AggregationVariants::Filter(FilterAggregation::new("*".to_string()))
+            }
             AggregateType::Count { field, missing, .. } => {
                 AggregationVariants::Count(CountAggregation { field, missing })
             }
@@ -1011,5 +1011,16 @@ mod tests {
         for value in [(1_i64 << 53) + 1, -((1 << 53) + 1), i64::MAX] {
             assert_eq!(value.to_f64_lossless(), None);
         }
+    }
+
+    #[test]
+    fn test_count_any_converts_to_filter_star() {
+        let count_any = super::AggregateType::CountAny {
+            filter: None,
+            indexrelid: pg_sys::InvalidOid,
+        };
+        let agg: super::Aggregation = count_any.into();
+        let json = serde_json::to_value(&agg).expect("serialization should succeed");
+        assert_eq!(json, serde_json::json!({"filter": "*"}));
     }
 }

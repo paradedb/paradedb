@@ -17,7 +17,8 @@
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, HashSet};
-use crate::index::{index_settings, setup_tokenizers};
+use crate::index::directory::utils::load_index_settings;
+use crate::index::setup_tokenizers;
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
@@ -507,7 +508,9 @@ impl PgSearchRelation {
     pub(crate) fn create_in_memory_index(&self, directory: RamDirectory) -> anyhow::Result<Index> {
         let schema = self.schema()?;
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
-        let settings = index_settings(self.options(), &tantivy_schema);
+        let settings = load_index_settings(self)?.ok_or_else(|| {
+            anyhow::anyhow!("index settings were not persisted before in-memory segment creation")
+        })?;
         // Throwaway materializations do not need the stats plugin.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
         set_ivf_router(&mut index)?;

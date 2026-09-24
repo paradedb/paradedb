@@ -281,6 +281,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         worker_style: QueryWorkerStyle,
         expr_context: Option<*mut pg_sys::ExprContext>,
         planstate: Option<*mut pg_sys::PlanState>,
+        existing_reader: Option<&SearchIndexReader>,
     ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
         let segment_ids = self.checkout_segments(worker_style.worker_number());
         if segment_ids.is_empty() {
@@ -299,17 +300,23 @@ impl<'a> ParallelAggregationWorker<'a> {
             standalone_context.as_ptr()
         };
 
-        let reader = SearchIndexReader::open_with_context(
-            &indexrel,
-            self.query.clone(),
-            false,
-            MvccSatisfies::ParallelWorker(SegmentView::from_unordered_ids(
-                segment_ids.iter().copied(),
-            )),
-            NonNull::new(context_ptr),
-            planstate.and_then(NonNull::new),
-            self.query.needs_tokenizer(),
-        )?;
+        let opened_reader;
+        let reader = if let Some(reader) = existing_reader {
+            reader
+        } else {
+            opened_reader = SearchIndexReader::open_with_context(
+                &indexrel,
+                self.query.clone(),
+                false,
+                MvccSatisfies::ParallelWorker(SegmentView::from_unordered_ids(
+                    segment_ids.iter().copied(),
+                )),
+                NonNull::new(context_ptr),
+                planstate.and_then(NonNull::new),
+                self.query.needs_tokenizer(),
+            )?;
+            &opened_reader
+        };
 
         let use_min_sentinel_fields = match self.aggregation.as_ref() {
             Some(AggregateRequest::Sql(clause)) => clause.use_min_sentinel_fields(),
@@ -332,7 +339,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             .heap_relation()
             .expect("index should belong to a heap relation");
         let (base_collector, vischeck) =
-            aggregations.plan(&reader, &heaprel, self.config.solve_mvcc, limits);
+            aggregations.plan(reader, &heaprel, self.config.solve_mvcc, limits);
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
@@ -408,8 +415,12 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             std::thread::yield_now();
         }
 
-        let result =
-            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number), None, None);
+        let result = self.execute_aggregate(
+            QueryWorkerStyle::ParallelWorker(worker_number),
+            None,
+            None,
+            None,
+        );
         if !self.attached_area.is_null() {
             unsafe { pg_sys::dsa_detach(self.attached_area) };
             self.attached_area = std::ptr::null_mut();
@@ -600,6 +611,7 @@ pub fn execute_aggregate(
                     QueryWorkerStyle::ParallelLeader,
                     Some(expr_context),
                     Some(planstate),
+                    None,
                 )? {
                     agg_results.push(Ok(result));
                 }
@@ -661,6 +673,7 @@ pub fn execute_aggregate(
                 QueryWorkerStyle::NonParallel,
                 Some(expr_context),
                 Some(planstate),
+                Some(&reader),
             )? {
                 Ok(agg_results.into_final_result(
                     {

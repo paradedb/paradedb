@@ -17,6 +17,7 @@
 
 use std::collections::VecDeque;
 use std::ops::{Deref, Range};
+use std::slice;
 use std::sync::Arc;
 
 use crate::api::version::Version;
@@ -585,6 +586,41 @@ impl VisibilityChecker {
             self.blockvis.1 = is_all_visible;
         }
         self.blockvis.1
+    }
+
+    /// Clear all-visible heap blocks from a bitmap starting at a 32-block-aligned address.
+    /// Missing VM pages and blocks beyond the relation remain set for tuple checking.
+    pub(crate) fn retain_invisible_blocks(&mut self, first_block: u32, mut blocks: &mut [u32]) {
+        assert!(first_block.is_multiple_of(32));
+        let mut block = u64::from(first_block);
+        while !blocks.is_empty() && block < u64::from(self.nblocks) {
+            pgrx::check_for_interrupts!();
+            let blockno = block as u32;
+            let page_offset = blockno % util::HEAPBLOCKS_PER_PAGE;
+            let words = blocks
+                .len()
+                .min(((util::HEAPBLOCKS_PER_PAGE - page_offset) / 32) as usize);
+            let (page_blocks, remaining) = blocks.split_at_mut(words);
+            let valid = (self.nblocks - blockno).min(words as u32 * 32);
+            let valid_words = valid.div_ceil(32) as usize;
+            let last = page_blocks[valid_words - 1];
+            self.is_block_all_visible(blockno);
+            if !self.vm_page_ptr.is_null() {
+                let map = unsafe {
+                    slice::from_raw_parts(
+                        self.vm_page_ptr
+                            .add((page_offset / util::HEAPBLOCKS_PER_BYTE) as usize),
+                        valid_words * 8,
+                    )
+                };
+                util::clear_visible_blocks(map, &mut page_blocks[..valid_words]);
+                if !valid.is_multiple_of(32) {
+                    page_blocks[valid_words - 1] |= last & (u32::MAX << (valid % 32));
+                }
+            }
+            block += words as u64 * 32;
+            blocks = remaining;
+        }
     }
 
     /// Single-ctid visibility check for callers probing one doc at a time
@@ -1472,6 +1508,25 @@ mod util {
     /// every page boundary, and the unguarded fast path forces a `vm_readbuf` (a safety-contract
     /// violation that also thrashes the VM cache).
     pub const HEAPBLOCKS_PER_PAGE: u32 = MAPSIZE * HEAPBLOCKS_PER_BYTE;
+
+    pub(super) fn clear_visible_blocks(map: &[u8], blocks: &mut [u32]) {
+        for (bytes, blocks) in map.chunks_exact(8).zip(blocks) {
+            if *blocks == 0 {
+                continue;
+            }
+            let mut visible = u64::from_le_bytes(bytes.try_into().unwrap()) & 0x5555_5555_5555_5555;
+            if visible == 0x5555_5555_5555_5555 {
+                *blocks = 0;
+                continue;
+            }
+            visible = (visible | (visible >> 1)) & 0x3333_3333_3333_3333;
+            visible = (visible | (visible >> 2)) & 0x0f0f_0f0f_0f0f_0f0f;
+            visible = (visible | (visible >> 4)) & 0x00ff_00ff_00ff_00ff;
+            visible = (visible | (visible >> 8)) & 0x0000_ffff_0000_ffff;
+            visible = (visible | (visible >> 16)) & 0xffff_ffff;
+            *blocks &= !(visible as u32);
+        }
+    }
 }
 
 /// Streams ctids in the order given and prefetches their heap blocks `distance` blocks ahead,

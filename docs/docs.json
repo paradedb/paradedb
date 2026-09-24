@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "[ParadeDB Cloud is now available in private preview](https://app.paradedb.com)",
+    "content": "[ParadeDB Cloud is now available in private preview](https://auth.paradedb.com/sign-up)",
     "dismissible": false
   },
   "navigation": {
@@ -545,7 +545,7 @@
     "links": [
       {
         "label": "Sign Up",
-        "href": "https://app.paradedb.com"
+        "href": "https://auth.paradedb.com/sign-up"
       },
       {
         "label": "Community",

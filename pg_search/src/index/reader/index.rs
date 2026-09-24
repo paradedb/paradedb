@@ -946,9 +946,7 @@ impl SearchIndexReader {
     pub fn collect_ctidset(&self, visibility: &mut VisibilityChecker) -> KeySet {
         const VISIBILITY_BATCH_SIZE: usize = 1024;
 
-        if visibility.ffhelper().is_none() {
-            visibility.set_ffhelper(Arc::new(FFHelper::for_ctid(self)));
-        }
+        visibility.set_ffhelper(Arc::new(FFHelper::for_ctid(self)));
 
         let mut search_results = self.search();
         let mut doc_ids = Vec::with_capacity(VISIBILITY_BATCH_SIZE);
@@ -2319,6 +2317,34 @@ mod tests {
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
     };
+
+    #[pg_test]
+    fn collect_ctidset_rebinds_visibility_to_each_reader() {
+        let (index_rel, heap_oid) = segmented_index_fixture("ctidset_reader_reuse", 2, false);
+        let heap_rel = PgSearchRelation::open(heap_oid);
+        unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        let mut visibility =
+            VisibilityChecker::with_rel_and_snap(&heap_rel, unsafe { pg_sys::GetActiveSnapshot() });
+        let largest = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::LargestSegment,
+        )
+        .unwrap();
+        let KeySet::InMemory(largest_ctids) = largest.collect_ctidset(&mut visibility) else {
+            panic!("expected an in-memory CTID set");
+        };
+        assert_eq!(largest_ctids.len(), 10);
+
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let KeySet::InMemory(all_ctids) = reader.collect_ctidset(&mut visibility) else {
+            panic!("expected an in-memory CTID set");
+        };
+        assert_eq!(all_ctids.len(), 20);
+        assert!(largest_ctids.is_subset(&all_ctids));
+        unsafe { pg_sys::PopActiveSnapshot() };
+    }
 
     #[pg_test]
     fn segment_pruning_preserves_unsigned_terms_encoded_as_signed_values() {

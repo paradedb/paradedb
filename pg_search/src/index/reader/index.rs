@@ -119,78 +119,37 @@ type TopKWithAggregate<T> = (
     Option<IntermediateAggregationResults>,
 );
 
-/// A known-size iterator of results for Top K.
-pub struct TopKSearchResults {
-    results_original_len: usize,
-    results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
-    aggregation_results: Option<IntermediateAggregationResults>,
-}
-
 /// Top-k results, aggregations, and per-segment metrics.
 pub struct TopKSearch {
-    /// Search results and aggregations.
-    pub results: TopKSearchResults,
+    /// Search results.
+    pub results: Vec<(SearchIndexScore, DocAddress)>,
+    /// Optional aggregations.
+    pub aggregation_results: Option<IntermediateAggregationResults>,
     /// Per-segment collector metrics.
     pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
 }
 
 impl TopKSearch {
-    fn from_results(results: TopKSearchResults) -> Self {
-        Self {
-            results,
-            segment_info: BTreeMap::new(),
-        }
-    }
-
-    fn with_segment_info(
-        results: TopKSearchResults,
-        segment_info: BTreeMap<SegmentId, serde_json::Value>,
-    ) -> Self {
-        Self {
-            results,
-            segment_info,
-        }
-    }
-}
-
-impl From<TopKSearchResults> for TopKSearch {
-    fn from(results: TopKSearchResults) -> Self {
-        Self::from_results(results)
-    }
-}
-
-fn probe_stats_to_segment_info(
-    segment_ids: &[SegmentId],
-    stats: &[ProbeStats],
-) -> BTreeMap<SegmentId, serde_json::Value> {
-    assert_eq!(
-        segment_ids.len(),
-        stats.len(),
-        "vector Fruit must yield one ProbeStats per collected segment"
-    );
-    segment_ids
-        .iter()
-        .zip(stats.iter())
-        .map(|(id, s)| {
-            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
-            (*id, value)
-        })
-        .collect()
-}
-
-impl TopKSearchResults {
-    pub fn empty() -> Self {
-        Self::new(vec![], None)
-    }
-
-    fn new(
+    pub fn new(
         results: Vec<(SearchIndexScore, DocAddress)>,
         aggregation_results: Option<IntermediateAggregationResults>,
     ) -> Self {
         Self {
-            results_original_len: results.len(),
-            results: results.into_iter(),
+            results,
             aggregation_results,
+            segment_info: BTreeMap::new(),
+        }
+    }
+
+    pub fn with_segment_info(
+        results: Vec<(SearchIndexScore, DocAddress)>,
+        aggregation_results: Option<IntermediateAggregationResults>,
+        segment_info: BTreeMap<SegmentId, serde_json::Value>,
+    ) -> Self {
+        Self {
+            results,
+            aggregation_results,
+            segment_info,
         }
     }
 
@@ -224,14 +183,25 @@ impl TopKSearchResults {
             aggregation_results,
         )
     }
+}
 
-    pub fn original_len(&self) -> usize {
-        self.results_original_len
-    }
-
-    pub fn take_aggregation_results(&mut self) -> Option<IntermediateAggregationResults> {
-        self.aggregation_results.take()
-    }
+fn probe_stats_to_segment_info(
+    segment_ids: &[SegmentId],
+    stats: &[ProbeStats],
+) -> BTreeMap<SegmentId, serde_json::Value> {
+    assert_eq!(
+        segment_ids.len(),
+        stats.len(),
+        "vector Fruit must yield one ProbeStats per collected segment"
+    );
+    segment_ids
+        .iter()
+        .zip(stats.iter())
+        .map(|(id, s)| {
+            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
+            (*id, value)
+        })
+        .collect()
 }
 
 /// A set of search results across multiple segments.
@@ -253,15 +223,6 @@ struct AscendingScore {
 impl PartialOrd for AscendingScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.score.partial_cmp(&other.score).map(|o| o.reverse())
-    }
-}
-
-impl Iterator for TopKSearchResults {
-    type Item = (SearchIndexScore, DocAddress);
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.results.next()
     }
 }
 
@@ -1319,9 +1280,9 @@ impl SearchIndexReader {
         segment_ids: impl Iterator<Item = SegmentId>,
         n: usize,
         offset: usize,
-    ) -> TopKSearchResults {
+    ) -> TopKSearch {
         // Do an un-ordered search.
-        TopKSearchResults::new(
+        TopKSearch::new(
             self.search_segments(segment_ids)
                 .skip(offset)
                 .take(n)
@@ -1341,7 +1302,20 @@ impl SearchIndexReader {
         )
     }
 
-    /// Searches selected segments for the top-k documents.
+    /// Search the Tantivy index for the Top K matching documents in specific segments.
+    ///
+    /// The documents are returned in either score or field order, in the given direction: at least
+    /// one `OrderByInfo` must be defined.
+    ///
+    /// If a TopKAuxiliaryCollector with a vischeck is provided, this method pre-filters for MVCC
+    /// visibility. Otherwise — no auxiliary collector, or one whose vischeck is `None` because
+    /// MVCC is solved lazily inside its aggregation collector — it is up to the caller to filter
+    /// the results for MVCC visibility, and re-query if necessary.
+    ///
+    /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
+    ///
+    /// Fruit-side metrics (e.g. vector probe stats) are returned as opaque
+    /// per-segment JSON in [`TopKSearch::segment_info`].
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -1377,7 +1351,7 @@ impl SearchIndexReader {
                                 ),
                             )));
                         }
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                        TopKSearch::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (computer, order),
                             erased_features,
@@ -1385,7 +1359,6 @@ impl SearchIndexReader {
                             offset,
                             aux_collector,
                         ))
-                        .into()
                     }};
                 }
 
@@ -1396,20 +1369,19 @@ impl SearchIndexReader {
                 // `SearchField::is_sortable`). `SortByRange` compares the bound sub-columns the
                 // way Postgres' `range_cmp` does.
                 if matches!(field.field_type(), SearchFieldType::Range(_)) {
-                    return TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                    return TopKSearch::new_for_discarded_field(self.top_in_segments(
                         segment_ids,
                         (SortByRange::for_field(sort_field), order),
                         erased_features,
                         n,
                         offset,
                         aux_collector,
-                    ))
-                    .into();
+                    ));
                 }
 
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => {
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                        TopKSearch::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
@@ -1417,7 +1389,6 @@ impl SearchIndexReader {
                             offset,
                             aux_collector,
                         ))
-                        .into()
                     }
                     tantivy::schema::Type::U64 => sort_fast_value!(u64),
                     tantivy::schema::Type::I64 => sort_fast_value!(i64),
@@ -1425,7 +1396,7 @@ impl SearchIndexReader {
                     tantivy::schema::Type::Bool => sort_fast_value!(bool),
                     tantivy::schema::Type::Date => sort_fast_value!(DateTime),
                     tantivy::schema::Type::Bytes => {
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                        TopKSearch::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
@@ -1433,7 +1404,6 @@ impl SearchIndexReader {
                             offset,
                             aux_collector,
                         ))
-                        .into()
                     }
                     tantivy::schema::Type::Facet => {
                         unimplemented!("Cannot sort by facet field")
@@ -1470,25 +1440,22 @@ impl SearchIndexReader {
                     offset,
                     aux_collector,
                 );
-                TopKSearchResults::new_for_score(
+                TopKSearch::new_for_score(
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
                 )
-                .into()
             }
             OrderByInfo {
                 feature: OrderByFeature::Score { .. },
                 direction,
-            } => self
-                .top_by_score_in_segments(
-                    segment_ids,
-                    *direction,
-                    n,
-                    offset,
-                    aux_collector,
-                    parallel_state_holding_shared_threshold,
-                )
-                .into(),
+            } => self.top_by_score_in_segments(
+                segment_ids,
+                *direction,
+                n,
+                offset,
+                aux_collector,
+                parallel_state_holding_shared_threshold,
+            ),
             OrderByInfo {
                 feature: OrderByFeature::NullTest { .. },
                 ..
@@ -1598,10 +1565,12 @@ impl SearchIndexReader {
                     );
                 }
                 io_stats::attach(&mut segment_info);
-                TopKSearch::with_segment_info(
-                    TopKSearchResults::new_for_score(fruit.results, aggregation_results),
-                    segment_info,
-                )
+                let scored_results: Vec<(SearchIndexScore, DocAddress)> = fruit
+                    .results
+                    .into_iter()
+                    .map(|(score, doc_address)| (SearchIndexScore { bm25: score }, doc_address))
+                    .collect();
+                TopKSearch::with_segment_info(scored_results, aggregation_results, segment_info)
             }
         }
     }
@@ -1785,7 +1754,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
-    ) -> TopKSearchResults {
+    ) -> TopKSearch {
         // NOTE: which `sortdir` arm uses the Block-WAND pruning collector below
         // (only Desc, via `order_by::<Score>`) defines
         // `orderby_uses_score_desc_topk_collector` -- the plan-time gate that costs
@@ -1806,7 +1775,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
 
-                TopKSearchResults::new_for_score(
+                TopKSearch::new_for_score(
                     top_docs
                         .into_iter()
                         .map(|(score, doc_address)| (score.score, doc_address)),
@@ -1831,7 +1800,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
 
-                TopKSearchResults::new_for_score(top_docs, aggregation_results)
+                TopKSearch::new_for_score(top_docs, aggregation_results)
             }
         }
     }
@@ -3051,7 +3020,11 @@ mod tests {
                         None,
                         None,
                     );
-                    let docs = top.results.map(|(_, doc)| doc).collect::<Vec<_>>();
+                    let docs = top
+                        .results
+                        .into_iter()
+                        .map(|(_, doc)| doc)
+                        .collect::<Vec<_>>();
                     assert_eq!(docs.len(), expected_rows);
                     for doc in &docs {
                         let id = reader
@@ -3267,7 +3240,7 @@ mod tests {
                         30,
                         0,
                     );
-                    assert_eq!(top.count(), *expected);
+                    assert_eq!(top.results.len(), *expected);
                     if partitioned && *relevant {
                         assert_eq!(STATS_OPENS.load(Relaxed), 2);
                         assert!(EMPIRICAL_READS.load(Relaxed) > 0);

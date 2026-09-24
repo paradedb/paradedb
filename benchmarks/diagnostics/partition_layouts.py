@@ -189,6 +189,27 @@ def profile_cases(layout, version, selected):
         if result.returncode != 0:
             raise RuntimeError(f'perf failed for {stem}: {result.stderr}')
 
+        data = paired.OUT / f'{stem}-perf.data'
+        record = [
+            'sudo', 'perf', 'record', '-a', '-F', '99', '-g',
+            '--call-graph', 'dwarf,4096', '-o', str(data), '--',
+            'sh', '-c',
+            'for i in $(seq 1 10); do psql "$1" -Xq -v ON_ERROR_STOP=1 -c "$2" >/dev/null; done',
+            'profile', paired.URL, sql,
+        ]
+        recorded = subprocess.run(record, cwd=paired.ROOT, text=True, capture_output=True)
+        (paired.OUT / f'{stem}-perf-record.stderr').write_text(recorded.stderr)
+        if recorded.returncode != 0:
+            raise RuntimeError(f'perf record failed for {stem}: {recorded.stderr}')
+        report = subprocess.run(
+            ['sudo', 'perf', 'report', '--stdio', '--children', '--percent-limit', '0.5', '-i', str(data)],
+            cwd=paired.ROOT, text=True, capture_output=True,
+        )
+        (paired.OUT / f'{stem}-perf-report.txt').write_text(report.stdout)
+        (paired.OUT / f'{stem}-perf-report.stderr').write_text(report.stderr)
+        if report.returncode != 0:
+            raise RuntimeError(f'perf report failed for {stem}: {report.stderr}')
+
 
 def layout_summary(samples):
     """Compare layouts within each binary, separately from main-vs-PR effects."""

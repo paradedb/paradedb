@@ -30,6 +30,7 @@ jobs:
       EXPERIMENT_SIZE: ${{ inputs.size }}
       EXPERIMENT_SUITE: ${{ inputs.suite }}
       PROFILE_PRUNING: ${{ inputs.profile }}
+      CARGO_PROFILE_RELEASE_DEBUG: 1
     steps:
       - uses: actions/checkout@v7
         with:

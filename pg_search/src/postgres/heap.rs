@@ -439,7 +439,24 @@ impl VisibilityChecker {
                         valid_words * 8,
                     )
                 };
-                util::clear_visible_blocks(map, &mut page_blocks[..valid_words]);
+                // Pack the VM’s two-bit entries into all-visible bits and clear matching blocks.
+                for (bytes, blocks) in map.chunks_exact(8).zip(&mut page_blocks[..valid_words]) {
+                    if *blocks == 0 {
+                        continue;
+                    }
+                    let mut visible =
+                        u64::from_le_bytes(bytes.try_into().unwrap()) & 0x5555_5555_5555_5555;
+                    if visible == 0x5555_5555_5555_5555 {
+                        *blocks = 0;
+                        continue;
+                    }
+                    visible = (visible | (visible >> 1)) & 0x3333_3333_3333_3333;
+                    visible = (visible | (visible >> 2)) & 0x0f0f_0f0f_0f0f_0f0f;
+                    visible = (visible | (visible >> 4)) & 0x00ff_00ff_00ff_00ff;
+                    visible = (visible | (visible >> 8)) & 0x0000_ffff_0000_ffff;
+                    visible = (visible | (visible >> 16)) & 0xffff_ffff;
+                    *blocks &= !(visible as u32);
+                }
                 if !valid.is_multiple_of(32) {
                     page_blocks[valid_words - 1] |= last & (u32::MAX << (valid % 32));
                 }
@@ -458,44 +475,40 @@ impl VisibilityChecker {
     /// Caches the document ranges needing visibility checks for this segment and snapshot.
     fn segment_check_ranges(&mut self, segment_ord: SegmentOrdinal) -> Option<Arc<[Range<DocId>]>> {
         if !self.segment_checks.contains_key(&segment_ord) {
-            let ranges = self
-                .prepare_segment_checks(segment_ord)
-                .expect("failed to read heap-block visibility metadata")
-                .map(Arc::from);
+            // Intersect the immutable segment’s presence map with the VM once per snapshot.
+            let ranges = (|| -> tantivy::Result<Option<Vec<Range<DocId>>>> {
+                if self.snapshot.is_null()
+                    || unsafe {
+                        (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC
+                    }
+                {
+                    return Ok(None);
+                }
+                let ffhelper = self.ffhelper.clone().expect("FFHelper must be configured");
+                let Some(segment) = ffhelper.immutable_segment_reader(segment_ord) else {
+                    return Ok(None);
+                };
+                let Some(stats) = SegmentStats::of_reader(segment)? else {
+                    return Ok(None);
+                };
+                let field = segment.schema().get_field(CTID_FIELD_NAME)?;
+                let Some(mut map) =
+                    stats.heap_blocks(field, segment.max_doc(), util::HEAPBLOCKS_PER_PAGE)?
+                else {
+                    return Ok(None);
+                };
+                // The immutable reader's cleanup pin keeps these entries live until fresh VM bits
+                // have been checked. A cached proof belongs only to this checker's snapshot.
+                self.blockvis = (pg_sys::InvalidBlockNumber, false);
+                Ok(Some(map.missing_ranges(|block, present| {
+                    self.retain_invisible_blocks(block, present)
+                })?))
+            })()
+            .expect("failed to read heap-block visibility metadata")
+            .map(Arc::from);
             self.segment_checks.insert(segment_ord, ranges);
         }
         self.segment_checks[&segment_ord].clone()
-    }
-
-    /// Intersects an immutable segment’s presence map with the VM, or returns `None` for fallback.
-    fn prepare_segment_checks(
-        &mut self,
-        segment_ord: SegmentOrdinal,
-    ) -> tantivy::Result<Option<Vec<Range<DocId>>>> {
-        if self.snapshot.is_null()
-            || unsafe { (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC }
-        {
-            return Ok(None);
-        }
-        let ffhelper = self.ffhelper.clone().expect("FFHelper must be configured");
-        let Some(segment) = ffhelper.immutable_segment_reader(segment_ord) else {
-            return Ok(None);
-        };
-        let Some(stats) = SegmentStats::of_reader(segment)? else {
-            return Ok(None);
-        };
-        let field = segment.schema().get_field(CTID_FIELD_NAME)?;
-        let Some(mut map) =
-            stats.heap_blocks(field, segment.max_doc(), util::HEAPBLOCKS_PER_PAGE)?
-        else {
-            return Ok(None);
-        };
-        // The immutable reader's cleanup pin keeps these entries live until fresh VM bits
-        // have been checked. A cached proof belongs only to this checker's snapshot.
-        self.blockvis = (pg_sys::InvalidBlockNumber, false);
-        Ok(Some(map.missing_ranges(|block, present| {
-            self.retain_invisible_blocks(block, present)
-        })?))
     }
 
     /// Checks visibility without fetching CTIDs for documents outside unresolved ranges.
@@ -1280,26 +1293,6 @@ mod util {
     /// every page boundary, and the unguarded fast path forces a `vm_readbuf` (a safety-contract
     /// violation that also thrashes the VM cache).
     pub const HEAPBLOCKS_PER_PAGE: u32 = MAPSIZE * HEAPBLOCKS_PER_BYTE;
-
-    /// Extracts the all-visible bits from PostgreSQL’s two-bit VM entries and clears matching blocks.
-    pub(super) fn clear_visible_blocks(map: &[u8], blocks: &mut [u32]) {
-        for (bytes, blocks) in map.chunks_exact(8).zip(blocks) {
-            if *blocks == 0 {
-                continue;
-            }
-            let mut visible = u64::from_le_bytes(bytes.try_into().unwrap()) & 0x5555_5555_5555_5555;
-            if visible == 0x5555_5555_5555_5555 {
-                *blocks = 0;
-                continue;
-            }
-            visible = (visible | (visible >> 1)) & 0x3333_3333_3333_3333;
-            visible = (visible | (visible >> 2)) & 0x0f0f_0f0f_0f0f_0f0f;
-            visible = (visible | (visible >> 4)) & 0x00ff_00ff_00ff_00ff;
-            visible = (visible | (visible >> 8)) & 0x0000_ffff_0000_ffff;
-            visible = (visible | (visible >> 16)) & 0xffff_ffff;
-            *blocks &= !(visible as u32);
-        }
-    }
 
     unsafe extern "C" {
         /// Raw binding to Postgres `visibilitymap_get_status`. Safe to call without the

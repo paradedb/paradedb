@@ -9,8 +9,9 @@
 //! ```
 //!
 //! We want to go efficiently from distinct heap blocks to the document IDs that need
-//! visibility checks. CTID sorting keeps each block's documents contiguous, so we can
-//! represent them as ranges.
+//! visibility checks. Getting this mapping from the CTID column alone would require
+//! decoding and walking a value for every document, even when many share the same page.
+//! CTID sorting keeps each block's documents contiguous, so we can represent them as ranges.
 //!
 //! First, a page presence bitmap records which heap blocks occur in the segment:
 //!
@@ -32,8 +33,9 @@
 //! needs checking:     0  1  0  0  0  0  -> heap block 11
 //! ```
 //!
-//! Next, rank gives the page's position among the present pages, and boundaries translate
-//! that position into a document range. We only read boundaries for pages needing checks:
+//! Now that we know page 11 needs checking, we need to find which document IDs belong to
+//! it. Rank gives its position among the present pages, and boundaries translate that
+//! position into a document range. We only read boundaries for pages needing checks:
 //!
 //! ```text
 //! present blocks:    [10, 11, 15]

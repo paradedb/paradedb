@@ -30,10 +30,10 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - spot=false
-      - family=m7g+m8g
+      - family=m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=16
       - ram=64
-      - image=ubuntu24-full-arm64
+      - image=ubuntu26-full-arm64
       - extras=s3-cache
     if: github.ref == 'refs/heads/main'
 
@@ -64,7 +64,7 @@ jobs:
         with:
           pg-version: "18"
           profile: release
-          cache-prefix-key: "v1-cloud-rust-cache"
+          cache-prefix-key: "v1-cloud-rust-cache-ubuntu-26.04"
           cache-save: true
 
       - name: Assemble Source Image

@@ -718,35 +718,8 @@ impl VisibilityChecker {
         };
         self.blockvis = (pg_sys::InvalidBlockNumber, false);
         Ok(Some(map.missing_ranges(|block, present| {
-            self.invisible_blocks(block, present)
+            self.retain_invisible_blocks(block, present)
         })?))
-    }
-
-    fn invisible_blocks(&mut self, block: u32, present: u32) -> u32 {
-        if block >= self.nblocks {
-            return present;
-        }
-        self.is_block_all_visible(block);
-        if self.vm_page_ptr.is_null() {
-            return present;
-        }
-        let offset = (block % util::HEAPBLOCKS_PER_PAGE / util::HEAPBLOCKS_PER_BYTE) as usize;
-        let mut visible =
-            unsafe { u64::from_le(self.vm_page_ptr.add(offset).cast::<u64>().read_unaligned()) }
-                & 0x5555_5555_5555_5555;
-        if visible == 0x5555_5555_5555_5555 && self.nblocks - block >= 32 {
-            return 0;
-        }
-        visible = (visible | (visible >> 1)) & 0x3333_3333_3333_3333;
-        visible = (visible | (visible >> 2)) & 0x0f0f_0f0f_0f0f_0f0f;
-        visible = (visible | (visible >> 4)) & 0x00ff_00ff_00ff_00ff;
-        visible = (visible | (visible >> 8)) & 0x0000_ffff_0000_ffff;
-        visible = (visible | (visible >> 16)) & 0xffff_ffff;
-        let remaining = self.nblocks - block;
-        if remaining < 32 {
-            visible &= (1u64 << remaining) - 1;
-        }
-        present & !(visible as u32)
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from

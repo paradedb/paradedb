@@ -323,9 +323,10 @@ impl HeapBlockMap {
 
     pub(crate) fn missing_ranges(
         &mut self,
-        mut missing: impl FnMut(u32, u32) -> u32,
+        mut retain_invisible: impl FnMut(u32, &mut [u32]),
     ) -> io::Result<Vec<Range<u32>>> {
         let mut ranges: Vec<Range<u32>> = Vec::new();
+        let mut scratch = vec![0u32; self.pages_per_vm as usize / 32];
         for chunk in 0..u32_at(&self.presence, 16) as usize {
             pgrx::check_for_interrupts!();
             let at = HEADER + chunk * ENTRY;
@@ -334,6 +335,30 @@ impl HeapBlockMap {
             let offset = u32_at(&self.presence, at + 8) as usize;
             let count = u32_at(&self.presence, at + 12);
             let bytes = &self.presence[offset..];
+            let (first_word, words) = if count & SPARSE != 0 {
+                let count = (count & !SPARSE) as usize;
+                let first = usize::from(u16_at(bytes, 0)) / 32;
+                let last = usize::from(u16_at(bytes, (count - 1) * 2)) / 32;
+                scratch[..=last - first].fill(0);
+                for i in 0..count {
+                    let block = usize::from(u16_at(bytes, i * 2));
+                    scratch[block / 32 - first] |= 1 << (block % 32);
+                }
+                (first, last - first + 1)
+            } else {
+                let first = usize::from(u16_at(bytes, 0));
+                let words = usize::from(u16_at(bytes, 2));
+                let bitmap = 4 + words.div_ceil(8) * 2;
+                for (i, mask) in scratch[..words].iter_mut().enumerate() {
+                    *mask = u32_at(bytes, bitmap + i * 4);
+                }
+                (first, words)
+            };
+            let missing = &mut scratch[..words];
+            retain_invisible(base + first_word as u32 * 32, missing);
+            if missing.iter().all(|&mask| mask == 0) {
+                continue;
+            }
             let mut add = |rank: u32| -> io::Result<()> {
                 let start = self.boundaries.get(rank as usize)?;
                 let end = self.boundaries.get(rank as usize + 1)?;
@@ -369,7 +394,7 @@ impl HeapBlockMap {
                         present |= 1 << (u16_at(bytes, i * 2) % 32);
                         i += 1;
                     }
-                    let mut bad = missing(base + word * 32, present) & present;
+                    let mut bad = missing[word as usize - first_word] & present;
                     while bad != 0 {
                         let bit = bad.trailing_zeros();
                         add(ordinal + first as u32 + (present & ((1u32 << bit) - 1)).count_ones())?;
@@ -377,16 +402,13 @@ impl HeapBlockMap {
                     }
                 }
             } else {
-                let first_word = u32::from(u16_at(bytes, 0));
-                let words = u16_at(bytes, 2) as usize;
                 let bitmap = 4 + words.div_ceil(8) * 2;
-                for word in 0..words {
-                    let present = u32_at(bytes, bitmap + word * 4);
-                    if present == 0 {
+                for (word, &bad) in missing.iter().enumerate() {
+                    if bad == 0 {
                         continue;
                     }
-                    let mut bad =
-                        missing(base + (first_word + word as u32) * 32, present) & present;
+                    let present = u32_at(bytes, bitmap + word * 4);
+                    let mut bad = bad & present;
                     if bad == 0 {
                         continue;
                     }

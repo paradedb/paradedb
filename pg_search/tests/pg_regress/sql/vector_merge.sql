@@ -28,7 +28,7 @@ CREATE TABLE remerge (
 -- keeps every merge in the foreground, deterministic. Inserts flush ~1000-doc
 -- segments of ~70kb, and a 600kb layer closes its first candidate at
 -- >= 10000 docs — at or above tantivy's vector_clustering_threshold, so the
--- merge target is written IVF (clustered) under the RNG centroid router.
+-- merge target is written IVF (clustered) under the stacked centroid router.
 CREATE INDEX remerge_idx ON remerge
     USING paradedb (id, vec vector_l2_ops)
     WITH (

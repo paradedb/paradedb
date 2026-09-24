@@ -32,11 +32,11 @@ use crate::postgres::options::{
 
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
 
-/// The IVF centroid router every pg_search index builds and opens: Tantivy's
-/// default relative-neighborhood graph. Tantivy persists the router kind in
-/// each segment's `.centroids` file and refuses to open a segment under a
+/// The IVF centroid router every pg_search index builds and opens: a stacked
+/// IVF over the trained centroids. Tantivy persists the router kind in each
+/// segment's `.centroids` file and refuses to open a segment under a
 /// different kind, so this is a build-time constant, not a GUC.
-pub const IVF_ROUTER: RouterKind = RouterKind::Rng;
+pub const IVF_ROUTER: RouterKind = RouterKind::Stacked;
 
 struct AssignClusterer {
     dim: usize,
@@ -309,6 +309,6 @@ mod tests {
         let mut index = Index::create_in_ram(Schema::builder().build());
         set_ivf_router(&mut index).expect("first set");
         set_ivf_router(&mut index).expect("same kind again");
-        assert!(index.set_ivf_router(RouterKind::Stacked).is_err());
+        assert!(index.set_ivf_router(RouterKind::Rng).is_err());
     }
 }

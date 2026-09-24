@@ -31,8 +31,8 @@ use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
 use tantivy::Index;
-use tantivy::schema::FAST;
 use tantivy::schema::Schema;
+use tantivy::schema::{FAST, NumericOptions};
 use tantivy::vector::VectorOptions;
 
 #[pg_guard]
@@ -344,8 +344,10 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
     }
 
     // Add tid_block and tid_offset fields (replacing the legacy single ctid column)
-    // TODO: Double check with reviewers during code review whether FAST only is sufficient (no INDEXED needed).
-    builder.add_u64_field(TID_BLOCK_FIELD_NAME, FAST);
+    builder.add_u64_field(
+        TID_BLOCK_FIELD_NAME,
+        NumericOptions::default().set_fast().set_indexed(),
+    );
     builder.add_u64_field(TID_OFFSET_FIELD_NAME, FAST);
 
     builder.build()

@@ -16,10 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 use std::sync::Arc;
 
 use crate::api::version::Version;
+use crate::api::{HashMap, TID_BLOCK_FIELD_NAME};
+use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, TidReader};
 #[cfg(feature = "io_stats")]
 use crate::index::reader::io_stats::trace;
@@ -30,7 +32,8 @@ use crate::postgres::utils::{self, TidBlock, TidOffset};
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use pgrx::pg_sys;
 use pgrx::{PgList, PgTupleDesc};
-use tantivy::{DocId, SegmentOrdinal, TantivyDocument};
+use tantivy::schema::IndexRecordOption;
+use tantivy::{DocId, DocSet, SegmentOrdinal, TERMINATED, TantivyDocument};
 
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
@@ -377,6 +380,7 @@ pub struct VisibilityChecker {
     // TODO: Make this non-optional in the future once all call sites provide an FFHelper.
     ffhelper: Option<Arc<FFHelper>>,
     tid_scratch: TidScratch,
+    segment_checks: HashMap<SegmentOrdinal, Option<Arc<[Range<DocId>]>>>,
 }
 
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
@@ -425,17 +429,20 @@ impl VisibilityChecker {
                 check_visibility: true,
                 ffhelper: None,
                 tid_scratch: TidScratch::default(),
+                segment_checks: HashMap::default(),
             }
         }
     }
 
     /// Attaches an [`FFHelper`] for resolving segment `DocId`s to ctids directly.
     pub fn with_ffhelper(mut self, ffhelper: Arc<FFHelper>) -> Self {
+        self.segment_checks.clear();
         self.ffhelper = Some(ffhelper);
         self
     }
 
     pub fn set_ffhelper(&mut self, ffhelper: Arc<FFHelper>) {
+        self.segment_checks.clear();
         self.ffhelper = Some(ffhelper);
     }
 
@@ -602,7 +609,130 @@ impl VisibilityChecker {
         doc_ids: &[DocId],
         mask: &mut [bool],
     ) {
+        assert_eq!(doc_ids.len(), mask.len());
+        if doc_ids.is_empty() {
+            return;
+        }
+        debug_assert!(doc_ids.windows(2).all(|docs| docs[0] <= docs[1]));
+        if gucs::enable_tid_block_visibility() && self.check_visibility {
+            if !self.segment_checks.contains_key(&segment_ord) {
+                let ranges = self
+                    .prepare_segment_checks(segment_ord)
+                    .expect("failed to read indexed heap blocks")
+                    .map(Arc::from);
+                self.segment_checks.insert(segment_ord, ranges);
+            }
+            if let Some(ranges) = self.segment_checks[&segment_ord].clone() {
+                mask.fill(true);
+                let mut range_idx = ranges.partition_point(|range| range.end <= doc_ids[0]);
+                let mut start = 0;
+                while start < doc_ids.len() && range_idx < ranges.len() {
+                    let range = &ranges[range_idx];
+                    start += doc_ids[start..].partition_point(|&doc| doc < range.start);
+                    let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
+                    if start < end {
+                        self.check_segment_docs_inner(
+                            segment_ord,
+                            &doc_ids[start..end],
+                            VisibilityTarget::Mask(&mut mask[start..end]),
+                            false,
+                        );
+                    }
+                    start = end;
+                    range_idx += 1;
+                }
+                return;
+            }
+        }
         self.check_segment_docs_inner(segment_ord, doc_ids, VisibilityTarget::Mask(mask), false);
+    }
+
+    fn prepare_segment_checks(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+    ) -> tantivy::Result<Option<Vec<Range<DocId>>>> {
+        if self.snapshot.is_null()
+            || unsafe { (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC }
+        {
+            return Ok(None);
+        }
+        let ffhelper = self.ffhelper.clone().expect("FFHelper must be configured");
+        let Some(segment) = ffhelper.immutable_segment(segment_ord) else {
+            return Ok(None);
+        };
+        let Ok(field) = segment.schema().get_field(TID_BLOCK_FIELD_NAME) else {
+            return Ok(None);
+        };
+        if !segment.schema().get_field_entry(field).is_indexed() {
+            return Ok(None);
+        }
+        let contiguous = segment
+            .sort_by_field()
+            .is_some_and(|sort| sort.field == TID_BLOCK_FIELD_NAME);
+        let inverted = segment.inverted_index(field)?;
+        let mut terms = inverted.terms().stream()?;
+        let mut ranges: Vec<Range<DocId>> = Vec::new();
+        let mut total_docs = 0u64;
+        let mut term_count = 0usize;
+        // FFHelper pins this immutable segment before we read fresh VM bits. Do not share
+        // this visibility decision across snapshots or mutable-segment materializations.
+        self.blockvis = (pg_sys::InvalidBlockNumber, false);
+        while terms.advance() {
+            term_count += 1;
+            if term_count.is_multiple_of(1024) {
+                pgrx::check_for_interrupts!();
+            }
+            let Ok(bytes) = terms.key().try_into() else {
+                return Ok(None);
+            };
+            let Ok(blockno) = u32::try_from(u64::from_be_bytes(bytes)) else {
+                return Ok(None);
+            };
+            let info = terms.value();
+            total_docs += u64::from(info.doc_freq);
+            if blockno < self.nblocks && self.is_block_all_visible(blockno) {
+                continue;
+            }
+            let mut postings =
+                inverted.read_postings_from_terminfo(info, IndexRecordOption::Basic)?;
+            if contiguous {
+                let start = postings.doc();
+                let Some(end) = start.checked_add(info.doc_freq) else {
+                    return Ok(None);
+                };
+                if end > segment.max_doc() || start == TERMINATED {
+                    return Ok(None);
+                }
+                ranges.push(start..end);
+            } else {
+                while postings.doc() != TERMINATED {
+                    let doc = postings.doc();
+                    if let Some(last) = ranges.last_mut()
+                        && last.end == doc
+                    {
+                        last.end += 1;
+                    } else {
+                        ranges.push(doc..doc + 1);
+                    }
+                    postings.advance();
+                }
+            }
+        }
+        if total_docs != u64::from(segment.max_doc()) {
+            return Ok(None);
+        }
+        ranges.sort_unstable_by_key(|range| range.start);
+        let mut merged: Vec<Range<DocId>> = Vec::with_capacity(ranges.len());
+        for range in ranges {
+            if let Some(last) = merged.last_mut()
+                && range.start <= last.end
+            {
+                last.end = last.end.max(range.end);
+            } else {
+                merged.push(range);
+            }
+        }
+        Ok(Some(merged))
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from

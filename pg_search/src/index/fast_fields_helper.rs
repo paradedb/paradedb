@@ -19,7 +19,6 @@ use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
 use crate::api::{CTID_FIELD_NAME, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
-use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -42,7 +41,7 @@ use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, DocId, Searcher, SegmentReader};
+use tantivy::{DocAddress, DocId, Searcher};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -163,7 +162,6 @@ struct FFInner {
     // the segment from the heap. The Searcher also keeps the reader's `MVCCDirectory` and its
     // segment pins alive. Initialize on the backend thread only.
     searcher: Searcher,
-    segment_view: SegmentView,
     columns: Vec<WhichFastField>,
     segment_caches: Vec<SegmentCache>,
 }
@@ -191,7 +189,6 @@ impl FFHelper {
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
         Self(Some(FFInner {
             searcher: reader.searcher().clone(),
-            segment_view: reader.segment_view(),
             segment_caches: Self::segment_caches(reader.segment_readers().len(), fields.len()),
             columns: fields.to_vec(),
         }))
@@ -218,14 +215,6 @@ impl FFHelper {
 
     fn caches(&self) -> &[SegmentCache] {
         &self.inner().segment_caches
-    }
-
-    pub(crate) fn immutable_segment(&self, segment_ord: SegmentOrdinal) -> Option<&SegmentReader> {
-        matches!(
-            self.inner().segment_view.entries()[segment_ord as usize].docs,
-            SegmentViewDocs::Immutable { .. }
-        )
-        .then(|| self.searcher().segment_reader(segment_ord))
     }
 
     fn fast_fields(&self, segment_ord: SegmentOrdinal) -> &FastFieldReaders {

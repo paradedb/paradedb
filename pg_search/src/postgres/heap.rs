@@ -416,6 +416,12 @@ impl VisibilityChecker {
 
     /// Clears all-visible heap blocks from the candidate bitmap, pinning each VM page once.
     fn retain_invisible_blocks(&mut self, first_block: u32, mut blocks: &mut [u32]) {
+        const ALL_VISIBLE_BITS: u64 = 0x5555_5555_5555_5555;
+        const LOW_PAIR_PER_NIBBLE: u64 = 0x3333_3333_3333_3333;
+        const LOW_NIBBLE_PER_BYTE: u64 = 0x0f0f_0f0f_0f0f_0f0f;
+        const LOW_BYTE_PER_U16: u64 = 0x00ff_00ff_00ff_00ff;
+        const LOW_U16_PER_U32: u64 = 0x0000_ffff_0000_ffff;
+
         assert!(first_block.is_multiple_of(32));
         let mut block = u64::from(first_block);
         while !blocks.is_empty() && block < u64::from(self.nblocks) {
@@ -439,22 +445,23 @@ impl VisibilityChecker {
                         valid_words * 8,
                     )
                 };
-                // Pack the VM’s two-bit entries into all-visible bits and clear matching blocks.
+                // The VM alternates all-visible and all-frozen bits. Keep only all-visible bits,
+                // then pack them into a u32 by doubling the occupied group size at each step.
                 for (bytes, blocks) in map.chunks_exact(8).zip(&mut page_blocks[..valid_words]) {
                     if *blocks == 0 {
                         continue;
                     }
                     let mut visible =
-                        u64::from_le_bytes(bytes.try_into().unwrap()) & 0x5555_5555_5555_5555;
-                    if visible == 0x5555_5555_5555_5555 {
+                        u64::from_le_bytes(bytes.try_into().unwrap()) & ALL_VISIBLE_BITS;
+                    if visible == ALL_VISIBLE_BITS {
                         *blocks = 0;
                         continue;
                     }
-                    visible = (visible | (visible >> 1)) & 0x3333_3333_3333_3333;
-                    visible = (visible | (visible >> 2)) & 0x0f0f_0f0f_0f0f_0f0f;
-                    visible = (visible | (visible >> 4)) & 0x00ff_00ff_00ff_00ff;
-                    visible = (visible | (visible >> 8)) & 0x0000_ffff_0000_ffff;
-                    visible = (visible | (visible >> 16)) & 0xffff_ffff;
+                    visible = (visible | (visible >> 1)) & LOW_PAIR_PER_NIBBLE;
+                    visible = (visible | (visible >> 2)) & LOW_NIBBLE_PER_BYTE;
+                    visible = (visible | (visible >> 4)) & LOW_BYTE_PER_U16;
+                    visible = (visible | (visible >> 8)) & LOW_U16_PER_U32;
+                    visible = (visible | (visible >> 16)) & u64::from(u32::MAX);
                     *blocks &= !(visible as u32);
                 }
                 if !valid.is_multiple_of(32) {

@@ -146,7 +146,7 @@ pub mod visibility_filter;
 pub mod window_func;
 
 pub use self::build::CtidColumn;
-use self::build::{JoinCSClause, JoinScanDfResultMode, RelNode, RelationAlias};
+use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
     get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
@@ -161,7 +161,7 @@ use crate::postgres::node::NodeExt;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
-    create_datafusion_session_context, numeric_window_field, topk_as_agg_limit,
+    create_datafusion_session_context, numeric_window_field,
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
@@ -195,7 +195,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
-use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, gucs, nodecast};
+use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
@@ -702,21 +702,11 @@ impl JoinScan {
             }
         }
 
-        // Whether to apply topk as agg, which requires a known k.
-        let df_result_mode = if gucs::joinscan_force_topk_as_agg()
-            && topk_as_agg_limit(limit_offset.as_ref()).is_some()
-        {
-            JoinScanDfResultMode::Aggregates
-        } else {
-            JoinScanDfResultMode::Rows
-        };
-
         // --- Build JoinCSClause ---
         let mut join_clause = JoinCSClause::new(plan.clone())
             .with_limit_offset(limit_offset.clone())
             .with_distinct(has_distinct)
-            .with_window_aggs(window_aggs)
-            .with_df_result_mode(df_result_mode);
+            .with_window_aggs(window_aggs);
 
         for source in join_clause.plan.sources_mut() {
             let score_in_tlist = source.contains_score((*root).processed_tlist.cast());

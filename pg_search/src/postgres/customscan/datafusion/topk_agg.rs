@@ -58,6 +58,8 @@ pub fn topk_as_agg_udaf() -> Arc<AggregateUDF> {
     Arc::clone(&TOPK_AS_AGG)
 }
 
+pub const TOPK_AGG_ROWS_COL_NAME: &str = "__topk";
+
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct TopKAgg {
     signature: Signature,
@@ -78,13 +80,12 @@ impl AggregateUDFImpl for TopKAgg {
         &self.signature
     }
 
-    /// Types only. The planner types the call through `return_field`, which
-    /// keeps the real column names; this is the fallback with positional names.
+    /// Types only, so every payload field is assumed nullable. The planner
+    /// types the call through `return_field`, which keeps nullability.
     fn return_type(&self, arg_types: &[arrow_schema::DataType]) -> Result<arrow_schema::DataType> {
         let fields: Vec<FieldRef> = arg_types
             .iter()
-            .enumerate()
-            .map(|(i, t)| Arc::new(Field::new(format!("c{i}"), t.clone(), true)))
+            .map(|t| Arc::new(Field::new("", t.clone(), true)))
             .collect();
         Ok(list_of_rows(payload_fields(&fields)?))
     }
@@ -126,9 +127,12 @@ impl AggregateUDFImpl for TopKAgg {
             }
         };
 
+        // The accumulator's batches must carry the declared row type exactly, so
+        // take the payload schema from the return field rather than the argument
+        // fields, whose names differ.
+        let schema = row_schema(&acc_args.return_field)?;
         // Only the payload columns reach update_batch, so each sort key must be one
         // of them; rebase the ORDER BY onto payload positions.
-        let schema = Arc::new(Schema::new(payload.to_vec()));
         let sort_exprs = acc_args
             .order_bys
             .iter()
@@ -163,11 +167,41 @@ fn payload_fields(arg_fields: &[FieldRef]) -> Result<&[FieldRef]> {
     }
 }
 
-/// `List<Struct<payload>>`, with the item field spelled the way
-/// `SingleRowListArrayBuilder::build_list_scalar` spells it in `evaluate`.
+/// `List<Struct<c0, c1, …>>` over the payload's types and nullability, with the
+/// item field spelled the way `SingleRowListArrayBuilder::build_list_scalar`
+/// spells it in `evaluate`.
+///
+/// The struct fields are named by position. Argument names are the bare column
+/// names, which collide across relations and differ between the logical and
+/// physical planners for expressions; positions are unique and identical at
+/// both layers, so callers read the rows back with `get_field(…, "c{i}")`.
 fn list_of_rows(payload: &[FieldRef]) -> DataType {
-    let row = DataType::Struct(Fields::from(payload.to_vec()));
+    let fields: Vec<FieldRef> = payload
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            Arc::new(Field::new(
+                format!("c{i}"),
+                f.data_type().clone(),
+                f.is_nullable(),
+            ))
+        })
+        .collect();
+    let row = DataType::Struct(Fields::from(fields));
     DataType::List(Arc::new(Field::new_list_field(row, true)))
+}
+
+/// The payload schema inside a `List<Struct>` return field.
+fn row_schema(return_field: &Field) -> Result<SchemaRef> {
+    if let DataType::List(item) = return_field.data_type()
+        && let DataType::Struct(fields) = item.data_type()
+    {
+        return Ok(Arc::new(Schema::new(fields.clone())));
+    }
+    Err(DataFusionError::Internal(format!(
+        "{TOPK_AS_AGG_NAME} return type must be a list of structs, got {}",
+        return_field.data_type()
+    )))
 }
 
 struct TopKAccumulator {

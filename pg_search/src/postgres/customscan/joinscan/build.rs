@@ -1882,13 +1882,6 @@ impl Default for RelNode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub enum JoinScanDfResultMode {
-    #[default]
-    Rows,
-    Aggregates,
-}
-
 /// The clause information for a Join Custom Scan.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct JoinCSClause {
@@ -1906,9 +1899,6 @@ pub struct JoinCSClause {
     pub has_distinct: bool,
     /// List of window aggregates taken by the scan
     pub window_aggs: WindowAggList,
-    /// Which dataframe output mode the scan is using (i.e. regular rows or aggregate results).
-    /// Necessary to know if the results need to be exploded, etc.
-    pub df_result_mode: JoinScanDfResultMode,
 }
 
 impl JoinCSClause {
@@ -1920,7 +1910,6 @@ impl JoinCSClause {
             output_projection: None,
             has_distinct: false,
             window_aggs: WindowAggList::new(Vec::new()),
-            df_result_mode: JoinScanDfResultMode::Rows,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1965,11 +1954,6 @@ impl JoinCSClause {
 
     pub fn with_window_aggs(mut self, window_aggs: Vec<WindowAgg>) -> Self {
         self.window_aggs = WindowAggList::new(window_aggs);
-        self
-    }
-
-    pub fn with_df_result_mode(mut self, mode: JoinScanDfResultMode) -> Self {
-        self.df_result_mode = mode;
         self
     }
 

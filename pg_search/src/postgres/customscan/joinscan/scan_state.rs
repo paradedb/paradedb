@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 use datafusion::catalog::Session;
 use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
+use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::{
     Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
@@ -45,15 +46,15 @@ use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
-use super::build::JoinScanDfResultMode;
 use super::planning::get_source_attno_by_name;
 use super::window_func::{
     SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
+use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
-use crate::postgres::customscan::datafusion::topk_agg::topk_as_agg;
+use crate::postgres::customscan::datafusion::topk_agg::{TOPK_AGG_ROWS_COL_NAME, topk_as_agg};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
@@ -873,18 +874,15 @@ fn build_clause_df<'a>(
         let (df, distinct_col_map) =
             apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
 
-        // apply topk-as-agg, which requires a known k. Returns the aggregate dataframe, which will
-        // require manually exploding
-        if join_clause.df_result_mode == JoinScanDfResultMode::Aggregates {
-            if let Some(k) = topk_as_agg_limit(join_clause.limit_offset.as_ref()) {
-                return apply_topk_as_agg(df, join_clause, &distinct_col_map, &plan_sources, k);
-            } else {
-                return Err(DataFusionError::Internal(format!(
-                    "A df_result_mode of {:?} was given an invalid limit offset: {:?}",
-                    join_clause.df_result_mode, join_clause.limit_offset
-                )));
-            }
-        }
+        // potentially apply topk-as-agg, which requires a known k. Returns the flattened set of (offset + k)
+        // rows, not necissarily in order
+        let df = if gucs::joinscan_force_topk_as_agg()
+            && let Some(k) = topk_as_agg_limit(join_clause.limit_offset.as_ref())
+        {
+            apply_topk_as_agg(df, join_clause, &distinct_col_map, k)?
+        } else {
+            df
+        };
 
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
@@ -914,7 +912,7 @@ fn build_clause_df<'a>(
     f.boxed_local()
 }
 
-pub fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
+fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
     if let Some(lo) = limit_offset {
         if let (Some(fetch), Some(skip)) = (lo.static_limit(), lo.static_offset()) {
             Some(
@@ -929,18 +927,41 @@ pub fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
     }
 }
 
+/// Returns flattened set of topk rows
 fn apply_topk_as_agg(
     df: DataFrame,
     join_clause: &JoinCSClause,
     distinct_col_map: &DistinctColMap,
-    plan_sources: &[&JoinSource],
     k: usize,
 ) -> Result<DataFrame> {
-    let payload =
-        build_output_column_expressions(&df, join_clause, distinct_col_map, plan_sources)?;
+    if k == 0 {
+        // the accumulator rejects a k of 0, so fallback to returning the "empty" dataframe
+        return df.limit(0, Some(0));
+    }
+
+    let columns = df.schema().columns();
+    let payload: Vec<_> = columns.iter().cloned().map(Expr::from).collect();
     let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
     let topk_agg = topk_as_agg(&payload, sort_exprs, k);
-    df.aggregate(vec![], vec![topk_agg])
+
+    // Do aggregations
+    let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
+
+    // unnest/flatten back to rows
+    let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
+
+    // restore original column names
+    let name_restoration_exprs: Vec<_> = columns
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
+                .alias_qualified(c.relation.clone(), c.name.clone())
+        })
+        .collect();
+    let df = df.select(name_restoration_exprs)?;
+
+    Ok(df)
 }
 
 /// Translate every clause in `custom_exprs` (a Postgres `List*`) into a

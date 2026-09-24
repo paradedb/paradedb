@@ -469,13 +469,7 @@ impl ExecMethod for TopKScanExecState {
                     agg_limits.clone(),
                 );
                 if let Some(vischeck) = vischeck {
-                    search_reader.collect(MVCCFilterCollector::new(
-                        aggregation_collector,
-                        vischeck,
-                        search_reader
-                            .all_visible_segments()
-                            .expect("segment visibility check should succeed"),
-                    ))
+                    search_reader.collect(MVCCFilterCollector::new(aggregation_collector, vischeck))
                 } else {
                     search_reader.collect(aggregation_collector)
                 }

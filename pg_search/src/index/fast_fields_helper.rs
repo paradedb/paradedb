@@ -19,12 +19,15 @@ use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
 use crate::api::CTID_FIELD_NAME;
+use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::schema::{SearchFieldType, is_columnar_json_path};
+use tantivy::index::SegmentId;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
@@ -76,6 +79,8 @@ struct FFInner {
     // the segment from the heap. The Searcher also keeps the reader's `MVCCDirectory` and its
     // segment pins alive. Initialize on the backend thread only.
     searcher: Searcher,
+    segment_view: SegmentView,
+    _cleanup_pin: Arc<PinnedBuffer>,
     columns: Vec<WhichFastField>,
     segment_caches: Vec<SegmentCache>,
 }
@@ -103,6 +108,8 @@ impl FFHelper {
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
         Self(Some(FFInner {
             searcher: reader.searcher().clone(),
+            segment_view: reader.segment_view(),
+            _cleanup_pin: reader.cleanup_pin(),
             segment_caches: Self::segment_caches(reader.segment_readers().len(), fields.len()),
             columns: fields.to_vec(),
         }))
@@ -133,6 +140,16 @@ impl FFHelper {
 
     fn fast_fields(&self, segment_ord: SegmentOrdinal) -> &FastFieldReaders {
         self.searcher().segment_reader(segment_ord).fast_fields()
+    }
+
+    pub(crate) fn is_immutable_segment(&self, id: SegmentId) -> bool {
+        let view = &self.inner().segment_view;
+        view.ordinal_of(&id).is_some_and(|ordinal| {
+            matches!(
+                view.entries()[ordinal].docs,
+                SegmentViewDocs::Immutable { .. }
+            )
+        })
     }
 
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {

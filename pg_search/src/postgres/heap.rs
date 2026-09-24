@@ -19,6 +19,7 @@ use std::collections::VecDeque;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use crate::api::CTID_FIELD_NAME;
 use crate::api::version::Version;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::composite::CompositeSlotValues;
@@ -28,10 +29,13 @@ use crate::postgres::utils;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use pgrx::pg_sys;
 use pgrx::{PgList, PgTupleDesc, check_for_interrupts};
+use tantivy::SegmentReader;
+use tantivy::columnar::Cardinality;
+use tantivy::index::SegmentId;
 use tantivy::{DocId, SegmentOrdinal, TantivyDocument};
 
 use util::HEAPBLOCKS_PER_BYTE;
-pub(crate) use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
+use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
 
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
@@ -120,6 +124,7 @@ pub struct VisibilityChecker {
     // TODO: Make this non-optional in the future once all call sites provide an FFHelper.
     ffhelper: Option<Arc<FFHelper>>,
     raw_ctids_scratch: Vec<Option<u64>>,
+    segment_visibility: Option<(SegmentId, bool)>,
 }
 
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
@@ -167,6 +172,7 @@ impl VisibilityChecker {
                 check_visibility: true,
                 ffhelper: None,
                 raw_ctids_scratch: Vec::new(),
+                segment_visibility: None,
             }
         }
     }
@@ -174,11 +180,13 @@ impl VisibilityChecker {
     /// Attaches an [`FFHelper`] for resolving segment `DocId`s to ctids directly.
     pub fn with_ffhelper(mut self, ffhelper: Arc<FFHelper>) -> Self {
         self.ffhelper = Some(ffhelper);
+        self.segment_visibility = None;
         self
     }
 
     pub fn set_ffhelper(&mut self, ffhelper: Arc<FFHelper>) {
         self.ffhelper = Some(ffhelper);
+        self.segment_visibility = None;
     }
 
     pub fn ffhelper(&self) -> Option<&Arc<FFHelper>> {
@@ -306,7 +314,50 @@ impl VisibilityChecker {
         self.blockvis.1
     }
 
-    pub(crate) fn is_range_all_visible(
+    pub(crate) fn is_segment_all_visible(
+        &mut self,
+        segment: &SegmentReader,
+    ) -> tantivy::Result<bool> {
+        if let Some((id, visible)) = self.segment_visibility
+            && id == segment.segment_id()
+        {
+            return Ok(visible);
+        }
+        let visible = self.prove_segment_all_visible(segment)?;
+        self.segment_visibility = Some((segment.segment_id(), visible));
+        Ok(visible)
+    }
+
+    fn prove_segment_all_visible(&mut self, segment: &SegmentReader) -> tantivy::Result<bool> {
+        if self.snapshot.is_null()
+            || unsafe { (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC }
+            || !self
+                .ffhelper
+                .as_ref()
+                .is_some_and(|helper| helper.is_immutable_segment(segment.segment_id()))
+            || segment.num_docs() == 0
+        {
+            return Ok(false);
+        }
+        let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+        if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc() {
+            return Ok(false);
+        }
+        let (Ok(first), Ok(last)) = (
+            u32::try_from(ctids.min_value() >> 16),
+            u32::try_from(ctids.max_value() >> 16),
+        ) else {
+            return Ok(false);
+        };
+        let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
+        if vm_pages > 64 {
+            return Ok(false);
+        }
+        // Read CTID bounds before fresh VM bits; FFHelper retains the VACUUM cleanup pin.
+        Ok(self.is_range_all_visible(first, last))
+    }
+
+    fn is_range_all_visible(
         &mut self,
         first: pg_sys::BlockNumber,
         last: pg_sys::BlockNumber,

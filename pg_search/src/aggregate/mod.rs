@@ -336,8 +336,7 @@ impl<'a> ParallelAggregationWorker<'a> {
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
-            let mvcc_collector =
-                MVCCFilterCollector::new(base_collector, vischeck, reader.all_visible_segments()?);
+            let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
             reader.collect(InterruptableCollector::new(mvcc_collector))
         } else {
             reader.collect(InterruptableCollector::new(base_collector))
@@ -1048,15 +1047,12 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::api::HashSet;
     use crate::postgres::heap::VisibilityChecker;
-    use tantivy::index::SegmentId;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
     use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
 
     pub struct MVCCFilterCollector<C: Collector> {
-        all_visible_segments: HashSet<SegmentId>,
         inner: C,
         lock: Arc<Mutex<VisibilityChecker>>,
     }
@@ -1075,8 +1071,8 @@ pub mod mvcc_collector {
         ) -> tantivy::Result<Self::Child> {
             let inner = self.inner.for_segment(segment_local_id, segment)?;
             let requires_scoring = self.inner.requires_scoring();
-            let lock = (!self.all_visible_segments.contains(&segment.segment_id()))
-                .then(|| self.lock.clone());
+            let lock =
+                (!self.lock.lock().is_segment_all_visible(segment)?).then(|| self.lock.clone());
             let capacity = if lock.is_some() { BATCH_SIZE } else { 0 };
 
             Ok(MVCCFilterSegmentCollector {
@@ -1114,13 +1110,8 @@ pub mod mvcc_collector {
 
     #[allow(clippy::arc_with_non_send_sync)]
     impl<C: Collector> MVCCFilterCollector<C> {
-        pub fn new(
-            wrapped: C,
-            vischeck: VisibilityChecker,
-            all_visible_segments: HashSet<SegmentId>,
-        ) -> Self {
+        pub fn new(wrapped: C, vischeck: VisibilityChecker) -> Self {
             Self {
-                all_visible_segments,
                 inner: wrapped,
                 lock: Arc::new(Mutex::new(vischeck)),
             }

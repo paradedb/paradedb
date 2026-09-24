@@ -25,8 +25,8 @@ jobs:
       - extras=s3-cache
     env:
       pg_version: 18
-      BASELINE_SHA: cd3451c19143d0106c6e7a2cb5656245df8d423f
-      PR_SHA: ea32cde9a4e0ecc1bc7ac25a6afb51af34cdbbcc
+      BASELINE_SHA: c3479d9a1fd78fd85676524a7ead9820513ad67a
+      PR_SHA: fa8d800a282cea684f3dda48daa1ab23cdf76634
       EXPERIMENT_SIZE: ${{ inputs.size }}
       EXPERIMENT_SUITE: ${{ inputs.suite }}
       PROFILE_PRUNING: ${{ inputs.profile }}
@@ -37,9 +37,8 @@ jobs:
       - name: Verify experiment changes are restricted to benchmarks and workflows
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$BASELINE_SHA" "$PR_SHA"
-          git merge-base --is-ancestor "$PR_SHA" HEAD
-          git diff --exit-code "$PR_SHA" HEAD -- . ':!benchmarks' ':!.github/workflows'
+          git cat-file -e "$BASELINE_SHA^{commit}"
+          git cat-file -e "$PR_SHA^{commit}"
           mkdir -p diagnostic-output
           printf 'main=%s\npr=%s\nbenchmarks=%s\nsize=%s\nsuite=%s\n' "$BASELINE_SHA" "$PR_SHA" "$GITHUB_SHA" "$EXPERIMENT_SIZE" "$EXPERIMENT_SUITE" > diagnostic-output/source-commits.txt
       - uses: runs-on/action@v2

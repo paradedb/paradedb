@@ -6,8 +6,8 @@ post PR comments, or send notifications.
 
 ## What is compared
 
-- Main: `cd3451c19143d0106c6e7a2cb5656245df8d423f`.
-- #6346: `ea32cde9a4e0ecc1bc7ac25a6afb51af34cdbbcc`.
+- Before merged #6346: `c3479d9a1fd78fd85676524a7ead9820513ad67a`.
+- Merged #6346: `fa8d800a282cea684f3dda48daa1ab23cdf76634`.
 - Benchmark definitions and runner: the experiment workflow commit, identical for both builds.
 
 Main is an ancestor of the pinned PR commit. The workflow checks that the

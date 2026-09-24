@@ -19,7 +19,7 @@ import sys
 
 import partition_pruning as paired
 
-BASELINE = 'cd3451c19143d0106c6e7a2cb5656245df8d423f'
+BASELINE = 'c3479d9a1fd78fd85676524a7ead9820513ad67a'
 # Keep every original join key. Each treatment changes exactly one index option.
 LAYOUTS = {
     'original': None,

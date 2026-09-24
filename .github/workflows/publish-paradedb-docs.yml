@@ -1,11 +1,8 @@
 # workflows/publish-paradedb-docs.yml
 #
 # Publish ParadeDB (Docs)
-# Publish the documentation to our Mintlify documentation site through the project update API.
-# This workflow is triggered on creation of a v* GitHub Tag or run manually, but beta (-rc.)
-# releases get filtered out by the `if` condition of the job. Mintlify uses its configured
-# project to deploy the docs. The request does not include the selected branch or tag,
-# or upload the checked-out docs.
+# Publish the documentation to our Mintlify site. This workflow runs on GitHub Tag
+# creation or manually, but skips beta releases.
 
 name: Publish ParadeDB (Docs)
 

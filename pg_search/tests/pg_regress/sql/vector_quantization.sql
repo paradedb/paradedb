@@ -177,6 +177,28 @@ FROM q_cosine_unquantized_ivf baseline
 FULL JOIN q_cosine_lvl0 lvl0 USING (ordinal);
 
 RESET paradedb.max_scan_levels;
+
+CREATE FUNCTION quant_explain_has_segment_info() RETURNS boolean LANGUAGE plpgsql AS $$
+DECLARE
+    plan jsonb;
+BEGIN
+    EXECUTE $q$
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT id FROM q_cosine
+        WHERE id @@@ pdb.all()
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    $q$ INTO plan;
+    RETURN jsonb_path_exists(plan, 'strict $.**."Segment Info"');
+END;
+$$;
+
+SELECT quant_explain_has_segment_info() AS segment_info_shown_by_default;
+SET paradedb.vector_stats = on;
+SELECT quant_explain_has_segment_info() AS segment_info_shown_with_vector_stats;
+RESET paradedb.vector_stats;
+DROP FUNCTION quant_explain_has_segment_info();
+
 RESET paradedb.vector_cluster_max_probe;
 RESET paradedb.vector_clustering_threshold;
 

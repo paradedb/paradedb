@@ -307,6 +307,14 @@ pub fn vector_max_scan_levels() -> usize {
     VECTOR_MAX_SCAN_LEVELS.get().max(0) as usize
 }
 
+/// Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`.
+static VECTOR_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Returns whether per-segment vector scan statistics are shown in EXPLAIN.
+pub fn vector_stats() -> bool {
+    VECTOR_STATS.get()
+}
+
 /// Minimum merged-segment row count for IVF vector storage.
 static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
 
@@ -578,6 +586,15 @@ pub fn init() {
         &VECTOR_MAX_SCAN_LEVELS,
         0,
         3,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_stats",
+        c"Show per-segment vector scan statistics in EXPLAIN (ANALYZE, VERBOSE)",
+        c"Adds the Segment Info block with per-segment probe, layer, rerank, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
+        &VECTOR_STATS,
         GucContext::Userset,
         GucFlags::default(),
     );

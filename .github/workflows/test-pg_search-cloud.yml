@@ -83,24 +83,11 @@ jobs:
           PYTHON
           )
           [[ "$version" =~ ^[a-zA-Z0-9._-]{1,64}$ ]]
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "extension_version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Build Source Image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ runner.temp }}/source-image/Dockerfile
-          platforms: linux/arm64
-          build-args: BASE_IMAGE=${{ steps.base-image.outputs.image }}
-          load: true
-          tags: paradedb-cloud-test
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ steps.image.outputs.source_sha }}
-            com.paradedb.extension-version=${{ steps.image.outputs.extension_version }}
-          cache-from: type=gha,scope=cloud-source-pg18-arm64
-          cache-to: type=gha,mode=max,scope=cloud-source-pg18-arm64
+          {
+            echo "source_sha=$source_sha"
+            echo "extension_version=$version"
+            echo "tag=$GITHUB_REPOSITORY:18-$source_sha"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -108,31 +95,35 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      - name: Publish Cloud Test Image
+      - name: Build and Publish Cloud Test Image
         id: published-image
-        env:
-          SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
-        run: |
-          image="$GITHUB_REPOSITORY:18-$SOURCE_SHA"
-          docker tag paradedb-cloud-test "$image"
-          docker push "$image"
-          digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
-          [[ "$digest" == *@sha256:* ]]
-          echo "ref=$image@${digest#*@}" >> "$GITHUB_OUTPUT"
-          echo "tag=$image" >> "$GITHUB_OUTPUT"
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ runner.temp }}/source-image/Dockerfile
+          platforms: linux/arm64
+          build-args: BASE_IMAGE=${{ steps.base-image.outputs.image }}
+          push: true
+          tags: ${{ steps.image.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.image.outputs.source_sha }}
+            com.paradedb.extension-version=${{ steps.image.outputs.extension_version }}
+          cache-from: type=gha,scope=cloud-source-pg18-arm64
+          cache-to: type=gha,mode=max,scope=cloud-source-pg18-arm64
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign Cloud Test Image
         env:
-          IMAGE: ${{ steps.published-image.outputs.ref }}
+          IMAGE: ${{ steps.image.outputs.tag }}@${{ steps.published-image.outputs.digest }}
         run: cosign sign --yes "$IMAGE"
 
       - name: Summarize Cloud Test Image
         env:
-          IMAGE: ${{ steps.published-image.outputs.ref }}
-          TAG: ${{ steps.published-image.outputs.tag }}
+          IMAGE: ${{ steps.image.outputs.tag }}@${{ steps.published-image.outputs.digest }}
+          TAG: ${{ steps.image.outputs.tag }}
           SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
           EXTENSION_VERSION: ${{ steps.image.outputs.extension_version }}
         run: |

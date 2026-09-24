@@ -2,6 +2,12 @@
 #
 # Publish GitHub Release
 # Orchestrates fragment assembly, version syncing, and publishes a ParadeDB GitHub Release.
+# This workflow is triggered manually via the GitHub Actions UI and releases the selected branch or tag.
+# Beta releases require an -rc.N version and create a prerelease without advancing the branch.
+# The new version tag triggers the other publishing workflows.
+#
+# Conditionals checking for `paradedb/paradedb` ensure that artifact assembly,
+# version bumps, and release commits only run on the community repository.
 # See RELEASE.md for the community and enterprise release procedures.
 
 name: Publish GitHub Release
@@ -15,7 +21,7 @@ on:
         required: true
         default: ""
       beta:
-        description: "Whether this release is a beta release. Requires an -rc.N version. Defaults to false."
+        description: "Whether this release is a beta release. Requires an -rc.N version and skips manual approval. Creates a prerelease and tag without advancing the selected branch. Defaults to false."
         type: boolean
         required: false
         default: false

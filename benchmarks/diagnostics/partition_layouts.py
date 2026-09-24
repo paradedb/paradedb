@@ -209,6 +209,11 @@ def profile_cases(layout, version, selected):
         (paired.OUT / f'{stem}-perf-report.stderr').write_text(report.stderr)
         if report.returncode != 0:
             raise RuntimeError(f'perf report failed for {stem}: {report.stderr}')
+        # `perf record` runs under sudo, so its binary data file is root-owned
+        # and cannot be uploaded by the GitHub runner. The text report above
+        # is the reproducible call-stack evidence we need; discard the large
+        # binary after report generation.
+        data.unlink(missing_ok=True)
 
 
 def layout_summary(samples):

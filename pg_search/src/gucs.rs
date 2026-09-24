@@ -188,6 +188,10 @@ static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
+/// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path.
+static JOINSCAN_FORCE_TOPK_AS_AGG: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
 static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -713,6 +717,16 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.joinscan_force_topk_as_agg",
+        c"Force JoinScan to compute ORDER BY + LIMIT with the topk_as_agg aggregate",
+        c"Development switch. When enabled, JoinScan runs its Top K through the \
+          topk_as_agg aggregate instead of a SortExec(fetch).",
+        &JOINSCAN_FORCE_TOPK_AS_AGG,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_size",
         c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
@@ -1094,6 +1108,10 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn joinscan_force_topk_as_agg() -> bool {
+    JOINSCAN_FORCE_TOPK_AS_AGG.get()
 }
 
 pub fn defer_column_fetch() -> DeferredPlacement {

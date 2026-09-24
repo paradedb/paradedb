@@ -45,6 +45,7 @@ use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
+use super::build::JoinScanDfResultMode;
 use super::planning::get_source_attno_by_name;
 use super::window_func::{
     SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
@@ -52,9 +53,11 @@ use super::window_func::{
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
+use crate::postgres::customscan::datafusion::topk_agg::topk_as_agg;
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -870,6 +873,19 @@ fn build_clause_df<'a>(
         let (df, distinct_col_map) =
             apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
 
+        // apply topk-as-agg, which requires a known k. Returns the aggregate dataframe, which will
+        // require manually exploding
+        if join_clause.df_result_mode == JoinScanDfResultMode::Aggregates {
+            if let Some(k) = topk_as_agg_limit(join_clause.limit_offset.as_ref()) {
+                return apply_topk_as_agg(df, join_clause, &distinct_col_map, &plan_sources, k);
+            } else {
+                return Err(DataFusionError::Internal(format!(
+                    "A df_result_mode of {:?} was given an invalid limit offset: {:?}",
+                    join_clause.df_result_mode, join_clause.limit_offset
+                )));
+            }
+        }
+
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
 
@@ -896,6 +912,35 @@ fn build_clause_df<'a>(
         )
     };
     f.boxed_local()
+}
+
+pub fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
+    if let Some(lo) = limit_offset {
+        if let (Some(fetch), Some(skip)) = (lo.static_limit(), lo.static_offset()) {
+            Some(
+                skip.checked_add(fetch)
+                    .expect("invalid limit of OFFSET {skip} + {fetch}"),
+            )
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn apply_topk_as_agg(
+    df: DataFrame,
+    join_clause: &JoinCSClause,
+    distinct_col_map: &DistinctColMap,
+    plan_sources: &[&JoinSource],
+    k: usize,
+) -> Result<DataFrame> {
+    let payload =
+        build_output_column_expressions(&df, join_clause, distinct_col_map, plan_sources)?;
+    let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
+    let topk_agg = topk_as_agg(&payload, sort_exprs, k);
+    df.aggregate(vec![], vec![topk_agg])
 }
 
 /// Translate every clause in `custom_exprs` (a Postgres `List*`) into a
@@ -1366,6 +1411,18 @@ fn apply_sort(
         return Ok(df);
     }
 
+    let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
+    df.sort(sort_exprs)
+}
+
+fn build_sort_exprs(
+    join_clause: &JoinCSClause,
+    distinct_col_map: &DistinctColMap,
+) -> Result<Vec<SortExpr>> {
+    if join_clause.order_by.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let mut sort_exprs = Vec::new();
     for info in &join_clause.order_by {
         let expr = match &info.feature {
@@ -1392,7 +1449,8 @@ fn apply_sort(
         );
         sort_exprs.push(expr.sort(asc, nulls_first));
     }
-    df.sort(sort_exprs)
+
+    Ok(sort_exprs)
 }
 
 /// Build the final SELECT list. When `output_projection` is set, every
@@ -1407,8 +1465,18 @@ fn apply_output_projection(
     plan_sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
 ) -> Result<DataFrame> {
-    let mut final_cols = Vec::new();
+    let final_cols =
+        build_output_column_expressions(&df, join_clause, distinct_col_map, plan_sources)?;
+    df.select(final_cols)
+}
 
+fn build_output_column_expressions(
+    df: &DataFrame,
+    join_clause: &JoinCSClause,
+    distinct_col_map: &DistinctColMap,
+    plan_sources: &[&JoinSource],
+) -> Result<Vec<Expr>> {
+    let mut final_cols = Vec::new();
     if let Some(projection) = &join_clause.output_projection {
         for (i, proj) in projection.iter().enumerate() {
             let col_alias = format!("col_{}", i + 1);
@@ -1456,8 +1524,7 @@ fn apply_output_projection(
             final_cols.push(col(field.name()));
         }
     }
-
-    df.select(final_cols)
+    Ok(final_cols)
 }
 
 /// Builds a DataFusion projection expression for a given child projection info.

@@ -27,10 +27,11 @@ use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::memory_pool::{MemoryPool, UnboundedMemoryPool};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::function::StateFieldsArgs;
 use datafusion::logical_expr::utils::AggregateOrderSensitivity;
 use datafusion::logical_expr::{
-    Accumulator, AggregateUDF, AggregateUDFImpl, Signature, Volatility,
+    Accumulator, AggregateUDF, AggregateUDFImpl, Signature, SortExpr, Volatility,
 };
 use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
 use datafusion::physical_plan::ExecutionPlan;
@@ -38,6 +39,7 @@ use datafusion::physical_plan::expressions::Column;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::streaming::{PartitionStream, StreamingTableExec};
+use datafusion::prelude::{Expr, lit};
 use datafusion::scalar::ScalarValue;
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -331,6 +333,26 @@ impl Accumulator for TopKAccumulator {
         }
         Ok(())
     }
+}
+
+pub fn topk_as_agg(payload: &[Expr], sort_exprs: Vec<SortExpr>, k: usize) -> Expr {
+    let mut args = payload.to_vec();
+    // must ensure the sort expressions are contained in the set of input expressions for the sort
+    // to work
+    for sort in &sort_exprs {
+        if !args.contains(&sort.expr) {
+            args.push(sort.expr.clone());
+        }
+    }
+    args.push(lit(k as u64));
+    Expr::AggregateFunction(AggregateFunction::new_udf(
+        topk_as_agg_udaf(),
+        args,
+        false,
+        None,
+        sort_exprs,
+        None,
+    ))
 }
 
 #[cfg(test)]

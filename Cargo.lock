@@ -895,7 +895,11 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "benchmarks"
+<<<<<<< HEAD
 version = "0.25.10"
+=======
+version = "0.25.11"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "anyhow",
  "approx",
@@ -1252,6 +1256,19 @@ checksum = "374b7c592d9c00c1f4972ea58390ac6b18cbb6ab79011f3bdc90a0b82ca06b77"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "cascade"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+dependencies = [
+ "fht",
+ "grid-plane",
+ "quant-model",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "sign-plane",
 ]
 
 [[package]]
@@ -2887,7 +2904,11 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "dst"
+<<<<<<< HEAD
 version = "0.25.10"
+=======
+version = "0.25.11"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "antithesis-instrumentation",
  "antithesis_sdk",
@@ -3292,6 +3313,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
+]
+
+[[package]]
+name = "fht"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+dependencies = [
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -3707,6 +3737,14 @@ dependencies = [
  "futures-core",
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "grid-plane"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+dependencies = [
+ "quant-model",
 ]
 
 [[package]]
@@ -4991,7 +5029,11 @@ dependencies = [
 
 [[package]]
 name = "macros"
+<<<<<<< HEAD
 version = "0.25.10"
+=======
+version = "0.25.11"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5546,7 +5588,11 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=549273e3458ece1782aa459850bbde42c6cbc72f#549273e3458ece1782aa459850bbde42c6cbc72f"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "stable_deref_trait",
 ]
@@ -5665,7 +5711,11 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
+<<<<<<< HEAD
 version = "0.25.10"
+=======
+version = "0.25.11"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "antithesis-instrumentation",
  "anyhow",
@@ -6458,6 +6508,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "quant-model"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+dependencies = [
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -7439,6 +7498,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6057adedbec913419c92996f395ba69931acbd50b7d56955394cd3f7bedbfa45"
 
 [[package]]
+name = "sign-plane"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+dependencies = [
+ "quant-model",
+]
+
+[[package]]
 name = "signal-hook"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7849,7 +7916,11 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
+<<<<<<< HEAD
 version = "0.25.10"
+=======
+version = "0.25.11"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "anyhow",
  "clap",
@@ -8036,7 +8107,11 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tantivy"
 version = "0.27.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=549273e3458ece1782aa459850bbde42c6cbc72f#549273e3458ece1782aa459850bbde42c6cbc72f"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -8044,6 +8119,7 @@ dependencies = [
  "bitpacking",
  "bon",
  "byteorder",
+ "cascade",
  "census",
  "crc32fast",
  "crossbeam-channel",
@@ -8066,6 +8142,7 @@ dependencies = [
  "once_cell",
  "oneshot",
  "parking_lot",
+ "quant-model",
  "rayon",
  "regex",
  "rustc-hash",
@@ -8093,7 +8170,11 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.10.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=549273e3458ece1782aa459850bbde42c6cbc72f#549273e3458ece1782aa459850bbde42c6cbc72f"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "bitpacking",
 ]
@@ -8101,7 +8182,11 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.7.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=549273e3458ece1782aa459850bbde42c6cbc72f#549273e3458ece1782aa459850bbde42c6cbc72f"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -8116,7 +8201,11 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.11.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=549273e3458ece1782aa459850bbde42c6cbc72f#549273e3458ece1782aa459850bbde42c6cbc72f"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "async-trait",
  "byteorder",
@@ -8149,7 +8238,11 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.26.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=549273e3458ece1782aa459850bbde42c6cbc72f#549273e3458ece1782aa459850bbde42c6cbc72f"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -8161,7 +8254,11 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.7.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=549273e3458ece1782aa459850bbde42c6cbc72f#549273e3458ece1782aa459850bbde42c6cbc72f"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -8174,7 +8271,11 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.7.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=549273e3458ece1782aa459850bbde42c6cbc72f#549273e3458ece1782aa459850bbde42c6cbc72f"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -8211,7 +8312,11 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.7.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=549273e3458ece1782aa459850bbde42c6cbc72f#549273e3458ece1782aa459850bbde42c6cbc72f"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4#8b3aa1bc6c0704b90f9edab0e5eaec7f17f22cc4"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "serde",
 ]
@@ -8257,7 +8362,11 @@ dependencies = [
 
 [[package]]
 name = "tests"
+<<<<<<< HEAD
 version = "0.25.10"
+=======
+version = "0.25.11"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "anyhow",
  "approx",
@@ -8425,7 +8534,11 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
+<<<<<<< HEAD
 version = "0.25.10"
+=======
+version = "0.25.11"
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 dependencies = [
  "anyhow",
  "emojis",

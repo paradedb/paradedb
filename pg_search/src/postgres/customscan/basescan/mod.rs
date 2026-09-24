@@ -1479,9 +1479,11 @@ impl CustomScan for BaseScan {
                 if let Some(explain_data) = state.custom_state().telemetry.parallel_explain() {
                     explainer.add_json("Parallel Workers", &explain_data.workers);
                 }
-                let segment_info = state.custom_state().segment_info_for_explain();
-                if !segment_info.is_empty() {
-                    explainer.add_json("Segment Info", &segment_info);
+                if gucs::vector_stats() {
+                    let segment_info = state.custom_state().segment_info_for_explain();
+                    if !segment_info.is_empty() {
+                        explainer.add_json("Segment Info", &segment_info);
+                    }
                 }
             }
         }

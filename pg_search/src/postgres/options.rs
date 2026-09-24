@@ -77,9 +77,14 @@ pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
+<<<<<<< HEAD
 pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
 pub(crate) const DEFAULT_TRAINING_SAMPLES_PER_CENTROID: usize = 32;
 pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 1;
+=======
+pub(crate) const DEFAULT_MAX_LEAF_SIZE: i32 = 100;
+pub(crate) const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = 0.32;
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
@@ -145,8 +150,17 @@ extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char
 }
 
 #[pg_guard]
+<<<<<<< HEAD
 extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
     cstr_to_rust_str(value);
+=======
+extern "C-unwind" fn validate_vector_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+    if json_str.is_empty() {
+        return;
+    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::vector_from_json);
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 }
 
 #[pg_guard]
@@ -188,6 +202,7 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
         .unwrap_or_else(|| panic!("invalid search_tokenizer: '{s}'"));
 }
 
+<<<<<<< HEAD
 /// The only legal `bounds_scope`: the merge folds centroid bounds over a
 /// cluster's NATIVE (primary-assignment) members. Captured into the stored
 /// tantivy `IndexSettings` at CREATE INDEX, like the clustering threshold.
@@ -205,6 +220,8 @@ extern "C-unwind" fn validate_bounds_scope(value: *const std::os::raw::c_char) {
     }
 }
 
+=======
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 #[pg_guard]
 extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     if value.is_null() {
@@ -244,7 +261,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 19;
+const NUM_REL_OPTS: usize = 18;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -301,6 +318,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
+            optname: "vector_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, vector_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: std::mem::offset_of!(BM25IndexOptionsData, key_field_offset) as i32,
@@ -351,16 +375,9 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "bounds_scope".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, bounds_scope_offset) as i32,
-            #[cfg(feature = "pg18")]
-            isset_offset: 0,
-        },
-        pg_sys::relopt_parse_elt {
-            optname: "centroid_ratio".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, centroid_ratio) as i32,
+            optname: "max_leaf_size".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, max_leaf_size) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -369,13 +386,6 @@ pub unsafe extern "C-unwind" fn amoptions(
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: std::mem::offset_of!(BM25IndexOptionsData, training_samples_per_centroid)
                 as i32,
-            #[cfg(feature = "pg18")]
-            isset_offset: 0,
-        },
-        pg_sys::relopt_parse_elt {
-            optname: "cluster_replication".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, cluster_replication) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -417,6 +427,7 @@ struct LazyInfo {
     json: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     range: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
+    vector: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
 }
@@ -475,14 +486,12 @@ impl BM25IndexOptions {
         }
     }
 
-    pub fn centroid_ratio(&self) -> f32 {
-        self.options_data().centroid_ratio()
+    /// Returns the maximum number of training vectors per clustering leaf.
+    pub fn max_leaf_size(&self) -> usize {
+        self.options_data().max_leaf_size()
     }
 
-    pub fn bounds_scope(&self) -> BoundsScope {
-        self.options_data().bounds_scope()
-    }
-
+<<<<<<< HEAD
     pub fn training_samples_per_centroid(&self) -> usize {
         self.options_data().training_samples_per_centroid()
     }
@@ -497,6 +506,13 @@ impl BM25IndexOptions {
             .expect(Self::MISSING_KEY_FIELD_CONFIG)
     }
 
+=======
+    /// Returns the fraction of vectors sampled for IVF training.
+    pub fn training_sample_ratio(&self) -> f32 {
+        self.options_data().training_sample_ratio()
+    }
+
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
     /// Returns the sort_by configuration.
     /// - Not specified: defaults to `ctid ASC NULLS FIRST`
     /// - "none": returns empty vec (no sorting)
@@ -521,10 +537,14 @@ impl BM25IndexOptions {
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
     /// falling back to the default config for the field type.
     pub fn field_config_or_default(&self, field_name: &FieldName) -> SearchFieldConfig {
+        let field_type = self.get_field_type(field_name);
         match self.field_config(field_name) {
-            Some(config) => config,
+            Some(config) => match field_type {
+                Some(SearchFieldType::Vector(_, dims, _)) => config.resolve_vector_defaults(dims),
+                _ => config,
+            },
             None => {
-                let field_type = self.get_field_type(field_name).unwrap_or_else(|| {
+                let field_type = field_type.unwrap_or_else(|| {
                     panic!(
                         "field `{field_name}` is not configured in the CREATE INDEX WITH options"
                     )
@@ -583,7 +603,19 @@ impl BM25IndexOptions {
         self.lazy.inet.borrow()
     }
 
+<<<<<<< HEAD
     /// Returns the config only if it is explicitly set in the CREATE INDEX WITH options
+=======
+    /// Returns the vector-field configurations.
+    pub fn vector_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
+        if self.lazy.vector.borrow().is_none() {
+            *self.lazy.vector.borrow_mut() = Some(self.options_data().vector_configs());
+        }
+        self.lazy.vector.borrow()
+    }
+
+    /// Resolves indexed types and explicit field options.
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
     fn field_config(&self, field_name: &FieldName) -> Option<SearchFieldConfig> {
         let data = self.options_data();
         if field_name.is_ctid() {
@@ -667,6 +699,13 @@ impl BM25IndexOptions {
             })
             .or_else(|| {
                 self.inet_config()
+                    .as_ref()
+                    .unwrap()
+                    .get(field_name)
+                    .cloned()
+            })
+            .or_else(|| {
+                self.vector_config()
                     .as_ref()
                     .unwrap()
                     .get(field_name)
@@ -830,7 +869,12 @@ struct BM25IndexOptionsData {
     json_fields_offset: i32,
     range_fields_offset: i32,
     datetime_fields_offset: i32,
+<<<<<<< HEAD
     key_field_offset: i32,
+=======
+    vector_fields_offset: i32,
+    key_field_offset: i32, // Accepted for compatibility; never read.
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
     target_segment_count: i32,
@@ -838,13 +882,42 @@ struct BM25IndexOptionsData {
     mutable_segment_rows: i32,
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
+<<<<<<< HEAD
     centroid_ratio: f64,
     training_samples_per_centroid: i32,
     cluster_replication: i32,
+=======
+    max_leaf_size: i32,
+    training_sample_ratio: f64,
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
     partition_by_offset: i32,
-    bounds_scope_offset: i32,
 }
 
+<<<<<<< HEAD
+=======
+static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
+    vl_len_: 0,
+    text_fields_offset: 0,
+    numeric_fields_offset: 0,
+    boolean_fields_offset: 0,
+    json_fields_offset: 0,
+    range_fields_offset: 0,
+    datetime_fields_offset: 0,
+    vector_fields_offset: 0,
+    key_field_offset: 0,
+    layer_sizes_offset: 0,
+    inet_fields_offset: 0,
+    target_segment_count: 0,
+    background_layer_sizes_offset: 0,
+    mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
+    sort_by_offset: 0,
+    search_tokenizer_offset: 0,
+    max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
+    training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
+    partition_by_offset: 0,
+};
+
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 impl BM25IndexOptionsData {
     /// Returns the configured `layer_sizes`, split into a [`Vec<u64>`] of byte sizes.
     ///
@@ -882,20 +955,12 @@ impl BM25IndexOptionsData {
         }
     }
 
-    pub fn centroid_ratio(&self) -> f32 {
-        self.centroid_ratio as f32
+    /// Returns the maximum number of training vectors per clustering leaf.
+    pub fn max_leaf_size(&self) -> usize {
+        self.max_leaf_size as usize
     }
 
-    /// The stored-bounds scope, validated at option-set time; anything but
-    /// the default reads as `Native` (the only variant).
-    pub fn bounds_scope(&self) -> BoundsScope {
-        let value = self.get_str(self.bounds_scope_offset, BOUNDS_SCOPE_NATIVE.to_string());
-        match value.as_str() {
-            BOUNDS_SCOPE_NATIVE => BoundsScope::Native,
-            other => panic!("invalid stored `bounds_scope`: {other:?}"),
-        }
-    }
-
+<<<<<<< HEAD
     pub fn training_samples_per_centroid(&self) -> usize {
         self.training_samples_per_centroid.max(1) as usize
     }
@@ -920,6 +985,13 @@ impl BM25IndexOptionsData {
         Some(key_field_name.into())
     }
 
+=======
+    /// Returns the fraction of vectors sampled for IVF training.
+    pub fn training_sample_ratio(&self) -> f32 {
+        self.training_sample_ratio as f32
+    }
+
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
     /// Returns the sort_by configuration.
     /// - Empty string (not specified): defaults to `ctid ASC NULLS FIRST`
     /// - "none": returns empty vec (no sorting)
@@ -998,6 +1070,14 @@ impl BM25IndexOptionsData {
         self.deserialize_configs(
             self.datetime_fields_offset,
             &SearchFieldConfig::date_from_json,
+        )
+    }
+
+    /// Returns the vector-field configurations.
+    pub fn vector_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        self.deserialize_configs(
+            self.vector_fields_offset,
+            &SearchFieldConfig::vector_from_json,
         )
     }
 
@@ -1087,6 +1167,14 @@ pub unsafe fn init() {
     );
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
+        "vector_fields".as_pg_cstr(),
+        "JSON string specifying per-vector-field options, including quantization".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_vector_fields),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
         "key_field".as_pg_cstr(),
         "Column name as a string specify the unique identifier for a row".as_pg_cstr(),
         std::ptr::null(),
@@ -1143,22 +1231,13 @@ pub unsafe fn init() {
         Some(validate_search_tokenizer),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
-    pg_sys::add_string_reloption(
+    pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
-        "bounds_scope".as_pg_cstr(),
-        "Which rows a cluster's stored centroid bound covers; only 'native' is supported"
-            .as_pg_cstr(),
-        BOUNDS_SCOPE_NATIVE.as_pg_cstr(),
-        Some(validate_bounds_scope),
-        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
-    pg_sys::add_real_reloption(
-        RELOPT_KIND_PDB,
-        "centroid_ratio".as_pg_cstr(),
-        "IVF centroid ratio for k-means clustering at index build time".as_pg_cstr(),
-        DEFAULT_CENTROID_RATIO,
-        0.000001,
-        1.0,
+        "max_leaf_size".as_pg_cstr(),
+        "Maximum training vectors per leaf in hierarchical IVF clustering".as_pg_cstr(),
+        DEFAULT_MAX_LEAF_SIZE,
+        1,
+        i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(
@@ -1168,15 +1247,6 @@ pub unsafe fn init() {
         DEFAULT_TRAINING_SAMPLES_PER_CENTROID as i32,
         1,
         100_000,
-        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
-    pg_sys::add_int_reloption(
-        RELOPT_KIND_PDB,
-        "cluster_replication".as_pg_cstr(),
-        "Cells a vector is written into: primary + up to (value - 1) next-nearest cells (1 = no replication)".as_pg_cstr(),
-        DEFAULT_CLUSTER_REPLICATION,
-        1,
-        i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

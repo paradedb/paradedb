@@ -207,8 +207,17 @@ fn decode_docs(flag: u8, max_doc: u32, num_deleted_docs: u32) -> SegmentViewDocs
     }
 }
 
-/// Max JSON bytes stored per primary segment for EXPLAIN info in DSM.
-const SEGMENT_INFO_MAX_PER_SEG: usize = 1024;
+/// JSON bytes reserved per primary segment for EXPLAIN info in DSM.
+const SEGMENT_INFO_BYTES_PER_SEGMENT: usize = 16 * 1024;
+
+fn copy_segment_info(slot: &mut [u8], stored_len: &mut u32, bytes: &[u8]) -> bool {
+    if bytes.len() > slot.len() {
+        return false;
+    }
+    slot[..bytes.len()].copy_from_slice(bytes);
+    *stored_len = bytes.len() as u32;
+    true
+}
 
 #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C)]
@@ -246,8 +255,8 @@ struct ParallelScanPayloadLayout {
     /// One `u32` length per primary segment for EXPLAIN JSON info (0 = none). Empty unless the
     /// scan asked for segment info.
     segment_info_lens: Range<usize>,
-    /// Fixed slots of [`SEGMENT_INFO_MAX_PER_SEG`] bytes per primary segment. Empty unless the
-    /// scan asked for segment info.
+    /// Fixed slots of [`SEGMENT_INFO_BYTES_PER_SEGMENT`] bytes per primary segment. Empty unless
+    /// the scan asked for segment info.
     segment_info_data: Range<usize>,
     aggregates_header: Option<Range<usize>>,
     aggregates_data: Option<Range<usize>>,
@@ -306,7 +315,7 @@ impl ParallelScanPayloadLayout {
         let claims_range = claims_offset..(claims_offset + claims_layout.size());
 
         // Per-segment EXPLAIN JSON info, only for scans that publish it: at
-        // `SEGMENT_INFO_MAX_PER_SEG` bytes per segment the slots would dominate every other
+        // `SEGMENT_INFO_BYTES_PER_SEGMENT` bytes per segment the slots would dominate every other
         // region, and `amestimateparallelscan` sizes for `u16::MAX` segments sight unseen.
         let info_nsegments = if with_segment_info {
             primary_nsegments
@@ -318,7 +327,7 @@ impl ParallelScanPayloadLayout {
         let segment_info_lens = info_lens_offset..(info_lens_offset + info_lens_layout.size());
 
         let info_data_size = info_nsegments
-            .checked_mul(SEGMENT_INFO_MAX_PER_SEG)
+            .checked_mul(SEGMENT_INFO_BYTES_PER_SEGMENT)
             .expect("segment info data size overflow");
         let info_data_layout = Layout::from_size_align(info_data_size, 1)?;
         let (mut layout, info_data_offset) = layout.extend(info_data_layout)?;
@@ -561,14 +570,16 @@ impl ParallelScanPayload {
     }
 
     fn segment_info_slot_mut(&mut self, segment_idx: usize) -> &mut [u8] {
-        let base = self.layout.segment_info_data.start + segment_idx * SEGMENT_INFO_MAX_PER_SEG;
-        let end = base + SEGMENT_INFO_MAX_PER_SEG;
+        let base =
+            self.layout.segment_info_data.start + segment_idx * SEGMENT_INFO_BYTES_PER_SEGMENT;
+        let end = base + SEGMENT_INFO_BYTES_PER_SEGMENT;
         &mut self.data_mut()[base..end]
     }
 
     fn segment_info_slot(&self, segment_idx: usize) -> &[u8] {
-        let base = self.layout.segment_info_data.start + segment_idx * SEGMENT_INFO_MAX_PER_SEG;
-        let end = base + SEGMENT_INFO_MAX_PER_SEG;
+        let base =
+            self.layout.segment_info_data.start + segment_idx * SEGMENT_INFO_BYTES_PER_SEGMENT;
+        let end = base + SEGMENT_INFO_BYTES_PER_SEGMENT;
         &self.data()[base..end]
     }
 
@@ -577,22 +588,24 @@ impl ParallelScanPayload {
         !self.layout.segment_info_data.is_empty()
     }
 
-    /// Write JSON bytes for a primary-segment index (last-write-wins). Skips
-    /// silently if the payload exceeds [`SEGMENT_INFO_MAX_PER_SEG`].
+    /// Write JSON bytes for a primary-segment index (last-write-wins).
     fn set_segment_info(&mut self, segment_idx: usize, bytes: &[u8]) {
         if !self.has_segment_info() {
             return;
         }
-        if bytes.len() > SEGMENT_INFO_MAX_PER_SEG {
+        let mut stored_len = self.segment_info_lens()[segment_idx];
+        if !copy_segment_info(
+            self.segment_info_slot_mut(segment_idx),
+            &mut stored_len,
+            bytes,
+        ) {
             pgrx::warning!(
-                "segment explain info for segment {segment_idx} exceed {} bytes; skipping",
-                SEGMENT_INFO_MAX_PER_SEG
+                "segment explain info for segment {segment_idx} exceeds {} bytes; skipping",
+                SEGMENT_INFO_BYTES_PER_SEGMENT
             );
             return;
         }
-        let slot = self.segment_info_slot_mut(segment_idx);
-        slot[..bytes.len()].copy_from_slice(bytes);
-        self.segment_info_lens_mut()[segment_idx] = bytes.len() as u32;
+        self.segment_info_lens_mut()[segment_idx] = stored_len;
     }
 
     fn aggregates_header(&self) -> Option<&AggregatesPayloadHeader> {
@@ -638,7 +651,7 @@ pub struct ParallelScanArgs {
     query: Vec<u8>,
     with_aggregates: bool,
     /// Whether to allocate the per-segment EXPLAIN telemetry slots
-    /// ([`SEGMENT_INFO_MAX_PER_SEG`] bytes each). Only basescan's Top-K workers publish them;
+    /// ([`SEGMENT_INFO_BYTES_PER_SEGMENT`] bytes each). Only basescan's Top-K workers publish them;
     /// every other scan leaves them out so the DSM stays small.
     with_segment_info: bool,
 }
@@ -1300,3 +1313,197 @@ pub struct ClaimedSegmentData {
     deleted_docs: u32,
     max_doc: u32,
 }
+<<<<<<< HEAD
+=======
+
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) mod test_support {
+    use super::*;
+
+    /// A leader-populated parallel state with one source holding `view`, palloc'd in the
+    /// current memory context, for tests that decode a dispatched scan as a worker would.
+    pub(crate) fn parallel_state_for_view(view: SegmentView) -> *mut ParallelScanState {
+        let args = ParallelScanArgs {
+            all_sources: vec![view],
+            query: Vec::new(),
+            with_aggregates: false,
+            with_segment_info: false,
+        };
+        let size = ParallelScanState::size_of(&args.all_nsegments(), &args.query, false, false);
+        unsafe {
+            let state = pg_sys::palloc0(size).cast::<ParallelScanState>();
+            (*state).create_and_populate(args);
+            state
+        }
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::reader::index::SearchIndexReader;
+    use crate::index::reader::index::test_support::{range_query, segmented_index_fixture};
+    use crate::index::segment_pruning::STATS_OPENS;
+    use std::sync::atomic::Ordering::Relaxed;
+
+    /// A lazily checked-out scan decides each segment as it is claimed, so a participant never
+    /// reads statistics for segments it does not own.
+    #[pg_test]
+    fn lazy_checkout_decides_only_claimed_segments() {
+        let (index_rel, _heap) = segmented_index_fixture("lazy_claim_pruning", 4, false);
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            range_query("id", 11, 20),
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let view = reader.segment_view();
+        assert_eq!(view.len(), 4);
+        // Share only two of the four segments, so the other two are never claimed.
+        let claimable_view = SegmentView::new(view.entries()[..2].to_vec());
+        let claimable = claimable_view.ids().collect::<Vec<_>>();
+        let state = test_support::parallel_state_for_view(claimable_view);
+
+        STATS_OPENS.store(0, Relaxed);
+        let hits = reader.search_lazy(state, None, 0).count();
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            2,
+            "only the two claimable segments are decided"
+        );
+        assert_eq!(
+            hits,
+            reader.search_segments(claimable.into_iter()).count(),
+            "claimed candidates are searched exactly once"
+        );
+    }
+}
+
+#[cfg(test)]
+mod segment_info_tests {
+    use super::{SEGMENT_INFO_BYTES_PER_SEGMENT, copy_segment_info};
+    use serde_json::{Map, Value};
+
+    fn insert_counter(fields: &mut Map<String, Value>, name: impl Into<String>) {
+        fields.insert(name.into(), u64::MAX.into());
+    }
+
+    fn three_layer_vector_segment_info() -> Vec<u8> {
+        let mut fields = Map::new();
+        for name in [
+            "candidates_scored",
+            "rerank_rows",
+            "scan_init_ns",
+            "query_prep_ns",
+            "routing_ns",
+            "exact_scan_ns",
+            "result_assembly_ns",
+            "rerank_fetch_ns",
+            "rerank_score_ns",
+            "vectors_visited",
+            "pruned_filter",
+            "pruned_dead",
+            "postings_row",
+            "postings_skipped",
+            "exact_rows_read",
+            "routing_visited_count",
+            "routing_graph_count",
+            "routing_graph_visited_count",
+            "routing_graph_expanded_count",
+            "routing_graph_edges_scanned",
+            "routing_graph_evictions",
+            "routing_graph_result_count",
+            "bounds_skips",
+            "bound_armed_count",
+            "bound_armed_probe_sum",
+            "segment_rows",
+            "segment_clusters",
+            "buffer_hits",
+            "buffer_reads",
+            "blocks_fetched",
+            "rerank_buffer_hits",
+            "rerank_buffer_reads",
+            "rerank_blocks_fetched",
+        ] {
+            insert_counter(&mut fields, name);
+        }
+        fields.insert("work_charged".to_string(), Value::from(f64::MAX));
+        fields.insert(
+            "termination".to_string(),
+            Value::String("work_budget_exhausted".to_string()),
+        );
+
+        let mut stages = vec![
+            "scan_init".to_string(),
+            "query_prep".to_string(),
+            "routing".to_string(),
+            "exact_scan".to_string(),
+            "result_assembly".to_string(),
+            "rerank_fetch".to_string(),
+            "rerank_score".to_string(),
+        ];
+        for layer in 0..3 {
+            insert_counter(&mut fields, format!("layer{layer}_scan_ns"));
+            insert_counter(&mut fields, format!("layer{layer}_scored"));
+            insert_counter(&mut fields, format!("layer{layer}_survivors"));
+            insert_counter(&mut fields, format!("boundary{layer}_ns"));
+            stages.push(format!("layer{layer}_scan"));
+            stages.push(format!("boundary{layer}"));
+        }
+        for stage in stages {
+            insert_counter(&mut fields, format!("{stage}_buffer_hits"));
+            insert_counter(&mut fields, format!("{stage}_buffer_reads"));
+        }
+
+        for component in [
+            "idx",
+            "pos",
+            "term",
+            "store",
+            "temp",
+            "fast",
+            "fieldnorm",
+            "del",
+            "vec",
+            "centroids",
+            "executor",
+        ] {
+            insert_counter(&mut fields, format!("io_{component}_buffer_hits"));
+            insert_counter(&mut fields, format!("io_{component}_buffer_reads"));
+            insert_counter(&mut fields, format!("scan_init_io_{component}_buffer_hits"));
+            insert_counter(
+                &mut fields,
+                format!("scan_init_io_{component}_buffer_reads"),
+            );
+        }
+
+        serde_json::to_vec(&Value::Object(fields)).unwrap()
+    }
+
+    #[test]
+    fn segment_info_capacity_holds_three_layer_vector_telemetry() {
+        let serialized = three_layer_vector_segment_info();
+        assert!(serialized.len() > 1024, "fixture must cover the former cap");
+        assert!(serialized.len() <= SEGMENT_INFO_BYTES_PER_SEGMENT);
+    }
+
+    #[test]
+    fn segment_info_copy_rejects_oversize_without_mutating_the_slot() {
+        let mut slot = vec![0xA5; SEGMENT_INFO_BYTES_PER_SEGMENT];
+        let mut stored_len = 7;
+        let exact = vec![0x3C; SEGMENT_INFO_BYTES_PER_SEGMENT];
+        assert!(copy_segment_info(&mut slot, &mut stored_len, &exact));
+        assert_eq!(stored_len as usize, SEGMENT_INFO_BYTES_PER_SEGMENT);
+        assert_eq!(slot, exact);
+
+        let before = slot.clone();
+        let oversize = vec![0x7E; SEGMENT_INFO_BYTES_PER_SEGMENT + 1];
+        assert!(!copy_segment_info(&mut slot, &mut stored_len, &oversize));
+        assert_eq!(stored_len as usize, SEGMENT_INFO_BYTES_PER_SEGMENT);
+        assert_eq!(slot, before);
+    }
+}
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))

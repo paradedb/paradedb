@@ -24,6 +24,12 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
 </ParamField>
 
 <Note>
+<<<<<<< HEAD:docs/documentation/vector/tuning.mdx
   Recall also depends on the index's `centroid_ratio`, set at build time. See
   [Index Options](/documentation/indexing/indexing-vectors#index-options).
+=======
+  Recall also depends on the index's `training_sample_ratio` and
+  `max_leaf_size`, set at build time. See [Index
+  Options](/reference/indexing/indexing-vectors#index-options).
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177)):docs/reference/vector/tuning.mdx
 </Note>

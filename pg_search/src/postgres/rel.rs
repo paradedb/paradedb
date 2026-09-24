@@ -16,8 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
 use crate::api::version::Version;
+<<<<<<< HEAD
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build::is_bm25_index;
+=======
+use crate::api::{CTID_FIELD_NAME, HashSet};
+use crate::index::directory::utils::load_index_settings;
+use crate::index::setup_tokenizers;
+use crate::postgres::catalog::OidExt;
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchIndexSchema;
@@ -443,6 +450,29 @@ impl PgSearchRelation {
         }
     }
 
+<<<<<<< HEAD
+=======
+    pub fn settings(&self) -> tantivy::Result<IndexSettings> {
+        MetaPage::open(self).settings()
+    }
+
+    pub(crate) fn create_in_memory_index(&self, directory: RamDirectory) -> anyhow::Result<Index> {
+        let schema = self.schema()?;
+        let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
+        let settings = load_index_settings(self)?.ok_or_else(|| {
+            anyhow::anyhow!("index settings were not persisted before in-memory segment creation")
+        })?;
+        // Throwaway materializations do not need the stats plugin.
+        let mut index = Index::create(directory, tantivy_schema, settings)?;
+        set_ivf_router(&mut index)?;
+        if schema.has_vector_field() {
+            set_ivf_clusterer(&mut index, self.options());
+        }
+        setup_tokenizers(self, &mut index)?;
+        Ok(index)
+    }
+
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
     /// True when this ParadeDB index's segments were built in ascending ctid
     /// order. Reads the sort order stored in the tantivy settings rather than
     /// the current `sort_by` index option, which can be altered after segments

@@ -1,9 +1,21 @@
+<<<<<<< HEAD
 -- Merging an already-replicated IVF segment into a larger one (tantivy
 -- c4582807: IVF count() returns distinct docs, not posting rows). At the
 -- prior rev, a replicated segment's posting-row total was read where a doc
 -- count was meant, tripping debug-build accounting asserts in tantivy's IVF
 -- plugin when such a segment became a merge SOURCE. pgrx regress builds are
 -- debug builds, so this test exercises those asserts for real.
+=======
+-- Merging an IVF segment into a larger one (tantivy c4582807: IVF count()
+-- returns distinct docs, not posting rows). At the prior rev, a segment's
+-- posting-row total was read where a doc count was meant, tripping
+-- debug-build accounting asserts in tantivy's IVF plugin when such a segment
+-- became a merge SOURCE. pgrx regress builds are debug builds, so this test
+-- exercises those asserts for real.
+--
+-- Assignment is primary-only: every vector lands in exactly one cell, so per-cluster
+-- memberships sum to the distinct-doc count.
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
 --
 -- client_min_messages: the IVF merge emits a paradedb::ivf_build timings
 -- NOTICE with nondeterministic millisecond values — keep it out of the
@@ -32,8 +44,11 @@ CREATE TABLE remerge (
 CREATE INDEX remerge_idx ON remerge
     USING bm25 (id, vec vector_l2_ops)
     WITH (
+<<<<<<< HEAD
         key_field = id,
         cluster_replication = 3,
+=======
+>>>>>>> a5497ad9f (feat(vector): quantized vector search, on by default (#6177))
         target_segment_count = 1,
         mutable_segment_rows = 0,
         layer_sizes = '600kb',

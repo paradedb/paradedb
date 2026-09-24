@@ -880,7 +880,6 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     input_exec,
                     fetch_fields,
                     ff_helpers.clone(),
-                    Vec::new(),
                 )?)
             };
             let exec = TantivyDecodeExec::new(decode_input, physical_deferred_fields, ff_helpers)?;

@@ -36,24 +36,23 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
-                                                                                                                               QUERY PLAN                                                                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER u
    Join Cond: p.owner_user_id = u.id
    Limit: 10
    Order By: pdb.score() desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, pdb.score()@0 as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, pdb.score()@0 as col_3, ctid_0@1 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[pdb.score()@0 DESC], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[p, u]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, ctid_1@3]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=u, segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
-(15 rows)
+     :     VisibilityFilterExec: tables=[p, u], pruned=[u]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@0)], projection=[pdb.score()@0, ctid_0@1, ctid_1@4]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
+(14 rows)
 
 -- Reproduce the bug
 SELECT

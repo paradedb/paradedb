@@ -74,10 +74,8 @@ pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
-pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
-/// Matches the old default sampling volume (`centroid_ratio * 32`).
+pub(crate) const DEFAULT_MAX_LEAF_SIZE: i32 = 100;
 pub(crate) const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = 0.32;
-pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 1;
 
 #[pg_guard]
 extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
@@ -152,6 +150,15 @@ extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char
 }
 
 #[pg_guard]
+extern "C-unwind" fn validate_vector_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+    if json_str.is_empty() {
+        return;
+    }
+    deserialize_config_fields(json_str, &SearchFieldConfig::vector_from_json);
+}
+
+#[pg_guard]
 extern "C-unwind" fn validate_sort_by(value: *const std::os::raw::c_char) {
     let sort_by_str = cstr_to_rust_str(value);
     if sort_by_str.is_empty() {
@@ -188,31 +195,6 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
     }
     crate::api::tokenizers::tokenizer_from_expression(&s)
         .unwrap_or_else(|| panic!("invalid search_tokenizer: '{s}'"));
-}
-
-/// The only legal `bounds_scope`: the merge folds centroid bounds over a
-/// cluster's NATIVE (primary-assignment) members. Kept as a CREATE INDEX
-/// option for compatibility; Tantivy no longer stores a bounds-scope setting.
-pub(crate) const BOUNDS_SCOPE_NATIVE: &str = "native";
-
-/// Local mirror of the former Tantivy `BoundsScope`. Native is the only
-/// supported value; bounds folding always covers primary-assignment members.
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
-pub enum BoundsScope {
-    #[default]
-    Native,
-}
-
-#[pg_guard]
-extern "C-unwind" fn validate_bounds_scope(value: *const std::os::raw::c_char) {
-    if value.is_null() {
-        return;
-    }
-    let cstr = unsafe { core::ffi::CStr::from_ptr(value) };
-    let value = cstr.to_str().expect("`bounds_scope` must be valid UTF-8");
-    if value != BOUNDS_SCOPE_NATIVE {
-        panic!("invalid `bounds_scope`: {value:?}; the only supported value is 'native'");
-    }
 }
 
 #[pg_guard]
@@ -254,7 +236,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 19;
+const NUM_REL_OPTS: usize = 18;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -311,6 +293,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
+            optname: "vector_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, vector_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: std::mem::offset_of!(BM25IndexOptionsData, key_field_offset) as i32,
@@ -361,16 +350,9 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "bounds_scope".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, bounds_scope_offset) as i32,
-            #[cfg(feature = "pg18")]
-            isset_offset: 0,
-        },
-        pg_sys::relopt_parse_elt {
-            optname: "centroid_ratio".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, centroid_ratio) as i32,
+            optname: "max_leaf_size".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, max_leaf_size) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -378,13 +360,6 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "training_sample_ratio".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
             offset: std::mem::offset_of!(BM25IndexOptionsData, training_sample_ratio) as i32,
-            #[cfg(feature = "pg18")]
-            isset_offset: 0,
-        },
-        pg_sys::relopt_parse_elt {
-            optname: "cluster_replication".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, cluster_replication) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -426,6 +401,7 @@ struct LazyInfo {
     json: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     range: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
+    vector: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
 }
@@ -481,20 +457,14 @@ impl BM25IndexOptions {
         }
     }
 
-    pub fn centroid_ratio(&self) -> f32 {
-        self.options_data().centroid_ratio()
+    /// Returns the maximum number of training vectors per clustering leaf.
+    pub fn max_leaf_size(&self) -> usize {
+        self.options_data().max_leaf_size()
     }
 
-    pub fn bounds_scope(&self) -> BoundsScope {
-        self.options_data().bounds_scope()
-    }
-
+    /// Returns the fraction of vectors sampled for IVF training.
     pub fn training_sample_ratio(&self) -> f32 {
         self.options_data().training_sample_ratio()
-    }
-
-    pub fn cluster_replication(&self) -> usize {
-        self.options_data().cluster_replication()
     }
 
     /// Returns the sort_by configuration.
@@ -516,10 +486,14 @@ impl BM25IndexOptions {
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
     /// falling back to the default config for the field type.
     pub fn field_config_or_default(&self, field_name: &FieldName) -> SearchFieldConfig {
+        let field_type = self.get_field_type(field_name);
         match self.field_config(field_name) {
-            Some(config) => config,
+            Some(config) => match field_type {
+                Some(SearchFieldType::Vector(_, dims, _)) => config.resolve_vector_defaults(dims),
+                _ => config,
+            },
             None => {
-                let field_type = self.get_field_type(field_name).unwrap_or_else(|| {
+                let field_type = field_type.unwrap_or_else(|| {
                     panic!(
                         "field `{field_name}` is not configured in the CREATE INDEX WITH options"
                     )
@@ -576,6 +550,14 @@ impl BM25IndexOptions {
             *self.lazy.inet.borrow_mut() = Some(self.options_data().inet_configs());
         }
         self.lazy.inet.borrow()
+    }
+
+    /// Returns the vector-field configurations.
+    pub fn vector_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
+        if self.lazy.vector.borrow().is_none() {
+            *self.lazy.vector.borrow_mut() = Some(self.options_data().vector_configs());
+        }
+        self.lazy.vector.borrow()
     }
 
     /// Resolves indexed types and explicit field options.
@@ -647,6 +629,13 @@ impl BM25IndexOptions {
             })
             .or_else(|| {
                 self.inet_config()
+                    .as_ref()
+                    .unwrap()
+                    .get(field_name)
+                    .cloned()
+            })
+            .or_else(|| {
+                self.vector_config()
                     .as_ref()
                     .unwrap()
                     .get(field_name)
@@ -813,6 +802,7 @@ struct BM25IndexOptionsData {
     json_fields_offset: i32,
     range_fields_offset: i32,
     datetime_fields_offset: i32,
+    vector_fields_offset: i32,
     key_field_offset: i32, // Accepted for compatibility; never read.
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
@@ -821,11 +811,9 @@ struct BM25IndexOptionsData {
     mutable_segment_rows: i32,
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
-    centroid_ratio: f64,
+    max_leaf_size: i32,
     training_sample_ratio: f64,
-    cluster_replication: i32,
     partition_by_offset: i32,
-    bounds_scope_offset: i32,
 }
 
 static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
@@ -836,6 +824,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     json_fields_offset: 0,
     range_fields_offset: 0,
     datetime_fields_offset: 0,
+    vector_fields_offset: 0,
     key_field_offset: 0,
     layer_sizes_offset: 0,
     inet_fields_offset: 0,
@@ -844,11 +833,9 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
     sort_by_offset: 0,
     search_tokenizer_offset: 0,
-    centroid_ratio: DEFAULT_CENTROID_RATIO,
+    max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
-    cluster_replication: DEFAULT_CLUSTER_REPLICATION,
     partition_by_offset: 0,
-    bounds_scope_offset: 0,
 };
 
 impl BM25IndexOptionsData {
@@ -888,34 +875,14 @@ impl BM25IndexOptionsData {
         }
     }
 
-    pub fn centroid_ratio(&self) -> f32 {
-        self.centroid_ratio as f32
+    /// Returns the maximum number of training vectors per clustering leaf.
+    pub fn max_leaf_size(&self) -> usize {
+        self.max_leaf_size as usize
     }
 
-    /// The stored-bounds scope, validated at option-set time; anything but
-    /// the default reads as `Native` (the only variant).
-    pub fn bounds_scope(&self) -> BoundsScope {
-        let value = self.get_str(self.bounds_scope_offset, BOUNDS_SCOPE_NATIVE.to_string());
-        match value.as_str() {
-            BOUNDS_SCOPE_NATIVE => BoundsScope::Native,
-            other => panic!("invalid stored `bounds_scope`: {other:?}"),
-        }
-    }
-
+    /// Returns the fraction of vectors sampled for IVF training.
     pub fn training_sample_ratio(&self) -> f32 {
         self.training_sample_ratio as f32
-    }
-
-    /// Total cells a vector is written into (SPANN `ReplicaCount`): the primary
-    /// plus up to `cluster_replication - 1` next-nearest cells, selected by
-    /// tantivy at merge time in the field's metric. `1` is primary-only. Any
-    /// non-positive value is treated as `1`.
-    pub fn cluster_replication(&self) -> usize {
-        if self.cluster_replication <= 0 {
-            1
-        } else {
-            self.cluster_replication as usize
-        }
     }
 
     /// Returns the sort_by configuration.
@@ -996,6 +963,14 @@ impl BM25IndexOptionsData {
         self.deserialize_configs(
             self.datetime_fields_offset,
             &SearchFieldConfig::date_from_json,
+        )
+    }
+
+    /// Returns the vector-field configurations.
+    pub fn vector_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
+        self.deserialize_configs(
+            self.vector_fields_offset,
+            &SearchFieldConfig::vector_from_json,
         )
     }
 
@@ -1085,6 +1060,14 @@ pub unsafe fn init() {
     );
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
+        "vector_fields".as_pg_cstr(),
+        "JSON string specifying per-vector-field options, including quantization".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_vector_fields),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
         "key_field".as_pg_cstr(),
         "Deprecated compatibility option; ignored".as_pg_cstr(),
         std::ptr::null(),
@@ -1141,22 +1124,13 @@ pub unsafe fn init() {
         Some(validate_search_tokenizer),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
-    pg_sys::add_string_reloption(
+    pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
-        "bounds_scope".as_pg_cstr(),
-        "Which rows a cluster's stored centroid bound covers; only 'native' is supported"
-            .as_pg_cstr(),
-        BOUNDS_SCOPE_NATIVE.as_pg_cstr(),
-        Some(validate_bounds_scope),
-        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
-    pg_sys::add_real_reloption(
-        RELOPT_KIND_PDB,
-        "centroid_ratio".as_pg_cstr(),
-        "IVF centroid ratio for k-means clustering at index build time".as_pg_cstr(),
-        DEFAULT_CENTROID_RATIO,
-        0.000001,
-        1.0,
+        "max_leaf_size".as_pg_cstr(),
+        "Maximum training vectors per leaf in hierarchical IVF clustering".as_pg_cstr(),
+        DEFAULT_MAX_LEAF_SIZE,
+        1,
+        i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_real_reloption(
@@ -1166,15 +1140,6 @@ pub unsafe fn init() {
         DEFAULT_TRAINING_SAMPLE_RATIO,
         0.000001,
         1.0,
-        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
-    pg_sys::add_int_reloption(
-        RELOPT_KIND_PDB,
-        "cluster_replication".as_pg_cstr(),
-        "Cells a vector is written into: primary + up to (value - 1) next-nearest cells (1 = no replication)".as_pg_cstr(),
-        DEFAULT_CLUSTER_REPLICATION,
-        1,
-        i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

@@ -1,0 +1,18 @@
+---
+header: features
+---
+
+**After upgrading, `REINDEX` every ParadeDB index that contains a vector field; installing the new shared library and running `ALTER EXTENSION` alone is not sufficient.**
+
+Quantized vector search. Vector fields in a ParadeDB index now store compact codes alongside full-precision vectors by default. Queries filter candidates through the codes and rerank the survivors exactly, so results match an unquantized scan at the same probe setting:
+
+```sql
+CREATE INDEX ON items USING paradedb (id, embedding)
+WITH (key_field = 'id');
+```
+
+Quantization is now enabled by default for vector fields with at least 64 dimensions. Set `"quantization": false` in a field's `vector_fields` configuration to disable it. Use `REINDEX` to apply changes to existing indexes.
+
+- Added `paradedb.max_scan_levels` to limit how many code layers a query reads. It defaults to all built layers; `0` scans full-precision vectors through the same cluster routing.
+
+- Replaced the `centroid_ratio` and `training_samples_per_centroid` index options with `training_sample_ratio` (default `0.32`) and `max_leaf_size` (default `100`). The settings now directly control Tantivy's training fraction and SuperKMeans' maximum training leaf size. The old names are no longer accepted; recreate indexes that explicitly store them using the new options.

@@ -550,14 +550,6 @@
       {
         "label": "Community",
         "href": "https://paradedb.com/slack"
-      },
-      {
-        "label": "Blog",
-        "href": "https://www.paradedb.com/blog"
-      },
-      {
-        "label": "Learn",
-        "href": "https://www.paradedb.com/learn"
       }
     ],
     "primary": {

@@ -83,7 +83,8 @@ FROM (
           512
 (1 row)
 
--- Like other build-time options, a changed router applies once the index is rebuilt.
+-- A changed router applies to segments built afterwards; existing segments
+-- keep the router they were built with and stay searchable.
 ALTER INDEX vector_router_ivf_idx SET (vector_router = 'graph');
 SELECT reloptions @> ARRAY['vector_router=graph'] AS stores_router
 FROM pg_class WHERE oid = 'vector_router_ivf_idx'::regclass;
@@ -92,7 +93,6 @@ FROM pg_class WHERE oid = 'vector_router_ivf_idx'::regclass;
  t
 (1 row)
 
-REINDEX INDEX vector_router_ivf_idx;
 SELECT id FROM vector_router_items
 WHERE id @@@ pdb.all()
 ORDER BY vec <-> '[1,2,3]', id
@@ -106,6 +106,36 @@ LIMIT 5;
  187
 (5 rows)
 
+INSERT INTO vector_router_items
+SELECT g, ARRAY[g % 17, g % 23, g % 31]::vector
+FROM generate_series(513, 768) g;
+SELECT count(*) AS indexed_rows
+FROM (
+    SELECT id FROM vector_router_items
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <-> '[1,2,3]'
+    LIMIT 768
+) matches;
+ indexed_rows 
+--------------
+          768
+(1 row)
+
+-- REINDEX rebuilds every segment with the new router.
+REINDEX INDEX vector_router_ivf_idx;
+SELECT id FROM vector_router_items
+WHERE id @@@ pdb.all()
+ORDER BY vec <-> '[1,2,3]', id
+LIMIT 5;
+ id  
+-----
+ 715
+   2
+ 716
+   1
+   3
+(5 rows)
+
 ALTER INDEX vector_router_ivf_idx RESET (vector_router);
 REINDEX INDEX vector_router_ivf_idx;
 SELECT count(*) AS indexed_rows
@@ -113,11 +143,11 @@ FROM (
     SELECT id FROM vector_router_items
     WHERE id @@@ pdb.all()
     ORDER BY vec <-> '[1,2,3]'
-    LIMIT 512
+    LIMIT 768
 ) matches;
  indexed_rows 
 --------------
-          512
+          768
 (1 row)
 
 -- Unknown routers are rejected.

@@ -27,6 +27,8 @@ use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
+#[cfg(feature = "io_stats")]
+use crate::index::reader::io_stats::trace;
 use crate::launch_parallel_process;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -401,6 +403,10 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 
     fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+        #[cfg(feature = "io_stats")]
+        let trace = trace::Trace::default();
+        #[cfg(feature = "io_stats")]
+        let io_scope = trace.enter();
         self.attach_bitmap_handle();
         // wait for all workers to launch
         while self.state.launched_workers() == 0 {
@@ -414,7 +420,11 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             unsafe { pg_sys::dsa_detach(self.attached_area) };
             self.attached_area = std::ptr::null_mut();
         }
+        #[cfg(feature = "io_stats")]
+        drop(io_scope);
         if let Some(intermediate_results) = result? {
+            #[cfg(feature = "io_stats")]
+            let intermediate_results = (intermediate_results, trace.data());
             let bytes = postcard::to_allocvec(&intermediate_results)?;
             Ok(mq_sender.send(bytes)?)
         } else {
@@ -607,8 +617,16 @@ pub fn execute_aggregate(
 
             // wait for workers to finish, collecting their intermediate aggregate results
             for (_worker_number, message) in process {
+                #[cfg(not(feature = "io_stats"))]
                 let worker_results =
                     postcard::from_bytes::<IntermediateAggregationResults>(&message)?;
+                #[cfg(feature = "io_stats")]
+                let (worker_results, io) = postcard::from_bytes::<(
+                    IntermediateAggregationResults,
+                    trace::Data,
+                )>(&message)?;
+                #[cfg(feature = "io_stats")]
+                trace::add_worker(_worker_number, io);
 
                 agg_results.push(Ok(worker_results));
             }
@@ -1049,6 +1067,8 @@ pub mod mvcc_collector {
 
     use crate::api::CTID_FIELD_NAME;
     use crate::index::fast_fields_helper::FFType;
+    #[cfg(feature = "io_stats")]
+    use crate::index::reader::io_stats::trace;
     use crate::postgres::heap::VisibilityChecker;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
@@ -1148,13 +1168,21 @@ pub mod mvcc_collector {
 
             // Get the ctids for these docs.
             self.ctids_buffer.resize(self.doc_buffer.len(), None);
-            self.ctid_ff
-                .as_u64s(&self.doc_buffer, &mut self.ctids_buffer);
+            {
+                #[cfg(feature = "io_stats")]
+                let _io = trace::columnar("Visibility CTIDs");
+                self.ctid_ff
+                    .as_u64s(&self.doc_buffer, &mut self.ctids_buffer);
+            }
 
             // Determine which ctids are visible.
             let mut vischeck = self.lock.lock();
             self.visibility_buffer.resize(self.doc_buffer.len(), None);
-            vischeck.check_batch(&self.ctids_buffer, &mut self.visibility_buffer);
+            {
+                #[cfg(feature = "io_stats")]
+                let _io = trace::external("Visibility");
+                vischeck.check_batch(&self.ctids_buffer, &mut self.visibility_buffer);
+            }
             drop(vischeck);
 
             // Filter visible docs.
@@ -1173,6 +1201,8 @@ pub mod mvcc_collector {
             }
 
             // Pass to inner collector
+            #[cfg(feature = "io_stats")]
+            let _io = trace::columnar("Aggregation Fields");
             if self.requires_scoring {
                 for (doc, score) in self
                     .filtered_doc_buffer

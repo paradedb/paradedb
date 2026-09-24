@@ -33,6 +33,7 @@ use crate::postgres::customscan::opexpr::{
     UnwrapFromExpr, expr_matches_node, vars_equal_ignoring_varno,
 };
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::index::{is_partitioned_index, leaf_partition_indexes};
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -132,7 +133,7 @@ impl ReturnedNodePointer {
             .iter_ptr()
             .last()
             .and_then(|node| nodecast!(RowExpr, T_RowExpr, node))
-            .and_then(|row| PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(0));
+            .and_then(|row| record_field(row, c"original_lhs"));
         let lhs = original_lhs.unwrap_or(lhs);
         let Some(base_var) = lhs.find_node::<pg_sys::Var>() else {
             return Self::unsupported();
@@ -206,13 +207,11 @@ impl ReturnedNodePointer {
             );
         }
         let ctid = (!derived).then(|| {
-            let ctid = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-            (*ctid).varattno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
-            (*ctid).varattnosyn = (*ctid).varattno;
-            (*ctid).vartype = pg_sys::TIDOID;
-            (*ctid).vartypmod = -1;
-            (*ctid).varcollid = pg_sys::Oid::INVALID;
-            ctid
+            system_column_var(
+                base_var,
+                pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
+                pg_sys::TIDOID,
+            )
         });
 
         let mut args = PgList::<pg_sys::Node>::new();
@@ -244,6 +243,18 @@ impl ReturnedNodePointer {
         if keep_original_lhs {
             fields.push(original_lhs);
             names.push(pg_sys::makeString(pg_sys::pstrdup(c"original_lhs".as_ptr())).cast());
+        }
+        // A predicate that stays above the Append keeps the parent partitioned index, whose
+        // storage does not exist (#4643). Ship the row's `tableoid` so execution can find
+        // the partition's own leaf index. The relkind gate keeps every other plan unchanged.
+        if !derived && is_partitioned_index(indexrel.oid()) {
+            let tableoid = system_column_var(
+                base_var,
+                pg_sys::TableOidAttributeNumber as pg_sys::AttrNumber,
+                pg_sys::OIDOID,
+            );
+            fields.push(tableoid.cast());
+            names.push(pg_sys::makeString(pg_sys::pstrdup(c"tableoid".as_ptr())).cast());
         }
         // A non-null record preserves strictness even when the original LHS is NULL.
         args.push(
@@ -665,6 +676,24 @@ fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<DocsEstimate> {
+    // A partitioned index has no storage of its own (#4643), so estimate each leaf
+    // partition and aggregate. A predicate above an Append covers every partition, which
+    // makes the summed counts the estimate for the whole tree.
+    if is_partitioned_index(indexrel.oid()) {
+        let mut aggregate = DocsEstimate {
+            matching_docs: 0,
+            total_docs: 0,
+            query_cost: 0,
+        };
+        for partition in leaf_partition_indexes(indexrel) {
+            let estimate = open_and_estimate_docs(&partition, search_query_input.clone())?;
+            aggregate.matching_docs += estimate.matching_docs;
+            aggregate.total_docs += estimate.total_docs;
+            aggregate.query_cost += estimate.query_cost;
+        }
+        return Some(aggregate);
+    }
+
     let heap_rel = indexrel
         .heap_relation()
         .expect("indexrel should be an index");
@@ -1180,6 +1209,39 @@ unsafe fn resolve_lhs_var_for_group(
     }
 
     var
+}
+
+/// The field of the trailing record argument carrying `name`, e.g. the preserved
+/// original LHS or the partition identity (#4643). The names distinguish the fields, so
+/// one is never misread as another.
+unsafe fn record_field(
+    row: *mut pg_sys::RowExpr,
+    name: &core::ffi::CStr,
+) -> Option<*mut pg_sys::Node> {
+    unsafe {
+        let names = PgList::<pg_sys::String>::from_pg((*row).colnames);
+        let position = names.iter_ptr().position(|colname| {
+            !(*colname).sval.is_null() && core::ffi::CStr::from_ptr((*colname).sval) == name
+        })?;
+        PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(position)
+    }
+}
+
+/// A Var for one of `base_var`'s relation's system columns, e.g. `ctid` or `tableoid`.
+unsafe fn system_column_var(
+    base_var: *mut pg_sys::Var,
+    varattno: pg_sys::AttrNumber,
+    vartype: pg_sys::Oid,
+) -> *mut pg_sys::Var {
+    unsafe {
+        let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
+        (*var).varattno = varattno;
+        (*var).varattnosyn = (*var).varattno;
+        (*var).vartype = vartype;
+        (*var).vartypmod = -1;
+        (*var).varcollid = pg_sys::Oid::INVALID;
+        var
+    }
 }
 
 unsafe fn wrap_with_index(

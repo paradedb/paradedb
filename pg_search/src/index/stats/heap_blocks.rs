@@ -1,47 +1,7 @@
 // Copyright (c) 2023-2026 ParadeDB, Inc.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Compact heap-block presence and document boundaries for segment visibility checks.
-//!
-//! Sorting a segment by CTID makes the documents from each heap block contiguous. At flush
-//! and merge, we derive those runs from `ctid >> 16` and store two entries in the existing
-//! `.stats` composite file, keyed by the CTID field: presence at index 3 and boundaries at
-//! index 4. No postings list or separate segment component is needed. Segments without a
-//! full, CTID-sorted column omit these entries and use ordinary visibility checks.
-//!
-//! # Physical layout
-//!
-//! The presence entry starts with an `HBP1` header containing the VM-page span, document
-//! count, distinct block count, directory length, and sort direction. Each 16-byte directory
-//! entry identifies one PostgreSQL visibility-map (VM) page and records its starting block
-//! ordinal, payload offset, and block count/encoding. Grouping by VM page lets the checker
-//! pin that page once and process all of its represented heap blocks together.
-//!
-//! Each payload uses whichever representation is smaller: sorted `u16` block offsets within
-//! the VM page, or a dense bitmap of `u32` words with leading/trailing empty words omitted.
-//! Dense payloads include `u16` rank checkpoints every eight words (256 heap blocks). A
-//! block's ordinal is the directory's starting ordinal plus its local rank: its position
-//! in the sparse list, or a checkpoint plus at most eight popcounts in the dense bitmap.
-//!
-//! The boundary entry contains cumulative document counts in ascending heap-block order,
-//! including a final sentinel. Groups of 128 boundaries store a base and bit-packed deltas;
-//! a directory of `u64` byte offsets locates each group independently. Reading boundary `i`
-//! does not require decoding earlier groups or values. For ascending CTIDs, block ordinal
-//! `i` maps to `[boundary[i], boundary[i + 1])`. For descending CTIDs, the range is
-//! `[num_docs - boundary[i + 1], num_docs - boundary[i])`.
-//!
-//! # Visibility flow
-//!
-//! On the first eligible document batch for a segment, `VisibilityChecker` loads its
-//! presence entry and expands each payload into a scratch bitmap. It clears blocks whose
-//! VM all-visible bit is set, then uses rank to read boundaries only for the remaining
-//! blocks. Boundary reads use small cached file windows; when every block is all-visible,
-//! no boundary bytes need to be read. Adjacent document ranges are coalesced and cached for
-//! this checker and snapshot. Subsequent sorted batches only check visibility for documents
-//! in those ranges. Mutable segments, missing metadata, non-MVCC snapshots, unsorted batches,
-//! and calls requiring exact HOT resolution retain the ordinary path.
-//!
-//! For example, an ascending segment might contain:
+//! Visibility checking for a segment sorted by CTID:
 //!
 //! ```text
 //! doc ID:             0  1  2  3  4  5  6
@@ -51,17 +11,32 @@
 //! presence:           1  1  0  0  0  1
 //! VM all-visible:     1  0  1  1  1  1
 //! needs checking:     0  1  0  0  0  0
+//!                        |
+//!                        v
+//! rank(block 11) = 1 -> boundaries [0, 2, 5, 7] -> doc IDs [2, 5)
 //!
-//! block ordinals:    10 -> 0, 11 -> 1, 15 -> 2
-//! boundaries:        [0, 2, 5, 7]
-//! block 11:          rank = 1 -> document range [2, 5)
-//! query matches:     [0, 3, 6] -> only doc 3 needs a visibility check
+//! query matches [0, 3, 6] -> only doc 3 needs a visibility check
 //! ```
 //!
-//! This metadata proves visibility, not query membership or segment liveness: query
-//! evaluation still applies Tantivy's deletes. The checker also still decodes requested
-//! CTIDs to preserve its existing return interface. Cached visibility proofs stay within
-//! the checker's snapshot, and the immutable reader retains the segment's cleanup pin.
+//! CTID sorting keeps each heap block's documents together. Three structures let us move
+//! from heap blocks to document ranges without walking every document:
+//!
+//! - **Presence** records which heap blocks occur in the segment. It uses a bitmap for
+//!   dense blocks and a short list for sparse blocks, grouped by PostgreSQL visibility-map
+//!   (VM) page so we can check all blocks covered by that page together.
+//! - **Rank** gives a block's position among the present blocks. In the example, block 11
+//!   is the second present block, so its rank is 1. Bitmap checkpoints and popcounts make
+//!   this lookup cheap; sparse lists already provide the position.
+//! - **Boundaries** map that rank to a contiguous document range. They are compressed in
+//!   independently readable groups, so looking up one range doesn't require decoding
+//!   earlier boundaries.
+//!
+//! Presence and boundaries are written into the segment's `.stats` file at flush and merge.
+//! On the first eligible query batch, `VisibilityChecker` compares presence with the VM
+//! and reads boundaries only for blocks that aren't all-visible. It caches the resulting
+//! document ranges for its snapshot, then checks only query matches within those ranges.
+//! If every present block is all-visible, no boundary reads or per-document visibility
+//! checks are needed. Segments without this metadata use the existing visibility path.
 
 use std::io::{self, Write};
 use std::ops::Range;

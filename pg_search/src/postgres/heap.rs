@@ -747,7 +747,7 @@ impl VisibilityChecker {
         };
         let (stats, bounds) = {
             #[cfg(feature = "io_stats")]
-            let _io = trace::external("Visibility Presence");
+            let _io = trace::external("Visibility Bounds");
             let Some(stats) = SegmentStats::of_reader(segment)? else {
                 return Ok(None);
             };

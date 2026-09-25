@@ -1,5 +1,5 @@
 name: Commit with GitHub App
-description: Create a verified App-signed commit from the index without pushing
+description: Create a verified App-signed commit from staged changes without pushing
 
 inputs:
   github-token:

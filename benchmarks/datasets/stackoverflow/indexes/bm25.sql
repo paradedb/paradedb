@@ -17,6 +17,7 @@ USING bm25 (
     (owner_display_name::pdb.unicode_words('columnar=true')),
     owner_user_id
 ) WITH (
+    mutable_segment_rows = 0,
     -- Join keys: comments.post_id = id, users.id = owner_user_id.
     -- TODO: Explore removing multi-key partitioning in the future once range-partitioning
     -- optimizations settle, but retain for now to benchmark 3-table joins.
@@ -32,6 +33,7 @@ USING bm25 (
     class,
     tag_based
 ) WITH (
+    mutable_segment_rows = 0,
     partition_by = 'user_id'
 );
 
@@ -44,6 +46,7 @@ USING bm25 (
     creation_date,
     (user_display_name::pdb.literal)
 ) WITH (
+    mutable_segment_rows = 0,
     partition_by = 'post_id'
 );
 
@@ -54,6 +57,7 @@ USING bm25 (
     (display_name::pdb.unicode_words('columnar=true')),
     reputation
 ) WITH (
+    mutable_segment_rows = 0,
     partition_by = 'id'
 );
 

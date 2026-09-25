@@ -506,7 +506,6 @@ impl MVCCDirectory {
                             .and_then(|ext| ext.to_str())
                             .and_then(|ext| SegmentComponent::try_from(ext).ok()),
                     )
-                    .with_finalized_length()
                 }))
             }
             LoadedSegmentMetaEntry::Memory {
@@ -663,7 +662,7 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(
+                            SegmentComponentReader::new_uncommitted(
                                 &self.indexrel,
                                 file_entry,
                                 path.extension()

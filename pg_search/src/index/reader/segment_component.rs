@@ -35,7 +35,31 @@ pub struct SegmentComponentReader {
 }
 
 impl SegmentComponentReader {
+    /// Opens a finalized, immutable segment component for reading.
+    ///
+    /// Endpoint reads (e.g. footers or headers) are resolved directly via the header
+    /// page, avoiding block list lookups.
     pub unsafe fn new(
+        indexrel: &PgSearchRelation,
+        entry: FileEntry,
+        component: Option<tantivy::index::SegmentComponent>,
+    ) -> Self {
+        let block_list =
+            LinkedBytesList::open(indexrel, entry.starting_block).with_length(entry.total_bytes);
+
+        Self {
+            block_list,
+            entry,
+            component,
+        }
+    }
+
+    /// Opens an uncommitted segment component whose file length may still be in flux.
+    ///
+    /// Used for in-flight files before `finalize_and_write()` has executed. Endpoint
+    /// optimizations are disabled because the header page does not yet have a valid
+    /// `last_blockno`.
+    pub unsafe fn new_uncommitted(
         indexrel: &PgSearchRelation,
         entry: FileEntry,
         component: Option<tantivy::index::SegmentComponent>,
@@ -47,12 +71,6 @@ impl SegmentComponentReader {
             entry,
             component,
         }
-    }
-
-    /// Enable endpoint lookups for a published, immutable component file.
-    pub fn with_finalized_length(mut self) -> Self {
-        self.block_list = self.block_list.with_length(self.entry.total_bytes);
-        self
     }
 
     fn read_bytes_raw(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
@@ -134,10 +152,11 @@ mod tests {
             writer.terminate().unwrap();
 
             for finalized in [false, true] {
-                let mut reader = SegmentComponentReader::new(&indexrel, file_entry, None);
-                if finalized {
-                    reader = reader.with_finalized_length();
-                }
+                let reader = if finalized {
+                    SegmentComponentReader::new(&indexrel, file_entry, None)
+                } else {
+                    SegmentComponentReader::new_uncommitted(&indexrel, file_entry, None)
+                };
                 assert_eq!(reader.storage_block_len(), Some(page_size));
                 assert_eq!(reader.len(), len);
                 let tail = len.saturating_sub(24);

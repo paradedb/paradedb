@@ -669,6 +669,19 @@ impl JoinScan {
             }
         }
 
+        // Window aggregates are computed inside the Top-K aggregate node, which
+        // needs OFFSET + LIMIT known at planning.
+        if !window_aggs.is_empty()
+            && limit_offset
+                .as_ref()
+                .and_then(|lo| lo.static_fetch())
+                .is_none()
+        {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: window functions require a statically known LIMIT and OFFSET",
+            ));
+        }
+
         order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
 
         for jk in join_keys {

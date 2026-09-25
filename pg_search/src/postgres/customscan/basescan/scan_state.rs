@@ -106,7 +106,7 @@ pub struct BaseScanState {
     pub snippets_funcoids: [pg_sys::Oid; 2],
     pub snippet_positions_funcoids: [pg_sys::Oid; 2],
 
-    pub snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>>,
+    pub snippet_generators: HashMap<SnippetType, Vec<SnippetGenerator>>,
 
     pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
@@ -311,18 +311,24 @@ impl BaseScanState {
         resolved_end_tag: &str,
     ) -> Option<String> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
-        let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
-        let mut snippet = generator.snippet(&text);
-        if matches!(snippet_type, SnippetType::SingleText(_, _, _)) {
-            snippet.set_snippet_prefix_postfix(resolved_start_tag, resolved_end_tag);
-        }
+        // A column can be indexed under several fields; the query may have matched through
+        // any of them, so render with the first generator that finds something to mark up.
+        self.snippet_generators
+            .get(snippet_type)?
+            .iter()
+            .find_map(|generator| {
+                let mut snippet = generator.snippet(&text);
+                if matches!(snippet_type, SnippetType::SingleText(_, _, _)) {
+                    snippet.set_snippet_prefix_postfix(resolved_start_tag, resolved_end_tag);
+                }
 
-        let html = snippet.to_html();
-        if html.trim().is_empty() {
-            None
-        } else {
-            Some(html)
-        }
+                let html = snippet.to_html();
+                if html.trim().is_empty() {
+                    None
+                } else {
+                    Some(html)
+                }
+            })
     }
 
     pub fn make_snippets(
@@ -333,7 +339,16 @@ impl BaseScanState {
         resolved_end_tag: &str,
     ) -> Option<Vec<String>> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
-        let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let generators = self.snippet_generators.get(snippet_type)?;
+        let generator = generators
+            .iter()
+            .find(|generator| {
+                generator
+                    .snippets(&text)
+                    .iter()
+                    .any(|snippet| !snippet.to_html().trim().is_empty())
+            })
+            .or_else(|| generators.first())?;
         let apply_tags = matches!(snippet_type, SnippetType::MultipleText(_, _, _, _));
         let snippets: Vec<_> = generator
             .snippets(&text)
@@ -360,9 +375,16 @@ impl BaseScanState {
         snippet_type: &SnippetType,
     ) -> Option<IntArray2D> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
-        let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
-        let snippet = generator.snippet(&text);
-        let highlighted = snippet.highlighted();
+        // Positions render with an unbounded fragment, so every generator reports offsets into
+        // the same text and the lists can be pooled rather than picked between.
+        let mut highlighted: Vec<_> = self
+            .snippet_generators
+            .get(snippet_type)?
+            .iter()
+            .flat_map(|generator| generator.snippet(&text).highlighted().to_vec())
+            .collect();
+        highlighted.sort_by_key(|span| (span.start, span.end));
+        highlighted.dedup();
 
         if highlighted.is_empty() {
             None

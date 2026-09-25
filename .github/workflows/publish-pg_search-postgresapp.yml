@@ -302,12 +302,22 @@ jobs:
           asset_name: ${{ steps.pkg.outputs.pkg_name }}.cosign.bundle
           overwrite: true
 
+      - name: Generate GitHub App Token for PostgresApp Fork
+        id: postgresapp-app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: PostgresApp
+
       # Open a PR to PostgresApp/PostgresApp updating the pg_search download URL on
       # https://postgresapp.com/extensions/. The page is generated from per-version
       # JSON files at docs/_data/extensions/<pg>/pg_search.json. The PR is raised
       # from the paradedb/PostgresApp fork; any previous open PR from the bot is
       # closed first so that only one update is ever pending review upstream.
-      - name: Open PR to PostgresApp/PostgresApp
+      - name: Prepare PostgresApp Update
+        id: postgresapp-update
         env:
           # Classic PAT with `repo` scope — required because fine-grained PATs cannot
           # invoke createPullRequest (or pr list/close) against repos outside their
@@ -388,8 +398,38 @@ jobs:
           fi
 
           git add "$JSON_PATH"
-          git commit -m "Update pg_search to v${TAG_VERSION} for PostgreSQL ${PG_MAJOR_VERSION}"
-          git push origin "$BRANCH" --force
+          echo "directory=$WORK" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "base=$UPSTREAM_DEFAULT_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit PostgresApp Update
+        if: steps.postgresapp-update.outputs.changed == 'true'
+        uses: ./.github/actions/commit-with-paradedb-github-app
+        with:
+          github-token: ${{ steps.postgresapp-app-token.outputs.token }}
+          repository: paradedb/PostgresApp
+          working-directory: ${{ steps.postgresapp-update.outputs.directory }}
+          message: "Update pg_search to v${{ steps.version.outputs.tag_version }} for PostgreSQL ${{ matrix.pg_version }}"
+
+      - name: Open PR to PostgresApp/PostgresApp
+        if: steps.postgresapp-update.outputs.changed == 'true'
+        working-directory: ${{ steps.postgresapp-update.outputs.directory }}
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.postgresapp-app-token.outputs.token }}
+          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          PG_MAJOR_VERSION: ${{ matrix.pg_version }}
+          PKG_NAME: ${{ steps.pkg.outputs.pkg_name }}
+          BRANCH: ${{ steps.postgresapp-update.outputs.branch }}
+          UPSTREAM_DEFAULT_BRANCH: ${{ steps.postgresapp-update.outputs.base }}
+        run: |
+          UPSTREAM=PostgresApp/PostgresApp
+          FORK_OWNER=paradedb
+          FORK="${FORK_OWNER}/PostgresApp"
+          DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v${TAG_VERSION}/${PKG_NAME}"
+          GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/${FORK}/git/refs" \
+            -f ref="refs/heads/${BRANCH}" -f sha="$(git rev-parse HEAD)" --jq .ref
 
           BODY=$(cat <<EOF
           This PR updates the [pg_search](https://github.com/paradedb/paradedb) entry on https://postgresapp.com/extensions/ to point at the v${TAG_VERSION} release.

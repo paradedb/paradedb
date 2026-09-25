@@ -63,6 +63,7 @@ jobs:
       # synchronize event, which re-triggers all CI workflows on the new HEAD.
       # Pushes made with the default GITHUB_TOKEN do not fire events.
       - name: Verify Nix Cargo Hash
+        id: cargo-hash
         run: |
           if ! nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps" 2>/dev/null; then
             echo "cargoHash mismatch detected, computing correct hash..."
@@ -82,13 +83,31 @@ jobs:
               exit 1
             fi
 
-            git config user.name "paradedb-github-app[bot]"
-            git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+            if git diff --quiet -- nix/pg_search.nix; then
+              echo "::error::cargoHash build failed, but the update script did not change nix/pg_search.nix."
+              exit 1
+            fi
+
             git add nix/pg_search.nix
-            git commit -m "fix: update nix cargoHash for changed Cargo.lock"
-            git push
-            echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
-            exit 1
+            echo "needs_fix=true" >> "$GITHUB_OUTPUT"
           else
             echo "cargoHash is correct"
           fi
+
+      - name: Commit Nix Cargo Hash
+        if: steps.cargo-hash.outputs.needs_fix == 'true'
+        uses: ./.github/actions/commit-with-paradedb-github-app
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          message: "fix: update nix cargoHash for changed Cargo.lock"
+
+      - name: Push Nix Cargo Hash
+        if: steps.cargo-hash.outputs.needs_fix == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${TARGET_BRANCH}" \
+            -f sha="$(git rev-parse HEAD)" -F force=false
+          echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
+          exit 1

@@ -49,7 +49,7 @@ use pgrx::pg_sys;
 
 use super::planning::get_source_attno_by_name;
 use super::window_func::{
-    SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
+    SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggColumn, WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::gucs;
@@ -885,16 +885,21 @@ fn build_clause_df<'a>(
             && let Some(k) = topk_as_agg_limit(join_clause.limit_offset.as_ref())
         {
             match distinct_key_exprs(join_clause)? {
-                Some((key_exprs, distinct_col_map)) => (
+                Some(DistinctKey {
+                    exprs,
+                    window_entries,
+                    map,
+                }) => (
                     apply_distinct_topk_as_agg(
                         df,
                         join_clause,
                         &private_data.output_columns,
-                        key_exprs,
-                        &distinct_col_map,
+                        exprs,
+                        window_entries,
+                        &map,
                         k,
                     )?,
-                    distinct_col_map,
+                    map,
                 ),
                 None => (
                     apply_topk_as_agg(df, join_clause, k)?,
@@ -955,7 +960,8 @@ fn apply_distinct_topk_as_agg(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-    distinct_key_exprs: Vec<Expr>,
+    distinct_key_exprs: Vec<(String, Expr)>,
+    window_entries: usize,
     distinct_col_map: &DistinctColMap,
     k: usize,
 ) -> Result<DataFrame> {
@@ -968,10 +974,37 @@ fn apply_distinct_topk_as_agg(
             .expect("should always exist by now");
         assert_eq!(
             distinct_key_exprs.len(),
-            projection.len(),
-            "This function is only correct as long as the DISTINCT keys cover all output projection columns",
+            projection.len() - window_entries,
+            "This function is only correct as long as the DISTINCT keys cover all output projection columns that are not window aggregates",
         );
     }
+
+    // A target list of window aggregates alone leaves no key; every row is
+    // then one group, which a constant key expresses.
+    let distinct_key_exprs = if distinct_key_exprs.is_empty() {
+        vec![(
+            "__distinct_key".to_string(),
+            datafusion::logical_expr::lit(true),
+        )]
+    } else {
+        distinct_key_exprs
+    };
+
+    // As on the non-DISTINCT path, the window aggregates join the Top-K
+    // aggregate node. They read the join's own columns, so their inputs ride
+    // along beside the key in the projection below; the Top-K payload leaves
+    // them out.
+    let window = window_agg_exprs(join_clause)?;
+    let window_inputs: Vec<Expr> = {
+        let mut refs: Vec<&datafusion::common::Column> = window
+            .aggregates
+            .iter()
+            .flat_map(|(_, expr)| expr.column_refs())
+            .collect();
+        refs.sort();
+        refs.dedup();
+        refs.into_iter().cloned().map(Expr::Column).collect()
+    };
 
     // Only relations whose heap tuples are fetched need a ctid carried through,
     // the same pruning the GROUP BY form applies.
@@ -982,20 +1015,25 @@ fn apply_distinct_topk_as_agg(
             .map(|(_, name)| name)
             .collect();
 
-    let num_non_ctid_cols = distinct_key_exprs.len();
+    let key_aliases: Vec<String> = distinct_key_exprs
+        .iter()
+        .map(|(alias, _)| alias.clone())
+        .collect();
+    let num_non_ctid_cols = key_aliases.len();
     // The GROUP BY's group list, as a projection: col_{i} exists from here on.
     let mut select: Vec<Expr> = distinct_key_exprs
         .into_iter()
-        .enumerate()
-        .map(|(i, e)| e.alias(format!("col_{}", i + 1)))
+        .map(|(alias, e)| e.alias(alias))
         .collect();
     select.extend(ctid_names.iter().map(|n| col(n.as_str())));
     let num_all_cols = select.len();
+    select.extend(window_inputs);
     let df = df.select(select)?;
 
     // The same list, just with the new names
-    let mut all_col_exprs: Vec<Expr> = (0..num_non_ctid_cols)
-        .map(|i| col(format!("col_{}", i + 1)))
+    let mut all_col_exprs: Vec<Expr> = key_aliases
+        .iter()
+        .map(|alias| col(alias.as_str()))
         .chain(ctid_names.iter().map(|n| col(n.as_str())))
         .collect();
 
@@ -1023,9 +1061,11 @@ fn apply_distinct_topk_as_agg(
 
     // Restore the GROUP BY's output names: `col_{i}` for the key, the ctid names
     // for the ctids.
-    let name_restoration_exprs: Vec<Expr> = (0..num_non_ctid_cols)
-        .map(|i| {
-            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(format!("col_{}", i + 1))
+    let name_restoration_exprs: Vec<Expr> = key_aliases
+        .iter()
+        .enumerate()
+        .map(|(i, alias)| {
+            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(alias.as_str())
         })
         .chain(ctid_names.iter().enumerate().map(|(j, name)| {
             get_field(
@@ -1035,12 +1075,7 @@ fn apply_distinct_topk_as_agg(
             .alias(name.as_str())
         }))
         .collect();
-    topk_aggregate(
-        df,
-        topk_agg,
-        WindowAggExprs::default(),
-        name_restoration_exprs,
-    )
+    topk_aggregate(df, topk_agg, window, name_restoration_exprs)
 }
 
 fn apply_topk_as_agg(df: DataFrame, join_clause: &JoinCSClause, k: usize) -> Result<DataFrame> {
@@ -1162,10 +1197,34 @@ fn surviving_ctid_columns<'a>(
     })
 }
 
-/// The DISTINCT key: one expression per output projection entry, in target-list
-/// order, plus the map the sort and output projection use to find those entries
-/// by their `col_{i}` names afterwards. `None` when there is no DISTINCT to apply.
-fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, DistinctColMap)>> {
+/// Whether `expr` reads a `window_agg_N` column, the output of a window
+/// aggregate computed in the Top-K aggregate node.
+fn references_window_column(expr: &Expr) -> bool {
+    expr.column_refs()
+        .iter()
+        .any(|c| c.relation.is_none() && WindowAggColumn::try_from(c.name.as_str()).is_ok())
+}
+
+/// The DISTINCT key, from [`distinct_key_exprs`].
+struct DistinctKey {
+    /// One `(col_{i}, expression)` per output projection entry that is part of
+    /// the key, in target-list order.
+    exprs: Vec<(String, Expr)>,
+    /// Projection entries left out of the key because their value is a window
+    /// aggregate.
+    window_entries: usize,
+    /// How the sort and output projection find the key entries by their
+    /// `col_{i}` names afterwards.
+    map: DistinctColMap,
+}
+
+/// The DISTINCT key, or `None` when there is no DISTINCT to apply.
+///
+/// Window-dependent entries are left out: every absorbed window is a bare
+/// `OVER ()`, so their value is the same on every row and they change nothing
+/// about which rows are distinct. The output projection computes them from the
+/// window columns after the aggregate.
+fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<DistinctKey>> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
     if !join_clause.has_distinct {
@@ -1175,7 +1234,8 @@ fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, D
         return Ok(None);
     };
 
-    let mut key_exprs: Vec<Expr> = Vec::new();
+    let mut key_exprs: Vec<(String, Expr)> = Vec::new();
+    let mut window_entries = 0;
 
     for (i, proj) in projection.iter().enumerate() {
         let col_alias = format!("col_{}", i + 1);
@@ -1183,12 +1243,16 @@ fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, D
         let (expr, map_key) = match proj {
             build::ChildProjection::Expression { pg_expr_string, .. } => {
                 let e = unsafe { translate_child_projection_expr(pg_expr_string, join_clause)? };
+                if references_window_column(&e) {
+                    window_entries += 1;
+                    continue;
+                }
                 // Expressions don't participate in sort-step column mapping
                 (e, None)
             }
             build::ChildProjection::WindowAgg { .. } => {
-                let e = build_projection_expr(proj, join_clause);
-                (e, None)
+                window_entries += 1;
+                continue;
             }
             build::ChildProjection::Score { rti } => {
                 let e = build_projection_expr(proj, join_clause);
@@ -1208,7 +1272,7 @@ fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, D
             }
         };
 
-        key_exprs.push(expr);
+        key_exprs.push((col_alias.clone(), expr));
 
         if let Some(key) = map_key {
             match key {
@@ -1222,7 +1286,11 @@ fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, D
         }
     }
 
-    Ok(Some((key_exprs, distinct_col_map)))
+    Ok(Some(DistinctKey {
+        exprs: key_exprs,
+        window_entries,
+        map: distinct_col_map,
+    }))
 }
 
 /// Apply a DISTINCT rewrite as `GROUP BY` over the distinct key, taking the MIN
@@ -1237,13 +1305,17 @@ fn apply_distinct_group_by(
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
 ) -> Result<(DataFrame, DistinctColMap)> {
-    let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
+    let Some(DistinctKey {
+        exprs: key_exprs,
+        map: distinct_col_map,
+        ..
+    }) = distinct_key_exprs(join_clause)?
+    else {
         return Ok((df, DistinctColMap::default()));
     };
     let group_exprs: Vec<Expr> = key_exprs
         .into_iter()
-        .enumerate()
-        .map(|(i, expr)| expr.alias(format!("col_{}", i + 1)))
+        .map(|(alias, expr)| expr.alias(alias))
         .collect();
 
     // Postgres needs the ctids to fetch the actual tuples after DataFusion
@@ -1670,8 +1742,22 @@ fn apply_output_projection(
             let col_alias = format!("col_{}", i + 1);
             let expr = if !distinct_col_map.is_empty() {
                 match proj {
-                    build::ChildProjection::Expression { .. }
-                    | build::ChildProjection::WindowAgg { .. } => col(&col_alias),
+                    // A window entry has no `col_N`: it was left out of the
+                    // DISTINCT key and is computed here from the window columns
+                    // the aggregate node produced, as on the non-DISTINCT path.
+                    build::ChildProjection::WindowAgg { .. } => {
+                        build_projection_expr(proj, join_clause)
+                    }
+                    build::ChildProjection::Expression { pg_expr_string, .. } => {
+                        let e = unsafe {
+                            translate_child_projection_expr(pg_expr_string, join_clause)?
+                        };
+                        if references_window_column(&e) {
+                            e
+                        } else {
+                            col(&col_alias)
+                        }
+                    }
                     build::ChildProjection::Score { rti } => {
                         resolve_distinct_col(distinct_col_map, true, *rti, 0)
                             .unwrap_or_else(|| col(&col_alias))

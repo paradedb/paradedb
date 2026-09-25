@@ -371,6 +371,14 @@ enum WindowShape {
     /// A LIMIT with no ORDER BY: the Top-K aggregate keeps any three rows,
     /// and the window aggregate still counts the whole join.
     NoOrderBy,
+    /// DISTINCT with window aggregates, bare and inside expressions. Their
+    /// value is the same on every row, so they stay out of the DISTINCT key
+    /// and are computed after the Top-K aggregate; PostgreSQL evaluates
+    /// windows before DISTINCT, so the count covers the join, not the
+    /// distinct rows.
+    Distinct,
+    /// A target list of window aggregates alone: every row is one group.
+    DistinctWindowsOnly,
     /// The window aggregates run inside the Top-K aggregate, which needs k at
     /// planning time; a parameterized LIMIT declines and PostgreSQL computes
     /// the query.
@@ -379,6 +387,8 @@ enum WindowShape {
 
 #[rstest]
 #[case::no_order_by(WindowShape::NoOrderBy)]
+#[case::distinct(WindowShape::Distinct)]
+#[case::distinct_windows_only(WindowShape::DistinctWindowsOnly)]
 #[case::parameterized_limit_declines(WindowShape::ParameterizedLimitDeclines)]
 fn global_window_aggregates_query_shapes(
     mut conn: PgConnection,
@@ -404,6 +414,50 @@ fn global_window_aggregates_query_shapes(
                 rows.iter().all(|(id, total)| id % 2 == 1 && *total == 1000),
                 "{rows:?}"
             );
+        }
+        WindowShape::Distinct => {
+            // Each laptop product has two reviews, so DISTINCT halves the join.
+            let query = r#"
+                SELECT DISTINCT p.id,
+                       COUNT(*) OVER () AS total_count,
+                       (COUNT(*) OVER ())::float8 AS total_count_f8,
+                       COUNT(*) OVER () + 1 AS total_plus_one
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY p.id DESC
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert_windows_in_topk_agg(&plan);
+            assert!(plan.contains("distinct_topk_as_agg("), "{plan}");
+
+            let rows = query.fetch_result::<(i32, i64, f64, i64)>(&mut conn)?;
+            assert_eq!(
+                rows,
+                vec![
+                    (999, 1000, 1000.0, 1001),
+                    (997, 1000, 1000.0, 1001),
+                    (995, 1000, 1000.0, 1001)
+                ]
+            );
+        }
+        WindowShape::DistinctWindowsOnly => {
+            let query = r#"
+                SELECT DISTINCT COUNT(*) OVER () AS total_count
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert_windows_in_topk_agg(&plan);
+            assert!(plan.contains("distinct_topk_as_agg("), "{plan}");
+
+            let rows = query.fetch_result::<(i64,)>(&mut conn)?;
+            assert_eq!(rows, vec![(1000,)]);
         }
         WindowShape::ParameterizedLimitDeclines => {
             r#"

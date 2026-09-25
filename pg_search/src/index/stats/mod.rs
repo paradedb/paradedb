@@ -480,20 +480,31 @@ impl SegmentStats {
         max_doc: u32,
         pages_per_vm: u32,
     ) -> io::Result<Option<heap_blocks::HeapBlockMap>> {
-        let Some(presence) = self
+        let Some(directory) = self
             .file
-            .open_read_with_idx(field, heap_blocks::PRESENCE_IDX)
+            .open_read_with_idx(field, heap_blocks::DIRECTORY_IDX)
         else {
             return Ok(None);
         };
-        let Some(boundaries) = self
+        let presence = self
             .file
-            .open_read_with_idx(field, heap_blocks::BOUNDARIES_IDX)
-        else {
-            // Older prototypes used unchunked boundary encodings at indices 4 and 5.
+            .open_read_with_idx(field, heap_blocks::PRESENCE_IDX);
+        let ranks = self.file.open_read_with_idx(field, heap_blocks::RANK_IDX);
+        let boundaries = self
+            .file
+            .open_read_with_idx(field, heap_blocks::BOUNDARIES_IDX);
+        let (Some(presence), Some(ranks), Some(boundaries)) = (presence, ranks, boundaries) else {
             return Ok(None);
         };
-        heap_blocks::HeapBlockMap::open(presence, boundaries, max_doc, pages_per_vm).map(Some)
+        heap_blocks::HeapBlockMap::open(
+            directory,
+            presence,
+            ranks,
+            boundaries,
+            max_doc,
+            pages_per_vm,
+        )
+        .map(Some)
     }
 
     fn read<T: DeserializeOwned>(&self, field: Field, idx: usize) -> io::Result<Option<T>> {

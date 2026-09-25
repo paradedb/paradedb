@@ -20,7 +20,8 @@
 //! One `CompositeFile` per segment, keyed by `(Field, idx)`. `idx = 0` holds the empirical
 //! `min`/`max` of a fast field, `idx = 1` the box a partitioned build assigned to the segment's
 //! partition, and `idx = 2` stays reserved for sketches. CTID-sorted segments also store heap
-//! block presence at `idx = 3` and chunked document boundaries at `idx = 6`. The footer maps each entry
+//! block directory at `idx = 7` and chunked presence, rank, and boundary columns at indices 8–10.
+//! The footer maps each entry
 //! to a byte range, so a reader touches only the entries it asks for.
 //!
 //! The bounds entries have different lifecycles. Empirical stats come from the segment's own

@@ -125,7 +125,7 @@ LIMIT 5 OFFSET 10;
 
 SET max_parallel_workers_per_gather = 2;
 SET paradedb.mpp_min_rows = 0;
-SET paradedb.enable_range_partitioned_join = on;
+RESET paradedb.enable_range_partitioned_join;
 
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.val, t2.val

@@ -41,9 +41,6 @@ use tantivy_common::TinySet;
 use util::HEAPBLOCKS_PER_BYTE;
 use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
 
-/// A heap-page boundary, including the exclusive endpoint beyond the last block.
-pub(crate) type HeapBlockBoundary = u64;
-
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
 /// pin would collide with the index's tracked blocks under the `block_tracker` feature, and a
@@ -523,25 +520,24 @@ impl VisibilityChecker {
                 let mut block = first / 32 * 32;
                 let mut scratch =
                     vec![TinySet::range_lower(32); util::HEAPBLOCKS_PER_PAGE as usize / 32];
-                let mut pending: Option<Range<HeapBlockBoundary>> = None;
+                let mut pending: Option<Range<BlockNumber>> = None;
                 let mut ranges = Vec::new();
                 let mut pages = Vec::with_capacity(RANGES_PER_BATCH);
                 while block < end {
                     pgrx::check_for_interrupts!();
-                    let span = u64::from(util::HEAPBLOCKS_PER_PAGE)
-                        - block % u64::from(util::HEAPBLOCKS_PER_PAGE);
+                    let span = util::HEAPBLOCKS_PER_PAGE - block % util::HEAPBLOCKS_PER_PAGE;
                     let words = (end - block).min(span).div_ceil(32) as usize;
                     let missing = &mut scratch[..words];
                     missing.fill(TinySet::range_lower(32));
-                    self.retain_invisible_blocks(block as BlockNumber, missing);
+                    self.retain_invisible_blocks(block, missing);
                     for (word, &bits) in missing.iter().enumerate() {
                         let mut bits = u64::from_le_bytes(bits.into_bytes());
                         while bits != 0 {
                             let bit = bits.trailing_zeros();
                             let len = (bits >> bit).trailing_ones();
                             bits &= !((u64::MAX >> (64 - len)) << bit);
-                            let start = block + word as u64 * 32 + u64::from(bit);
-                            let range = start.max(first)..(start + u64::from(len)).min(end);
+                            let start = block + word as BlockNumber * 32 + bit;
+                            let range = start.max(first)..start.saturating_add(len).min(end);
                             if range.is_empty() {
                                 continue;
                             }
@@ -560,7 +556,7 @@ impl VisibilityChecker {
                             }
                         }
                     }
-                    block += words as u64 * 32;
+                    block = block.saturating_add(words as BlockNumber * 32);
                 }
                 if let Some(last) = pending {
                     pages.push(last);

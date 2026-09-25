@@ -25,7 +25,7 @@ use std::io;
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 
-use pgrx::pg_sys::BlockNumber;
+use pgrx::pg_sys::{BlockNumber, InvalidBlockNumber};
 use tantivy::DocId;
 use tantivy::columnar::column_values::CodecType;
 use tantivy::columnar::{
@@ -36,11 +36,14 @@ use tantivy::index::{Segment, SegmentComponent};
 use tantivy::schema::Field;
 
 use crate::api::CTID_FIELD_NAME;
-use crate::postgres::heap::HeapBlockBoundary;
 
+// First composite entry for boundary chunks; earlier entries hold other segment statistics.
 pub(super) const COLUMNS_IDX: usize = 3;
+// Column name shared by the boundary writer and reader.
 const PAGE_BOUNDARIES: &str = "page_boundaries";
+// Maximum boundaries per column chunk, bounding writer memory.
 const CHUNK_SIZE: usize = 32768;
+// Let Tantivy choose between bitpacking and blockwise linear compression.
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 
 fn invalid() -> io::Error {
@@ -123,7 +126,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
 pub(crate) struct HeapBlockMap {
     first_block: BlockNumber,
     last_block: BlockNumber,
-    docs: DocId,
+    num_docs: u32,
     file: Arc<CompositeFile>,
     field: Field,
     values: Option<(usize, Column<u64>)>,
@@ -133,19 +136,19 @@ impl HeapBlockMap {
     /// Uses heap-block bounds without reading the boundary column.
     pub(super) fn open(
         blocks: RangeInclusive<BlockNumber>,
-        docs: DocId,
+        num_docs: u32,
         file: Arc<CompositeFile>,
         field: Field,
     ) -> io::Result<Self> {
         let first_block = *blocks.start();
         let last_block = *blocks.end();
-        if docs == 0 || first_block > last_block {
+        if num_docs == 0 || first_block > last_block || last_block == InvalidBlockNumber {
             return Err(invalid());
         }
         Ok(Self {
             first_block,
             last_block,
-            docs,
+            num_docs,
             file,
             field,
             values: None,
@@ -153,14 +156,14 @@ impl HeapBlockMap {
     }
 
     /// Returns the heap-page span covered by the boundary column.
-    pub(crate) fn block_range(&self) -> Range<HeapBlockBoundary> {
-        u64::from(self.first_block)..u64::from(self.last_block) + 1
+    pub(crate) fn block_range(&self) -> Range<BlockNumber> {
+        self.first_block..self.last_block + 1
     }
 
     /// Batch-decodes dirty page endpoints and coalesces their document ranges.
     pub(crate) fn append_ranges(
         &mut self,
-        pages: &[Range<HeapBlockBoundary>],
+        pages: &[Range<BlockNumber>],
         ranges: &mut Vec<Range<DocId>>,
     ) -> io::Result<()> {
         let blocks: Vec<_> = pages
@@ -171,7 +174,7 @@ impl HeapBlockMap {
         self.boundaries(&blocks, &mut boundaries)?;
         for pair in boundaries.chunks_exact(2) {
             let [start, end] = [pair[0], pair[1]];
-            if start > end || end > self.docs {
+            if start > end || end > self.num_docs {
                 return Err(invalid());
             }
             if start == end {
@@ -189,15 +192,13 @@ impl HeapBlockMap {
     /// Reads sorted boundaries in batches, retaining only the current column chunk.
     fn boundaries(
         &mut self,
-        mut blocks: &[HeapBlockBoundary],
+        mut blocks: &[BlockNumber],
         mut output: &mut [DocId],
     ) -> io::Result<()> {
         debug_assert_eq!(blocks.len(), output.len());
         debug_assert!(blocks.is_sorted());
         while let Some(&block) = blocks.first() {
-            let index = block
-                .checked_sub(u64::from(self.first_block))
-                .ok_or_else(invalid)? as usize;
+            let index = block.checked_sub(self.first_block).ok_or_else(invalid)? as usize;
             let count = (u64::from(self.last_block) - u64::from(self.first_block) + 2) as usize;
             if index >= count {
                 return Err(invalid());
@@ -223,21 +224,22 @@ impl HeapBlockMap {
                 let len = (count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
                 if values.get_cardinality() != Cardinality::Full
                     || values.num_docs() as usize != len
-                    || values.max_value() > u64::from(self.docs)
+                    || values.max_value() > u64::from(self.num_docs)
                 {
                     return Err(invalid());
                 }
                 self.values = Some((chunk, values));
             }
             let (_, values) = self.values.as_ref().unwrap();
-            let chunk_start = u64::from(self.first_block) + (chunk * CHUNK_SIZE) as u64;
-            let len = blocks.partition_point(|&block| block < chunk_start + CHUNK_SIZE as u64);
-            if blocks[len - 1] - chunk_start >= u64::from(values.num_docs()) {
+            let chunk_start = self.first_block + (chunk * CHUNK_SIZE) as BlockNumber;
+            let len =
+                blocks.partition_point(|&block| block - chunk_start < CHUNK_SIZE as BlockNumber);
+            if blocks[len - 1] - chunk_start >= values.num_docs() {
                 return Err(invalid());
             }
             let (batch, rest) = output.split_at_mut(len);
             for (&block, boundary) in blocks[..len].iter().zip(batch) {
-                *boundary = values.values.get_val((block - chunk_start) as u32) as DocId;
+                *boundary = values.values.get_val(block - chunk_start) as DocId;
             }
             blocks = &blocks[len..];
             output = rest;

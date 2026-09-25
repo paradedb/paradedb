@@ -474,13 +474,14 @@ impl VisibilityChecker {
             missing.fill(TinySet::range_lower(32));
             self.retain_invisible_blocks(block, missing);
             for (word, &bits) in missing.iter().enumerate() {
-                let word_start = block + word as BlockNumber * 32;
-                let first = blocks.start.saturating_sub(word_start);
-                let end = (blocks.end - word_start).min(32);
-                let mut bits = u64::from_le_bytes(bits.into_bytes())
-                    & (u64::MAX << first)
-                    & (u64::MAX >> (64 - end));
-                dirty_count += u64::from(bits.count_ones());
+                let mut bits = u64::from_le_bytes(bits.into_bytes());
+                if self.visibility_stats.is_some() {
+                    let word_start = block + word as BlockNumber * 32;
+                    let first = blocks.start.saturating_sub(word_start);
+                    let end = (blocks.end - word_start).min(32);
+                    let counted_bits = bits & (u64::MAX << first) & (u64::MAX >> (64 - end));
+                    dirty_count += u64::from(counted_bits.count_ones());
+                }
                 while bits != 0 {
                     let bit = bits.trailing_zeros();
                     let len = (bits >> bit).trailing_ones();

@@ -18,6 +18,7 @@
 use tests::fixtures::querygen::distinctgen::arb_distinct_mode;
 use tests::fixtures::querygen::groupbygen::arb_group_by;
 use tests::fixtures::querygen::joingen::{JoinType, arb_joins, arb_semi_joins};
+use tests::fixtures::querygen::mutationgen::churn_setup;
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
 use tests::fixtures::querygen::orderbygen::arb_joinscan_order_parts;
 use tests::fixtures::querygen::pagegen::arb_paging_exprs;
@@ -266,8 +267,10 @@ impl GeneratedSubquery {
 /// against PostgreSQL.
 ///
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_joins_small(database: Db) {
+async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -279,6 +282,7 @@ async fn generated_joins_small(database: Db) {
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid", "tags"]);
 
@@ -469,15 +473,19 @@ async fn generated_joins_small(database: Db) {
 }
 
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_single_relation(database: Db) {
+async fn generated_single_relation(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 10)], COLUMNS);
+    let tables_and_sizes = [(table_name, 10)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(
@@ -507,15 +515,19 @@ async fn generated_single_relation(database: Db) {
 /// - ensures equivalence between PostgreSQL and bm25 behavior
 ///
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_group_by_aggregates(database: Db) {
+async fn generated_group_by_aggregates(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 50)], COLUMNS);
+    let tables_and_sizes = [(table_name, 50)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     // Columns that can be used for grouping (must be columnar indexed)
     let columns: Vec<_> = COLUMNS
@@ -703,8 +715,10 @@ async fn generated_paging_large(database: Db) {
 }
 
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_subquery(database: Db) {
+async fn generated_subquery(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -712,11 +726,9 @@ async fn generated_subquery(database: Db) {
 
     let outer_table_name = "products";
     let inner_table_name = "orders";
-    let setup_sql = generated_queries_setup(
-        &pool,
-        &[(outer_table_name, 10), (inner_table_name, 10)],
-        COLUMNS,
-    );
+    let tables_and_sizes = [(outer_table_name, 10), (inner_table_name, 10)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     proptest!(qgen_proptest_config(), |(
         outer_where_expr in arb_wheres(
@@ -780,8 +792,10 @@ async fn generated_subquery(database: Db) {
 /// Verifies that the DataFusion aggregate path produces the same results as
 /// PostgreSQL's native hash/sort aggregate on top of nested loop joins.
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_aggregate_join(database: Db) {
+async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -791,6 +805,7 @@ async fn generated_aggregate_join(database: Db) {
     let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);

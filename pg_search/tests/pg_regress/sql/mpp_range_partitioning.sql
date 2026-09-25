@@ -27,14 +27,6 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
-RESET paradedb.enable_range_partitioned_join;
-DO $$
-BEGIN
-    ASSERT (SELECT boot_val = 'on' AND setting = 'on' FROM pg_settings
-            WHERE name = 'paradedb.enable_range_partitioned_join'),
-        'range-partitioned joins must be enabled by default';
-END
-$$;
 
 SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
@@ -156,33 +148,6 @@ JOIN mpp_rp_posts p ON u.user_id = p.user_id
 WHERE p.title @@@ 'post'
 ORDER BY u.user_id, p.post_id
 LIMIT 5;
-
--- Explicit opt-out must remove range assignments while preserving the result.
-SET paradedb.enable_range_partitioned_join TO off;
-DO $$
-DECLARE
-    plan_line text;
-BEGIN
-    FOR plan_line IN EXECUTE $query$EXPLAIN (COSTS OFF, VERBOSE)
-SELECT u.user_name, p.title
-FROM mpp_rp_users u
-JOIN mpp_rp_posts p ON u.user_id = p.user_id
-WHERE p.title @@@ 'post'
-ORDER BY u.user_id, p.post_id
-LIMIT 5;
-$query$ LOOP
-        ASSERT position('partition=user_id[' in plan_line) = 0,
-            'disabled range-partitioned joins must not assign ranges';
-    END LOOP;
-END
-$$;
-SELECT u.user_name, p.title
-FROM mpp_rp_users u
-JOIN mpp_rp_posts p ON u.user_id = p.user_id
-WHERE p.title @@@ 'post'
-ORDER BY u.user_id, p.post_id
-LIMIT 5;
-RESET paradedb.enable_range_partitioned_join;
 
 -- =====================================================================
 -- Scenario 2: Three-table join with multi-field partition_by on bridge

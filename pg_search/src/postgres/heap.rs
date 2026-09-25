@@ -37,7 +37,7 @@ use pgrx::{PgList, PgTupleDesc, check_for_interrupts};
 use tantivy::SegmentReader;
 use tantivy::columnar::Cardinality;
 use tantivy::index::SegmentId;
-use tantivy::{DocId, SegmentOrdinal, TantivyDocument};
+use tantivy::{DocId, Order, SegmentOrdinal, TantivyDocument};
 
 use util::HEAPBLOCKS_PER_BYTE;
 use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
@@ -491,7 +491,7 @@ impl VisibilityChecker {
         segment_ord: SegmentOrdinal,
     ) -> Option<Arc<[Range<DocId>]>> {
         if !self.segment_checks.contains_key(&segment_ord) {
-            // Intersect the immutable segment’s presence map with the VM once per snapshot.
+            // Map dirty VM pages to document ranges once per snapshot.
             let ranges = (|| -> tantivy::Result<Option<Vec<Range<DocId>>>> {
                 if self.snapshot.is_null()
                     || unsafe {
@@ -507,9 +507,11 @@ impl VisibilityChecker {
                 let Some(stats) = SegmentStats::of_reader(segment)? else {
                     return Ok(None);
                 };
-                let field = segment.schema().get_field(CTID_FIELD_NAME)?;
+                let descending = ffhelper
+                    .sort_order()
+                    .is_some_and(|sort| sort.order == Order::Desc);
                 let Some(mut map) =
-                    stats.heap_blocks(field, segment.max_doc(), util::HEAPBLOCKS_PER_PAGE)?
+                    stats.heap_blocks(segment, descending, util::HEAPBLOCKS_PER_PAGE)?
                 else {
                     return Ok(None);
                 };

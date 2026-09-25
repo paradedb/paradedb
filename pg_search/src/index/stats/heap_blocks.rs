@@ -21,11 +21,10 @@
 //! bitmap, rank structure, custom column encoding, or temporary file. Value buffers are
 //! bounded; the composite footer retains one entry per batch.
 
-use std::io::{self, Write};
+use std::io;
 use std::ops::Range;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use tantivy::columnar::column_values::CodecType;
 use tantivy::columnar::{
     Cardinality, Column, ColumnType, ColumnarReader, ColumnarWriter, DynamicColumn,
@@ -38,21 +37,12 @@ use crate::api::CTID_FIELD_NAME;
 #[cfg(feature = "io_stats")]
 use crate::index::reader::io_stats::trace;
 
-pub(super) const METADATA_IDX: usize = 7;
-const COLUMNS_IDX: usize = 9;
+pub(super) const COLUMNS_IDX: usize = 9;
 const CHUNK_SIZE: usize = 32768;
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 
 fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid heap-block boundaries")
-}
-
-#[derive(Serialize, Deserialize)]
-pub(super) struct Metadata {
-    first_block: u32,
-    last_block: u32,
-    docs: u32,
-    descending: bool,
 }
 
 /// Builds the boundary column from the final live CTIDs at flush or merge.
@@ -125,19 +115,14 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
     if processed != docs {
         return Err(invalid().into());
     }
-    let metadata = Metadata {
-        first_block,
-        last_block,
-        docs,
-        descending,
-    };
-    out.for_field_with_idx(field, METADATA_IDX)
-        .write_all(&postcard::to_allocvec(&metadata).map_err(io::Error::other)?)?;
     Ok(())
 }
 
 pub(crate) struct HeapBlockMap {
-    metadata: Metadata,
+    first_block: u32,
+    last_block: u32,
+    docs: u32,
+    descending: bool,
     file: Arc<CompositeFile>,
     field: Field,
     pages_per_vm: u32,
@@ -145,24 +130,30 @@ pub(crate) struct HeapBlockMap {
 }
 
 impl HeapBlockMap {
-    /// Opens segment bounds without reading the boundary column.
+    /// Uses the CTID column bounds without reading the boundary column.
     pub(super) fn open(
-        metadata: Metadata,
+        ctids: &Column<u64>,
+        descending: bool,
         file: Arc<CompositeFile>,
         field: Field,
-        docs: u32,
         pages_per_vm: u32,
     ) -> io::Result<Self> {
-        if metadata.docs != docs
+        let docs = ctids.num_docs();
+        let first_block = u32::try_from(ctids.min_value() >> 16).map_err(|_| invalid())?;
+        let last_block = u32::try_from(ctids.max_value() >> 16).map_err(|_| invalid())?;
+        if ctids.get_cardinality() != Cardinality::Full
             || docs == 0
-            || metadata.first_block > metadata.last_block
+            || first_block > last_block
             || pages_per_vm == 0
             || !pages_per_vm.is_multiple_of(32)
         {
             return Err(invalid());
         }
         Ok(Self {
-            metadata,
+            first_block,
+            last_block,
+            docs,
+            descending,
             file,
             field,
             pages_per_vm,
@@ -175,8 +166,8 @@ impl HeapBlockMap {
         &mut self,
         mut retain_invisible: impl FnMut(u32, &mut [u32]),
     ) -> io::Result<Vec<Range<u32>>> {
-        let first = u64::from(self.metadata.first_block);
-        let end = u64::from(self.metadata.last_block) + 1;
+        let first = u64::from(self.first_block);
+        let end = u64::from(self.last_block) + 1;
         let mut block = first / 32 * 32;
         let mut scratch = vec![u32::MAX; self.pages_per_vm as usize / 32];
         let mut pending: Option<Range<u64>> = None;
@@ -213,9 +204,9 @@ impl HeapBlockMap {
         if let Some(pages) = pending {
             self.append_range(pages, &mut ranges)?;
         }
-        if self.metadata.descending {
+        if self.descending {
             for range in &mut ranges {
-                *range = self.metadata.docs - range.end..self.metadata.docs - range.start;
+                *range = self.docs - range.end..self.docs - range.start;
             }
             ranges.reverse();
         }
@@ -226,7 +217,7 @@ impl HeapBlockMap {
     fn append_range(&mut self, pages: Range<u64>, ranges: &mut Vec<Range<u32>>) -> io::Result<()> {
         let start = self.boundary(pages.start)?;
         let end = self.boundary(pages.end)?;
-        if start > end || end > self.metadata.docs {
+        if start > end || end > self.docs {
             return Err(invalid());
         }
         if start == end {
@@ -244,9 +235,8 @@ impl HeapBlockMap {
     fn boundary(&mut self, block: u64) -> io::Result<u32> {
         #[cfg(feature = "io_stats")]
         let _io = trace::external("Visibility Boundaries");
-        let index = (block - u64::from(self.metadata.first_block)) as usize;
-        let count = (u64::from(self.metadata.last_block) - u64::from(self.metadata.first_block) + 2)
-            as usize;
+        let index = (block - u64::from(self.first_block)) as usize;
+        let count = (u64::from(self.last_block) - u64::from(self.first_block) + 2) as usize;
         if index >= count {
             return Err(invalid());
         }

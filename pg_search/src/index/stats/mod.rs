@@ -37,6 +37,7 @@ use tantivy::directory::{CompositeFile, FileSlice};
 use tantivy::index::{Segment, SegmentReader};
 use tantivy::schema::Field;
 
+use crate::api::CTID_FIELD_NAME;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
 use crate::postgres::storage::block::STATS_EXT;
@@ -474,19 +475,29 @@ impl SegmentStats {
             .map(LogicalBounds::from))
     }
 
-    /// Opens optional heap-block presence metadata, leaving document boundaries lazily loaded.
+    /// Opens optional boundaries using the segment's existing CTID bounds.
     pub(crate) fn heap_blocks(
         &self,
-        field: Field,
-        max_doc: u32,
+        segment: &SegmentReader,
+        descending: bool,
         pages_per_vm: u32,
     ) -> io::Result<Option<heap_blocks::HeapBlockMap>> {
-        let Some(metadata) =
-            self.read::<heap_blocks::Metadata>(field, heap_blocks::METADATA_IDX)?
-        else {
+        let field = segment
+            .schema()
+            .get_field(CTID_FIELD_NAME)
+            .map_err(io::Error::other)?;
+        if self
+            .file
+            .open_read_with_idx(field, heap_blocks::COLUMNS_IDX)
+            .is_none()
+        {
             return Ok(None);
-        };
-        heap_blocks::HeapBlockMap::open(metadata, self.file.clone(), field, max_doc, pages_per_vm)
+        }
+        let ctids = segment
+            .fast_fields()
+            .u64(CTID_FIELD_NAME)
+            .map_err(io::Error::other)?;
+        heap_blocks::HeapBlockMap::open(&ctids, descending, self.file.clone(), field, pages_per_vm)
             .map(Some)
     }
 

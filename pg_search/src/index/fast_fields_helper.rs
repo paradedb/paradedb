@@ -42,7 +42,7 @@ use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, DocId, Searcher, SegmentReader};
+use tantivy::{DocAddress, DocId, IndexSortByField, Searcher, SegmentReader};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -132,6 +132,11 @@ impl FFHelper {
 
     fn searcher(&self) -> &Searcher {
         &self.inner().searcher
+    }
+
+    /// Reads the sort direction from the existing index settings.
+    pub(crate) fn sort_order(&self) -> Option<&IndexSortByField> {
+        self.searcher().index().settings().sort_by_field.as_ref()
     }
 
     fn caches(&self) -> &[SegmentCache] {

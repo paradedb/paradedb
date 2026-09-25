@@ -499,10 +499,10 @@ impl SegmentStats {
     }
 
     /// Opens optional boundaries using the segment's existing CTID bounds.
-    pub(crate) fn heap_blocks(
+    pub(crate) fn block_to_doc_id_map(
         &self,
         segment: &SegmentReader,
-    ) -> io::Result<Option<heap_blocks::HeapBlockMap>> {
+    ) -> io::Result<Option<heap_blocks::BlockToDocIdMap>> {
         let field = segment
             .schema()
             .get_field(CTID_FIELD_NAME)
@@ -519,7 +519,7 @@ impl SegmentStats {
         };
         let first_block = BlockNumber::try_from(min >> 16).map_err(io::Error::other)?;
         let last_block = BlockNumber::try_from(max >> 16).map_err(io::Error::other)?;
-        heap_blocks::HeapBlockMap::open(
+        heap_blocks::BlockToDocIdMap::open(
             first_block..=last_block,
             segment.max_doc(),
             self.file.clone(),

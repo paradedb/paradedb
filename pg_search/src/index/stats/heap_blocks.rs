@@ -123,7 +123,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
     Ok(())
 }
 
-pub(crate) struct HeapBlockMap {
+pub(crate) struct BlockToDocIdMap {
     first_block: BlockNumber,
     last_block: BlockNumber,
     num_docs: u32,
@@ -132,7 +132,7 @@ pub(crate) struct HeapBlockMap {
     values: Option<(usize, Column<u64>)>,
 }
 
-impl HeapBlockMap {
+impl BlockToDocIdMap {
     /// Uses heap-block bounds without reading the boundary column.
     pub(super) fn open(
         blocks: RangeInclusive<BlockNumber>,

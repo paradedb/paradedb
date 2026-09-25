@@ -507,7 +507,7 @@ impl VisibilityChecker {
                 let descending = ffhelper
                     .sort_order()
                     .is_some_and(|sort| sort.order == Order::Desc);
-                let Some(mut map) = stats.heap_blocks(segment)? else {
+                let Some(mut map) = stats.block_to_doc_id_map(segment)? else {
                     return Ok(None);
                 };
                 // The immutable reader's cleanup pin keeps these entries live until fresh VM bits

@@ -663,7 +663,7 @@ unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<St
     }
     let konst = expr as *mut pg_sys::Const;
     if (*konst).constisnull {
-        return None;
+        return Some(String::new());
     }
     let datum = (*konst).constvalue;
     let text_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();

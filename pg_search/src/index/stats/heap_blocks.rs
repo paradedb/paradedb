@@ -321,6 +321,16 @@ fn encode_presence(blocks: &[u32], pages_per_vm: u32) -> (Vec<u8>, bool) {
     (payload, sparse)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PresenceRank(pub u32);
+
+#[derive(Clone, Debug)]
+struct HeapBlockCursor {
+    rank: PresenceRank,
+    processed_range: Range<DocId>,
+    block: TidBlock,
+}
+
 #[derive(Debug)]
 pub struct HeapBlockMap {
     presence: OwnedBytes,
@@ -329,6 +339,7 @@ pub struct HeapBlockMap {
     blocks: u32,
     pages_per_vm: u32,
     descending: bool,
+    cursor: Option<HeapBlockCursor>,
 }
 
 impl HeapBlockMap {
@@ -438,6 +449,7 @@ impl HeapBlockMap {
             docs,
             blocks,
             pages_per_vm,
+            cursor: None,
         })
     }
 
@@ -634,8 +646,8 @@ impl HeapBlockMap {
         }
     }
 
-    /// Returns the presence rank for a document ID.
-    pub(crate) fn rank_of_doc(&mut self, doc: DocId) -> io::Result<u32> {
+    /// Returns the heap block number for a document ID.
+    pub(crate) fn block_of_doc(&mut self, doc: DocId) -> io::Result<u32> {
         if doc >= self.docs {
             return Err(invalid());
         }
@@ -644,6 +656,26 @@ impl HeapBlockMap {
         } else {
             doc
         };
+
+        if let Some(cursor) = &self.cursor {
+            if cursor.processed_range.contains(&processed) {
+                return Ok(cursor.block);
+            }
+            if processed >= cursor.processed_range.end && cursor.rank.0 + 1 < self.blocks {
+                let next_end = self.boundaries.get((cursor.rank.0 + 2) as usize)?;
+                if processed < next_end {
+                    let next_rank = PresenceRank(cursor.rank.0 + 1);
+                    let next_block = self.block_at_rank(next_rank.0)?;
+                    let start = cursor.processed_range.end;
+                    self.cursor = Some(HeapBlockCursor {
+                        rank: next_rank,
+                        processed_range: start..next_end,
+                        block: next_block,
+                    });
+                    return Ok(next_block);
+                }
+            }
+        }
 
         let mut low = 1;
         let mut high = self.blocks;
@@ -656,13 +688,19 @@ impl HeapBlockMap {
             }
         }
         let rank = low - 1;
-        Ok(rank)
-    }
-
-    /// Returns the heap block number for a document ID.
-    pub(crate) fn block_of_doc(&mut self, doc: DocId) -> io::Result<u32> {
-        let rank = self.rank_of_doc(doc)?;
-        self.block_at_rank(rank)
+        let start = if rank == 0 {
+            0
+        } else {
+            self.boundaries.get(rank as usize)?
+        };
+        let end = self.boundaries.get((rank + 1) as usize)?;
+        let block = self.block_at_rank(rank)?;
+        self.cursor = Some(HeapBlockCursor {
+            rank: PresenceRank(rank),
+            processed_range: start..end,
+            block,
+        });
+        Ok(block)
     }
 
     /// Populates block numbers for a sorted slice of document IDs.
@@ -713,6 +751,16 @@ impl HeapBlockMap {
                 }
                 output[i] = current_block;
             }
+            let start = if current_rank == 0 {
+                0
+            } else {
+                self.boundaries.get(current_rank as usize)?
+            };
+            self.cursor = Some(HeapBlockCursor {
+                rank: PresenceRank(current_rank),
+                processed_range: start..current_end,
+                block: current_block,
+            });
         } else {
             for i in (0..docs.len()).rev() {
                 let doc = docs[i];
@@ -747,6 +795,16 @@ impl HeapBlockMap {
                 }
                 output[i] = current_block;
             }
+            let start = if current_rank == 0 {
+                0
+            } else {
+                self.boundaries.get(current_rank as usize)?
+            };
+            self.cursor = Some(HeapBlockCursor {
+                rank: PresenceRank(current_rank),
+                processed_range: start..current_end,
+                block: current_block,
+            });
         }
         Ok(())
     }
@@ -800,6 +858,16 @@ impl HeapBlockMap {
                 }
                 output[i] = Some(current_block as u64);
             }
+            let start = if current_rank == 0 {
+                0
+            } else {
+                self.boundaries.get(current_rank as usize)?
+            };
+            self.cursor = Some(HeapBlockCursor {
+                rank: PresenceRank(current_rank),
+                processed_range: start..current_end,
+                block: current_block,
+            });
         } else {
             for i in (0..docs.len()).rev() {
                 let doc = docs[i];
@@ -835,6 +903,16 @@ impl HeapBlockMap {
                 }
                 output[i] = Some(current_block as u64);
             }
+            let start = if current_rank == 0 {
+                0
+            } else {
+                self.boundaries.get(current_rank as usize)?
+            };
+            self.cursor = Some(HeapBlockCursor {
+                rank: PresenceRank(current_rank),
+                processed_range: start..current_end,
+                block: current_block,
+            });
         }
         Ok(())
     }

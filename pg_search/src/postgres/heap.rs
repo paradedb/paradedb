@@ -814,7 +814,9 @@ impl VisibilityChecker {
                 {
                     return Ok(None);
                 }
-                let ffhelper = self.ffhelper.clone().expect("FFHelper must be configured");
+                let Some(ffhelper) = self.ffhelper.clone() else {
+                    return Ok(None);
+                };
                 let Some(segment) = ffhelper.immutable_segment_reader(segment_ord) else {
                     return Ok(None);
                 };
@@ -851,6 +853,57 @@ impl VisibilityChecker {
         match &self.segment_checks[ord] {
             SegmentCheck::Ranges(ranges) => Some(Arc::clone(ranges)),
             SegmentCheck::Unavailable | SegmentCheck::Unchecked => None,
+        }
+    }
+
+    /// Returns true if all documents in the segment are guaranteed all-visible under this snapshot.
+    pub fn is_segment_all_visible_ord(&mut self, segment_ord: SegmentOrdinal) -> bool {
+        if !self.check_visibility {
+            return true;
+        }
+        self.doc_id_ranges_needing_visibility_checks(segment_ord)
+            .is_some_and(|ranges| ranges.is_empty())
+    }
+
+    /// Checks if a single document is on an all-visible block.
+    ///
+    /// For segments with heap-block presence, uses the cached non-all-visible document ranges
+    /// without reading any fast field columns or block numbers.
+    /// Falls back to checking the block visibility map directly without decoding offsets.
+    pub fn is_doc_all_visible(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> bool {
+        if !self.check_visibility {
+            return true;
+        }
+        if let Some(ranges) = self.doc_id_ranges_needing_visibility_checks(segment_ord) {
+            if ranges.is_empty() {
+                return true;
+            }
+            let idx = ranges.partition_point(|range| range.doc_range.end <= doc_id);
+            if idx < ranges.len() && ranges[idx].doc_range.start <= doc_id {
+                return false;
+            }
+            return true;
+        }
+
+        // Fallback when proof ranges are not available (e.g. mutable segments, no .stats, non-MVCC snapshot):
+        let blockno = self.block_of_doc(segment_ord, doc_id);
+        let Some(blockno) = blockno else {
+            return false;
+        };
+        if blockno >= self.nblocks {
+            return false;
+        }
+        self.is_block_all_visible(blockno)
+    }
+
+    /// Returns the block number for a document within a segment without reading or decoding offsets.
+    pub fn block_of_doc(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> Option<TidBlock> {
+        let ffhelper = self.ffhelper.as_ref()?;
+        let reader = ffhelper.ctid(segment_ord);
+        match reader {
+            TidReader::Split { block, .. } => block.first(doc_id).map(|b| b as TidBlock),
+            TidReader::Boundaries { map, .. } => map.lock().block_of_doc(doc_id).ok(),
+            TidReader::Legacy(col) => col.first(doc_id).map(|c| (c >> 16) as TidBlock),
         }
     }
 

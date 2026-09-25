@@ -14,12 +14,6 @@ inputs:
   signing-email:
     description: Verified email address on the signing account
     required: true
-  sign-commits:
-    description: Enable signing for locally created commits
-    default: "false"
-  sign-tags:
-    description: Enable signing for annotated tags
-    default: "false"
 
 runs:
   using: composite
@@ -31,8 +25,6 @@ runs:
         SIGNING_KEY: ${{ inputs.signing-key }}
         SIGNING_USER: ${{ inputs.signing-user }}
         SIGNING_EMAIL: ${{ inputs.signing-email }}
-        SIGN_COMMITS: ${{ inputs.sign-commits }}
-        SIGN_TAGS: ${{ inputs.sign-tags }}
       run: |
         : "${SIGNING_KEY:?A signing key is required}"
         : "${SIGNING_USER:?A signing user is required}"
@@ -50,5 +42,5 @@ runs:
         git config gpg.format ssh
         git config user.signingkey "$KEY_FILE"
         git config gpg.ssh.allowedSignersFile "$KEY_FILE.allowed-signers"
-        git config commit.gpgsign "$SIGN_COMMITS"
-        git config tag.gpgsign "$SIGN_TAGS"
+        git config commit.gpgsign true
+        git config tag.gpgsign true

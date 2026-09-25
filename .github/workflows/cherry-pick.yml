@@ -40,7 +40,6 @@ jobs:
           signing-key: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
           signing-user: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
           signing-email: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
-          sign-commits: "true"
 
       - name: Backport based on cherry-pick/<branch> labels
         uses: korthout/backport-action@v4

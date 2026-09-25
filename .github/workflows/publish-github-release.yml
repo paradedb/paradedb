@@ -107,7 +107,6 @@ jobs:
           signing-key: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
           signing-user: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
           signing-email: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
-          sign-tags: "true"
 
       - name: Install Rust
         if: github.repository == 'paradedb/paradedb'

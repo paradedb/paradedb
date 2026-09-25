@@ -214,6 +214,21 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
         12,
     );
 
+    // LIMIT 0 on the DISTINCT form: the aggregate runs over an emptied input
+    // rather than being skipped, so the sort still finds its `col_N` keys.
+    assert_paths_agree::<(i32, Option<i32>)>(
+        &mut conn,
+        r#"
+        SELECT DISTINCT t1.id, t1.rating
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.rating DESC NULLS FIRST, t1.id ASC
+        LIMIT 0
+        "#,
+        0,
+    );
+
     // DISTINCT with a score in the key and in the ORDER BY.
     assert_paths_agree::<(i32, f32)>(
         &mut conn,

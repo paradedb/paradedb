@@ -953,10 +953,7 @@ fn apply_distinct_topk_as_agg(
     distinct_col_map: &DistinctColMap,
     k: usize,
 ) -> Result<DataFrame> {
-    if k == 0 {
-        // the accumulator rejects a k of 0, so fallback to returning the "empty" dataframe
-        return df.limit(0, Some(0));
-    }
+    let (df, k) = empty_input_for_zero_k(df, k)?;
 
     {
         let projection = join_clause
@@ -1038,10 +1035,7 @@ fn apply_distinct_topk_as_agg(
 }
 
 fn apply_topk_as_agg(df: DataFrame, join_clause: &JoinCSClause, k: usize) -> Result<DataFrame> {
-    if k == 0 {
-        // the accumulator rejects a k of 0, so fallback to returning the "empty" dataframe
-        return df.limit(0, Some(0));
-    }
+    let (df, k) = empty_input_for_zero_k(df, k)?;
 
     let columns = df.schema().columns();
     let all_col_exprs: Vec<_> = columns.iter().cloned().map(Expr::from).collect();
@@ -1066,6 +1060,17 @@ fn apply_topk_as_agg(df: DataFrame, join_clause: &JoinCSClause, k: usize) -> Res
     let df = df.select(name_restoration_exprs)?;
 
     Ok(df)
+}
+
+/// The accumulator rejects a k of 0. Empty the input instead and keep one row,
+/// which the LIMIT stage drops, so the schema the sort and output projection
+/// expect stays intact.
+fn empty_input_for_zero_k(df: DataFrame, k: usize) -> Result<(DataFrame, usize)> {
+    if k == 0 {
+        Ok((df.limit(0, Some(0))?, 1))
+    } else {
+        Ok((df, k))
+    }
 }
 
 /// Translate every clause in `custom_exprs` (a Postgres `List*`) into a

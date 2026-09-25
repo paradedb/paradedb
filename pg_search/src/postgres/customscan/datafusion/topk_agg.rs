@@ -185,11 +185,6 @@ impl AggregateUDFImpl for TopKAgg {
                     })
             })
             .collect::<Result<_>>()?;
-        if sort.is_empty() {
-            return Err(DataFusionError::Internal(format!(
-                "{name} requires an ORDER BY"
-            )));
-        }
 
         let (suffix, ctid_positions) = if self.distinct {
             let keys = positions_arg(&acc_args, n + 1, name, "distinct key positions", n)?;
@@ -415,13 +410,18 @@ impl FusedTopK {
     }
 
     fn absorb(&mut self, columns: &[ArrayRef]) -> Result<()> {
-        // Encode only the sort keys for the whole batch.
+        // Encode only the sort keys for the whole batch. Without an ORDER BY the
+        // prefix is empty and every row ties: the prefilter admits all of them,
+        // and the map keeps the first k arrivals, or the first k distinct groups
+        // in key order.
         let sort_arrays: Vec<ArrayRef> = self
             .sort_positions
             .iter()
             .map(|&p| Arc::clone(&columns[p]))
             .collect();
-        let prefixes = self.prefix.convert_columns(&sort_arrays)?;
+        let prefixes = (!sort_arrays.is_empty())
+            .then(|| self.prefix.convert_columns(&sort_arrays))
+            .transpose()?;
 
         // When full, drop every row that cannot beat the worst entry. A row of a
         // group already in the map has its group's prefix, which is at or above
@@ -429,7 +429,13 @@ impl FusedTopK {
         let full = self.entries.len() >= self.k;
         let worst = self.worst_prefix();
         let survivors: Vec<u32> = (0..columns[0].len())
-            .filter(|&i| !full || worst.is_some_and(|w| prefixes.row(i).as_ref() <= w))
+            .filter(|&i| {
+                !full
+                    || worst.is_some_and(|w| match &prefixes {
+                        Some(prefixes) => prefixes.row(i).as_ref() <= w,
+                        None => true,
+                    })
+            })
             .map(|i| i as u32)
             .collect();
         if survivors.is_empty() {
@@ -492,7 +498,9 @@ impl FusedTopK {
                 }
                 MapEntry::Vacant(vacant) => {
                     vacant.insert(Entry {
-                        prefix_len: prefixes.row(i as usize).as_ref().len(),
+                        prefix_len: prefixes
+                            .as_ref()
+                            .map_or(0, |prefixes| prefixes.row(i as usize).as_ref().len()),
                         payload: payloads.row(j).owned(),
                         ctids: self.ctid_positions.iter().map(|&p| row_ctids(p)).collect(),
                     });
@@ -566,7 +574,8 @@ impl Accumulator for FusedTopK {
 ///
 /// The first `payload.len()` fields of each emitted row are `payload` in order.
 /// Sort keys the payload does not already carry are appended after it, since
-/// the accumulator can only sort on columns it receives.
+/// the accumulator can only sort on columns it receives. With no sort keys any
+/// k rows are a correct answer, and the first k to arrive are kept.
 pub fn topk_as_agg(payload: &[Expr], sort_exprs: Vec<SortExpr>, k: usize) -> Expr {
     let args = topk_args(payload, &sort_exprs, k);
     Expr::AggregateFunction(AggregateFunction::new_udf(
@@ -698,6 +707,21 @@ mod tests {
         assert_eq!(
             rows_of(&acc.evaluate().unwrap()),
             vec![(None, 2), (None, 6), (Some(9), 4)]
+        );
+    }
+
+    /// No ORDER BY: the prefix is empty, every row ties, and once full nothing
+    /// later can displace an earlier arrival.
+    #[test]
+    fn no_order_by_keeps_first_arrivals() {
+        let mut acc =
+            FusedTopK::new(schema(), vec![], Suffix::Arrival { next: 0 }, vec![], 2).unwrap();
+        acc.update_batch(batch(&[(Some(5), 1), (None, 2), (Some(9), 3)]).columns())
+            .unwrap();
+        acc.update_batch(batch(&[(Some(7), 4)]).columns()).unwrap();
+        assert_eq!(
+            rows_of(&acc.evaluate().unwrap()),
+            vec![(Some(5), 1), (None, 2)]
         );
     }
 

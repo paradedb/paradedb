@@ -1,7 +1,7 @@
 // Copyright (c) 2023-2026 ParadeDB, Inc.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! A CTID-sorted segment can map heap pages directly to document ranges:
+//! A CTID-sorted segment can map heap blocks directly to document ranges:
 //!
 //! ```text
 //! doc ID:       0  1  2  3  4  5  6
@@ -11,9 +11,9 @@
 //! boundary:     0  3  5  5  5  5  7
 //! ```
 //!
-//! If the visibility map says page 11 needs checking, its two boundaries give docs
-//! [3, 5). Page 12 gives [5, 5): it has no documents. Consecutive dirty pages need only
-//! the two outer boundaries. All-visible pages need no boundary reads.
+//! If the visibility map says block 11 needs checking, its two boundaries give docs
+//! [3, 5). Block 12 gives [5, 5): it has no documents. Consecutive dirty blocks need only
+//! the two outer boundaries. All-visible blocks need no boundary reads.
 //!
 //! Boundaries are a standard Tantivy numeric column, written in bounded ColumnarWriter
 //! batches after sorting or merging. Each batch is addressed through the `.stats`
@@ -40,7 +40,7 @@ use crate::api::CTID_FIELD_NAME;
 // First composite entry for boundary chunks; earlier entries hold other segment statistics.
 pub(super) const COLUMNS_IDX: usize = 3;
 // Column name shared by the boundary writer and reader.
-const PAGE_BOUNDARIES: &str = "page_boundaries";
+const BLOCK_BOUNDARIES: &str = "block_boundaries";
 // Maximum boundaries per column chunk, bounding writer memory.
 const CHUNK_SIZE: usize = 32768;
 // Let Tantivy choose between bitpacking and blockwise linear compression.
@@ -95,7 +95,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
         pgrx::check_for_interrupts!();
         let len = (count - start).min(CHUNK_SIZE);
         let mut writer = ColumnarWriter::default();
-        writer.record_column_type(PAGE_BOUNDARIES, ColumnType::U64, false);
+        writer.record_column_type(BLOCK_BOUNDARIES, ColumnType::U64, false);
         for row in 0..len {
             let block = u64::from(first_block) + (start + row) as u64;
             while let Some(&value) = values.peek() {
@@ -108,7 +108,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
                 previous = values.next();
                 processed += 1;
             }
-            writer.record_numerical(row as u32, PAGE_BOUNDARIES, u64::from(processed));
+            writer.record_numerical(row as u32, BLOCK_BOUNDARIES, u64::from(processed));
         }
         writer.serialize(
             len as u32,
@@ -155,23 +155,22 @@ impl HeapBlockMap {
         })
     }
 
-    /// Returns the heap-page span covered by the boundary column.
+    /// Returns the heap-block span covered by the boundary column.
     pub(crate) fn block_range(&self) -> Range<BlockNumber> {
         self.first_block..self.last_block + 1
     }
 
-    /// Given ranges of dirty heap pages, returns the document ID ranges they map to.
-    pub(crate) fn doc_id_ranges_for_pages(
+    /// Given ranges of dirty heap blocks, returns the document ID ranges they map to.
+    pub(crate) fn doc_id_ranges_for_blocks(
         &mut self,
-        pages: &[Range<BlockNumber>],
+        block_ranges: &[Range<BlockNumber>],
     ) -> io::Result<Vec<Range<DocId>>> {
-        let mut ranges: Vec<Range<DocId>> = Vec::with_capacity(pages.len());
-        let blocks: Vec<_> = pages
+        let mut ranges: Vec<Range<DocId>> = Vec::with_capacity(block_ranges.len());
+        let blocks: Vec<_> = block_ranges
             .iter()
-            .flat_map(|page| [page.start, page.end])
+            .flat_map(|blocks| [blocks.start, blocks.end])
             .collect();
-        let mut boundaries = vec![0; blocks.len()];
-        self.boundaries(&blocks, &mut boundaries)?;
+        let boundaries = self.boundaries(&blocks)?;
         for pair in boundaries.chunks_exact(2) {
             let [start, end] = [pair[0], pair[1]];
             if start > end || end > self.num_docs {
@@ -189,13 +188,9 @@ impl HeapBlockMap {
         Ok(ranges)
     }
 
-    /// Reads sorted boundaries in batches, retaining only the current column chunk.
-    fn boundaries(
-        &mut self,
-        mut blocks: &[BlockNumber],
-        mut output: &mut [DocId],
-    ) -> io::Result<()> {
-        debug_assert_eq!(blocks.len(), output.len());
+    /// Given sorted block numbers, returns the starting doc ID of each block.
+    fn boundaries(&mut self, mut blocks: &[BlockNumber]) -> io::Result<Vec<DocId>> {
+        let mut output = Vec::with_capacity(blocks.len());
         debug_assert!(blocks.is_sorted());
         while let Some(&block) = blocks.first() {
             let index = block.checked_sub(self.first_block).ok_or_else(invalid)? as usize;
@@ -214,7 +209,7 @@ impl HeapBlockMap {
                     .open_read_with_idx(self.field, COLUMNS_IDX + chunk)
                     .ok_or_else(invalid)?;
                 let reader = ColumnarReader::open(file)?;
-                let handles = reader.read_columns(PAGE_BOUNDARIES)?;
+                let handles = reader.read_columns(BLOCK_BOUNDARIES)?;
                 let [handle] = handles.as_slice() else {
                     return Err(invalid());
                 };
@@ -237,13 +232,13 @@ impl HeapBlockMap {
             if blocks[len - 1] - chunk_start >= values.num_docs() {
                 return Err(invalid());
             }
-            let (batch, rest) = output.split_at_mut(len);
-            for (&block, boundary) in blocks[..len].iter().zip(batch) {
-                *boundary = values.values.get_val(block - chunk_start) as DocId;
-            }
+            output.extend(
+                blocks[..len]
+                    .iter()
+                    .map(|&block| values.values.get_val(block - chunk_start) as DocId),
+            );
             blocks = &blocks[len..];
-            output = rest;
         }
-        Ok(())
+        Ok(output)
     }
 }

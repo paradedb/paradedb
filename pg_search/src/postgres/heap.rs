@@ -513,7 +513,7 @@ impl VisibilityChecker {
                 // The immutable reader's cleanup pin keeps these entries live until fresh VM bits
                 // have been checked. A cached proof belongs only to this checker's snapshot.
                 self.blockvis = (pg_sys::InvalidBlockNumber, false);
-                // Coalesce dirty VM pages, then batch-decode their document boundaries.
+                // Coalesce dirty heap blocks, then batch-decode their document boundaries.
                 const RANGES_PER_BATCH: usize = 128;
                 let first = map.block_range().start;
                 let end = map.block_range().end;
@@ -522,7 +522,7 @@ impl VisibilityChecker {
                     vec![TinySet::range_lower(32); util::HEAPBLOCKS_PER_PAGE as usize / 32];
                 let mut pending: Option<Range<BlockNumber>> = None;
                 let mut ranges = Vec::new();
-                let mut pages = Vec::with_capacity(RANGES_PER_BATCH);
+                let mut block_ranges = Vec::with_capacity(RANGES_PER_BATCH);
                 while block < end {
                     pgrx::check_for_interrupts!();
                     let span = util::HEAPBLOCKS_PER_PAGE - block % util::HEAPBLOCKS_PER_PAGE;
@@ -547,10 +547,10 @@ impl VisibilityChecker {
                                 last.end = range.end;
                             } else {
                                 if let Some(previous) = pending.replace(range) {
-                                    pages.push(previous);
-                                    if pages.len() == RANGES_PER_BATCH {
-                                        ranges.extend(map.doc_id_ranges_for_pages(&pages)?);
-                                        pages.clear();
+                                    block_ranges.push(previous);
+                                    if block_ranges.len() == RANGES_PER_BATCH {
+                                        ranges.extend(map.doc_id_ranges_for_blocks(&block_ranges)?);
+                                        block_ranges.clear();
                                     }
                                 }
                             }
@@ -559,9 +559,9 @@ impl VisibilityChecker {
                     block = block.saturating_add(words as BlockNumber * 32);
                 }
                 if let Some(last) = pending {
-                    pages.push(last);
+                    block_ranges.push(last);
                 }
-                ranges.extend(map.doc_id_ranges_for_pages(&pages)?);
+                ranges.extend(map.doc_id_ranges_for_blocks(&block_ranges)?);
                 // Coalesce adjacent document ranges across batch boundaries.
                 ranges.dedup_by(|next, previous| {
                     if previous.end == next.start {

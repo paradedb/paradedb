@@ -33,52 +33,41 @@ jobs:
     name: Reset the `gh-pages` data.js Files
     runs-on: ubuntu-latest
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.reset_data }}
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
       - name: Checkout Git Repository at ref=gh-pages
         if: ${{ inputs.reset_data }}
         uses: actions/checkout@v7
         with:
           ref: gh-pages
-
-      - name: Configure Bot Commit Signing
-        if: ${{ inputs.reset_data }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SIGNING_KEY: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
-          SIGNING_USER: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
-          SIGNING_EMAIL: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
-        run: |
-          : "${SIGNING_KEY:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY secret}"
-          : "${SIGNING_USER:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER secret}"
-          : "${SIGNING_EMAIL:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL secret}"
-          umask 077
-          KEY_FILE="$RUNNER_TEMP/github-bot-signing-key"
-          printf '%s\n' "$SIGNING_KEY" > "$KEY_FILE"
-          PUBLIC_KEY=$(ssh-keygen -y -P '' -f "$KEY_FILE" | awk '{print $1, $2}')
-          # GitHub verifies SSH signatures against the account's registered signing keys.
-          gh api --paginate "users/$SIGNING_USER/ssh_signing_keys" --jq '.[] | .key | split(" ") | .[0:2] | join(" ")' |
-            grep -Fx -- "$PUBLIC_KEY"
-          printf '%s %s\n' "$SIGNING_EMAIL" "$PUBLIC_KEY" > "$KEY_FILE.allowed-signers"
-          git config user.name "$SIGNING_USER"
-          git config user.email "$SIGNING_EMAIL"
-          git config gpg.format ssh
-          git config user.signingkey "$KEY_FILE"
-          git config gpg.ssh.allowedSignersFile "$KEY_FILE.allowed-signers"
-          git config commit.gpgsign true
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Reset data.js Files
         if: ${{ inputs.reset_data }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           files=$(git ls-files stressgres/data.js benchmarks/data.js)
           if [ -n "$files" ]; then
             echo "$files" | xargs git rm
-            git commit -S -m "Reset data.js files"
-            git verify-commit HEAD
+            # Omit author/committer fields so GitHub signs the commit as the App.
+            TREE=$(printf '%s\n' "$files" | jq -R '{path: ., mode: "100644", type: "blob", sha: null}' |
+              jq -s --arg base "$(git rev-parse 'HEAD^{tree}')" '{base_tree: $base, tree: .}' |
+              gh api "repos/$GITHUB_REPOSITORY/git/trees" --input - --jq .sha)
+            test "$TREE" = "$(git write-tree)"
+            COMMIT=$(gh api "repos/$GITHUB_REPOSITORY/git/commits" \
+              -f message="Reset data.js files" -f tree="$TREE" -f "parents[]=$(git rev-parse HEAD)" \
+              --jq 'if .verification.verified then .sha else error("Reset commit is not verified") end')
+            git fetch origin "$COMMIT"
+            git reset --soft "$COMMIT"
             git push
           fi
-
-      - name: Remove Bot Signing Key
-        if: always()
-        run: rm -f "$RUNNER_TEMP/github-bot-signing-key" "$RUNNER_TEMP/github-bot-signing-key.allowed-signers"
 
   # We run one job per commit
   dispatch:

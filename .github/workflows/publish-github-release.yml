@@ -100,7 +100,7 @@ jobs:
           fi
           echo "Input validation passed!"
 
-      - name: Configure Bot Commit Signing
+      - name: Configure Release Tag Signing
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SIGNING_KEY: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
@@ -123,7 +123,6 @@ jobs:
           git config gpg.format ssh
           git config user.signingkey "$KEY_FILE"
           git config gpg.ssh.allowedSignersFile "$KEY_FILE.allowed-signers"
-          git config commit.gpgsign true
           git config tag.gpgsign true
 
       - name: Install Rust
@@ -192,8 +191,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git add -A
-          git commit -S -m "chore: Prepare \`${{ github.event.inputs.version }}\`."
-          git verify-commit HEAD
+          python3 .github/scripts/commit-with-github-app.py "chore: Prepare \`${{ github.event.inputs.version }}\`."
 
           if [[ "${{ github.event.inputs.beta }}" != "true" ]]; then
             # Verify remote branch has not advanced before pushing release commit
@@ -220,6 +218,8 @@ jobs:
 
       - name: Sync Release Artifacts to Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           RELEASE_VERSION="${{ github.event.inputs.version }}"
           CLEAN_VERSION="${RELEASE_VERSION%%-*}"
@@ -289,8 +289,7 @@ jobs:
 
           git add -A
           if ! git diff --staged --quiet; then
-            git commit -S -m "chore: Sync \`${RELEASE_VERSION}\` release artifacts to main."
-            git verify-commit HEAD
+            python3 .github/scripts/commit-with-github-app.py "chore: Sync \`${RELEASE_VERSION}\` release artifacts to main."
             git push origin main
             echo "✅ Successfully synced release artifacts to main."
           else

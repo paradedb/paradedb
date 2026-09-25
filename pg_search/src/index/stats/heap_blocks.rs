@@ -160,12 +160,12 @@ impl HeapBlockMap {
         self.first_block..self.last_block + 1
     }
 
-    /// Batch-decodes dirty page endpoints and coalesces their document ranges.
-    pub(crate) fn append_ranges(
+    /// Given ranges of dirty heap pages, returns the document ID ranges they map to.
+    pub(crate) fn doc_id_ranges_for_pages(
         &mut self,
         pages: &[Range<BlockNumber>],
-        ranges: &mut Vec<Range<DocId>>,
-    ) -> io::Result<()> {
+    ) -> io::Result<Vec<Range<DocId>>> {
+        let mut ranges: Vec<Range<DocId>> = Vec::with_capacity(pages.len());
         let blocks: Vec<_> = pages
             .iter()
             .flat_map(|page| [page.start, page.end])
@@ -186,7 +186,7 @@ impl HeapBlockMap {
                 ranges.push(start..end);
             }
         }
-        Ok(())
+        Ok(ranges)
     }
 
     /// Reads sorted boundaries in batches, retaining only the current column chunk.

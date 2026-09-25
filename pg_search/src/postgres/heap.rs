@@ -549,7 +549,7 @@ impl VisibilityChecker {
                                 if let Some(previous) = pending.replace(range) {
                                     pages.push(previous);
                                     if pages.len() == RANGES_PER_BATCH {
-                                        map.append_ranges(&pages, &mut ranges)?;
+                                        ranges.extend(map.doc_id_ranges_for_pages(&pages)?);
                                         pages.clear();
                                     }
                                 }
@@ -561,7 +561,16 @@ impl VisibilityChecker {
                 if let Some(last) = pending {
                     pages.push(last);
                 }
-                map.append_ranges(&pages, &mut ranges)?;
+                ranges.extend(map.doc_id_ranges_for_pages(&pages)?);
+                // Coalesce adjacent document ranges across batch boundaries.
+                ranges.dedup_by(|next, previous| {
+                    if previous.end == next.start {
+                        previous.end = next.end;
+                        true
+                    } else {
+                        false
+                    }
+                });
                 if descending {
                     for range in &mut ranges {
                         *range = segment.max_doc() - range.end..segment.max_doc() - range.start;

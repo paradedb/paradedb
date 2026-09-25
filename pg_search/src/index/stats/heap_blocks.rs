@@ -36,6 +36,7 @@ use tantivy::schema::Field;
 use crate::api::CTID_FIELD_NAME;
 
 pub(super) const COLUMNS_IDX: usize = 3;
+const PAGE_BOUNDARIES: &str = "page_boundaries";
 const CHUNK_SIZE: usize = 32768;
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 
@@ -88,7 +89,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
         pgrx::check_for_interrupts!();
         let len = (count - start).min(CHUNK_SIZE);
         let mut writer = ColumnarWriter::default();
-        writer.record_column_type("boundary", ColumnType::U64, false);
+        writer.record_column_type(PAGE_BOUNDARIES, ColumnType::U64, false);
         for row in 0..len {
             let block = u64::from(first_block) + (start + row) as u64;
             while let Some(&value) = values.peek() {
@@ -101,7 +102,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
                 previous = values.next();
                 processed += 1;
             }
-            writer.record_numerical(row as u32, "boundary", u64::from(processed));
+            writer.record_numerical(row as u32, PAGE_BOUNDARIES, u64::from(processed));
         }
         writer.serialize(
             len as u32,
@@ -205,7 +206,7 @@ impl HeapBlockMap {
                     .open_read_with_idx(self.field, COLUMNS_IDX + chunk)
                     .ok_or_else(invalid)?;
                 let reader = ColumnarReader::open(file)?;
-                let handles = reader.read_columns("boundary")?;
+                let handles = reader.read_columns(PAGE_BOUNDARIES)?;
                 let [handle] = handles.as_slice() else {
                     return Err(invalid());
                 };

@@ -181,20 +181,23 @@ jobs:
 
       - name: Push Release Commit
         if: github.repository == 'paradedb/paradedb'
+        env:
+          BETA: ${{ github.event.inputs.beta }}
+          RELEASE_REF: ${{ github.ref_name }}
+          START_SHA: ${{ steps.validate.outputs.start_sha }}
         run: |
-          if [[ "${{ github.event.inputs.beta }}" != "true" ]]; then
+          if [[ "$BETA" != "true" ]]; then
             # Verify remote branch has not advanced before pushing release commit
-            git fetch origin ${{ github.ref_name }}
-            REMOTE_SHA=$(git rev-parse origin/${{ github.ref_name }})
-            START_SHA="${{ steps.validate.outputs.start_sha }}"
+            git fetch origin "$RELEASE_REF"
+            REMOTE_SHA=$(git rev-parse "origin/$RELEASE_REF")
             if [[ "$REMOTE_SHA" != "$START_SHA" ]]; then
-              echo "❌ Error: Remote branch '${{ github.ref_name }}' has advanced ($START_SHA -> $REMOTE_SHA) since this release workflow started."
+              echo "❌ Error: Remote branch '$RELEASE_REF' has advanced ($START_SHA -> $REMOTE_SHA) since this release workflow started."
               echo "New commits/fragments may have landed on the branch. Aborting release so all changes can be cleanly included."
               exit 1
             fi
-            git push origin HEAD:${{ github.ref_name }}
+            git push origin "HEAD:$RELEASE_REF"
           else
-            echo "Beta release: skipping push of release commit to branch '${{ github.ref_name }}'."
+            echo "Beta release: skipping push of release commit to branch '$RELEASE_REF'."
           fi
 
       - name: Create Tag
@@ -207,10 +210,12 @@ jobs:
 
       - name: Stage Release Artifacts on Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
+          RELEASE_REF: ${{ github.ref_name }}
+          IS_LATEST: ${{ steps.release_latest.outputs.is_latest }}
         run: |
-          RELEASE_VERSION="${{ github.event.inputs.version }}"
           CLEAN_VERSION="${RELEASE_VERSION%%-*}"
-          IS_LATEST="${{ steps.release_latest.outputs.is_latest }}"
 
           # Record newly created release files and consumed fragment paths from the release commit
           NEW_SQL="pg_search/sql/pg_search--*--${CLEAN_VERSION}.sql"
@@ -236,7 +241,7 @@ jobs:
           if [[ "$IS_LATEST" == "true" ]]; then
             CHECKOUT_FILES="${CHECKOUT_FILES} ${DOCS_SNIPPET}"
           fi
-          git checkout "${{ github.ref_name }}" -- ${CHECKOUT_FILES}
+          git checkout "$RELEASE_REF" -- ${CHECKOUT_FILES}
 
           # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
           # Move changelog to docs/project/changelog/ if it was checked out from docs/changelog/
@@ -286,8 +291,11 @@ jobs:
 
       - name: Push Release Artifacts on Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
+        env:
+          COMMIT_CREATED: ${{ steps.sync-commit.outputs.created }}
+          RELEASE_REF: ${{ github.ref_name }}
         run: |
-          if [[ "${{ steps.sync-commit.outputs.created }}" == "true" ]]; then
+          if [[ "$COMMIT_CREATED" == "true" ]]; then
             git push origin main
             echo "✅ Successfully synced release artifacts to main."
           else
@@ -295,7 +303,7 @@ jobs:
           fi
 
           # Switch back to the release branch for release creation
-          git checkout "${{ github.ref_name }}"
+          git checkout "$RELEASE_REF"
 
       - name: Create Stable Branch
         if: github.ref_name == 'main' && github.event.inputs.beta != 'true'

@@ -976,9 +976,10 @@ type VisibilityDispatchPayload = (
 ///
 /// For each `(plan_position, heap_oid)` in `plan_pos_oids`, it:
 /// 1. Reads the `ctid_{plan_position}` column containing packed DocAddresses.
-/// 2. Uses [`VisibilityChecker::for_segment`] to determine if each segment is all-visible.
+/// 2. Uses [`VisibilityChecker::check_segment_docs_mask`] (if pruned) or
+///    [`VisibilityChecker::check_segment_docs`] (if retaining ctids) to determine visibility.
 ///    For all-visible segments, per-doc visibility checks are skipped entirely and CTIDs are
-///    only read if the column is retained. For other segments, [`VisibilityChecker::check_segment_docs`]
+///    only read if the column is retained. For other segments, visibility checking
 ///    is run using the visibility map fast-path (avoiding heap buffer accesses for all-visible pages).
 /// 3. Filters the batch to only visible rows.
 /// 4. For retained ctid columns, replaces packed doc-addresses with the resolved ctids. For
@@ -1460,9 +1461,10 @@ pub(crate) struct DeferredCtidMaterializationState {
     visible_mask: Vec<bool>,
     segment_doc_ids: Vec<DocId>,
     segment_ctids: Vec<Option<u64>>,
+    segment_mask: Vec<bool>,
 }
 
-/// Checks visibility of packed DocAddresses via [`VisibilityChecker::for_segment`] and
+/// Checks visibility of packed DocAddresses via [`VisibilityChecker::check_segment_docs_mask`] and
 /// [`VisibilityChecker::check_segment_docs`].
 ///
 /// For all-visible segments, visibility checking is skipped and all rows are marked visible;
@@ -1501,38 +1503,26 @@ pub(crate) fn materialize_and_check_deferred_ctid(
         state.segment_doc_ids.clear();
         state.segment_doc_ids.extend(rows.iter().map(|(_, id)| *id));
 
-        if let Some(checker) = checker
-            .for_segment(seg_ord)
-            .map_err(|e| DataFusionError::External(Box::new(e)))?
-        {
-            state.segment_ctids.clear();
-            state.segment_ctids.resize(rows.len(), None);
-
-            checker.check_segment_docs(seg_ord, &state.segment_doc_ids, &mut state.segment_ctids);
-
-            for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
-                if let Some(ctid) = value {
-                    state.visible_mask[*row_idx] = true;
-                    if !is_pruned {
-                        state.resolved_ctids[*row_idx] = Some(*ctid);
-                    }
-                }
-            }
+        if is_pruned {
+            let mask = checker.check_segment_docs_mask(
+                seg_ord,
+                &state.segment_doc_ids,
+                &mut state.segment_mask,
+            );
+            mask.for_each_visible(|i| {
+                state.visible_mask[rows[i].0] = true;
+            });
         } else {
-            for (row_idx, _) in &rows {
-                state.visible_mask[*row_idx] = true;
-            }
-            if !is_pruned {
-                state.segment_ctids.clear();
-                state.segment_ctids.resize(rows.len(), None);
-                let ffhelper = checker.ffhelper().expect("FFHelper must be configured");
-                ffhelper
-                    .ctid(seg_ord)
-                    .as_u64s(&state.segment_doc_ids, &mut state.segment_ctids);
-                for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
-                    state.resolved_ctids[*row_idx] = *value;
-                }
-            }
+            let ctids = checker.check_segment_docs(
+                seg_ord,
+                &state.segment_doc_ids,
+                &mut state.segment_ctids,
+            );
+            ctids.for_each_visible(|i, ctid| {
+                let row_idx = rows[i].0;
+                state.visible_mask[row_idx] = true;
+                state.resolved_ctids[row_idx] = Some(ctid);
+            });
         }
         Ok(())
     })?;

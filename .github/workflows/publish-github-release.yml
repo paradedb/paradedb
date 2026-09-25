@@ -168,13 +168,16 @@ jobs:
           issue-title: "Release v${{ github.event.inputs.version }}?"
           issue-body: ${{ steps.approval_details.outputs.issue_body }}
 
+      - name: Stage Release Artifacts
+        if: github.repository == 'paradedb/paradedb'
+        run: git add -A
+
       - name: Commit Release Artifacts
         if: github.repository == 'paradedb/paradedb'
         uses: ./.github/actions/commit-with-github-app
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           message: "chore: Prepare `${{ github.event.inputs.version }}`."
-          stage-all: "true"
 
       - name: Push Release Commit
         if: github.repository == 'paradedb/paradedb'
@@ -280,7 +283,6 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           message: "chore: Sync `${{ github.event.inputs.version }}` release artifacts to main."
-          skip-empty: "true"
 
       - name: Push Release Artifacts on Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'

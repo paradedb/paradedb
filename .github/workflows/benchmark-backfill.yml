@@ -69,7 +69,6 @@ jobs:
           github-token: ${{ steps.app-token.outputs.token }}
           working-directory: benchmark-data
           message: Reset data.js files
-          skip-empty: "true"
 
       - name: Push Benchmark Reset
         if: steps.reset-commit.outputs.created == 'true'

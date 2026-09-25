@@ -14,12 +14,6 @@ inputs:
   working-directory:
     description: Repository working directory
     default: "."
-  stage-all:
-    description: Stage all working tree changes before committing
-    default: "false"
-  skip-empty:
-    description: Skip committing when there are no staged changes
-    default: "false"
 
 outputs:
   created:
@@ -37,15 +31,10 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         MESSAGE: ${{ inputs.message }}
         COMMIT_REPOSITORY: ${{ inputs.repository }}
-        STAGE_ALL: ${{ inputs.stage-all }}
-        SKIP_EMPTY: ${{ inputs.skip-empty }}
       run: |
         : "${GH_TOKEN:?A GitHub App token is required}"
         : "${MESSAGE:?A commit message is required}"
-        if [[ "$STAGE_ALL" == "true" ]]; then
-          git add -A
-        fi
-        if [[ "$SKIP_EMPTY" == "true" ]] && git diff --cached --quiet; then
+        if git diff --cached --quiet; then
           echo "created=false" >> "$GITHUB_OUTPUT"
         else
           python3 - <<'PY'

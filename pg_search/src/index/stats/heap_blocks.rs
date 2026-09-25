@@ -29,7 +29,7 @@ use tantivy::columnar::column_values::CodecType;
 use tantivy::columnar::{
     Cardinality, Column, ColumnType, ColumnarReader, ColumnarWriter, DynamicColumn,
 };
-use tantivy::directory::{CompositeFile, CompositeWrite};
+use tantivy::directory::{CompositeFile, CompositeWrite, FileSlice};
 use tantivy::index::{Segment, SegmentComponent};
 use tantivy::schema::Field;
 
@@ -249,7 +249,8 @@ impl HeapBlockMap {
                 .file
                 .open_read_with_idx(self.field, COLUMNS_IDX + chunk)
                 .ok_or_else(invalid)?;
-            let reader = ColumnarReader::open(file)?;
+            // Cache the bounded chunk so column headers and values share the same buffer reads.
+            let reader = ColumnarReader::open(FileSlice::new(Arc::new(file.read_bytes()?)))?;
             let handles = reader.read_columns("boundary")?;
             let [handle] = handles.as_slice() else {
                 return Err(invalid());

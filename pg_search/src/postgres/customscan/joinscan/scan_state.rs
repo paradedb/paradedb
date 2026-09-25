@@ -1606,23 +1606,6 @@ fn apply_output_projection(
     plan_sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
 ) -> Result<DataFrame> {
-    let final_cols = build_output_column_expressions(
-        &df,
-        join_clause,
-        distinct_col_map,
-        plan_sources,
-        output_columns,
-    )?;
-    df.select(final_cols)
-}
-
-fn build_output_column_expressions(
-    df: &DataFrame,
-    join_clause: &JoinCSClause,
-    distinct_col_map: &DistinctColMap,
-    plan_sources: &[&JoinSource],
-    output_columns: &[OutputColumnInfo],
-) -> Result<Vec<Expr>> {
     let mut final_cols = Vec::new();
     if let Some(projection) = &join_clause.output_projection {
         for (i, proj) in projection.iter().enumerate() {
@@ -1671,7 +1654,7 @@ fn build_output_column_expressions(
             final_cols.push(col(field.name()));
         }
     }
-    Ok(final_cols)
+    df.select(final_cols)
 }
 
 /// Builds a DataFusion projection expression for a given child projection info.

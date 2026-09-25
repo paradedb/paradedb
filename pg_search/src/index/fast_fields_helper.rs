@@ -44,7 +44,7 @@ use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, DocId, Searcher};
+use tantivy::{DocAddress, DocId, Searcher, SegmentReader};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -236,6 +236,16 @@ impl FFHelper {
                 SegmentViewDocs::Immutable { .. }
             )
         })
+    }
+
+    /// Returns an immutable reader covered by this helper's cleanup pin.
+    pub(crate) fn immutable_segment_reader(
+        &self,
+        segment_ord: SegmentOrdinal,
+    ) -> Option<&SegmentReader> {
+        let segment = self.searcher().segment_reader(segment_ord);
+        self.is_immutable_segment(segment.segment_id())
+            .then_some(segment)
     }
 
     // TODO: Rename ctid -> tid

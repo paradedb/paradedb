@@ -28,7 +28,7 @@ pub mod writer;
 pub use directory::*;
 pub use search::*;
 
-use crate::api::FieldName;
+use crate::api::{FieldName, TID_BLOCK_FIELD_NAME};
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
 use anyhow::{Context, Result};
@@ -85,8 +85,18 @@ pub fn index_settings(
         )?);
     }
 
+    let sort_by_fields = SearchIndexSchema::build_sort_by_fields(&options.sort_by(), schema);
+    let run_length_columns = if sort_by_fields
+        .first()
+        .is_some_and(|sort| sort.field == TID_BLOCK_FIELD_NAME)
+    {
+        vec![TID_BLOCK_FIELD_NAME.to_string()]
+    } else {
+        Vec::new()
+    };
     Ok(IndexSettings {
-        sort_by_fields: SearchIndexSchema::build_sort_by_fields(&options.sort_by(), schema),
+        sort_by_fields,
+        run_length_columns,
         docstore_compress_dedicated_thread: false,
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
         vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),

@@ -16,9 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::{
-    RHSValue, build_pdb_query_funcexpr, build_text_funcexpr, get_expr_result_type,
-    is_pdb_query_castable, is_text_like, pdb_query_typoid, searchqueryinput_typoid,
-    validate_lhs_type_as_text_compatible,
+    PdbQueryRhs, RHSValue, build_pdb_query_funcexpr, build_text_funcexpr, get_expr_result_type,
+    is_text_like, pdb_query_typoid, searchqueryinput_typoid, validate_lhs_type_as_text_compatible,
 };
 use crate::api::FieldName;
 use crate::api::builder_fns::{
@@ -73,25 +72,6 @@ impl SearchOperator {
     pub(super) fn classify_query(self, query: pdb::Query) -> pdb::Query {
         let (query, score) = match query {
             pdb::Query::ScoreAdjusted { query, score } => (*query, Some(score)),
-            pdb::Query::UnclassifiedArray {
-                array,
-                fuzzy_data,
-                slop_data,
-            } if matches!(self, Self::Conjunction | Self::Disjunction) => {
-                // Bare match arrays use fuzzy term-set conversion before setting conjunction mode.
-                let mut query = term_set_str(array);
-                query.apply_fuzzy_data(fuzzy_data);
-                query.apply_slop_data(slop_data);
-                assert!(matches!(query, pdb::Query::MatchArray { .. }));
-                let pdb::Query::MatchArray {
-                    conjunction_mode, ..
-                } = &mut query
-                else {
-                    unreachable!()
-                };
-                *conjunction_mode = Some(self == Self::Conjunction);
-                return query;
-            }
             query => (query, None),
         };
         let (mut query, fuzzy_data, slop_data) = match query {
@@ -120,6 +100,19 @@ impl SearchOperator {
         }
     }
 
+    /// The acceptance rule for a `pdb.query` RHS: unclassified and score adjusted input
+    /// classifies, anything already classified is rejected. Both the const-fold path and the
+    /// runtime `*_search_query_input` functions call this, so a prepared statement behaves the
+    /// same under generic and custom plans.
+    pub(super) fn classify_rhs(self, query: pdb::Query) -> pdb::Query {
+        match query {
+            query @ (pdb::Query::UnclassifiedString { .. }
+            | pdb::Query::UnclassifiedArray { .. }
+            | pdb::Query::ScoreAdjusted { .. }) => self.classify_query(query),
+            _ => self.invalid_rhs(),
+        }
+    }
+
     unsafe fn require_field(self, lhs: *mut pg_sys::Node, field: Option<FieldName>) -> FieldName {
         validate_lhs_type_as_text_compatible(lhs, self.name());
         field.unwrap_or_else(|| {
@@ -137,8 +130,8 @@ impl SearchOperator {
                     "The right-hand side of the `@@@` operator must be a text value, pdb.query, or a complete proximity clause"
                 )
             }
-            Self::Term => unreachable!(
-                "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value"
+            Self::Term => panic!(
+                "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value."
             ),
             _ => panic!(
                 "The right-hand side of the `{}(field, TEXT)` operator must be a text value.",
@@ -172,12 +165,8 @@ impl SearchOperator {
         let query = match rhs {
             RHSValue::Text(text) => self.text_query(text),
             RHSValue::TextArray(array) => self.array_query(array),
-            RHSValue::PdbQuery(
-                query @ (pdb::Query::UnclassifiedString { .. }
-                | pdb::Query::UnclassifiedArray { .. }
-                | pdb::Query::ScoreAdjusted { .. }),
-            ) => self.classify_query(query),
-            RHSValue::PdbQuery(query) if self == Self::Parse => query,
+            RHSValue::PdbQuery(query) if self == Self::Parse => self.classify_query(query),
+            RHSValue::PdbQuery(query) => self.classify_rhs(query),
             RHSValue::ProximityClause(prox) if self == Self::Parse => proximity(prox),
             _ => self.invalid_rhs(),
         };
@@ -239,36 +228,38 @@ impl SearchOperator {
             };
         }
         let field = self.require_field(lhs, field);
-        if self == Self::Term {
-            let rhs_type = get_expr_result_type(rhs);
-            if is_pdb_query_castable(rhs_type) {
-                return build_pdb_query_funcexpr(
-                    field,
-                    rhs,
-                    rhs_type,
-                    c"paradedb.term_search_query_input(paradedb.fieldname, pdb.query)",
-                );
-            }
-        }
-        let (text_fn, array_fn) = match self {
+        // The runtime classification function mirrors this operator's const-fold path and
+        // takes over when the RHS is a `pdb.query` that planning cannot fold.
+        let (query_fn, text_fn, array_fn) = match self {
             Self::Conjunction => (
+                c"paradedb.match_conjunction_search_query_input(paradedb.fieldname, pdb.query)",
                 c"paradedb.match_conjunction(paradedb.fieldname, text)",
                 c"paradedb.match_conjunction(paradedb.fieldname, text[])",
             ),
             Self::Disjunction => (
+                c"paradedb.match_disjunction_search_query_input(paradedb.fieldname, pdb.query)",
                 c"paradedb.match_disjunction(paradedb.fieldname, text)",
                 c"paradedb.match_disjunction(paradedb.fieldname, text[])",
             ),
             Self::Term => (
+                c"paradedb.term_search_query_input(paradedb.fieldname, pdb.query)",
                 c"paradedb.term(paradedb.fieldname, text)",
                 c"paradedb.term_set(paradedb.fieldname, text[])",
             ),
             Self::Phrase => (
+                c"paradedb.phrase_search_query_input(paradedb.fieldname, pdb.query)",
                 c"paradedb.phrase(paradedb.fieldname, text)",
                 c"paradedb.phrase_array(paradedb.fieldname, text[])",
             ),
-            Self::Parse => unreachable!(),
+            Self::Parse => unreachable!("`@@@` returned above"),
         };
+        let rhs_type = get_expr_result_type(rhs);
+        // Text is by far the most common RHS, so skip the pdb.* type lookups for it.
+        if !is_text_like(rhs_type)
+            && let Some(rhs_kind) = PdbQueryRhs::from_oid(rhs_type)
+        {
+            return build_pdb_query_funcexpr(field, rhs, rhs_kind, query_fn);
+        }
         build_text_funcexpr(field, rhs, self.name(), text_fn, array_fn)
     }
 }

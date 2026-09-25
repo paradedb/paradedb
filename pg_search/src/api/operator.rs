@@ -1400,24 +1400,53 @@ unsafe fn build_text_funcexpr(
     }
 }
 
-/// Return `true` if `oid` names a ParadeDB `pdb.*` type that participates as an operator RHS,
-/// either directly (`pdb.query`) or via an implicit cast to `pdb.query` (`pdb.fuzzy`,
-/// `pdb.boost`, `pdb.slop`, `pdb.const`). Used by operator runtime rewrite paths to decide
-/// whether an RHS whose type is a `pdb.*` composite needs the runtime pdb.query dispatch
-/// rather than the text/text[] dispatch.
-pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
-    oid == pdb_query_typoid()
-        || oid == fuzzy_typoid()
-        || oid == boost_typoid()
-        || oid == slop_typoid()
-        || oid == const_typoid()
+/// A ParadeDB `pdb.*` type that participates as an operator RHS, either directly
+/// (`pdb.query`) or via an implicit cast to `pdb.query`. Operator runtime rewrite paths use
+/// it to decide whether an RHS whose type is a `pdb.*` composite needs the runtime pdb.query
+/// dispatch rather than the text/text[] dispatch, and which cast lifts it there.
+#[derive(Clone, Copy)]
+pub(crate) enum PdbQueryRhs {
+    Query,
+    Fuzzy,
+    Boost,
+    Slop,
+    Const,
+}
+
+impl PdbQueryRhs {
+    pub(crate) fn from_oid(oid: pg_sys::Oid) -> Option<Self> {
+        if oid == pdb_query_typoid() {
+            Some(Self::Query)
+        } else if oid == fuzzy_typoid() {
+            Some(Self::Fuzzy)
+        } else if oid == boost_typoid() {
+            Some(Self::Boost)
+        } else if oid == slop_typoid() {
+            Some(Self::Slop)
+        } else if oid == const_typoid() {
+            Some(Self::Const)
+        } else {
+            None
+        }
+    }
+
+    /// The `*_to_query` cast that lifts this type to `pdb.query`, or `None` when the value
+    /// already is one.
+    fn cast_sig(self) -> Option<&'static std::ffi::CStr> {
+        match self {
+            Self::Query => None,
+            Self::Fuzzy => Some(c"paradedb.fuzzy_to_query(pdb.fuzzy)"),
+            Self::Boost => Some(c"paradedb.boost_to_query(pdb.boost)"),
+            Self::Slop => Some(c"paradedb.slop_to_query(pdb.slop)"),
+            Self::Const => Some(c"paradedb.const_to_query(pdb.const)"),
+        }
+    }
 }
 
 /// Build a [`pg_sys::FuncExpr`] that calls `outer_sig(fieldname, pdb.query)` on an RHS whose
-/// declared type is one of `pdb.query`, `pdb.fuzzy`, `pdb.boost`, `pdb.slop`, or `pdb.const`.
-/// This is the runtime counterpart to the const-folding path in
-/// [`rewrite_rhs_to_search_query_input`]: it is reached when a `Param` (generic prepared plan)
-/// keeps the RHS as a non-Const node so const folding does not apply.
+/// declared type is the given [`PdbQueryRhs`]. This is the runtime counterpart to the
+/// const-folding path in [`rewrite_rhs_to_search_query_input`]: it is reached when a `Param`
+/// (generic prepared plan) keeps the RHS as a non-Const node so const folding does not apply.
 ///
 /// For non-`pdb.query` inputs the RHS is first wrapped in the appropriate `*_to_query` cast so
 /// that `outer_sig` type-checks. Callers pass the SQL regprocedure signature of the outer
@@ -1427,23 +1456,10 @@ pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
 pub(crate) unsafe fn build_pdb_query_funcexpr(
     field: FieldName,
     rhs: *mut pg_sys::Node,
-    rhs_type: pg_sys::Oid,
+    rhs_kind: PdbQueryRhs,
     outer_sig: &std::ffi::CStr,
 ) -> pg_sys::FuncExpr {
-    let coerced_rhs: *mut pg_sys::Node = if rhs_type == pdb_query_typoid() {
-        rhs
-    } else {
-        let cast_sig: &std::ffi::CStr = if rhs_type == fuzzy_typoid() {
-            c"paradedb.fuzzy_to_query(pdb.fuzzy)"
-        } else if rhs_type == boost_typoid() {
-            c"paradedb.boost_to_query(pdb.boost)"
-        } else if rhs_type == slop_typoid() {
-            c"paradedb.slop_to_query(pdb.slop)"
-        } else if rhs_type == const_typoid() {
-            c"paradedb.const_to_query(pdb.const)"
-        } else {
-            panic!("build_pdb_query_funcexpr called with unsupported rhs type oid {rhs_type}");
-        };
+    let coerced_rhs: *mut pg_sys::Node = if let Some(cast_sig) = rhs_kind.cast_sig() {
         let cast_funcid =
             direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[cast_sig.into_datum()])
                 .unwrap_or_else(|| panic!("`{}` should exist", cast_sig.to_str().unwrap()));
@@ -1466,6 +1482,8 @@ pub(crate) unsafe fn build_pdb_query_funcexpr(
         }
         .palloc()
         .cast()
+    } else {
+        rhs
     };
 
     let outer_funcid =

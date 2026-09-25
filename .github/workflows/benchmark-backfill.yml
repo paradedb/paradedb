@@ -41,33 +41,39 @@ jobs:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
+      - name: Checkout Workflow Actions
+        if: ${{ inputs.reset_data }}
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - name: Checkout Git Repository at ref=gh-pages
         if: ${{ inputs.reset_data }}
         uses: actions/checkout@v7
         with:
           ref: gh-pages
+          path: benchmark-data
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Reset data.js Files
         if: ${{ inputs.reset_data }}
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          files=$(git ls-files stressgres/data.js benchmarks/data.js)
-          if [ -n "$files" ]; then
-            echo "$files" | xargs git rm
-            # Omit author/committer fields so GitHub signs the commit as the App.
-            TREE=$(printf '%s\n' "$files" | jq -R '{path: ., mode: "100644", type: "blob", sha: null}' |
-              jq -s --arg base "$(git rev-parse 'HEAD^{tree}')" '{base_tree: $base, tree: .}' |
-              gh api "repos/$GITHUB_REPOSITORY/git/trees" --input - --jq .sha)
-            test "$TREE" = "$(git write-tree)"
-            COMMIT=$(gh api "repos/$GITHUB_REPOSITORY/git/commits" \
-              -f message="Reset data.js files" -f tree="$TREE" -f "parents[]=$(git rev-parse HEAD)" \
-              --jq 'if .verification.verified then .sha else error("Reset commit is not verified") end')
-            git fetch origin "$COMMIT"
-            git reset --soft "$COMMIT"
-            git push
-          fi
+        working-directory: benchmark-data
+        run: git rm --ignore-unmatch stressgres/data.js benchmarks/data.js
+
+      - name: Commit Benchmark Reset
+        id: reset-commit
+        if: ${{ inputs.reset_data }}
+        uses: ./.github/actions/commit-with-github-app
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          working-directory: benchmark-data
+          message: Reset data.js files
+          skip-empty: "true"
+
+      - name: Push Benchmark Reset
+        if: steps.reset-commit.outputs.created == 'true'
+        working-directory: benchmark-data
+        run: git push origin HEAD:gh-pages
 
   # We run one job per commit
   dispatch:

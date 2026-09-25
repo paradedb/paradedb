@@ -8,6 +8,9 @@ inputs:
   message:
     description: Commit message
     required: true
+  working-directory:
+    description: Repository working directory
+    default: "."
   stage-all:
     description: Stage all working tree changes before committing
     default: "false"
@@ -26,6 +29,7 @@ runs:
     - name: Create Verified Commit
       id: commit
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         MESSAGE: ${{ inputs.message }}

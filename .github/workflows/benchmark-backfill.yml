@@ -39,17 +39,46 @@ jobs:
         with:
           ref: gh-pages
 
+      - name: Configure Bot Commit Signing
+        if: ${{ inputs.reset_data }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
+          SIGNING_USER: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
+          SIGNING_EMAIL: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
+        run: |
+          : "${SIGNING_KEY:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY secret}"
+          : "${SIGNING_USER:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER secret}"
+          : "${SIGNING_EMAIL:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL secret}"
+          umask 077
+          KEY_FILE="$RUNNER_TEMP/github-bot-signing-key"
+          printf '%s\n' "$SIGNING_KEY" > "$KEY_FILE"
+          PUBLIC_KEY=$(ssh-keygen -y -P '' -f "$KEY_FILE" | awk '{print $1, $2}')
+          # GitHub verifies SSH signatures against the account's registered signing keys.
+          gh api --paginate "users/$SIGNING_USER/ssh_signing_keys" --jq '.[] | .key | split(" ") | .[0:2] | join(" ")' |
+            grep -Fx -- "$PUBLIC_KEY"
+          printf '%s %s\n' "$SIGNING_EMAIL" "$PUBLIC_KEY" > "$KEY_FILE.allowed-signers"
+          git config user.name "$SIGNING_USER"
+          git config user.email "$SIGNING_EMAIL"
+          git config gpg.format ssh
+          git config user.signingkey "$KEY_FILE"
+          git config gpg.ssh.allowedSignersFile "$KEY_FILE.allowed-signers"
+          git config commit.gpgsign true
+
       - name: Reset data.js Files
         if: ${{ inputs.reset_data }}
         run: |
-          git config user.name "Benchmark Backfill Job"
-          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
           files=$(git ls-files stressgres/data.js benchmarks/data.js)
           if [ -n "$files" ]; then
             echo "$files" | xargs git rm
-            git commit -m "Reset data.js files"
+            git commit -S -m "Reset data.js files"
+            git verify-commit HEAD
             git push
           fi
+
+      - name: Remove Bot Signing Key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/github-bot-signing-key" "$RUNNER_TEMP/github-bot-signing-key.allowed-signers"
 
   # We run one job per commit
   dispatch:

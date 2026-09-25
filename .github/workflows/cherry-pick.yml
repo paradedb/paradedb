@@ -33,33 +33,37 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Configure Backport Signing
+      - name: Configure Bot Commit Signing
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-          RELEASE_SIGNING_USER: ${{ vars.RELEASE_SIGNING_USER }}
-          RELEASE_SIGNING_EMAIL: ${{ vars.RELEASE_SIGNING_EMAIL }}
+          SIGNING_KEY: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
+          SIGNING_USER: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
+          SIGNING_EMAIL: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
         run: |
-          : "${RELEASE_SIGNING_KEY:?Set the RELEASE_SIGNING_KEY secret before backporting}"
-          : "${RELEASE_SIGNING_USER:?Set the RELEASE_SIGNING_USER variable before backporting}"
-          : "${RELEASE_SIGNING_EMAIL:?Set the RELEASE_SIGNING_EMAIL variable before backporting}"
+          : "${SIGNING_KEY:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY secret}"
+          : "${SIGNING_USER:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER secret}"
+          : "${SIGNING_EMAIL:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL secret}"
           umask 077
-          SIGNING_KEY="$RUNNER_TEMP/backport-signing-key"
-          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$SIGNING_KEY"
-          PUBLIC_KEY=$(ssh-keygen -y -P '' -f "$SIGNING_KEY" | awk '{print $1, $2}')
-          gh api --paginate "users/$RELEASE_SIGNING_USER/ssh_signing_keys" --jq '.[] | .key | split(" ") | .[0:2] | join(" ")' |
+          KEY_FILE="$RUNNER_TEMP/github-bot-signing-key"
+          printf '%s\n' "$SIGNING_KEY" > "$KEY_FILE"
+          PUBLIC_KEY=$(ssh-keygen -y -P '' -f "$KEY_FILE" | awk '{print $1, $2}')
+          # GitHub verifies SSH signatures against the account's registered signing keys.
+          gh api --paginate "users/$SIGNING_USER/ssh_signing_keys" --jq '.[] | .key | split(" ") | .[0:2] | join(" ")' |
             grep -Fx -- "$PUBLIC_KEY"
+          printf '%s %s\n' "$SIGNING_EMAIL" "$PUBLIC_KEY" > "$KEY_FILE.allowed-signers"
+          git config user.name "$SIGNING_USER"
+          git config user.email "$SIGNING_EMAIL"
           git config gpg.format ssh
-          git config user.signingkey "$SIGNING_KEY"
-          # The action uses both cherry-pick and commit (for draft conflicts).
+          git config user.signingkey "$KEY_FILE"
+          git config gpg.ssh.allowedSignersFile "$KEY_FILE.allowed-signers"
           git config commit.gpgsign true
 
       - name: Backport based on cherry-pick/<branch> labels
         uses: korthout/backport-action@v4
         with:
           github_token: ${{ steps.app-token.outputs.token }}
-          git_committer_name: ${{ vars.RELEASE_SIGNING_USER }}
-          git_committer_email: ${{ vars.RELEASE_SIGNING_EMAIL }}
+          git_committer_name: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
+          git_committer_email: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
           add_author_as_assignee: true
           add_author_as_reviewer: true
           add_labels: automated-cherry-pick
@@ -70,6 +74,6 @@ jobs:
               "conflict_resolution": "draft_commit_conflicts"
             }
 
-      - name: Remove Backport Signing Key
+      - name: Remove Bot Signing Key
         if: always()
-        run: rm -f "$RUNNER_TEMP/backport-signing-key"
+        run: rm -f "$RUNNER_TEMP/github-bot-signing-key" "$RUNNER_TEMP/github-bot-signing-key.allowed-signers"

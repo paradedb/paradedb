@@ -100,6 +100,32 @@ jobs:
           fi
           echo "Input validation passed!"
 
+      - name: Configure Bot Commit Signing
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SIGNING_KEY: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
+          SIGNING_USER: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
+          SIGNING_EMAIL: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
+        run: |
+          : "${SIGNING_KEY:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY secret}"
+          : "${SIGNING_USER:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER secret}"
+          : "${SIGNING_EMAIL:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL secret}"
+          umask 077
+          KEY_FILE="$RUNNER_TEMP/github-bot-signing-key"
+          printf '%s\n' "$SIGNING_KEY" > "$KEY_FILE"
+          PUBLIC_KEY=$(ssh-keygen -y -P '' -f "$KEY_FILE" | awk '{print $1, $2}')
+          # GitHub verifies SSH signatures against the account's registered signing keys.
+          gh api --paginate "users/$SIGNING_USER/ssh_signing_keys" --jq '.[] | .key | split(" ") | .[0:2] | join(" ")' |
+            grep -Fx -- "$PUBLIC_KEY"
+          printf '%s %s\n' "$SIGNING_EMAIL" "$PUBLIC_KEY" > "$KEY_FILE.allowed-signers"
+          git config user.name "$SIGNING_USER"
+          git config user.email "$SIGNING_EMAIL"
+          git config gpg.format ssh
+          git config user.signingkey "$KEY_FILE"
+          git config gpg.ssh.allowedSignersFile "$KEY_FILE.allowed-signers"
+          git config commit.gpgsign true
+          git config tag.gpgsign true
+
       - name: Install Rust
         if: github.repository == 'paradedb/paradedb'
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -165,11 +191,9 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          git config user.name "paradedb-github-app[bot]"
-          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "chore: Prepare \`${{ github.event.inputs.version }}\`."
-          RELEASE_SHA=$(git rev-parse HEAD)
+          git commit -S -m "chore: Prepare \`${{ github.event.inputs.version }}\`."
+          git verify-commit HEAD
 
           if [[ "${{ github.event.inputs.beta }}" != "true" ]]; then
             # Verify remote branch has not advanced before pushing release commit
@@ -190,8 +214,9 @@ jobs:
         run: |
           TAG="v${{ github.event.inputs.version }}"
           echo "Creating and pushing tag ${TAG}..."
-          git tag "$TAG"
-          git push origin "$TAG"
+          git tag -s "$TAG" -m "Release $TAG"
+          git verify-tag "$TAG"
+          git push origin "refs/tags/$TAG"
 
       - name: Sync Release Artifacts to Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
@@ -262,11 +287,10 @@ jobs:
             ./scripts/release.sh changelog "${CLEAN_VERSION}" --register-only --no-is-latest
           fi
 
-          git config user.name "paradedb-github-app[bot]"
-          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
           git add -A
           if ! git diff --staged --quiet; then
-            git commit -m "chore: Sync \`${RELEASE_VERSION}\` release artifacts to main."
+            git commit -S -m "chore: Sync \`${RELEASE_VERSION}\` release artifacts to main."
+            git verify-commit HEAD
             git push origin main
             echo "✅ Successfully synced release artifacts to main."
           else
@@ -310,6 +334,10 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove Bot Signing Key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/github-bot-signing-key" "$RUNNER_TEMP/github-bot-signing-key.allowed-signers"
 
       - name: Notify Slack on Failure
         if: failure()

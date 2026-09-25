@@ -40,6 +40,22 @@ The sync workflow:
 | `version` | string  | `""`    | Target release version in semver format (e.g., `1.2.3` or `1.2.3-rc.1` for beta releases).       |
 | `beta`    | boolean | `false` | If `true`, creates a beta release (e.g., `vX.Y.Z-rc.N`) and marks it as a pre-release in GitHub. |
 
+## Bot Commit and Release Tag Signing
+
+The release, cherry-pick, and benchmark-backfill workflows sign locally created commits with the bot's SSH signing key. This includes release preparation, release-artifact sync, clean backports, draft conflict commits, and benchmark data resets. Release tags are signed annotated tags.
+
+Configure these organization **Actions secrets** with access to Community and Enterprise:
+
+- `PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY`: the complete, unencrypted OpenSSH private key, including its BEGIN/END lines.
+- `PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER`: `paradedb-bot`.
+- `PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL`: `developers@paradedb.com`, verified on the bot account.
+
+Register the corresponding public key on `paradedb-bot` as an **SSH signing key**. Each workflow checks key registration before creating commits and removes the private key when the job finishes. Missing settings or signing failures stop the workflow without an unsigned fallback. Backports preserve the original author and use the signing account as committer.
+
+Authentication remains separate from signing. Nix cargo-hash updates, PostgresApp updates, and generated Dockerfile commits already use the GitHub App API to create verified commits and do not need this SSH key.
+
+Apply the release workflow change to stable branches used for patch releases as well as `main`. Existing commits and tags are unchanged.
+
 ## Triggering a Release
 
 ### Minor Releases
@@ -72,14 +88,6 @@ To publish a beta release from any branch or commit:
 ### Patch Releases
 
 Fixes intended for a stable release are labeled with `cherry-pick/<branch>` (e.g. `cherry-pick/0.25.x`) on `main` and automatically backported via `.github/workflows/cherry-pick.yml` upon merge into the stable branch.
-
-The cherry-pick workflow signs backport commits, including draft commits containing conflicts, with an SSH signing key. Before enabling it in Community or Enterprise, configure these repository or organization settings:
-
-- Secret `RELEASE_SIGNING_KEY`: an unencrypted OpenSSH private key dedicated to signing.
-- Variable `RELEASE_SIGNING_USER`: the GitHub account that owns the signing key, preferably a release automation account.
-- Variable `RELEASE_SIGNING_EMAIL`: a verified email address on that account.
-
-Register the public key on that account as an **SSH signing key**. These settings are shared with release signing. The workflow checks key registration before backporting and fails if signing is unavailable. The original author is preserved, the signing account becomes the committer, and the GitHub App still authenticates pushes and creates PRs. Existing backports are unchanged.
 
 To publish a patch release from a stable branch:
 

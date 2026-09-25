@@ -877,10 +877,10 @@ impl CustomScan for AggregateScan {
             let stats = &state.custom_state().visibility_stats;
             let [skipped, checked, total, requiring_checks] = stats.totals();
             explainer.add_group("Visibility", |explainer| {
-                explainer.add_unsigned_integer("segments skipped", skipped, None);
-                explainer.add_unsigned_integer("segments checked", checked, None);
-                explainer.add_unsigned_integer("blocks total", total, None);
-                explainer.add_unsigned_integer("blocks requiring checks", requiring_checks, None);
+                explainer.add_unsigned_integer("Segments Skipped", skipped, None);
+                explainer.add_unsigned_integer("Segments Checked", checked, None);
+                explainer.add_unsigned_integer("Blocks Total", total, None);
+                explainer.add_unsigned_integer("Blocks Requiring Checks", requiring_checks, None);
             });
         }
 

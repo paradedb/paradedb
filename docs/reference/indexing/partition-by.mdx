@@ -91,6 +91,94 @@ Choosing the right column(s) for `partition_by` depends on your query patterns a
 | Multi-Tenant with Joins                              | Shared tenant key on both tables (e.g. `orders.tenant_id` and `items.tenant_id`) | Dual Benefit: Segment pruning for single-tenant searches and worker-local joins within a tenant.                                              |
 | Multiple Query Filters                               | Multiple columns (e.g. `tenant_id, created_at`)                                  | Multi-Dimensional Pruning: Enables pruning on tenant equality, timestamp ranges, or both, with segment granularity divided among the columns. |
 
+### Adding Partition Columns
+
+Use `partition_by` to group rows so queries can skip entire segments that cannot match. In addition to supporting joins, partition columns can accelerate ordinary filtered searches.
+
+Columns used frequently in equality filters, `IN` lists or range conditions are candidates for `partition_by`. For example, a search combining text conditions with `post_type_id < 3` can benefit from partitioning on `post_type_id`. Retain useful join keys when adding filter columns.
+
+On the Stack Overflow benchmark dataset, adding `post_type_id` to `partition_by = 'id,owner_user_id'` let that search skip 13 of 48 segments. Average query time decreased from 3.372 ms to 2.821 ms, a 16% improvement. The query itself was unchanged.
+
+Keep the column list focused: adding a column changes how rows are grouped across the available segments. Segments separated by the added column can overlap on an existing join key, so a join may need to search more segments. In the same 48-segment comparison, an existing users–posts–comments join that did not filter on `post_type_id` searched more overlapping segments and took about 6% longer: 297.793 ms to 315.288 ms.
+
+#### Choosing a Segment Count
+
+`target_segment_count` controls the requested number of segments. More segments can provide finer divisions, but they can also leave more segments to search after pruning. Column selection and segment count therefore affect performance together.
+
+The table compares both queries at three segment counts. The original posts layout was `id,owner_user_id`; the added-column layout was `id,owner_user_id,post_type_id`. The filter query combined text search with `post_type_id < 3`; the join query joined users, posts and comments. All timings are averages in milliseconds, using the same ParadeDB build and unchanged queries.
+
+| Segments per index | Filter query: original layout | Filter query: added column | Join query: original layout | Join query: added column |
+| --- | --- | --- | --- | --- |
+| 16 | 1.832 | 1.639 | 336.048 | 243.264 |
+| 48 | 3.372 | 2.821 | 297.793 | 315.288 |
+| 64 | 4.193 | 3.485 | 299.607 | 330.642 |
+
+With the added column, the filter rejected 3, 13 and 16 segments, leaving 13, 35 and 48 segments to search. The 16-segment layout was fastest for this filter, despite rejecting a smaller percentage of segments. The join benefited from the added column at 16 segments but became slower at 48 and 64. A higher segment count or pruning percentage does not by itself guarantee lower query latency.
+
+<Accordion title="Measured queries and execution plans">
+  **Query that benefits.** This query filters on `post_type_id`. Adding that partition column allowed ParadeDB to skip 13 of the index's 48 segments and search the remaining 35. Average time decreased from 3.372 ms to 2.821 ms, a 16% improvement.
+
+  ```sql
+  EXPLAIN (ANALYZE, BUFFERS)
+  SELECT *
+  FROM stackoverflow_posts
+  WHERE body ||| 'javascript'
+    AND tags ||| 'python'
+    AND post_type_id < 3
+  LIMIT 10;
+  ```
+
+  Both plans below show `Segment Count: 48` because that field reports the total segments in the index, including those skipped. The reduction from 48 searched segments to 35 was recorded separately in execution traces. Both queries returned six rows; the plan excerpts show fewer accesses to cached database pages after adding the column:
+
+  ```text
+  Original layout:
+    Custom Scan (ParadeDB Base Scan)
+      Segment Count: 48
+      Heap Fetches: 6
+      Exec Method: TopKScanExecState
+      Buffers: shared hit=1073
+
+  With post_type_id:
+    Custom Scan (ParadeDB Base Scan)
+      Segment Count: 48
+      Heap Fetches: 6
+      Exec Method: TopKScanExecState
+      Buffers: shared hit=877
+  ```
+
+  The buffer counts are from individual EXPLAIN executions. Query times are averages of 60 warm executions.
+
+  **Effect on an existing query.** This join does not filter on `post_type_id`, but changing the posts index's layout still affected it. With the added column, the join searched more overlapping segments and took about 6% longer: 297.793 ms to 315.288 ms.
+
+  ```sql
+  SET work_mem TO '8GB';
+  SET paradedb.enable_join_custom_scan TO on;
+  SET paradedb.enable_range_partitioned_join TO on;
+
+  SELECT DISTINCT u.id, u.display_name, u.about_me
+  FROM users u
+  JOIN stackoverflow_posts p ON u.id = p.owner_user_id
+  JOIN comments c ON p.id = c.post_id
+  WHERE c.score > 0
+    AND u.id @@@ pdb.all()
+    AND u.reputation > 100
+  ORDER BY u.display_name ASC
+  LIMIT 50;
+  ```
+
+  The join split its work into eight tasks, each searching a range of post IDs. A segment containing IDs from several tasks' ranges must be searched by each of those tasks. Across all tasks, the number of segments searched increased from 80 to 119, counting a segment again each time another task searched it. This illustrates the trade-off: a partition column that helps one filter can make an existing join search more segments.
+</Accordion>
+
+<Accordion title="Benchmark setup">
+  PostgreSQL 18.6 on AWS c8gd.metal-24xl (Ubuntu 24, ARM64).
+  Stack Overflow dataset: 1.03M posts, 406K users,
+  1.50M comments and 15.86M badges.
+
+  `shared_buffers=12GB`; worker limit=8; `jit=off`.
+  `work_mem=4MB` for the filter and `8GB` for the join.
+  Reported times are averages of 60 warm executions.
+</Accordion>
+
 ### Physical Over-Partitioning
 
 By default, `CREATE INDEX` sets `target_segment_count` equal to the number of CPUs on the system. When using `partition_by`, we recommend physically over-partitioning by setting `target_segment_count` to 2–8X the CPU core count (or parallel worker count).

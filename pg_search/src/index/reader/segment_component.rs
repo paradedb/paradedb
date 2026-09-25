@@ -17,7 +17,7 @@
 
 use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::FileEntry;
+use crate::postgres::storage::block::{FileEntry, bm25_max_free_space};
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
@@ -81,6 +81,10 @@ impl FileHandle for SegmentComponentReader {
             None => read(),
         }
     }
+
+    fn storage_block_len(&self) -> Option<usize> {
+        Some(bm25_max_free_space())
+    }
 }
 
 impl HasLen for SegmentComponentReader {
@@ -111,7 +115,7 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
-        let page_size = crate::postgres::storage::block::bm25_max_free_space();
+        let page_size = bm25_max_free_space();
         for len in [
             0,
             1,
@@ -124,7 +128,7 @@ mod tests {
             let bytes: Vec<u8> = (1..=255).cycle().take(len).collect();
             let segment = format!("{}.term", uuid::Uuid::new_v4());
             let path = Path::new(segment.as_str());
-            let mut writer = SegmentComponentWriter::new(&indexrel, path);
+            let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
             writer.write_all(&bytes).unwrap();
             let file_entry = writer.file_entry();
             writer.terminate().unwrap();
@@ -134,6 +138,7 @@ mod tests {
                 if finalized {
                     reader = reader.with_finalized_length();
                 }
+                assert_eq!(reader.storage_block_len(), Some(page_size));
                 assert_eq!(reader.len(), len);
                 let tail = len.saturating_sub(24);
                 assert_eq!(

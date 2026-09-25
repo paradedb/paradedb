@@ -333,8 +333,9 @@ impl SegmentMetaEntryImmutable {
     }
 
     pub fn file_entry(&self, uuid: &str, path: &Path) -> Option<FileEntry> {
+        let requested = SegmentComponent::try_from(path.extension()?.to_str()?).ok()?;
         for (file_entry, component) in self.file_entries() {
-            if path == Self::path(uuid, component) {
+            if component == requested && path == Self::path(uuid, component) {
                 return Some(*file_entry);
             }
         }

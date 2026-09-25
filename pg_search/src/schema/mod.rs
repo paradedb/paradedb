@@ -906,6 +906,24 @@ impl SearchField {
             .unwrap_or(false)
     }
 
+    /// Whether this field's `.stats` min/max order the way query values compare, so a
+    /// comparison against them can prove a segment holds no matching value. `is_sortable` does
+    /// not advertise IP fields, but their fast-field and query representations are both
+    /// `IpAddr` and share the ordering `.stats` records.
+    pub fn stats_order_matches_values(&self) -> bool {
+        self.is_raw_sortable()
+            || (matches!(self.field_type, SearchFieldType::Inet(_)) && self.is_fast())
+    }
+
+    /// Whether `.stats` describe this field's indexed terms. Statistics hold whole columnar
+    /// values, which are the terms only when no tokenizer splits them, so analyzed text fails
+    /// open. Gated on the Tantivy field type because uuid columns also accept `text_fields`
+    /// tokenizer configurations.
+    pub fn stats_describe_terms(&self) -> bool {
+        self.stats_order_matches_values()
+            && (!matches!(self.field_entry.field_type(), FieldType::Str(_)) || self.is_keyword())
+    }
+
     #[allow(deprecated)]
     pub fn uses_raw_tokenizer(&self) -> bool {
         self.field_config

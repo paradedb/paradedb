@@ -506,12 +506,27 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
         .get_or_insert_with(Vec::new)
         .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
 
-    builder = builder
-        .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new()))
-        .with_optimizer_rule(Arc::new(
-            super::range_partitioning_rule::RangePartitioningRule::new(),
-        ))
-        .with_optimizer_rule(Arc::new(PropagateEmptyUnnestRule));
+    let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
+    let pos = optimizer_rules
+        .iter()
+        .position(|r| r.name() == "optimize_projections")
+        .expect("optimize_projections optimizer rule not found");
+    // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
+    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below barriers
+    // have unused columns projected out before `VisibilityFilterNode` is inserted (working around
+    // DataFusion dropping `projection_beneficial` across extension nodes).
+    // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
+    // above `VisibilityFilterNode`.
+    optimizer_rules.insert(
+        pos,
+        Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
+    );
+    optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
+    optimizer_rules.push(Arc::new(
+        super::range_partitioning_rule::RangePartitioningRule::new(),
+    ));
+    optimizer_rules.push(Arc::new(PropagateEmptyUnnestRule));
+    builder = builder.with_optimizer_rules(optimizer_rules);
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
@@ -540,8 +555,6 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
 /// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
 /// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
 pub fn create_datafusion_session_context() -> SessionContext {
-    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
-
     let mut config = SessionConfig::new().with_target_partitions(1);
 
     // Configure dynamic filter pushdown thresholds from our GUCs
@@ -582,12 +595,6 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .with_physical_optimizer_rule(Arc::new(
             crate::scan::segmented_topk_rule::SegmentedTopKRule,
         ))
-        // SegmentedTopKRule absorbs VisibilityFilterExec and creates a fresh
-        // AbsorbedVisibilityData with empty ctid resolvers.  We must run
-        // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
-        // that it wires resolvers into the STK node rather than the (now-removed)
-        // VisibilityFilterExec node.
-        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
         .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
 
     SessionContext::new_with_state(builder.build())
@@ -857,7 +864,8 @@ fn build_clause_df<'a>(
         let df = apply_window_functions(df, join_clause)?;
 
         // 4. Apply DISTINCT via GROUP BY
-        let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause)?;
+        let (df, distinct_col_map) =
+            apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
 
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
@@ -876,7 +884,13 @@ fn build_clause_df<'a>(
         };
 
         // 7. Apply Output Projection
-        apply_output_projection(df, join_clause, &distinct_col_map, &plan_sources)
+        apply_output_projection(
+            df,
+            join_clause,
+            &distinct_col_map,
+            &plan_sources,
+            &private_data.output_columns,
+        )
     };
     f.boxed_local()
 }
@@ -902,16 +916,30 @@ unsafe fn translate_custom_exprs(
     Ok(translated)
 }
 
-/// Helper to yield the names of ctid columns that survived schema pruning
+/// Relations whose heap tuples must be fetched after DataFusion finishes execution.
+/// Only `OutputColumnInfo::Var` accesses attributes from the PostgreSQL heap; other
+/// output columns (Score, Unnested, WindowAgg, Expression, Pruned) read directly from
+/// the DataFusion `RecordBatch`.
+fn relations_needing_ctid(output_columns: &[OutputColumnInfo]) -> crate::api::HashSet<usize> {
+    output_columns
+        .iter()
+        .filter_map(|col| match col {
+            OutputColumnInfo::Var { plan_position, .. } => Some(*plan_position),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Helper to yield `(plan_position, ctid_name)` pairs for ctid columns that survived schema pruning
 /// (e.g., were not discarded by a Semi/Anti join).
 fn surviving_ctid_columns<'a>(
     schema: &'a datafusion::common::DFSchema,
     num_sources: usize,
-) -> impl Iterator<Item = String> + 'a {
+) -> impl Iterator<Item = (usize, String)> + 'a {
     (0..num_sources).filter_map(move |i| {
         let ctid_name = CtidColumn::new(i).to_string();
         if schema.field_with_unqualified_name(&ctid_name).is_ok() {
-            Some(ctid_name)
+            Some((i, ctid_name))
         } else {
             None
         }
@@ -928,6 +956,7 @@ fn surviving_ctid_columns<'a>(
 fn apply_distinct_group_by(
     df: DataFrame,
     join_clause: &JoinCSClause,
+    output_columns: &[OutputColumnInfo],
 ) -> Result<(DataFrame, DistinctColMap)> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
@@ -989,14 +1018,14 @@ fn apply_distinct_group_by(
     // completes. Since GROUP BY collapses multiple rows into one, we use
     // min(ctid) to arbitrarily select one representative tuple for the group.
     //
-    // Note that we must filter out any ctids that no longer exist in the schema.
-    // In operations like SEMI JOIN or ANTI JOIN, the inner table's columns
-    // (including its ctid) are discarded from the output frame once the join
-    // condition is evaluated. Attempting to aggregate them would result in a
-    // DataFusion SchemaError.
+    // Note that we must filter out any ctids that no longer exist in the schema
+    // (e.g. discarded by SEMI/ANTI join) and any relations whose heap tuples
+    // do not need to be fetched (no Vars in output_columns).
+    let needed_ctids = relations_needing_ctid(output_columns);
     let agg_exprs: Vec<Expr> =
         surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
-            .map(|ctid_name| min(col(&ctid_name)).alias(&ctid_name))
+            .filter(|(pos, _)| needed_ctids.contains(pos))
+            .map(|(_, ctid_name)| min(col(&ctid_name)).alias(&ctid_name))
             .collect();
 
     let df = df.aggregate(group_exprs, agg_exprs)?;
@@ -1353,14 +1382,15 @@ fn apply_sort(
 
 /// Build the final SELECT list. When `output_projection` is set, every
 /// projected column is aliased to `col_{i+1}` (the convention the result
-/// builder expects), and any CTID columns still present in the schema are
-/// carried forward unchanged. Without an `output_projection`, the entire
+/// builder expects), and CTID columns for sources whose heap tuples must be
+/// fetched are carried forward. Without an `output_projection`, the entire
 /// schema is selected as-is.
 fn apply_output_projection(
     df: DataFrame,
     join_clause: &JoinCSClause,
     distinct_col_map: &DistinctColMap,
     plan_sources: &[&JoinSource],
+    output_columns: &[OutputColumnInfo],
 ) -> Result<DataFrame> {
     let mut final_cols = Vec::new();
 
@@ -1399,9 +1429,12 @@ fn apply_output_projection(
             final_cols.push(expr.alias(col_alias));
         }
 
-        // ALWAYS carry forward all CTID columns from both sides
-        for ctid_name in surviving_ctid_columns(df.schema(), plan_sources.len()) {
-            final_cols.push(col(&ctid_name));
+        // Carry forward CTID columns only for sources whose heap tuples must be fetched.
+        let needed_ctids = relations_needing_ctid(output_columns);
+        for (plan_position, ctid_name) in surviving_ctid_columns(df.schema(), plan_sources.len()) {
+            if needed_ctids.contains(&plan_position) {
+                final_cols.push(col(&ctid_name));
+            }
         }
     } else {
         for field in df.schema().fields() {
@@ -1653,4 +1686,37 @@ fn build_source_df<'a>(
         Ok(df)
     }
     .boxed_local()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
+
+    #[test]
+    fn test_relations_needing_ctid() {
+        let output_cols = vec![
+            OutputColumnInfo::Var {
+                plan_position: 0,
+                rti: 1,
+                original_attno: 1,
+            },
+            OutputColumnInfo::Score {
+                plan_position: 1,
+                rti: 2,
+            },
+            OutputColumnInfo::Pruned,
+            OutputColumnInfo::Expression,
+            OutputColumnInfo::Var {
+                plan_position: 0,
+                rti: 1,
+                original_attno: 2,
+            },
+        ];
+
+        let needing = relations_needing_ctid(&output_cols);
+        assert!(needing.contains(&0));
+        assert!(!needing.contains(&1));
+        assert_eq!(needing.len(), 1);
+    }
 }

@@ -83,9 +83,42 @@ mod block_tracker {
         }
     }
 
-    pub(super) static BLOCK_TRACKER: OnceLock<
-        Mutex<HashMap<TrackedBlock, Option<std::backtrace::Backtrace>>>,
-    > = OnceLock::new();
+    type Tracker = Mutex<HashMap<TrackedBlock, Option<std::backtrace::Backtrace>>>;
+
+    static BLOCK_TRACKER: OnceLock<Tracker> = OnceLock::new();
+
+    pub(super) fn tracker() -> &'static Tracker {
+        BLOCK_TRACKER.get_or_init(|| {
+            // SAFETY: registers a static callback once per backend; Postgres keeps it for the
+            // life of the process.
+            unsafe {
+                pg_sys::RegisterXactCallback(Some(reset_at_transaction_end), std::ptr::null_mut())
+            };
+            Default::default()
+        })
+    }
+
+    /// Postgres releases every buffer pin and lock when a transaction ends. Clearing here also
+    /// drops entries that never got a `Buffer`: `pinned_buffer` and `get_buffer_for_cleanup` track
+    /// before they pin or lock, and an ERROR in that call leaves the entry behind.
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn reset_at_transaction_end(
+        event: pg_sys::XactEvent::Type,
+        _arg: *mut std::ffi::c_void,
+    ) {
+        use pg_sys::XactEvent::*;
+        if matches!(
+            event,
+            XACT_EVENT_COMMIT
+                | XACT_EVENT_PARALLEL_COMMIT
+                | XACT_EVENT_ABORT
+                | XACT_EVENT_PARALLEL_ABORT
+                | XACT_EVENT_PREPARE
+        ) && let Some(map) = BLOCK_TRACKER.get()
+        {
+            map.lock().clear();
+        }
+    }
 
     macro_rules! track {
         ($style:ident, $blockno:expr) => {
@@ -94,8 +127,7 @@ mod block_tracker {
             let blockno = block_tracker::TrackedBlock::$style($blockno);
             assert!(!matches!(blockno, block_tracker::TrackedBlock::Drop(_)), "invalid block style: Drop not allowed");
 
-            let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
-            let mut lock = map.lock();
+            let mut lock = block_tracker::tracker().lock();
             match lock.entry(blockno) {
                 Entry::Occupied(existing) => {
                     // having an existing block is okay if the new block follows Postgres' rules for acquiring and releasing buffers
@@ -160,8 +192,7 @@ mod block_tracker {
 
     macro_rules! forget {
         ($blockno:expr) => {
-            let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
-            let mut lock = map.lock();
+            let mut lock = block_tracker::tracker().lock();
             lock.remove(&block_tracker::TrackedBlock::Drop($blockno));
         };
     }
@@ -190,6 +221,10 @@ mod block_tracker {
 #[derive(Debug)]
 pub struct Buffer {
     pub(super) pg_buffer: pg_sys::Buffer,
+    /// Read while the buffer is pinned, so `Drop` never asks Postgres for it: after an abort
+    /// releases the pin, `BufferGetBlockNumber` fails `Assert(BufferIsPinned)`.
+    #[cfg(feature = "block_tracker")]
+    blockno: pg_sys::BlockNumber,
 }
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
@@ -200,7 +235,7 @@ impl Drop for Buffer {
         unsafe {
             if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 // block_tracker bookkeeping must run unconditionally
-                block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
+                block_tracker::forget!(self.blockno);
 
                 // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics.
                 // InterruptHoldoffCount check is a PostgreSQL-level indicator of error handling.
@@ -233,7 +268,25 @@ impl Buffer {
             "buffer cannot be allocated outside of a transaction"
         );
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
-        Self { pg_buffer }
+        Self::pinned(pg_buffer)
+    }
+
+    /// Wraps a buffer this backend has already pinned, without `new`'s checks.
+    fn pinned(pg_buffer: pg_sys::Buffer) -> Self {
+        Self {
+            pg_buffer,
+            #[cfg(feature = "block_tracker")]
+            blockno: unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) },
+        }
+    }
+
+    /// A placeholder left behind when the real buffer is moved out; its `Drop` does nothing.
+    fn invalid() -> Self {
+        Self {
+            pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+            #[cfg(feature = "block_tracker")]
+            blockno: pg_sys::InvalidBlockNumber,
+        }
     }
 
     pub fn page(&self) -> Page<'_> {
@@ -254,7 +307,7 @@ impl Buffer {
         pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
         let pg_buffer =
             std::mem::replace(&mut self.pg_buffer, pg_sys::InvalidBuffer as pg_sys::Buffer);
-        block_tracker::forget!(pg_sys::BufferGetBlockNumber(pg_buffer));
+        block_tracker::forget!(self.blockno);
         ImmutablePage {
             pinned_buffer: PinnedBuffer::new(pg_buffer),
         }
@@ -382,12 +435,7 @@ impl BufferMut {
             "BufferMut::into_immutable_page called on a dirty page"
         );
 
-        let inner = std::mem::replace(
-            &mut self.inner,
-            Buffer {
-                pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
-            },
-        );
+        let inner = std::mem::replace(&mut self.inner, Buffer::invalid());
         unsafe { inner.into_immutable_page() }
     }
 
@@ -427,6 +475,9 @@ impl BufferMut {
 #[derive(Debug)]
 pub struct PinnedBuffer {
     pg_buffer: pg_sys::Buffer,
+    /// See [`Buffer`]'s field of the same name.
+    #[cfg(feature = "block_tracker")]
+    blockno: pg_sys::BlockNumber,
 }
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
@@ -436,7 +487,7 @@ impl Drop for PinnedBuffer {
     fn drop(&mut self) {
         unsafe {
             // block_tracker bookkeeping must run unconditionally
-            block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
+            block_tracker::forget!(self.blockno);
 
             // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics
             if crate::postgres::utils::IsTransactionState() && !std::thread::panicking() {
@@ -449,7 +500,11 @@ impl Drop for PinnedBuffer {
 impl PinnedBuffer {
     pub fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
-        Self { pg_buffer }
+        Self {
+            pg_buffer,
+            #[cfg(feature = "block_tracker")]
+            blockno: unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) },
+        }
     }
 
     pub fn number(self) -> pg_sys::BlockNumber {
@@ -830,7 +885,7 @@ impl BufferManager {
         BufferMut {
             style: XlogFlag::NewBuffer.into_style(self.rbufacc.rel()),
             dirty: false,
-            inner: Buffer { pg_buffer },
+            inner: Buffer::pinned(pg_buffer),
         }
     }
 
@@ -865,7 +920,7 @@ impl BufferManager {
                 // so we avoid the diff calculation by using NewBuffer
                 style: XlogFlag::NewBuffer.into_style(&rel),
                 dirty: false,
-                inner: Buffer { pg_buffer },
+                inner: Buffer::pinned(pg_buffer),
             }
         });
 
@@ -895,7 +950,7 @@ impl BufferManager {
                         BufferMut {
                             style: XlogFlag::NewBuffer.into_style(&rel),
                             dirty: false,
-                            inner: Buffer { pg_buffer },
+                            inner: Buffer::pinned(pg_buffer),
                         }
                     },
                 ));
@@ -1084,7 +1139,7 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     let mut buffer = BufferMut {
         style: XlogFlag::NewBuffer.into_style(rel),
         dirty: false,
-        inner: Buffer { pg_buffer },
+        inner: Buffer::pinned(pg_buffer),
     };
     let mut page = buffer.init_page();
     let special = page.special_mut::<BM25PageSpecialData>();

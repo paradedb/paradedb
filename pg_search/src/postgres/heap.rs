@@ -461,6 +461,19 @@ impl VisibilityChecker {
         if let Some(ranges) = self.dirty_blocks.get(&segment_id) {
             return ranges.clone();
         }
+        if self.visibility_stats.is_some() {
+            self.scan_dirty_blocks::<true>(segment_id, blocks)
+        } else {
+            self.scan_dirty_blocks::<false>(segment_id, blocks)
+        }
+    }
+
+    /// Compiles statistics work out of the ordinary-query scan.
+    fn scan_dirty_blocks<const COLLECT_STATS: bool>(
+        &mut self,
+        segment_id: SegmentId,
+        blocks: Range<BlockNumber>,
+    ) -> Arc<[Range<BlockNumber>]> {
         self.blockvis = (pg_sys::InvalidBlockNumber, false);
         let mut block = blocks.start / 32 * 32;
         let mut scratch = vec![TinySet::range_lower(32); util::HEAPBLOCKS_PER_PAGE as usize / 32];
@@ -475,7 +488,7 @@ impl VisibilityChecker {
             self.retain_invisible_blocks(block, missing);
             for (word, &bits) in missing.iter().enumerate() {
                 let mut bits = u64::from_le_bytes(bits.into_bytes());
-                if self.visibility_stats.is_some() {
+                if COLLECT_STATS {
                     let word_start = block + word as BlockNumber * 32;
                     let first = blocks.start.saturating_sub(word_start);
                     let end = (blocks.end - word_start).min(32);
@@ -500,8 +513,10 @@ impl VisibilityChecker {
             }
             block = block.saturating_add(words as BlockNumber * 32);
         }
-        if let Some(stats) = &self.visibility_stats {
-            stats
+        if COLLECT_STATS {
+            self.visibility_stats
+                .as_ref()
+                .expect("visibility instrumentation must be enabled")
                 .lock()
                 .segments
                 .entry(segment_id)

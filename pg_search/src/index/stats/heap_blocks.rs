@@ -54,21 +54,24 @@
 //! the segment's `.stats` file. Each bounded chunk uses Tantivy's choice of bitpacking or
 //! BlockwiseLinearV2. A directory of occupied VM pages skips large gaps between heap pages.
 //! At query time, read the VM first: visible words need no presence, rank, or boundary reads.
-//! Builds and merges spool bounded chunks to temporary files.
+//! Builds and merges write bounded ColumnarWriter batches directly into `.stats`, using
+//! its composite directory to locate each batch. Only the VM-page directory is spooled.
+//! Value buffers are bounded; the composite footer retains one entry per column chunk.
 //! `VisibilityChecker` performs the VM comparison once per eligible segment
 //! and snapshot, caches the resulting ranges, and uses them to filter subsequent batches.
 
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::ops::Range;
 use std::sync::Arc;
 
-use tantivy::columnar::column_values::{
-    CodecType, load_u64_based_column_values, serialize_u64_based_column_values,
+use tantivy::Directory;
+use tantivy::columnar::column_values::CodecType;
+use tantivy::columnar::{
+    Cardinality, Column, ColumnType, ColumnarReader, ColumnarWriter, DynamicColumn,
 };
-use tantivy::columnar::{Cardinality, ColumnValues, ColumnarReader, DynamicColumn};
-use tantivy::directory::{CompositeWrite, FileSlice, OwnedBytes, TempFilePtr};
+use tantivy::directory::{CompositeFile, CompositeWrite, FileSlice, OwnedBytes};
 use tantivy::index::{Segment, SegmentComponent};
-use tantivy::{Directory, HasLen};
+use tantivy::schema::Field;
 
 use crate::api::CTID_FIELD_NAME;
 #[cfg(feature = "io_stats")]
@@ -76,13 +79,14 @@ use crate::index::reader::io_stats::trace;
 use crate::postgres::heap::HEAPBLOCKS_PER_PAGE;
 
 pub(super) const DIRECTORY_IDX: usize = 7;
-pub(super) const PRESENCE_IDX: usize = 3;
-pub(super) const RANK_IDX: usize = 8;
-pub(super) const BOUNDARIES_IDX: usize = 6;
+const COLUMNS_IDX: usize = 9;
+const COLUMN_COUNT: usize = 3;
+const PRESENCE: usize = 0;
+const RANK: usize = 1;
+const BOUNDARIES: usize = 2;
 const HEADER: usize = 24;
 const ENTRY: usize = 16;
 const SPARSE: u32 = 1 << 31;
-const COLUMN_HEADER: usize = 8;
 const CHUNK_SIZE: usize = 32768;
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 
@@ -133,9 +137,9 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
     let mut values = values.peekable();
     let directory = segment.index().directory();
     let mut entries = directory.open_temp_file()?;
-    let mut presence = ChunkWriter::new(directory)?;
-    let mut ranks = ChunkWriter::new(directory)?;
-    let mut boundaries = ChunkWriter::new(directory)?;
+    let mut presence = ChunkWriter::new(field, PRESENCE);
+    let mut ranks = ChunkWriter::new(field, RANK);
+    let mut boundaries = ChunkWriter::new(field, BOUNDARIES);
     let mut bitmap = vec![0u32; HEAPBLOCKS_PER_PAGE as usize / 32];
     let mut chunks = 0u32;
     let mut rows = 0u32;
@@ -163,7 +167,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
             }
             values.next();
             if previous != Some(block) {
-                boundaries.push(processed)?;
+                boundaries.push(processed, out)?;
                 last_word = (block % HEAPBLOCKS_PER_PAGE / 32) as usize;
                 bitmap[last_word] |= 1 << (block % 32);
             }
@@ -190,14 +194,14 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
             if sparse {
                 let mut bits = word;
                 while bits != 0 {
-                    presence.push(i as u32 * 32 + bits.trailing_zeros())?;
-                    ranks.push(blocks)?;
+                    presence.push(i as u32 * 32 + bits.trailing_zeros(), out)?;
+                    ranks.push(blocks, out)?;
                     blocks += 1;
                     bits &= bits - 1;
                 }
             } else {
-                presence.push(word)?;
-                ranks.push(blocks)?;
+                presence.push(word, out)?;
+                ranks.push(blocks, out)?;
                 blocks += word.count_ones();
             }
         }
@@ -207,11 +211,11 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
     if processed != docs {
         return Err(invalid().into());
     }
-    boundaries.push(docs)?;
+    boundaries.push(docs, out)?;
 
     let writer = out.for_field_with_idx(field, DIRECTORY_IDX);
     for value in [
-        u32::from_le_bytes(*b"HBC1"),
+        u32::from_le_bytes(*b"HBC2"),
         HEAPBLOCKS_PER_PAGE,
         docs,
         blocks,
@@ -222,71 +226,59 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
     }
     entries.seek(SeekFrom::Start(0))?;
     io::copy(&mut entries, writer)?;
-    presence.finish(out.for_field_with_idx(field, PRESENCE_IDX))?;
-    ranks.finish(out.for_field_with_idx(field, RANK_IDX))?;
-    boundaries.finish(out.for_field_with_idx(field, BOUNDARIES_IDX))?;
+    presence.flush(out)?;
+    ranks.flush(out)?;
+    boundaries.flush(out)?;
     Ok(())
 }
 
 struct ChunkWriter {
-    values: Vec<u32>,
-    payload: TempFilePtr,
-    offsets: TempFilePtr,
-    bytes: u64,
-    chunks: u32,
+    writer: ColumnarWriter,
+    rows: u32,
+    chunk: usize,
+    field: Field,
+    column: usize,
 }
 
 impl ChunkWriter {
-    /// Keeps one fixed-size value batch and spools encoded data and offsets to disk.
-    fn new(directory: &dyn Directory) -> io::Result<Self> {
-        Ok(Self {
-            values: Vec::with_capacity(CHUNK_SIZE),
-            payload: directory.open_temp_file()?,
-            offsets: directory.open_temp_file()?,
-            bytes: 0,
-            chunks: 0,
-        })
+    fn new(field: Field, column: usize) -> Self {
+        Self {
+            writer: ColumnarWriter::default(),
+            rows: 0,
+            chunk: 0,
+            field,
+            column,
+        }
     }
 
-    /// Flushes complete batches without retaining earlier values.
-    fn push(&mut self, value: u32) -> io::Result<()> {
-        self.values.push(value);
-        if self.values.len() == CHUNK_SIZE {
-            self.flush()?;
+    fn push(&mut self, value: u32, out: &mut CompositeWrite) -> io::Result<()> {
+        if self.rows == 0 {
+            self.writer
+                .record_column_type("value", ColumnType::U64, false);
+        }
+        self.writer
+            .record_numerical(self.rows, "value", u64::from(value));
+        self.rows += 1;
+        if self.rows as usize == CHUNK_SIZE {
+            self.flush(out)?;
         }
         Ok(())
     }
 
-    /// Lets Tantivy choose the smaller column codec for this batch.
-    fn flush(&mut self) -> io::Result<()> {
-        if self.values.is_empty() {
+    fn flush(&mut self, out: &mut CompositeWrite) -> io::Result<()> {
+        if self.rows == 0 {
             return Ok(());
         }
-        let mut encoded = Vec::new();
-        serialize_u64_based_column_values(&self.values.as_slice(), CODECS, &mut encoded)?;
-        self.offsets.write_all(&self.bytes.to_le_bytes())?;
-        self.payload.write_all(&encoded)?;
-        self.bytes += encoded.len() as u64;
-        self.chunks += 1;
-        self.values.clear();
-        Ok(())
-    }
-
-    /// Writes a directory followed by the spooled payload, using bounded copy buffers.
-    fn finish(mut self, writer: &mut dyn Write) -> io::Result<()> {
-        self.flush()?;
-        writer.write_all(b"HCC1")?;
-        writer.write_all(&self.chunks.to_le_bytes())?;
-        let start = COLUMN_HEADER as u64 + (u64::from(self.chunks) + 1) * 8;
-        self.offsets.seek(SeekFrom::Start(0))?;
-        let mut offset = [0u8; 8];
-        for _ in 0..self.chunks {
-            self.offsets.read_exact(&mut offset)?;
-            writer.write_all(&(start + u64::from_le_bytes(offset)).to_le_bytes())?;
-        }
-        writer.write_all(&(start + self.bytes).to_le_bytes())?;
-        self.payload.seek(SeekFrom::Start(0))?;
-        io::copy(&mut self.payload, writer)?;
+        let index = COLUMNS_IDX + self.chunk * COLUMN_COUNT + self.column;
+        self.writer.serialize(
+            self.rows,
+            None,
+            CODECS,
+            out.for_field_with_idx(self.field, index),
+        )?;
+        self.writer = ColumnarWriter::default();
+        self.rows = 0;
+        self.chunk += 1;
         Ok(())
     }
 }
@@ -306,9 +298,8 @@ impl HeapBlockMap {
     /// Reads the sparse directory while leaving all three columns unopened.
     pub(super) fn open(
         directory: FileSlice,
-        presence: FileSlice,
-        ranks: FileSlice,
-        boundaries: FileSlice,
+        file: Arc<CompositeFile>,
+        field: Field,
         docs: u32,
         pages_per_vm: u32,
     ) -> io::Result<Self> {
@@ -316,7 +307,7 @@ impl HeapBlockMap {
         let _io = trace::external("Visibility Directory");
         let directory = directory.read_bytes()?;
         if directory.len() < HEADER
-            || &directory[..4] != b"HBC1"
+            || &directory[..4] != b"HBC2"
             || u32_at(&directory, 4) != pages_per_vm
             || u32_at(&directory, 8) != docs
             || pages_per_vm == 0
@@ -361,9 +352,21 @@ impl HeapBlockMap {
         Ok(Self {
             descending: u32_at(&directory, 20) != 0,
             directory,
-            presence: ChunkReader::new(presence, rows as usize, "Visibility Presence"),
-            ranks: ChunkReader::new(ranks, rows as usize, "Visibility Rank"),
-            boundaries: ChunkReader::new(boundaries, blocks as usize + 1, "Visibility Boundaries"),
+            presence: ChunkReader::new(
+                file.clone(),
+                field,
+                PRESENCE,
+                rows as usize,
+                "Visibility Presence",
+            ),
+            ranks: ChunkReader::new(file.clone(), field, RANK, rows as usize, "Visibility Rank"),
+            boundaries: ChunkReader::new(
+                file,
+                field,
+                BOUNDARIES,
+                blocks as usize + 1,
+                "Visibility Boundaries",
+            ),
             docs,
             blocks,
             pages_per_vm,
@@ -468,24 +471,32 @@ impl HeapBlockMap {
 }
 
 struct ChunkReader {
-    file: FileSlice,
+    file: Arc<CompositeFile>,
+    field: Field,
+    column: usize,
     count: usize,
-    values: Option<(usize, Arc<dyn ColumnValues<u32>>)>,
+    values: Option<(usize, Column<u64>)>,
     _label: &'static str,
 }
 
 impl ChunkReader {
-    /// Defers reading the chunk directory and values until first use.
-    fn new(file: FileSlice, count: usize, label: &'static str) -> Self {
+    fn new(
+        file: Arc<CompositeFile>,
+        field: Field,
+        column: usize,
+        count: usize,
+        label: &'static str,
+    ) -> Self {
         Self {
             file,
+            field,
+            column,
             count,
             values: None,
             _label: label,
         }
     }
 
-    /// Reads a value by ordinal, retaining at most one encoded column chunk.
     fn get(&mut self, index: usize) -> io::Result<u32> {
         if index >= self.count {
             return Err(invalid());
@@ -493,38 +504,32 @@ impl ChunkReader {
         #[cfg(feature = "io_stats")]
         let _io = trace::external(self._label);
         let chunk = index / CHUNK_SIZE;
-        if let Some((current, values)) = &self.values
-            && *current == chunk
+        if self
+            .values
+            .as_ref()
+            .is_none_or(|(current, _)| *current != chunk)
         {
-            return Ok(values.get_val((index % CHUNK_SIZE) as u32));
-        }
-        let chunks = self.count.div_ceil(CHUNK_SIZE);
-        let payload_start = COLUMN_HEADER + (chunks + 1) * 8;
-        if self.values.is_none() {
-            if self.file.len() < payload_start {
+            let address = COLUMNS_IDX + chunk * COLUMN_COUNT + self.column;
+            let file = self
+                .file
+                .open_read_with_idx(self.field, address)
+                .ok_or_else(invalid)?;
+            let reader = ColumnarReader::open(file)?;
+            let handles = reader.read_columns("value")?;
+            let [handle] = handles.as_slice() else {
+                return Err(invalid());
+            };
+            let DynamicColumn::U64(values) = handle.open()? else {
+                return Err(invalid());
+            };
+            let count = (self.count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
+            if values.get_cardinality() != Cardinality::Full || values.num_docs() as usize != count
+            {
                 return Err(invalid());
             }
-            let header = self.file.slice(..COLUMN_HEADER).read_bytes()?;
-            if &header[..4] != b"HCC1" || u32_at(&header, 4) as usize != chunks {
-                return Err(invalid());
-            }
+            self.values = Some((chunk, values));
         }
-        let at = COLUMN_HEADER + chunk * 8;
-        let offsets = self.file.slice(at..at + 16).read_bytes()?;
-        let start = usize::try_from(u64::from_le_bytes(offsets[..8].try_into().unwrap()))
-            .map_err(|_| invalid())?;
-        let end = usize::try_from(u64::from_le_bytes(offsets[8..].try_into().unwrap()))
-            .map_err(|_| invalid())?;
-        if start < payload_start || start >= end || end > self.file.len() {
-            return Err(invalid());
-        }
-        let values = load_u64_based_column_values::<u32>(self.file.slice(start..end))?;
-        let count = (self.count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
-        if values.num_vals() as usize != count {
-            return Err(invalid());
-        }
-        self.values = Some((chunk, values));
         let (_, values) = self.values.as_ref().unwrap();
-        Ok(values.get_val((index % CHUNK_SIZE) as u32))
+        u32::try_from(values.values.get_val((index % CHUNK_SIZE) as u32)).map_err(|_| invalid())
     }
 }

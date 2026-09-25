@@ -28,6 +28,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::io;
 use std::ops::Bound;
+use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -398,13 +399,13 @@ impl EmpiricalStats {
 
 /// A segment's `.stats` file, opened on its footer. Entries are decoded on request.
 pub(crate) struct SegmentStats {
-    file: CompositeFile,
+    file: Arc<CompositeFile>,
 }
 
 impl SegmentStats {
     pub(crate) fn open(slice: FileSlice) -> io::Result<Self> {
         Ok(Self {
-            file: CompositeFile::open(&slice)?,
+            file: Arc::new(CompositeFile::open(&slice)?),
         })
     }
 
@@ -486,25 +487,8 @@ impl SegmentStats {
         else {
             return Ok(None);
         };
-        let presence = self
-            .file
-            .open_read_with_idx(field, heap_blocks::PRESENCE_IDX);
-        let ranks = self.file.open_read_with_idx(field, heap_blocks::RANK_IDX);
-        let boundaries = self
-            .file
-            .open_read_with_idx(field, heap_blocks::BOUNDARIES_IDX);
-        let (Some(presence), Some(ranks), Some(boundaries)) = (presence, ranks, boundaries) else {
-            return Ok(None);
-        };
-        heap_blocks::HeapBlockMap::open(
-            directory,
-            presence,
-            ranks,
-            boundaries,
-            max_doc,
-            pages_per_vm,
-        )
-        .map(Some)
+        heap_blocks::HeapBlockMap::open(directory, self.file.clone(), field, max_doc, pages_per_vm)
+            .map(Some)
     }
 
     fn read<T: DeserializeOwned>(&self, field: Field, idx: usize) -> io::Result<Option<T>> {

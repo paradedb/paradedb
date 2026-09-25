@@ -32,7 +32,6 @@
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
-use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
 use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
@@ -873,55 +872,34 @@ fn build_clause_df<'a>(
 
         let df = apply_window_functions(df, join_clause)?;
 
-        // 4. DISTINCT and Top-K. The Top-K aggregate needs a known k. When it is
-        // on, DISTINCT is absorbed into it: the distinct key is the aggregate's
-        // payload and no GROUP BY runs. Otherwise DISTINCT is a GROUP BY, and the
-        // Top-K aggregate, when on, runs over its output. Either way the rows come
+        // 4. DISTINCT + Top-(offset + K). When enabled, rows come
         // back as (offset + k) rows, not necessarily in order, and the sort, limit
-        // and output projection above resolve through `distinct_col_map` as before.
-        let topk_k = if gucs::joinscan_force_topk_as_agg() {
-            topk_as_agg_limit(join_clause.limit_offset.as_ref())
+        // and output projection below resolve through `distinct_col_map` as before.
+        //
+        // When disabled, use apply_distinct_group_by
+        let (df, distinct_col_map) = if gucs::joinscan_force_topk_as_agg()
+            // The Top-K aggregate needs a known k
+            && let Some(k) = topk_as_agg_limit(join_clause.limit_offset.as_ref())
+        {
+            match distinct_key_exprs(join_clause)? {
+                Some((key_exprs, distinct_col_map)) => (
+                    apply_distinct_topk_as_agg(
+                        df,
+                        join_clause,
+                        &private_data.output_columns,
+                        key_exprs,
+                        &distinct_col_map,
+                        k,
+                    )?,
+                    distinct_col_map,
+                ),
+                None => (
+                    apply_topk_as_agg(df, join_clause, k)?,
+                    DistinctColMap::default(),
+                ),
+            }
         } else {
-            None
-        };
-        let distinct = distinct_key_exprs(join_clause)?;
-        let (df, distinct_col_map) = match (topk_k, distinct) {
-            (Some(k), Some((key_exprs, distinct_col_map))) => {
-                match distinct_topk_sort_exprs(join_clause, &distinct_col_map, &key_exprs)? {
-                    Some(sort_exprs) => (
-                        apply_distinct_topk_as_agg(
-                            df,
-                            join_clause,
-                            &private_data.output_columns,
-                            key_exprs,
-                            sort_exprs,
-                            k,
-                        )?,
-                        distinct_col_map,
-                    ),
-                    // A sort key that is not itself a distinct-key expression cannot
-                    // be sorted on inside the aggregate; keep the GROUP BY form.
-                    None => {
-                        let (df, distinct_col_map) = apply_distinct_group_by(
-                            df,
-                            join_clause,
-                            &private_data.output_columns,
-                            Some((key_exprs, distinct_col_map)),
-                        )?;
-                        (
-                            apply_topk_as_agg(df, join_clause, &distinct_col_map, k)?,
-                            distinct_col_map,
-                        )
-                    }
-                }
-            }
-            (Some(k), None) => (
-                apply_topk_as_agg(df, join_clause, &DistinctColMap::default(), k)?,
-                DistinctColMap::default(),
-            ),
-            (None, distinct) => {
-                apply_distinct_group_by(df, join_clause, &private_data.output_columns, distinct)?
-            }
+            apply_distinct_group_by(df, join_clause, &private_data.output_columns)?
         };
 
         // 5. Apply Sort
@@ -967,24 +945,29 @@ fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
     }
 }
 
-/// Returns flattened set of topk rows
-/// DISTINCT and Top-K as one aggregate. The payload is the distinct key, one
-/// expression per output projection entry in target-list order, followed by the
-/// surviving ctid columns. The aggregate keeps the K best distinct rows and the
-/// element-wise minimum ctids of each group, which is what the GROUP BY with
-/// `min(ctid)` produced. The rows come back under the same `col_{i}` and ctid
-/// names that GROUP BY would have emitted, so everything above is unchanged.
 fn apply_distinct_topk_as_agg(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-    key_exprs: Vec<Expr>,
-    sort_exprs: Vec<SortExpr>,
+    distinct_key_exprs: Vec<Expr>,
+    distinct_col_map: &DistinctColMap,
     k: usize,
 ) -> Result<DataFrame> {
     if k == 0 {
         // the accumulator rejects a k of 0, so fallback to returning the "empty" dataframe
         return df.limit(0, Some(0));
+    }
+
+    {
+        let projection = join_clause
+            .output_projection
+            .as_ref()
+            .expect("should always exist by now");
+        assert_eq!(
+            distinct_key_exprs.len(),
+            projection.len(),
+            "This function is only correct as long as the DISTINCT keys cover all output projection columns",
+        );
     }
 
     // Only relations whose heap tuples are fetched need a ctid carried through,
@@ -995,82 +978,75 @@ fn apply_distinct_topk_as_agg(
             .filter(|(pos, _)| needed_ctids.contains(pos))
             .map(|(_, name)| name)
             .collect();
-    let num_keys = key_exprs.len();
-    let mut payload = key_exprs;
-    payload.extend(ctid_names.iter().map(|name| col(name.as_str())));
-    let key_positions: Vec<usize> = (0..num_keys).collect();
-    let ctid_positions: Vec<usize> = (num_keys..payload.len()).collect();
 
-    let topk_agg = distinct_topk_as_agg(&payload, sort_exprs, k, &key_positions, &ctid_positions);
+    let num_non_ctid_cols = distinct_key_exprs.len();
+    // The GROUP BY's group list, as a projection: col_{i} exists from here on.
+    let mut select: Vec<Expr> = distinct_key_exprs
+        .into_iter()
+        .enumerate()
+        .map(|(i, e)| e.alias(format!("col_{}", i + 1)))
+        .collect();
+    select.extend(ctid_names.iter().map(|n| col(n.as_str())));
+    let num_all_cols = select.len();
+    let df = df.select(select)?;
+
+    // The same list, just with the new names
+    let mut all_col_exprs: Vec<Expr> = (0..num_non_ctid_cols)
+        .map(|i| col(format!("col_{}", i + 1)))
+        .chain(ctid_names.iter().map(|n| col(n.as_str())))
+        .collect();
+
+    let mut key_positions: Vec<usize> = (0..num_non_ctid_cols).collect();
+    let ctid_positions: Vec<usize> = (num_non_ctid_cols..num_all_cols).collect();
+
+    // the sort expressions built from distinct_col_map will be correct thanks to the above SELECT
+    let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
+    // we must ensure all_col_exprs contains the sort expression. The appended expression is
+    // necessarily a function of key columns, so adding it does not change which rows are distinct
+    for sort in sort_exprs.iter() {
+        if !all_col_exprs.contains(&sort.expr) {
+            key_positions.push(all_col_exprs.len());
+            all_col_exprs.push(sort.expr.clone());
+        }
+    }
+
+    let topk_agg = distinct_topk_as_agg(
+        &all_col_exprs,
+        sort_exprs,
+        k,
+        &key_positions,
+        &ctid_positions,
+    );
     let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
     let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
 
     // Restore the GROUP BY's output names: `col_{i}` for the key, the ctid names
     // for the ctids.
-    let name_restoration_exprs: Vec<Expr> = (0..num_keys)
+    let name_restoration_exprs: Vec<Expr> = (0..num_non_ctid_cols)
         .map(|i| {
             get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(format!("col_{}", i + 1))
         })
         .chain(ctid_names.iter().enumerate().map(|(j, name)| {
-            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{}", num_keys + j))
-                .alias(name.as_str())
+            get_field(
+                col(TOPK_AGG_ROWS_COL_NAME),
+                format!("c{}", num_non_ctid_cols + j),
+            )
+            .alias(name.as_str())
         }))
         .collect();
     df.select(name_restoration_exprs)
 }
 
-/// The ORDER BY for the distinct Top-K, spelled as the payload expressions it
-/// sorts on. Resolving through `distinct_col_map` finds each sort key's
-/// `col_{i}` entry, which is then substituted with that entry's key expression,
-/// so each sort key equals a payload expression exactly. `None` when a sort key
-/// is not itself a distinct-key expression (a null test, or a sum of scores that
-/// the select list carries as one expression), which the aggregate cannot sort on.
-fn distinct_topk_sort_exprs(
-    join_clause: &JoinCSClause,
-    distinct_col_map: &DistinctColMap,
-    key_exprs: &[Expr],
-) -> Result<Option<Vec<SortExpr>>> {
-    let mut sort_exprs = Vec::new();
-    for sort in build_sort_exprs(join_clause, distinct_col_map)? {
-        let expr = sort
-            .expr
-            .transform(|e| {
-                if let Expr::Column(c) = &e
-                    && c.relation.is_none()
-                    && let Some(i) = c
-                        .name
-                        .strip_prefix("col_")
-                        .and_then(|n| n.parse::<usize>().ok())
-                    && (1..=key_exprs.len()).contains(&i)
-                {
-                    return Ok(Transformed::yes(key_exprs[i - 1].clone()));
-                }
-                Ok(Transformed::no(e))
-            })?
-            .data;
-        if !key_exprs.contains(&expr) {
-            return Ok(None);
-        }
-        sort_exprs.push(SortExpr { expr, ..sort });
-    }
-    Ok(Some(sort_exprs))
-}
-
-fn apply_topk_as_agg(
-    df: DataFrame,
-    join_clause: &JoinCSClause,
-    distinct_col_map: &DistinctColMap,
-    k: usize,
-) -> Result<DataFrame> {
+fn apply_topk_as_agg(df: DataFrame, join_clause: &JoinCSClause, k: usize) -> Result<DataFrame> {
     if k == 0 {
         // the accumulator rejects a k of 0, so fallback to returning the "empty" dataframe
         return df.limit(0, Some(0));
     }
 
     let columns = df.schema().columns();
-    let payload: Vec<_> = columns.iter().cloned().map(Expr::from).collect();
-    let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
-    let topk_agg = topk_as_agg(&payload, sort_exprs, k);
+    let all_col_exprs: Vec<_> = columns.iter().cloned().map(Expr::from).collect();
+    let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
+    let topk_agg = topk_as_agg(&all_col_exprs, sort_exprs, k);
 
     // Do aggregations
     let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
@@ -1217,9 +1193,8 @@ fn apply_distinct_group_by(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-    distinct: Option<(Vec<Expr>, DistinctColMap)>,
 ) -> Result<(DataFrame, DistinctColMap)> {
-    let Some((key_exprs, distinct_col_map)) = distinct else {
+    let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
         return Ok((df, DistinctColMap::default()));
     };
     let group_exprs: Vec<Expr> = key_exprs

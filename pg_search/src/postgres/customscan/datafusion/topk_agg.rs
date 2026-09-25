@@ -591,7 +591,14 @@ pub fn distinct_topk_as_agg(
     key_positions: &[usize],
     ctid_positions: &[usize],
 ) -> Expr {
+    assert_eq!(
+        payload.len(),
+        key_positions.len() + ctid_positions.len(),
+        "We assume the DISTINCT keys cover all non-ctid columns"
+    );
+
     let mut args = topk_args(payload, &sort_exprs, k);
+
     args.push(positions_lit(key_positions));
     args.push(positions_lit(ctid_positions));
     Expr::AggregateFunction(AggregateFunction::new_udf(

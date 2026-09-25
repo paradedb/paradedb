@@ -894,6 +894,14 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
 
+-- Test 14.3b: STRING_AGG with NULL delimiter concatenates without separator
+SELECT p.category, STRING_AGG(t.tag_name, NULL)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
+GROUP BY p.category
+ORDER BY p.category;
+
 -- Test 14.4: BOOL_AND/OR parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)

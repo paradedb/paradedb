@@ -21,6 +21,8 @@ use crate::postgres::storage::block::{FileEntry, bm25_max_free_space};
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
+#[cfg(feature = "io_stats")]
+use pgrx::{debug1, pg_sys};
 use std::io::Error;
 use std::ops::Range;
 use tantivy::HasLen;
@@ -54,8 +56,23 @@ impl SegmentComponentReader {
             let end = range.end.min(self.len());
             let range = range.start..end;
 
-            // read one or more pages
-            Ok(self.block_list.get_bytes_range(range))
+            #[cfg(feature = "io_stats")]
+            let before = pg_sys::pgBufferUsage.shared_blks_hit;
+            let bytes = self.block_list.get_bytes_range(range.clone());
+            #[cfg(feature = "io_stats")]
+            if pg_sys::client_min_messages <= pg_sys::DEBUG1 as i32
+                || pg_sys::log_min_messages <= pg_sys::DEBUG1 as i32
+            {
+                debug1!(
+                    "component read {:?} header {} range {}..{} hits {}",
+                    self.component,
+                    self.entry.starting_block,
+                    range.start,
+                    range.end,
+                    pg_sys::pgBufferUsage.shared_blks_hit - before,
+                );
+            }
+            Ok(bytes)
         }
     }
 }

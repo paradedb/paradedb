@@ -18,7 +18,6 @@
 use std::collections::VecDeque;
 use std::io;
 use std::ops::{Deref, Range};
-use std::slice;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
@@ -552,21 +551,20 @@ impl VisibilityChecker {
             self.is_block_all_visible(blockno);
             if self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 let map = unsafe {
-                    slice::from_raw_parts(
-                        pg_sys::PageGetContents(pg_sys::BufferGetPage(self.vmbuff))
-                            .cast::<u8>()
-                            .add((page_offset / util::HEAPBLOCKS_PER_BYTE) as usize),
-                        valid_words * 8,
-                    )
+                    pg_sys::PageGetContents(pg_sys::BufferGetPage(self.vmbuff))
+                        .cast::<u8>()
+                        .add((page_offset / util::HEAPBLOCKS_PER_BYTE) as usize)
                 };
                 // The VM alternates all-visible and all-frozen bits. Keep only all-visible bits,
                 // then pack them into a u32 by doubling the occupied group size at each step.
-                for (bytes, blocks) in map.chunks_exact(8).zip(&mut page_blocks[..valid_words]) {
+                for (word, blocks) in page_blocks[..valid_words].iter_mut().enumerate() {
                     if blocks.is_empty() {
                         continue;
                     }
-                    let mut visible =
-                        u64::from_le_bytes(bytes.try_into().unwrap()) & ALL_VISIBLE_BITS;
+                    // The pin keeps the page allocated, but other backends can change its bits.
+                    // Read an owned, byte-aligned value without borrowing the shared page.
+                    let bytes = unsafe { map.add(word * 8).cast::<[u8; 8]>().read_volatile() };
+                    let mut visible = u64::from_le_bytes(bytes) & ALL_VISIBLE_BITS;
                     if visible == ALL_VISIBLE_BITS {
                         blocks.clear();
                         continue;

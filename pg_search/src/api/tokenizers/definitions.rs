@@ -534,6 +534,24 @@ pub(crate) mod pdb {
         custom_typmod = true
     );
 
+    // The SQL keyword tokenizer supports filters. The internal Keyword variant
+    // is the legacy unfiltered tokenizer used by pdb.literal.
+    define_tokenizer_type!(
+        "KeywordDef",
+        Keyword,
+        SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default()),
+        tokenize_keyword,
+        json_to_keyword,
+        jsonb_to_keyword,
+        uuid_to_keyword,
+        text_array_to_keyword,
+        varchar_array_to_keyword,
+        "keyword",
+        preferred = false,
+        custom_typmod = false
+    );
+
+    // Compatibility spelling for existing indexes and queries.
     define_tokenizer_type!(
         "LiteralNormalizedDef",
         LiteralNormalized,

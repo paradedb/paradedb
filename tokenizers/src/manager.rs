@@ -363,6 +363,7 @@ pub enum SearchTokenizer {
         note = "use the `SearchTokenizer::Keyword` variant instead"
     )]
     Raw(SearchTokenizerFilters),
+    // Keep the variant and registered name stable for existing index schemas.
     LiteralNormalized(SearchTokenizerFilters),
     WhiteSpace(SearchTokenizerFilters),
     RegexTokenizer {
@@ -969,6 +970,34 @@ impl SearchNormalizer {
 mod tests {
     use super::*;
     use rstest::*;
+
+    #[test]
+    fn test_literal_normalized_storage_compatibility() {
+        let tokenizer = SearchTokenizer::from_json_value(&serde_json::json!({
+            "type": "literal_normalized",
+            "ascii_folding": true,
+        }))
+        .unwrap();
+        // Existing Tantivy schemas refer to this registered name.
+        assert_eq!(tokenizer.name(), "literal_normalized[ascii_folding=true]");
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+        let mut stream = analyzer.token_stream("Running Shoes.  olé");
+        assert!(stream.advance());
+        assert_eq!(stream.token().text, "running shoes.  ole");
+        assert!(!stream.advance());
+
+        // The pre-typmod JSON API used "keyword" for the unfiltered tokenizer.
+        // The SQL spelling pdb.keyword must not change those existing indexes.
+        let legacy = SearchTokenizer::from_json_value(&serde_json::json!({
+            "type": "keyword",
+        }))
+        .unwrap();
+        let mut analyzer = legacy.to_tantivy_tokenizer().unwrap();
+        let mut stream = analyzer.token_stream("Running Shoes.  olé");
+        assert!(stream.advance());
+        assert_eq!(stream.token().text, "Running Shoes.  olé");
+        assert!(!stream.advance());
+    }
 
     #[rstest]
     fn test_search_tokenizer() {

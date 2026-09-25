@@ -96,7 +96,7 @@ jobs:
 
       - name: Commit Nix Cargo Hash
         if: steps.cargo-hash.outputs.needs_fix == 'true'
-        uses: ./.github/actions/commit-with-github-app
+        uses: ./.github/actions/commit-with-paradedb-github-app
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           message: "fix: update nix cargoHash for changed Cargo.lock"

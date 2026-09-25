@@ -64,7 +64,7 @@ jobs:
       - name: Commit Benchmark Reset
         id: reset-commit
         if: ${{ inputs.reset_data }}
-        uses: ./.github/actions/commit-with-github-app
+        uses: ./.github/actions/commit-with-paradedb-github-app
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           working-directory: benchmark-data

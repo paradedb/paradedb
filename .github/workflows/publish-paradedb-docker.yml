@@ -166,7 +166,7 @@ jobs:
 
       - name: Commit Generated Dockerfiles
         if: steps.generated_branch.outputs.has_changes == 'true'
-        uses: ./.github/actions/commit-with-github-app
+        uses: ./.github/actions/commit-with-paradedb-github-app
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           message: "Generate Dockerfiles for ${{ steps.version.outputs.tag }}"
@@ -541,7 +541,7 @@ jobs:
       - name: Commit Main Dockerfiles
         id: main-dockerfiles
         if: ${{ needs.generate-dockerfiles.outputs.is_latest == 'true' }}
-        uses: ./.github/actions/commit-with-github-app
+        uses: ./.github/actions/commit-with-paradedb-github-app
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           message: "Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}"

@@ -1,4 +1,4 @@
-name: Commit with GitHub App
+name: Commit with ParadeDB GitHub App
 description: Create a verified App-signed commit from staged changes without pushing
 
 inputs:

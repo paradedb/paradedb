@@ -406,7 +406,7 @@ jobs:
 
       - name: Commit PostgresApp Update
         if: steps.postgresapp-update.outputs.changed == 'true'
-        uses: ./.github/actions/commit-with-github-app
+        uses: ./.github/actions/commit-with-paradedb-github-app
         with:
           github-token: ${{ steps.postgresapp-app-token.outputs.token }}
           repository: paradedb/PostgresApp

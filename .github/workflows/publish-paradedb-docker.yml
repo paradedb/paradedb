@@ -526,8 +526,6 @@ jobs:
       - name: Stage Main Dockerfiles
         id: main-dockerfiles
         if: ${{ needs.generate-dockerfiles.outputs.is_latest == 'true' }}
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           VERSION="${{ needs.generate-dockerfiles.outputs.version }}"
           TAG="${{ needs.generate-dockerfiles.outputs.tag }}"

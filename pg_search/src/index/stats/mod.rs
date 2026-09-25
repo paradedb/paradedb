@@ -481,13 +481,12 @@ impl SegmentStats {
         max_doc: u32,
         pages_per_vm: u32,
     ) -> io::Result<Option<heap_blocks::HeapBlockMap>> {
-        let Some(directory) = self
-            .file
-            .open_read_with_idx(field, heap_blocks::DIRECTORY_IDX)
+        let Some(metadata) =
+            self.read::<heap_blocks::Metadata>(field, heap_blocks::METADATA_IDX)?
         else {
             return Ok(None);
         };
-        heap_blocks::HeapBlockMap::open(directory, self.file.clone(), field, max_doc, pages_per_vm)
+        heap_blocks::HeapBlockMap::open(metadata, self.file.clone(), field, max_doc, pages_per_vm)
             .map(Some)
     }
 

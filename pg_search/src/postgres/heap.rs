@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub(crate) use util::HEAPBLOCKS_PER_PAGE;
-
 use std::collections::VecDeque;
 use std::ops::{Deref, Range};
 use std::slice;

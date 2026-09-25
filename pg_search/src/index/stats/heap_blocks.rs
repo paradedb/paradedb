@@ -49,44 +49,39 @@
 //!                                                      only doc 3 needs checking
 //! ```
 //!
-//! Presence words (or block offsets for sparse regions), prefix ranks, and document
-//! boundaries are ordinary integer columns in
-//! the segment's `.stats` file. Each bounded chunk uses Tantivy's choice of bitpacking or
-//! BlockwiseLinearV2. A directory of occupied VM pages skips large gaps between heap pages.
-//! At query time, read the VM first: visible words need no presence, rank, or boundary reads.
-//! Builds and merges write bounded ColumnarWriter batches directly into `.stats`, using
-//! its composite directory to locate each batch. Only the VM-page directory is spooled.
-//! Value buffers are bounded; the composite footer retains one entry per column chunk.
+//! Presence words cover the segment's full min/max heap-block span, including zero words
+//! for gaps. A word's position identifies its heap blocks directly; no VM-page directory
+//! is needed. Presence, prefix ranks, and document boundaries are ordinary integer columns
+//! in `.stats`, written in bounded ColumnarWriter batches with bitpacking or BlockwiseLinearV2.
+//! At query time, read the VM first: visible words need no column reads.
+//! Builds and merges write directly to `.stats`, without temporary files. Value buffers
+//! are bounded; Tantivy's composite footer retains one entry per column chunk.
 //! `VisibilityChecker` performs the VM comparison once per eligible segment
 //! and snapshot, caches the resulting ranges, and uses them to filter subsequent batches.
 
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, Write};
 use std::ops::Range;
 use std::sync::Arc;
 
-use tantivy::Directory;
+use serde::{Deserialize, Serialize};
 use tantivy::columnar::column_values::CodecType;
 use tantivy::columnar::{
     Cardinality, Column, ColumnType, ColumnarReader, ColumnarWriter, DynamicColumn,
 };
-use tantivy::directory::{CompositeFile, CompositeWrite, FileSlice, OwnedBytes};
+use tantivy::directory::{CompositeFile, CompositeWrite};
 use tantivy::index::{Segment, SegmentComponent};
 use tantivy::schema::Field;
 
 use crate::api::CTID_FIELD_NAME;
 #[cfg(feature = "io_stats")]
 use crate::index::reader::io_stats::trace;
-use crate::postgres::heap::HEAPBLOCKS_PER_PAGE;
 
-pub(super) const DIRECTORY_IDX: usize = 7;
+pub(super) const METADATA_IDX: usize = 7;
 const COLUMNS_IDX: usize = 9;
 const COLUMN_COUNT: usize = 3;
 const PRESENCE: usize = 0;
 const RANK: usize = 1;
 const BOUNDARIES: usize = 2;
-const HEADER: usize = 24;
-const ENTRY: usize = 16;
-const SPARSE: u32 = 1 << 31;
 const CHUNK_SIZE: usize = 32768;
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 
@@ -94,8 +89,13 @@ fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid heap-block columns")
 }
 
-fn u32_at(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+#[derive(Serialize, Deserialize)]
+pub(super) struct Metadata {
+    first_word: u32,
+    words: u32,
+    blocks: u32,
+    docs: u32,
+    descending: bool,
 }
 
 /// Writes presence and boundary entries from the finished CTID column at flush or merge.
@@ -107,9 +107,6 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
         .as_ref()
         .is_some_and(|sort| sort.field == CTID_FIELD_NAME)
     {
-        return Ok(());
-    }
-    if HEAPBLOCKS_PER_PAGE == 0 || !HEAPBLOCKS_PER_PAGE.is_multiple_of(32) {
         return Ok(());
     }
     let schema = segment.schema();
@@ -135,97 +132,54 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
         column.values.iter()
     };
     let mut values = values.peekable();
-    let directory = segment.index().directory();
-    let mut entries = directory.open_temp_file()?;
+    let first_word = u32::try_from(values.peek().unwrap() >> 16).map_err(|_| invalid())? / 32;
+    let last_word =
+        u32::try_from(column.values.get_val(if descending { 0 } else { docs - 1 }) >> 16)
+            .map_err(|_| invalid())?
+            / 32;
     let mut presence = ChunkWriter::new(field, PRESENCE);
     let mut ranks = ChunkWriter::new(field, RANK);
     let mut boundaries = ChunkWriter::new(field, BOUNDARIES);
-    let mut bitmap = vec![0u32; HEAPBLOCKS_PER_PAGE as usize / 32];
-    let mut chunks = 0u32;
-    let mut rows = 0u32;
     let mut blocks = 0u32;
     let mut processed = 0u32;
     let mut previous = None;
 
-    while let Some(&value) = values.peek() {
+    for word in first_word..=last_word {
         pgrx::check_for_interrupts!();
-        let first = u32::try_from(value >> 16).map_err(|_| invalid())?;
-        let vm_page = first / HEAPBLOCKS_PER_PAGE;
-        let first_word = (first % HEAPBLOCKS_PER_PAGE / 32) as usize;
-        let mut last_word = first_word;
-        bitmap.fill(0);
+        ranks.push(blocks, out)?;
+        let mut bitmap = 0u32;
         while let Some(&value) = values.peek() {
             let block = u32::try_from(value >> 16).map_err(|_| invalid())?;
             if previous.is_some_and(|last| block < last) {
                 return Ok(());
             }
-            if block / HEAPBLOCKS_PER_PAGE != vm_page {
+            if block / 32 != word {
                 break;
-            }
-            if processed.is_multiple_of(8192) {
-                pgrx::check_for_interrupts!();
             }
             values.next();
             if previous != Some(block) {
                 boundaries.push(processed, out)?;
-                last_word = (block % HEAPBLOCKS_PER_PAGE / 32) as usize;
-                bitmap[last_word] |= 1 << (block % 32);
+                bitmap |= 1 << (block % 32);
+                blocks += 1;
             }
             previous = Some(block);
             processed += 1;
         }
-        let words = &bitmap[first_word..=last_word];
-        let population: u32 = words.iter().map(|word| word.count_ones()).sum();
-        let sparse = population as usize <= words.len() * 2;
-        let count = if sparse {
-            population
-        } else {
-            words.len() as u32
-        };
-        for value in [
-            first / 32 * 32,
-            rows,
-            count | if sparse { SPARSE } else { 0 },
-            words.len() as u32,
-        ] {
-            entries.write_all(&value.to_le_bytes())?;
-        }
-        for (i, &word) in words.iter().enumerate() {
-            if sparse {
-                let mut bits = word;
-                while bits != 0 {
-                    presence.push(i as u32 * 32 + bits.trailing_zeros(), out)?;
-                    ranks.push(blocks, out)?;
-                    blocks += 1;
-                    bits &= bits - 1;
-                }
-            } else {
-                presence.push(word, out)?;
-                ranks.push(blocks, out)?;
-                blocks += word.count_ones();
-            }
-        }
-        rows += count;
-        chunks += 1;
+        presence.push(bitmap, out)?;
     }
     if processed != docs {
         return Err(invalid().into());
     }
     boundaries.push(docs, out)?;
-
-    let writer = out.for_field_with_idx(field, DIRECTORY_IDX);
-    for value in [
-        u32::from_le_bytes(*b"HBC2"),
-        HEAPBLOCKS_PER_PAGE,
-        docs,
+    let metadata = Metadata {
+        first_word,
+        words: last_word - first_word + 1,
         blocks,
-        chunks,
-        u32::from(descending),
-    ] {
-        writer.write_all(&value.to_le_bytes())?;
-    }
-    entries.seek(SeekFrom::Start(0))?;
-    io::copy(&mut entries, writer)?;
+        docs,
+        descending,
+    };
+    out.for_field_with_idx(field, METADATA_IDX)
+        .write_all(&postcard::to_allocvec(&metadata).map_err(io::Error::other)?)?;
     presence.flush(out)?;
     ranks.flush(out)?;
     boundaries.flush(out)?;
@@ -284,7 +238,7 @@ impl ChunkWriter {
 }
 
 pub(crate) struct HeapBlockMap {
-    directory: OwnedBytes,
+    first_word: u32,
     presence: ChunkReader,
     ranks: ChunkReader,
     boundaries: ChunkReader,
@@ -295,71 +249,42 @@ pub(crate) struct HeapBlockMap {
 }
 
 impl HeapBlockMap {
-    /// Reads the sparse directory while leaving all three columns unopened.
+    /// Uses segment bounds to address bitmap words, leaving the columns unopened.
     pub(super) fn open(
-        directory: FileSlice,
+        metadata: Metadata,
         file: Arc<CompositeFile>,
         field: Field,
         docs: u32,
         pages_per_vm: u32,
     ) -> io::Result<Self> {
-        #[cfg(feature = "io_stats")]
-        let _io = trace::external("Visibility Directory");
-        let directory = directory.read_bytes()?;
-        if directory.len() < HEADER
-            || &directory[..4] != b"HBC2"
-            || u32_at(&directory, 4) != pages_per_vm
-            || u32_at(&directory, 8) != docs
+        let Metadata {
+            first_word,
+            words,
+            blocks,
+            docs: stored_docs,
+            descending,
+        } = metadata;
+        if stored_docs != docs
+            || blocks == 0
+            || blocks > docs
+            || words == 0
+            || u64::from(first_word) + u64::from(words) > (u64::from(u32::MAX) + 1) / 32
             || pages_per_vm == 0
             || !pages_per_vm.is_multiple_of(32)
-            || u32_at(&directory, 20) > 1
         {
             return Err(invalid());
         }
-        let chunks = u32_at(&directory, 16) as usize;
-        let blocks = u32_at(&directory, 12);
-        if HEADER + chunks * ENTRY != directory.len() || blocks == 0 || blocks > docs {
-            return Err(invalid());
-        }
-        let mut rows = 0u32;
-        let mut previous_end = 0u64;
-        for i in 0..chunks {
-            let at = HEADER + i * ENTRY;
-            let first = u32_at(&directory, at);
-            let encoded_count = u32_at(&directory, at + 8);
-            let count = encoded_count & !SPARSE;
-            let words = u32_at(&directory, at + 12);
-            let end = u64::from(first) + u64::from(words) * 32;
-            if !first.is_multiple_of(32)
-                || count == 0
-                || count > pages_per_vm
-                || words == 0
-                || words > pages_per_vm / 32
-                || (encoded_count & SPARSE == 0 && count != words)
-                || u64::from(first) < previous_end
-                || end > u64::from(u32::MAX) + 1
-                || u64::from(first / pages_per_vm) != (end - 1) / u64::from(pages_per_vm)
-                || u32_at(&directory, at + 4) != rows
-            {
-                return Err(invalid());
-            }
-            rows = rows.checked_add(count).ok_or_else(invalid)?;
-            previous_end = end;
-        }
-        if rows == 0 || u64::from(blocks) > u64::from(rows) * 32 {
-            return Err(invalid());
-        }
         Ok(Self {
-            descending: u32_at(&directory, 20) != 0,
-            directory,
+            descending,
+            first_word,
             presence: ChunkReader::new(
                 file.clone(),
                 field,
                 PRESENCE,
-                rows as usize,
+                words as usize,
                 "Visibility Presence",
             ),
-            ranks: ChunkReader::new(file.clone(), field, RANK, rows as usize, "Visibility Rank"),
+            ranks: ChunkReader::new(file.clone(), field, RANK, words as usize, "Visibility Rank"),
             boundaries: ChunkReader::new(
                 file,
                 field,
@@ -387,45 +312,15 @@ impl HeapBlockMap {
                 ranges.push(range);
             }
         };
-        for chunk in 0..u32_at(&self.directory, 16) as usize {
+        let mut row = 0usize;
+        while row < self.presence.count {
             pgrx::check_for_interrupts!();
-            let at = HEADER + chunk * ENTRY;
-            let first = u32_at(&self.directory, at);
-            let row = u32_at(&self.directory, at + 4) as usize;
-            let encoded_count = u32_at(&self.directory, at + 8);
-            let count = (encoded_count & !SPARSE) as usize;
-            let sparse = encoded_count & SPARSE != 0;
-            let words = u32_at(&self.directory, at + 12) as usize;
+            let first = (self.first_word + row as u32) * 32;
+            let words = ((self.pages_per_vm - first % self.pages_per_vm) / 32) as usize;
+            let words = words.min(self.presence.count - row);
             let missing = &mut scratch[..words];
             missing.fill(u32::MAX);
             retain_invisible(first, missing);
-            if missing.iter().all(|&word| word == 0) {
-                continue;
-            }
-            if missing.iter().all(|&word| word == u32::MAX) {
-                let start = self.ranks.get(row)?;
-                let end = if sparse {
-                    start + count as u32
-                } else {
-                    let last = row + count - 1;
-                    self.ranks.get(last)? + self.presence.get(last)?.count_ones()
-                };
-                add(start..end);
-                continue;
-            }
-            if sparse {
-                let rank = self.ranks.get(row)?;
-                for i in 0..count {
-                    let block = self.presence.get(row + i)?;
-                    if block as usize >= words * 32 {
-                        return Err(invalid());
-                    }
-                    if missing[block as usize / 32] & (1 << (block % 32)) != 0 {
-                        add(rank + i as u32..rank + i as u32 + 1);
-                    }
-                }
-                continue;
-            }
             for (word, &dirty) in missing.iter().enumerate() {
                 if dirty == 0 {
                     continue;
@@ -447,6 +342,7 @@ impl HeapBlockMap {
                     bad &= bad - 1;
                 }
             }
+            row += words;
         }
         for range in &mut ranges {
             if range.start >= range.end || range.end > self.blocks {

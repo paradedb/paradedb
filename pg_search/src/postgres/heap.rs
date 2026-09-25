@@ -947,6 +947,22 @@ impl VisibilityChecker {
             return;
         }
 
+        if !self.collect_missed_doc_ranges(&ranges, doc_ids) {
+            return;
+        }
+
+        self.check_missed_docs_mask(segment_ord, mask);
+    }
+
+    /// Partitions `doc_ids` against non-all-visible `ranges`, recording matching document indices,
+    /// doc IDs, and their candidate block numbers in `self.tid_scratch`.
+    ///
+    /// Returns true if at least one document requires heap visibility verification.
+    fn collect_missed_doc_ranges(
+        &mut self,
+        ranges: &[MissingBlockRange],
+        doc_ids: &[DocId],
+    ) -> bool {
         self.tid_scratch.missed.clear();
         self.tid_scratch.missed_doc_ids.clear();
         self.tid_scratch.blocks.clear();
@@ -978,11 +994,7 @@ impl VisibilityChecker {
             start = end;
         }
 
-        if self.tid_scratch.missed.is_empty() {
-            return;
-        }
-
-        self.check_missed_docs_mask(segment_ord, mask);
+        !self.tid_scratch.missed.is_empty()
     }
 
     /// Resolves visibility for documents known to fall within non-all-visible ranges.
@@ -1080,6 +1092,52 @@ impl VisibilityChecker {
         self.tid_scratch = scratch;
     }
 
+    /// Resolves visibility for documents known to fall within non-all-visible ranges.
+    ///
+    /// The document CTIDs are already decoded in `results`. Missed documents identified in
+    /// `self.tid_scratch.missed` are verified against heap buffers in block order to minimize
+    /// buffer pin/lock thrashing.
+    fn check_missed_docs_ctids(&mut self, results: &mut [Option<u64>]) {
+        let count = self.tid_scratch.missed.len();
+        let mut scratch = std::mem::take(&mut self.tid_scratch);
+
+        scratch.order.clear();
+        scratch.order.extend(0..count);
+        let blocks = &scratch.blocks;
+        scratch.order.sort_unstable_by_key(|&i| blocks[i]);
+
+        let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
+        let mut current_block = pg_sys::InvalidBlockNumber;
+
+        for &i in &scratch.order {
+            let res_idx = scratch.missed[i];
+            let Some(raw_ctid) = results[res_idx] else {
+                self.invisible_tuple_count += 1;
+                continue;
+            };
+
+            let blockno = scratch.blocks[i];
+            if blockno >= self.nblocks {
+                self.invisible_tuple_count += 1;
+                results[res_idx] = None;
+                continue;
+            }
+
+            let locked_buffer = if current_block != blockno {
+                drop(current_buffer.take());
+                current_buffer = Some(self.bman.get_buffer(blockno));
+                current_block = blockno;
+                *current_buffer.as_ref().unwrap().deref()
+            } else {
+                *current_buffer.as_ref().unwrap().deref()
+            };
+
+            results[res_idx] = self.resolve_visible(raw_ctid, Some(locked_buffer), false);
+        }
+
+        self.tid_scratch = scratch;
+    }
+
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from
     /// the configured [`FFHelper`].
     ///
@@ -1103,12 +1161,47 @@ impl VisibilityChecker {
         doc_ids: &[DocId],
         results: &mut [Option<u64>],
     ) {
-        self.check_segment_docs_inner(
-            segment_ord,
-            doc_ids,
-            VisibilityTarget::Ctids(results),
-            false,
+        assert_eq!(doc_ids.len(), results.len());
+        if doc_ids.is_empty() {
+            return;
+        }
+        debug_assert!(
+            doc_ids.windows(2).all(|w| w[0] <= w[1]),
+            "doc_ids passed to check_segment_docs must be sorted"
         );
+
+        let ranges = if self.check_visibility {
+            let Some(ranges) = self.doc_id_ranges_needing_visibility_checks(segment_ord) else {
+                self.check_segment_docs_inner(
+                    segment_ord,
+                    doc_ids,
+                    VisibilityTarget::Ctids(results),
+                    false,
+                );
+                return;
+            };
+            ranges
+        } else {
+            Arc::from([])
+        };
+
+        let ffhelper = self
+            .ffhelper
+            .clone()
+            .expect("FFHelper must be configured to check segment doc visibility");
+        ffhelper
+            .ctid(segment_ord)
+            .as_u64s(doc_ids, results, &mut self.tid_scratch.offsets);
+
+        if !self.check_visibility || ranges.is_empty() {
+            return;
+        }
+
+        if !self.collect_missed_doc_ranges(&ranges, doc_ids) {
+            return;
+        }
+
+        self.check_missed_docs_ctids(results);
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible and resolves each CTID to the

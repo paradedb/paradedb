@@ -19,7 +19,6 @@ use std::collections::VecDeque;
 use std::io;
 use std::ops::{Deref, Range};
 use std::sync::Arc;
-use std::vec::IntoIter;
 
 use crate::api::HashMap;
 use crate::api::version::Version;
@@ -178,14 +177,8 @@ pub struct VisibilityChecker {
     raw_ctids_scratch: Vec<Option<u64>>,
     segment_visibility: Option<(SegmentId, bool)>,
     dirty_blocks: HashMap<SegmentId, Arc<[Range<BlockNumber>]>>,
-    segment_checks: HashMap<SegmentOrdinal, SegmentVisibilityChecks>,
+    segment_checks: HashMap<SegmentOrdinal, Option<Arc<[Range<DocId>]>>>,
     visibility_stats: Option<Arc<Mutex<VisibilityStats>>>,
-}
-
-#[derive(Default)]
-struct SegmentVisibilityChecks {
-    ranges: Option<IntoIter<Range<DocId>>>,
-    last_doc: Option<DocId>,
 }
 
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
@@ -592,11 +585,11 @@ impl VisibilityChecker {
         !self.check_visibility || self.resolve_visible(ctid, None, false).is_some()
     }
 
-    /// Takes the cached ranges for a batch; the caller restores the iterator afterward.
+    /// Caches the document ranges needing visibility checks for this segment and snapshot.
     fn doc_id_ranges_needing_visibility_checks(
         &mut self,
         segment_ord: SegmentOrdinal,
-    ) -> Option<IntoIter<Range<DocId>>> {
+    ) -> Option<Arc<[Range<DocId>]>> {
         if !enable_visibility_map_shortcuts() {
             return None;
         }
@@ -646,20 +639,10 @@ impl VisibilityChecker {
                 Ok(Some(ranges))
             })()
             .expect("failed to read heap-block visibility metadata")
-            .map(Vec::into_iter);
-            self.segment_checks.insert(
-                segment_ord,
-                SegmentVisibilityChecks {
-                    ranges,
-                    ..Default::default()
-                },
-            );
+            .map(Arc::from);
+            self.segment_checks.insert(segment_ord, ranges);
         }
-        self.segment_checks
-            .get_mut(&segment_ord)
-            .unwrap()
-            .ranges
-            .take()
+        self.segment_checks[&segment_ord].clone()
     }
 
     /// Checks visibility without fetching CTIDs for documents outside unresolved ranges.
@@ -679,12 +662,6 @@ impl VisibilityChecker {
             "visibility batches must be in doc ID order"
         );
         let ranges = self.doc_id_ranges_needing_visibility_checks(segment_ord);
-        if let Some(checks) = self.segment_checks.get(&segment_ord) {
-            assert!(
-                checks.last_doc.is_none_or(|last| doc_ids[0] > last),
-                "visibility batches must advance within each segment"
-            );
-        }
         let mut ctids = Vec::new();
         let mut check = |start: usize, end: usize| {
             if start == end {
@@ -696,12 +673,12 @@ impl VisibilityChecker {
                 *visible = ctid.is_some();
             }
         };
-        if let Some(mut ranges) = ranges {
+        if let Some(ranges) = ranges {
             let mut start = 0;
-            while let Some(range) = ranges.as_slice().first().cloned() {
-                if start == doc_ids.len() {
-                    break;
-                }
+            let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
+            let mut remaining_ranges = &ranges[first_range..];
+            while let Some((range, rest)) = remaining_ranges.split_first() {
+                remaining_ranges = rest;
                 start += doc_ids[start..].partition_point(|&doc| doc < range.start);
                 if start == doc_ids.len() {
                     break;
@@ -709,22 +686,14 @@ impl VisibilityChecker {
                 let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
                 if start == end {
                     // Jump over ranges that end before the next query match.
-                    let skip = ranges
-                        .as_slice()
-                        .partition_point(|range| range.end <= doc_ids[start]);
-                    ranges.nth(skip - 1);
+                    let skip =
+                        remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
+                    remaining_ranges = &remaining_ranges[skip..];
                     continue;
                 }
                 check(start, end);
                 start = end;
-                // Keep the current range when the batch ends inside it.
-                if doc_ids[doc_ids.len() - 1] >= range.end {
-                    ranges.next();
-                }
             }
-            let checks = self.segment_checks.get_mut(&segment_ord).unwrap();
-            checks.ranges = Some(ranges);
-            checks.last_doc = doc_ids.last().copied();
         } else {
             check(0, doc_ids.len());
         }
@@ -800,10 +769,8 @@ impl VisibilityChecker {
         {
             results.copy_from_slice(&raw_ctids);
             let mut start = 0;
-            let first_range = ranges
-                .as_slice()
-                .partition_point(|range| range.end <= doc_ids[0]);
-            let mut remaining_ranges = &ranges.as_slice()[first_range..];
+            let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
+            let mut remaining_ranges = &ranges[first_range..];
             while let Some((range, rest)) = remaining_ranges.split_first() {
                 remaining_ranges = rest;
                 start += doc_ids[start..].partition_point(|&doc| doc < range.start);
@@ -821,7 +788,6 @@ impl VisibilityChecker {
                 self.check_raw_ctids_impl(&raw_ctids[start..end], &mut results[start..end], false);
                 start = end;
             }
-            self.segment_checks.get_mut(&segment_ord).unwrap().ranges = Some(ranges);
         } else {
             self.check_raw_ctids_impl(&raw_ctids, results, resolve_hot);
         }

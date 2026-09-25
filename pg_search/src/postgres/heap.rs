@@ -405,7 +405,22 @@ impl VisibilityChecker {
                 let map = pg_sys::PageGetContents(pg_sys::BufferGetPage(self.vmbuff))
                     .cast::<u8>()
                     .add((local_block / HEAPBLOCKS_PER_BYTE) as usize);
-                for byte in 0..bytes as usize {
+                let bytes = bytes as usize;
+                let prefix = map.align_offset(size_of::<u64>()).min(bytes);
+                for byte in 0..prefix {
+                    if map.add(byte).read_volatile() & VISIBLE_MASK != VISIBLE_MASK {
+                        return false;
+                    }
+                }
+                // Aligned volatile words test 32 heap blocks without crossing the VM-page slice.
+                const WORD_MASK: u64 = u64::from_ne_bytes([VISIBLE_MASK; size_of::<u64>()]);
+                let words_end = prefix + (bytes - prefix) / size_of::<u64>() * size_of::<u64>();
+                for byte in (prefix..words_end).step_by(size_of::<u64>()) {
+                    if map.add(byte).cast::<u64>().read_volatile() & WORD_MASK != WORD_MASK {
+                        return false;
+                    }
+                }
+                for byte in words_end..bytes {
                     if map.add(byte).read_volatile() & VISIBLE_MASK != VISIBLE_MASK {
                         return false;
                     }

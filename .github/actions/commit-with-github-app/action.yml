@@ -1,0 +1,46 @@
+name: Commit with GitHub App
+description: Create a verified App-signed commit from the index without pushing
+
+inputs:
+  github-token:
+    description: GitHub App installation token with contents write permission
+    required: true
+  message:
+    description: Commit message
+    required: true
+  stage-all:
+    description: Stage all working tree changes before committing
+    default: "false"
+  skip-empty:
+    description: Skip committing when there are no staged changes
+    default: "false"
+
+outputs:
+  created:
+    description: Whether a commit was created
+    value: ${{ steps.commit.outputs.created }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create Verified Commit
+      id: commit
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        MESSAGE: ${{ inputs.message }}
+        STAGE_ALL: ${{ inputs.stage-all }}
+        SKIP_EMPTY: ${{ inputs.skip-empty }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        : "${GH_TOKEN:?A GitHub App token is required}"
+        : "${MESSAGE:?A commit message is required}"
+        if [[ "$STAGE_ALL" == "true" ]]; then
+          git add -A
+        fi
+        if [[ "$SKIP_EMPTY" == "true" ]] && git diff --cached --quiet; then
+          echo "created=false" >> "$GITHUB_OUTPUT"
+        else
+          python3 "$ACTION_PATH/commit.py" "$MESSAGE"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+        fi

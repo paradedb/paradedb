@@ -101,29 +101,13 @@ jobs:
           echo "Input validation passed!"
 
       - name: Configure Release Tag Signing
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          SIGNING_KEY: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
-          SIGNING_USER: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
-          SIGNING_EMAIL: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
-        run: |
-          : "${SIGNING_KEY:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY secret}"
-          : "${SIGNING_USER:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER secret}"
-          : "${SIGNING_EMAIL:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL secret}"
-          umask 077
-          KEY_FILE="$RUNNER_TEMP/github-bot-signing-key"
-          printf '%s\n' "$SIGNING_KEY" > "$KEY_FILE"
-          PUBLIC_KEY=$(ssh-keygen -y -P '' -f "$KEY_FILE" | awk '{print $1, $2}')
-          # GitHub verifies SSH signatures against the account's registered signing keys.
-          gh api --paginate "users/$SIGNING_USER/ssh_signing_keys" --jq '.[] | .key | split(" ") | .[0:2] | join(" ")' |
-            grep -Fx -- "$PUBLIC_KEY"
-          printf '%s %s\n' "$SIGNING_EMAIL" "$PUBLIC_KEY" > "$KEY_FILE.allowed-signers"
-          git config user.name "$SIGNING_USER"
-          git config user.email "$SIGNING_EMAIL"
-          git config gpg.format ssh
-          git config user.signingkey "$KEY_FILE"
-          git config gpg.ssh.allowedSignersFile "$KEY_FILE.allowed-signers"
-          git config tag.gpgsign true
+        uses: ./.github/actions/setup-git-signing
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          signing-key: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
+          signing-user: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
+          signing-email: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
+          sign-tags: "true"
 
       - name: Install Rust
         if: github.repository == 'paradedb/paradedb'
@@ -187,12 +171,15 @@ jobs:
 
       - name: Commit Release Artifacts
         if: github.repository == 'paradedb/paradedb'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          git add -A
-          python3 .github/scripts/commit-with-github-app.py "chore: Prepare \`${{ github.event.inputs.version }}\`."
+        uses: ./.github/actions/commit-with-github-app
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          message: "chore: Prepare `${{ github.event.inputs.version }}`."
+          stage-all: "true"
 
+      - name: Push Release Commit
+        if: github.repository == 'paradedb/paradedb'
+        run: |
           if [[ "${{ github.event.inputs.beta }}" != "true" ]]; then
             # Verify remote branch has not advanced before pushing release commit
             git fetch origin ${{ github.ref_name }}
@@ -216,10 +203,8 @@ jobs:
           git verify-tag "$TAG"
           git push origin "refs/tags/$TAG"
 
-      - name: Sync Release Artifacts to Main
+      - name: Stage Release Artifacts on Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           RELEASE_VERSION="${{ github.event.inputs.version }}"
           CLEAN_VERSION="${RELEASE_VERSION%%-*}"
@@ -288,15 +273,27 @@ jobs:
           fi
 
           git add -A
-          if ! git diff --staged --quiet; then
-            python3 .github/scripts/commit-with-github-app.py "chore: Sync \`${RELEASE_VERSION}\` release artifacts to main."
+
+      - name: Commit Release Artifacts on Main
+        id: sync-commit
+        if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
+        uses: ./.github/actions/commit-with-github-app
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          message: "chore: Sync `${{ github.event.inputs.version }}` release artifacts to main."
+          skip-empty: "true"
+
+      - name: Push Release Artifacts on Main
+        if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
+        run: |
+          if [[ "${{ steps.sync-commit.outputs.created }}" == "true" ]]; then
             git push origin main
             echo "✅ Successfully synced release artifacts to main."
           else
             echo "No changes needed on main."
           fi
 
-          # Switch back to the release branch for tagging and release creation
+          # Switch back to the release branch for release creation
           git checkout "${{ github.ref_name }}"
 
       - name: Create Stable Branch

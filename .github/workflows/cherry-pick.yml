@@ -34,29 +34,13 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Configure Bot Commit Signing
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          SIGNING_KEY: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
-          SIGNING_USER: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
-          SIGNING_EMAIL: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
-        run: |
-          : "${SIGNING_KEY:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY secret}"
-          : "${SIGNING_USER:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER secret}"
-          : "${SIGNING_EMAIL:?Set the PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL secret}"
-          umask 077
-          KEY_FILE="$RUNNER_TEMP/github-bot-signing-key"
-          printf '%s\n' "$SIGNING_KEY" > "$KEY_FILE"
-          PUBLIC_KEY=$(ssh-keygen -y -P '' -f "$KEY_FILE" | awk '{print $1, $2}')
-          # GitHub verifies SSH signatures against the account's registered signing keys.
-          gh api --paginate "users/$SIGNING_USER/ssh_signing_keys" --jq '.[] | .key | split(" ") | .[0:2] | join(" ")' |
-            grep -Fx -- "$PUBLIC_KEY"
-          printf '%s %s\n' "$SIGNING_EMAIL" "$PUBLIC_KEY" > "$KEY_FILE.allowed-signers"
-          git config user.name "$SIGNING_USER"
-          git config user.email "$SIGNING_EMAIL"
-          git config gpg.format ssh
-          git config user.signingkey "$KEY_FILE"
-          git config gpg.ssh.allowedSignersFile "$KEY_FILE.allowed-signers"
-          git config commit.gpgsign true
+        uses: ./.github/actions/setup-git-signing
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          signing-key: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
+          signing-user: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
+          signing-email: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
+          sign-commits: "true"
 
       - name: Backport based on cherry-pick/<branch> labels
         uses: korthout/backport-action@v4

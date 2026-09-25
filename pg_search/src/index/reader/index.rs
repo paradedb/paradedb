@@ -76,6 +76,7 @@ pub struct DocsEstimate {
     pub matching_docs: usize,
     pub total_docs: u64,
     pub query_cost: u64,
+    pub total_segments: usize,
 }
 
 /// A count-only summary of the pruning proof for this reader's execution snapshot.
@@ -1812,6 +1813,7 @@ impl SearchIndexReader {
                     matching_docs: 0,
                     total_docs: 0,
                     query_cost: 0,
+                    total_segments: self.total_segment_count,
                 };
             }
             x => {
@@ -1852,6 +1854,7 @@ impl SearchIndexReader {
                 as usize,
             total_docs,
             query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
+            total_segments: self.total_segment_count,
         }
     }
 

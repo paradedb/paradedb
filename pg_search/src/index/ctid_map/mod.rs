@@ -16,14 +16,13 @@
 //! the two outer boundaries. All-visible blocks need no boundary reads.
 //!
 //! Boundaries are a standard Tantivy numeric column, written in bounded ColumnarWriter
-//! batches after sorting or merging. Each batch is addressed through the `.stats`
+//! batches after sorting or merging. Each batch is addressed through the `.ctid_map`
 //! composite directory and opened lazily with ColumnarReader. There is no presence
 //! bitmap, rank structure, custom column encoding, or temporary file. Value buffers are
 //! bounded; the composite footer retains one entry per batch.
 
 use std::io;
 use std::ops::{Range, RangeInclusive};
-use std::sync::Arc;
 
 use pgrx::pg_sys::{BlockNumber, InvalidBlockNumber};
 use tantivy::DocId;
@@ -31,14 +30,18 @@ use tantivy::columnar::column_values::CodecType;
 use tantivy::columnar::{
     Cardinality, Column, ColumnType, ColumnarReader, ColumnarWriter, DynamicColumn,
 };
+use tantivy::directory::error::OpenReadError;
 use tantivy::directory::{CompositeFile, CompositeWrite};
-use tantivy::index::{Segment, SegmentComponent};
+use tantivy::index::{Segment, SegmentComponent, SegmentReader};
 use tantivy::schema::Field;
 
 use crate::api::CTID_FIELD_NAME;
+use crate::index::stats::{EmpiricalStats, SegmentStats};
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 
-// First composite entry for boundary chunks; earlier entries hold other segment statistics.
-pub(super) const COLUMNS_IDX: usize = 3;
+mod plugin;
+pub(crate) use plugin::register;
+
 // Column name shared by the boundary writer and reader.
 const BLOCK_BOUNDARIES: &str = "block_boundaries";
 // Maximum boundaries per column chunk, bounding writer memory.
@@ -114,7 +117,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
             len as u32,
             None,
             CODECS,
-            out.for_field_with_idx(field, COLUMNS_IDX + start / CHUNK_SIZE),
+            out.for_field_with_idx(field, start / CHUNK_SIZE),
         )?;
     }
     if processed != docs {
@@ -123,36 +126,74 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
     Ok(())
 }
 
+/// Reuses CTID statistics, falling back to the fast field for older segments.
+pub(crate) fn block_bounds(
+    segment: &SegmentReader,
+) -> tantivy::Result<Option<RangeInclusive<BlockNumber>>> {
+    let field = segment.schema().get_field(CTID_FIELD_NAME)?;
+    let stats = SegmentStats::of_reader(segment)?;
+    let empirical = stats
+        .map(|stats| stats.empirical(field))
+        .transpose()?
+        .flatten();
+    let (min, max) = if let Some(EmpiricalStats {
+        min: PdbOwnedValue::U64(min),
+        max: PdbOwnedValue::U64(max),
+        nullable: false,
+    }) = empirical
+    {
+        (min, max)
+    } else {
+        let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+        if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc() {
+            return Ok(None);
+        }
+        (ctids.min_value(), ctids.max_value())
+    };
+    let first = BlockNumber::try_from(min >> 16).map_err(|_| invalid())?;
+    let last = BlockNumber::try_from(max >> 16).map_err(|_| invalid())?;
+    Ok(Some(first..=last))
+}
+
 pub(crate) struct BlockToDocIdMap {
     first_block: BlockNumber,
     last_block: BlockNumber,
     num_docs: u32,
-    file: Arc<CompositeFile>,
+    file: CompositeFile,
     field: Field,
     values: Option<(usize, Column<u64>)>,
 }
 
 impl BlockToDocIdMap {
-    /// Uses heap-block bounds without reading the boundary column.
-    pub(super) fn open(
-        blocks: RangeInclusive<BlockNumber>,
-        num_docs: u32,
-        file: Arc<CompositeFile>,
-        field: Field,
-    ) -> io::Result<Self> {
+    /// Opens the optional component, reusing CTID statistics for its block bounds.
+    pub(crate) fn open(segment: &SegmentReader) -> tantivy::Result<Option<Self>> {
+        let slice = match segment.open_read(plugin::component()) {
+            Ok(slice) => slice,
+            Err(OpenReadError::FileDoesNotExist(_)) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let file = CompositeFile::open(&slice)?;
+        let field = segment.schema().get_field(CTID_FIELD_NAME)?;
+        if file.open_read_with_idx(field, 0).is_none() {
+            return Ok(None);
+        }
+        let Some(blocks) = block_bounds(segment)? else {
+            return Ok(None);
+        };
         let first_block = *blocks.start();
         let last_block = *blocks.end();
+        let num_docs = segment.max_doc();
         if num_docs == 0 || first_block > last_block || last_block == InvalidBlockNumber {
-            return Err(invalid());
+            return Err(invalid().into());
         }
-        Ok(Self {
+        Ok(Some(Self {
             first_block,
             last_block,
             num_docs,
             file,
             field,
             values: None,
-        })
+        }))
     }
 
     /// Returns the heap-block span covered by the boundary column.
@@ -206,7 +247,7 @@ impl BlockToDocIdMap {
             {
                 let file = self
                     .file
-                    .open_read_with_idx(self.field, COLUMNS_IDX + chunk)
+                    .open_read_with_idx(self.field, chunk)
                     .ok_or_else(invalid)?;
                 let reader = ColumnarReader::open(file)?;
                 let handles = reader.read_columns(BLOCK_BOUNDARIES)?;

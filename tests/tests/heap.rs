@@ -15,6 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use futures::executor::block_on;
+use lockfree_object_pool::MutexObjectPool;
+use proptest::prelude::*;
 use rstest::*;
 use sqlx::PgConnection;
 use tests::fixtures::*;
@@ -85,60 +88,81 @@ fn mvcc_snippet(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[case("ASC NULLS FIRST")]
-#[case("DESC NULLS LAST")]
-fn visibility_map_shortcuts(#[case] direction: &str, mut conn: PgConnection) {
-    let default: (String,) = "SHOW paradedb.enable_visibility_map_shortcuts".fetch_one(&mut conn);
+#[tokio::test]
+async fn visibility_map_shortcuts(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+    "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE".execute(&mut pool.pull());
+    let default: (String,) =
+        "SHOW paradedb.enable_visibility_map_shortcuts".fetch_one(&mut pool.pull());
     assert_eq!(default.0, "on");
-    format!(
-        r#"
-        SET max_parallel_workers_per_gather = 0;
-        CREATE TABLE visibility_blocks (
-            id int PRIMARY KEY, title text, value int, padding text
-        ) WITH (autovacuum_enabled = false, fillfactor = 70);
-        INSERT INTO visibility_blocks
-        SELECT id, 'database', id, repeat('x', 500) FROM generate_series(1, 10000) id;
-        CREATE INDEX visibility_blocks_idx ON visibility_blocks USING paradedb (id, title, value)
-        WITH (sort_by = 'ctid {direction}', mutable_segment_rows = 0, target_segment_count = 1);
-        "#
-    )
-    .execute(&mut conn);
-    "VACUUM (INDEX_CLEANUP ON, ANALYZE) visibility_blocks".execute(&mut conn);
 
-    for phase in 0..3 {
-        if phase == 1 {
-            // Leave dirty blocks, stale index entries, and HOT chains alongside visible blocks.
-            "UPDATE visibility_blocks SET padding = 'changed' WHERE id % 997 = 0"
-                .execute(&mut conn);
-            "UPDATE visibility_blocks SET title = 'postgres', value = -id WHERE id % 991 = 0"
-                .execute(&mut conn);
-            "DELETE FROM visibility_blocks WHERE id % 983 = 0".execute(&mut conn);
-        } else if phase == 2 {
-            "VACUUM (INDEX_CLEANUP ON, ANALYZE) visibility_blocks".execute(&mut conn);
-        }
-        let expected_aggregate: (i64, i64) =
-            "SELECT count(*), sum(value) FROM visibility_blocks WHERE title = 'database'"
-                .fetch_one(&mut conn);
-        let expected_rows: Vec<(i32, i32, String)> =
-            "SELECT id, value, ctid::text FROM visibility_blocks WHERE title = 'database' ORDER BY id"
-                .fetch(&mut conn);
+    proptest!(ProptestConfig::with_cases(32), |(
+        num_docs in 256u32..2048,
+        padding in 32u32..600,
+        fillfactor in 50u32..100,
+        segment_count in 1u32..5,
+        descending in any::<bool>(),
+        match_every in 2u32..8,
+        mutations in prop::collection::vec((0u8..3, any::<u16>(), 1u32..256), 1..12),
+    )| {
+        let mut conn = pool.pull();
+        let direction = if descending { "DESC NULLS LAST" } else { "ASC NULLS FIRST" };
+        format!(
+            r#"
+            SET max_parallel_workers_per_gather = 0;
+            DROP TABLE IF EXISTS visibility_blocks;
+            CREATE TABLE visibility_blocks (
+                id int PRIMARY KEY, title text, value int, padding text
+            ) WITH (autovacuum_enabled = false, fillfactor = {fillfactor});
+            INSERT INTO visibility_blocks
+            SELECT id, CASE WHEN id % {match_every} = 0 THEN 'database' ELSE 'postgres' END,
+                   id, repeat('x', {padding}) FROM generate_series(1, {num_docs}) id;
+            CREATE INDEX visibility_blocks_idx ON visibility_blocks USING paradedb (id, title, value)
+            WITH (sort_by = 'ctid {direction}', mutable_segment_rows = 0,
+                  target_segment_count = {segment_count}, background_layer_sizes = '0');
+            "#
+        ).execute(&mut conn);
+        "VACUUM (INDEX_CLEANUP ON, ANALYZE) visibility_blocks".execute(&mut conn);
 
-        for enabled in [true, false] {
-            format!("SET paradedb.enable_visibility_map_shortcuts = {enabled}").execute(&mut conn);
-            let query =
-                "SELECT count(*), sum(value) FROM visibility_blocks WHERE title === 'database'";
-            let (plan,): (serde_json::Value,) =
-                format!("EXPLAIN (FORMAT JSON) {query}").fetch_one(&mut conn);
-            assert!(plan.to_string().contains("ParadeDB Aggregate Scan"));
-            let aggregate: (i64, i64) = query.fetch_one(&mut conn);
-            let rows: Vec<(i32, i32, String)> =
-                "SELECT id, value, ctid::text FROM visibility_blocks WHERE title === 'database' ORDER BY id"
+        for phase in 0..3 {
+            if phase == 1 {
+                // Overlapping runs create varied dirty blocks, dead index entries, and HOT chains.
+                for &(operation, offset, length) in &mutations {
+                    let first = u32::from(offset) % num_docs + 1;
+                    let last = (first + length - 1).min(num_docs);
+                    let statement = match operation {
+                        0 => "UPDATE visibility_blocks SET padding = 'changed'",
+                        1 => "UPDATE visibility_blocks SET title = CASE WHEN title = 'database' THEN 'postgres' ELSE 'database' END, value = -value",
+                        _ => "DELETE FROM visibility_blocks",
+                    };
+                    format!("{statement} WHERE id BETWEEN {first} AND {last}").execute(&mut conn);
+                }
+            } else if phase == 2 {
+                "VACUUM (INDEX_CLEANUP ON, ANALYZE) visibility_blocks".execute(&mut conn);
+            }
+            let expected_aggregate: (i64, Option<i64>) =
+                "SELECT count(*), sum(value) FROM visibility_blocks WHERE title = 'database'"
+                    .fetch_one(&mut conn);
+            let expected_rows: Vec<(i32, i32, String)> =
+                "SELECT id, value, ctid::text FROM visibility_blocks WHERE title = 'database' ORDER BY id"
                     .fetch(&mut conn);
-            assert_eq!(
-                aggregate, expected_aggregate,
-                "phase {phase}, shortcuts {enabled}"
-            );
-            assert_eq!(rows, expected_rows, "phase {phase}, shortcuts {enabled}");
+
+            for enabled in [true, false] {
+                format!("SET paradedb.enable_visibility_map_shortcuts = {enabled}").execute(&mut conn);
+                let query = "SELECT count(*), sum(value) FROM visibility_blocks WHERE title === 'database'";
+                let (plan,): (serde_json::Value,) =
+                    format!("EXPLAIN (FORMAT JSON) {query}").fetch_one(&mut conn);
+                prop_assert!(plan.to_string().contains("ParadeDB Aggregate Scan"));
+                let aggregate: (i64, Option<i64>) = query.fetch_one(&mut conn);
+                let rows: Vec<(i32, i32, String)> =
+                    "SELECT id, value, ctid::text FROM visibility_blocks WHERE title === 'database' ORDER BY id"
+                        .fetch(&mut conn);
+                prop_assert_eq!(aggregate, expected_aggregate, "phase {}, shortcuts {}", phase, enabled);
+                prop_assert_eq!(&rows, &expected_rows, "phase {}, shortcuts {}", phase, enabled);
+            }
         }
-    }
+    });
 }

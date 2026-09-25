@@ -20,11 +20,11 @@ use std::ops::{Deref, Range};
 use std::slice;
 use std::sync::Arc;
 
+use crate::api::HashMap;
 use crate::api::version::Version;
-use crate::api::{CTID_FIELD_NAME, HashMap};
 use crate::gucs::enable_visibility_map_shortcuts;
+use crate::index::ctid_map::{BlockToDocIdMap, block_bounds};
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::stats::SegmentStats;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
@@ -34,7 +34,6 @@ use parking_lot::Mutex;
 use pgrx::pg_sys::{self, BlockNumber};
 use pgrx::{PgList, PgTupleDesc, check_for_interrupts};
 use tantivy::SegmentReader;
-use tantivy::columnar::Cardinality;
 use tantivy::index::SegmentId;
 use tantivy::{DocId, Order, SegmentOrdinal, TantivyDocument};
 use tantivy_common::TinySet;
@@ -354,24 +353,10 @@ impl VisibilityChecker {
             {
                 break 'proof false;
             }
-            let Some((min, max)) = ({
-                if let Some(stats) = SegmentStats::of_reader(segment)? {
-                    stats.ctid_bounds(segment)?
-                } else {
-                    let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
-                    if ctids.get_cardinality() != Cardinality::Full
-                        || ctids.num_docs() != segment.max_doc()
-                    {
-                        break 'proof false;
-                    }
-                    Some((ctids.min_value(), ctids.max_value()))
-                }
-            }) else {
+            let Some(blocks) = block_bounds(segment)? else {
                 break 'proof false;
             };
-            let (Ok(first), Ok(last)) = (u32::try_from(min >> 16), u32::try_from(max >> 16)) else {
-                break 'proof false;
-            };
+            let (first, last) = (*blocks.start(), *blocks.end());
             let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
             if vm_pages > 64 {
                 break 'proof false;
@@ -523,13 +508,10 @@ impl VisibilityChecker {
                 let Some(segment) = ffhelper.immutable_segment_reader(segment_ord) else {
                     return Ok(None);
                 };
-                let Some(stats) = SegmentStats::of_reader(segment)? else {
-                    return Ok(None);
-                };
                 let descending = ffhelper
                     .sort_order()
                     .is_some_and(|sort| sort.order == Order::Desc);
-                let Some(mut map) = stats.block_to_doc_id_map(segment)? else {
+                let Some(mut map) = BlockToDocIdMap::open(segment)? else {
                     return Ok(None);
                 };
                 // The immutable reader's cleanup pin keeps these entries live until fresh VM bits

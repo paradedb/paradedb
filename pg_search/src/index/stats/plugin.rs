@@ -19,16 +19,13 @@
 //!
 //! One `CompositeFile` per segment, keyed by `(Field, idx)`. `idx = 0` holds the empirical
 //! `min`/`max` of a fast field, `idx = 1` the box a partitioned build assigned to the segment's
-//! partition, and `idx = 2` stays reserved for sketches. CTID-sorted segments also store heap
-//! block boundary columns at consecutive indices starting at `idx = 3`.
-//! The footer maps each entry
-//! to a byte range, so a reader touches only the entries it asks for.
+//! partition, and `idx = 2` stays reserved for sketches. The footer maps each entry to a byte
+//! range, so a reader touches only the entries it asks for.
 //!
-//! The bounds entries have different lifecycles. Empirical stats come from the segment's own
+//! The two entries have different lifecycles. Empirical stats come from the segment's own
 //! `.fast` file, so every immutable segment gets them, at write and at merge. Boxes come from
 //! the build that routed the rows; a merge keeps them only when every source has one, widened
-//! to the union box, which still holds every row. Boundary columns are rebuilt from the finished
-//! CTID column at write and merge, after document IDs have been assigned.
+//! to the union box, which still holds every row.
 
 use std::any::Any;
 use std::io::Write;
@@ -45,7 +42,6 @@ use tantivy::{
     Index, PluginMergeContext, PluginWriter, PluginWriterContext, SegmentPlugin, TantivyError,
 };
 
-use super::heap_blocks;
 use super::{
     EMPIRICAL_IDX, EmpiricalStats, EmpiricalWire, LOGICAL_IDX, LogicalBounds, LogicalBoundsByField,
     LogicalWire, STATS_EXT, SegmentStats,
@@ -146,7 +142,6 @@ fn write_stats(
             .for_field_with_idx(field, LOGICAL_IDX)
             .write_all(&bytes)?;
     }
-    heap_blocks::write(segment, &mut write)?;
     write.close()?;
     Ok(())
 }

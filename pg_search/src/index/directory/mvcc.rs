@@ -396,6 +396,10 @@ impl MVCCDirectory {
         Self::with_mvcc_style(index_relation, MvccSatisfies::ParallelWorker(view))
     }
 
+    pub fn indexrel(&self) -> &PgSearchRelation {
+        &self.indexrel
+    }
+
     pub fn with_mvcc_style(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Self {
         Self {
             indexrel: Clone::clone(index_relation),

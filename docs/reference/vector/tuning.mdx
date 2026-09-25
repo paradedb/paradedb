@@ -4,10 +4,11 @@ description: Trade recall against latency for vector search
 canonical: https://www.paradedb.com/docs/reference/vector/tuning
 ---
 
-Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. One session-level setting controls this tradeoff:
+Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. Two session-level settings control this tradeoff:
 
 ```sql
 SET paradedb.vector_cluster_max_probe = 0.02;
+SET paradedb.vector_router_recall = 0.99;
 ```
 
 <ParamField body="paradedb.vector_cluster_max_probe" default={0.02}>
@@ -23,8 +24,18 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
 
 </ParamField>
 
+<ParamField body="paradedb.vector_router_recall" default={0.99}>
+  How thoroughly the query ranks clusters before probing them. Clusters are
+  themselves organized into a small routing index; below `1.0`, the router stops
+  scanning that index once the estimated chance that the best clusters have been
+  found reaches this target, and `1.0` scans a fixed fraction of it instead.
+  Must be between `0.000001` and `1.0`. Only applies to indexes built with
+  `vector_router = 'ivf'`, and only to vectors of 128 or fewer dimensions;
+  higher-dimensional vectors always use the fixed fraction.
+</ParamField>
+
 <Note>
-  Recall also depends on the index's `training_sample_ratio` and
-  `max_leaf_size`, set at build time. See [Index
+  Recall also depends on the index's `vector_router`, `training_sample_ratio`
+  and `max_leaf_size`, set at build time. See [Index
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>

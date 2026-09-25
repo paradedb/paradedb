@@ -8,6 +8,9 @@ inputs:
   message:
     description: Commit message
     required: true
+  repository:
+    description: Repository in owner/name format where the commit is created
+    default: ${{ github.repository }}
   working-directory:
     description: Repository working directory
     default: "."
@@ -33,6 +36,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         MESSAGE: ${{ inputs.message }}
+        COMMIT_REPOSITORY: ${{ inputs.repository }}
         STAGE_ALL: ${{ inputs.stage-all }}
         SKIP_EMPTY: ${{ inputs.skip-empty }}
       run: |
@@ -71,7 +75,7 @@ runs:
             parser = argparse.ArgumentParser(description=__doc__)
             parser.add_argument("message")
             args = parser.parse_args()
-            endpoint = f"repos/{os.environ['GITHUB_REPOSITORY']}/git"
+            endpoint = f"repos/{os.environ['COMMIT_REPOSITORY']}/git"
             parent = git("rev-parse", "HEAD").decode().strip()
             base_tree = git("rev-parse", "HEAD^{tree}").decode().strip()
             staged_tree = git("write-tree").decode().strip()

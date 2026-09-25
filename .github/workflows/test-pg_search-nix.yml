@@ -63,9 +63,7 @@ jobs:
       # synchronize event, which re-triggers all CI workflows on the new HEAD.
       # Pushes made with the default GITHUB_TOKEN do not fire events.
       - name: Verify Nix Cargo Hash
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
+        id: cargo-hash
         run: |
           if ! nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps" 2>/dev/null; then
             echo "cargoHash mismatch detected, computing correct hash..."
@@ -90,28 +88,26 @@ jobs:
               exit 1
             fi
 
-            # Create the commit through GitHub's Git API with the App installation token;
-            # omitting author and committer lets GitHub sign it as the App.
-            base_sha=$(git rev-parse HEAD)
-            base_tree=$(git rev-parse HEAD^{tree})
-            tree_sha=$(jq -n --arg base "$base_tree" --rawfile content nix/pg_search.nix \
-              '{base_tree: $base, tree: [{path: "nix/pg_search.nix", mode: "100644", type: "blob", content: $content}]}' |
-              gh api --method POST "repos/${GITHUB_REPOSITORY}/git/trees" --input - --jq .sha)
-            commit_sha=$(jq -n --arg message "fix: update nix cargoHash for changed Cargo.lock" \
-              --arg tree "$tree_sha" --arg parent "$base_sha" \
-              '{message: $message, tree: $tree, parents: [$parent]}' |
-              gh api --method POST "repos/${GITHUB_REPOSITORY}/git/commits" --input - --jq .sha)
-
-            verified=$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/${commit_sha}" --jq .verification.verified)
-            if [ "$verified" != "true" ]; then
-              echo "::error::GitHub did not verify the App commit; refusing to update the branch."
-              exit 1
-            fi
-
-            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${TARGET_BRANCH}" \
-              -f sha="$commit_sha" -F force=false
-            echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
-            exit 1
+            git add nix/pg_search.nix
+            echo "needs_fix=true" >> "$GITHUB_OUTPUT"
           else
             echo "cargoHash is correct"
           fi
+
+      - name: Commit Nix Cargo Hash
+        if: steps.cargo-hash.outputs.needs_fix == 'true'
+        uses: ./.github/actions/commit-with-github-app
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          message: "fix: update nix cargoHash for changed Cargo.lock"
+
+      - name: Push Nix Cargo Hash
+        if: steps.cargo-hash.outputs.needs_fix == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${TARGET_BRANCH}" \
+            -f sha="$(git rev-parse HEAD)" -F force=false
+          echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
+          exit 1

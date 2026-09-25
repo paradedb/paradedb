@@ -662,13 +662,22 @@ impl VisibilityChecker {
             "visibility batches must be in doc ID order"
         );
         let ranges = self.doc_id_ranges_needing_visibility_checks(segment_ord);
+        let ffhelper = self
+            .ffhelper
+            .clone()
+            .expect("FFHelper must be configured to check segment doc visibility");
+        let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
         let mut ctids = Vec::new();
         let mut check = |start: usize, end: usize| {
             if start == end {
                 return;
             }
+            raw_ctids.resize(end - start, None);
             ctids.resize(end - start, None);
-            self.check_segment_docs(segment_ord, &doc_ids[start..end], &mut ctids);
+            ffhelper
+                .ctid(segment_ord)
+                .as_u64s(&doc_ids[start..end], &mut raw_ctids);
+            self.check_raw_ctids_impl(&raw_ctids, &mut ctids, false);
             for (visible, ctid) in mask[start..end].iter_mut().zip(&ctids) {
                 *visible = ctid.is_some();
             }
@@ -697,6 +706,7 @@ impl VisibilityChecker {
         } else {
             check(0, doc_ids.len());
         }
+        self.raw_ctids_scratch = raw_ctids;
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from

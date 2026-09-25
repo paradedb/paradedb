@@ -501,8 +501,6 @@ impl SegmentStats {
     pub(crate) fn heap_blocks(
         &self,
         segment: &SegmentReader,
-        descending: bool,
-        pages_per_vm: u32,
     ) -> io::Result<Option<heap_blocks::HeapBlockMap>> {
         let field = segment
             .schema()
@@ -518,15 +516,8 @@ impl SegmentStats {
         let Some((min, max)) = self.ctid_bounds(segment).map_err(io::Error::other)? else {
             return Ok(None);
         };
-        heap_blocks::HeapBlockMap::open(
-            min..=max,
-            segment.max_doc(),
-            descending,
-            self.file.clone(),
-            field,
-            pages_per_vm,
-        )
-        .map(Some)
+        heap_blocks::HeapBlockMap::open(min..=max, segment.max_doc(), self.file.clone(), field)
+            .map(Some)
     }
 
     fn read<T: DeserializeOwned>(&self, field: Field, idx: usize) -> io::Result<Option<T>> {

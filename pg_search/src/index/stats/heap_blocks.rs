@@ -37,7 +37,6 @@ use crate::api::CTID_FIELD_NAME;
 
 pub(super) const COLUMNS_IDX: usize = 3;
 const CHUNK_SIZE: usize = 32768;
-const RANGES_PER_BATCH: usize = 128;
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 
 fn invalid() -> io::Error {
@@ -121,10 +120,8 @@ pub(crate) struct HeapBlockMap {
     first_block: u32,
     last_block: u32,
     docs: u32,
-    descending: bool,
     file: Arc<CompositeFile>,
     field: Field,
-    pages_per_vm: u32,
     values: Option<(usize, Column<u64>)>,
 }
 
@@ -133,92 +130,31 @@ impl HeapBlockMap {
     pub(super) fn open(
         ctids: RangeInclusive<u64>,
         docs: u32,
-        descending: bool,
         file: Arc<CompositeFile>,
         field: Field,
-        pages_per_vm: u32,
     ) -> io::Result<Self> {
         let first_block = u32::try_from(*ctids.start() >> 16).map_err(|_| invalid())?;
         let last_block = u32::try_from(*ctids.end() >> 16).map_err(|_| invalid())?;
-        if docs == 0
-            || first_block > last_block
-            || pages_per_vm == 0
-            || !pages_per_vm.is_multiple_of(32)
-        {
+        if docs == 0 || first_block > last_block {
             return Err(invalid());
         }
         Ok(Self {
             first_block,
             last_block,
             docs,
-            descending,
             file,
             field,
-            pages_per_vm,
             values: None,
         })
     }
 
-    /// Coalesces dirty VM pages, then reads two boundaries per range.
-    pub(crate) fn missing_ranges(
-        &mut self,
-        mut retain_invisible: impl FnMut(u32, &mut [u32]),
-    ) -> io::Result<Vec<Range<u32>>> {
-        let first = u64::from(self.first_block);
-        let end = u64::from(self.last_block) + 1;
-        let mut block = first / 32 * 32;
-        let mut scratch = vec![u32::MAX; self.pages_per_vm as usize / 32];
-        let mut pending: Option<Range<u64>> = None;
-        let mut ranges = Vec::new();
-        let mut pages = Vec::with_capacity(RANGES_PER_BATCH);
-        while block < end {
-            pgrx::check_for_interrupts!();
-            let span = u64::from(self.pages_per_vm) - block % u64::from(self.pages_per_vm);
-            let words = (end - block).min(span).div_ceil(32) as usize;
-            let missing = &mut scratch[..words];
-            missing.fill(u32::MAX);
-            retain_invisible(block as u32, missing);
-            for (word, &bits) in missing.iter().enumerate() {
-                let mut bits = bits;
-                while bits != 0 {
-                    let bit = bits.trailing_zeros();
-                    let len = (bits >> bit).trailing_ones();
-                    bits &= !((u32::MAX >> (32 - len)) << bit);
-                    let start = block + word as u64 * 32 + u64::from(bit);
-                    let range = start.max(first)..(start + u64::from(len)).min(end);
-                    if range.is_empty() {
-                        continue;
-                    }
-                    if let Some(last) = pending.as_mut().filter(|last| last.end == range.start) {
-                        last.end = range.end;
-                    } else {
-                        if let Some(previous) = pending.replace(range) {
-                            pages.push(previous);
-                            if pages.len() == RANGES_PER_BATCH {
-                                self.append_ranges(&pages, &mut ranges)?;
-                                pages.clear();
-                            }
-                        }
-                    }
-                }
-            }
-            block += words as u64 * 32;
-        }
-        if let Some(last) = pending {
-            pages.push(last);
-        }
-        self.append_ranges(&pages, &mut ranges)?;
-        if self.descending {
-            for range in &mut ranges {
-                *range = self.docs - range.end..self.docs - range.start;
-            }
-            ranges.reverse();
-        }
-        Ok(ranges)
+    /// Returns the heap-page span covered by the boundary column.
+    pub(crate) fn block_range(&self) -> Range<u64> {
+        u64::from(self.first_block)..u64::from(self.last_block) + 1
     }
 
     /// Batch-decodes dirty page endpoints and coalesces their document ranges.
-    fn append_ranges(
+    pub(crate) fn append_ranges(
         &mut self,
         pages: &[Range<u64>],
         ranges: &mut Vec<Range<u32>>,
@@ -288,18 +224,13 @@ impl HeapBlockMap {
             let (_, values) = self.values.as_ref().unwrap();
             let chunk_start = u64::from(self.first_block) + (chunk * CHUNK_SIZE) as u64;
             let len = blocks.partition_point(|&block| block < chunk_start + CHUNK_SIZE as u64);
-            let positions: Vec<_> = blocks[..len]
-                .iter()
-                .map(|&block| (block - chunk_start) as u32)
-                .collect();
-            if positions
-                .last()
-                .is_some_and(|&position| position >= values.num_docs())
-            {
+            if blocks[len - 1] - chunk_start >= u64::from(values.num_docs()) {
                 return Err(invalid());
             }
             let (batch, rest) = output.split_at_mut(len);
-            values.u32_vals(&positions, batch);
+            for (&block, boundary) in blocks[..len].iter().zip(batch) {
+                *boundary = values.values.get_val((block - chunk_start) as u32) as u32;
+            }
             blocks = &blocks[len..];
             output = rest;
         }

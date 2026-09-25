@@ -509,17 +509,68 @@ impl VisibilityChecker {
                 let descending = ffhelper
                     .sort_order()
                     .is_some_and(|sort| sort.order == Order::Desc);
-                let Some(mut map) =
-                    stats.heap_blocks(segment, descending, util::HEAPBLOCKS_PER_PAGE)?
-                else {
+                let Some(mut map) = stats.heap_blocks(segment)? else {
                     return Ok(None);
                 };
                 // The immutable reader's cleanup pin keeps these entries live until fresh VM bits
                 // have been checked. A cached proof belongs only to this checker's snapshot.
                 self.blockvis = (pg_sys::InvalidBlockNumber, false);
-                Ok(Some(map.missing_ranges(|block, present| {
-                    self.retain_invisible_blocks(block, present)
-                })?))
+                // Coalesce dirty VM pages, then batch-decode their document boundaries.
+                const RANGES_PER_BATCH: usize = 128;
+                let first = map.block_range().start;
+                let end = map.block_range().end;
+                let mut block = first / 32 * 32;
+                let mut scratch = vec![u32::MAX; util::HEAPBLOCKS_PER_PAGE as usize / 32];
+                let mut pending: Option<Range<u64>> = None;
+                let mut ranges = Vec::new();
+                let mut pages = Vec::with_capacity(RANGES_PER_BATCH);
+                while block < end {
+                    pgrx::check_for_interrupts!();
+                    let span = u64::from(util::HEAPBLOCKS_PER_PAGE)
+                        - block % u64::from(util::HEAPBLOCKS_PER_PAGE);
+                    let words = (end - block).min(span).div_ceil(32) as usize;
+                    let missing = &mut scratch[..words];
+                    missing.fill(u32::MAX);
+                    self.retain_invisible_blocks(block as u32, missing);
+                    for (word, &bits) in missing.iter().enumerate() {
+                        let mut bits = bits;
+                        while bits != 0 {
+                            let bit = bits.trailing_zeros();
+                            let len = (bits >> bit).trailing_ones();
+                            bits &= !((u32::MAX >> (32 - len)) << bit);
+                            let start = block + word as u64 * 32 + u64::from(bit);
+                            let range = start.max(first)..(start + u64::from(len)).min(end);
+                            if range.is_empty() {
+                                continue;
+                            }
+                            if let Some(last) =
+                                pending.as_mut().filter(|last| last.end == range.start)
+                            {
+                                last.end = range.end;
+                            } else {
+                                if let Some(previous) = pending.replace(range) {
+                                    pages.push(previous);
+                                    if pages.len() == RANGES_PER_BATCH {
+                                        map.append_ranges(&pages, &mut ranges)?;
+                                        pages.clear();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    block += words as u64 * 32;
+                }
+                if let Some(last) = pending {
+                    pages.push(last);
+                }
+                map.append_ranges(&pages, &mut ranges)?;
+                if descending {
+                    for range in &mut ranges {
+                        *range = segment.max_doc() - range.end..segment.max_doc() - range.start;
+                    }
+                    ranges.reverse();
+                }
+                Ok(Some(ranges))
             })()
             .expect("failed to read heap-block visibility metadata")
             .map(Arc::from);

@@ -37,6 +37,7 @@ use crate::api::CTID_FIELD_NAME;
 
 pub(super) const COLUMNS_IDX: usize = 3;
 const CHUNK_SIZE: usize = 32768;
+const RANGES_PER_BATCH: usize = 128;
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 
 fn invalid() -> io::Error {
@@ -169,6 +170,7 @@ impl HeapBlockMap {
         let mut scratch = vec![u32::MAX; self.pages_per_vm as usize / 32];
         let mut pending: Option<Range<u64>> = None;
         let mut ranges = Vec::new();
+        let mut pages = Vec::with_capacity(RANGES_PER_BATCH);
         while block < end {
             pgrx::check_for_interrupts!();
             let span = u64::from(self.pages_per_vm) - block % u64::from(self.pages_per_vm);
@@ -190,17 +192,22 @@ impl HeapBlockMap {
                     if let Some(last) = pending.as_mut().filter(|last| last.end == range.start) {
                         last.end = range.end;
                     } else {
-                        if let Some(pages) = pending.replace(range) {
-                            self.append_range(pages, &mut ranges)?;
+                        if let Some(previous) = pending.replace(range) {
+                            pages.push(previous);
+                            if pages.len() == RANGES_PER_BATCH {
+                                self.append_ranges(&pages, &mut ranges)?;
+                                pages.clear();
+                            }
                         }
                     }
                 }
             }
             block += words as u64 * 32;
         }
-        if let Some(pages) = pending {
-            self.append_range(pages, &mut ranges)?;
+        if let Some(last) = pending {
+            pages.push(last);
         }
+        self.append_ranges(&pages, &mut ranges)?;
         if self.descending {
             for range in &mut ranges {
                 *range = self.docs - range.end..self.docs - range.start;
@@ -210,56 +217,92 @@ impl HeapBlockMap {
         Ok(ranges)
     }
 
-    /// Converts a dirty page range into a nonempty document range.
-    fn append_range(&mut self, pages: Range<u64>, ranges: &mut Vec<Range<u32>>) -> io::Result<()> {
-        let start = self.boundary(pages.start)?;
-        let end = self.boundary(pages.end)?;
-        if start > end || end > self.docs {
-            return Err(invalid());
-        }
-        if start == end {
-            return Ok(());
-        }
-        if let Some(last) = ranges.last_mut().filter(|last| last.end == start) {
-            last.end = end;
-        } else {
-            ranges.push(start..end);
+    /// Batch-decodes dirty page endpoints and coalesces their document ranges.
+    fn append_ranges(
+        &mut self,
+        pages: &[Range<u64>],
+        ranges: &mut Vec<Range<u32>>,
+    ) -> io::Result<()> {
+        let blocks: Vec<_> = pages
+            .iter()
+            .flat_map(|page| [page.start, page.end])
+            .collect();
+        let mut boundaries = vec![0; blocks.len()];
+        self.boundaries(&blocks, &mut boundaries)?;
+        for pair in boundaries.chunks_exact(2) {
+            let [start, end] = [pair[0], pair[1]];
+            if start > end || end > self.docs {
+                return Err(invalid());
+            }
+            if start == end {
+                continue;
+            }
+            if let Some(last) = ranges.last_mut().filter(|last| last.end == start) {
+                last.end = end;
+            } else {
+                ranges.push(start..end);
+            }
         }
         Ok(())
     }
 
-    /// Reads a page boundary, retaining only the most recently used column batch.
-    fn boundary(&mut self, block: u64) -> io::Result<u32> {
-        let index = (block - u64::from(self.first_block)) as usize;
-        let count = (u64::from(self.last_block) - u64::from(self.first_block) + 2) as usize;
-        if index >= count {
-            return Err(invalid());
-        }
-        let chunk = index / CHUNK_SIZE;
-        if self
-            .values
-            .as_ref()
-            .is_none_or(|(current, _)| *current != chunk)
-        {
-            let file = self
-                .file
-                .open_read_with_idx(self.field, COLUMNS_IDX + chunk)
-                .ok_or_else(invalid)?;
-            let reader = ColumnarReader::open(file)?;
-            let handles = reader.read_columns("boundary")?;
-            let [handle] = handles.as_slice() else {
-                return Err(invalid());
-            };
-            let DynamicColumn::U64(values) = handle.open()? else {
-                return Err(invalid());
-            };
-            let len = (count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
-            if values.get_cardinality() != Cardinality::Full || values.num_docs() as usize != len {
+    /// Reads sorted boundaries in batches, retaining only the current column chunk.
+    fn boundaries(&mut self, mut blocks: &[u64], mut output: &mut [u32]) -> io::Result<()> {
+        debug_assert_eq!(blocks.len(), output.len());
+        debug_assert!(blocks.is_sorted());
+        while let Some(&block) = blocks.first() {
+            let index = block
+                .checked_sub(u64::from(self.first_block))
+                .ok_or_else(invalid)? as usize;
+            let count = (u64::from(self.last_block) - u64::from(self.first_block) + 2) as usize;
+            if index >= count {
                 return Err(invalid());
             }
-            self.values = Some((chunk, values));
+            let chunk = index / CHUNK_SIZE;
+            if self
+                .values
+                .as_ref()
+                .is_none_or(|(current, _)| *current != chunk)
+            {
+                let file = self
+                    .file
+                    .open_read_with_idx(self.field, COLUMNS_IDX + chunk)
+                    .ok_or_else(invalid)?;
+                let reader = ColumnarReader::open(file)?;
+                let handles = reader.read_columns("boundary")?;
+                let [handle] = handles.as_slice() else {
+                    return Err(invalid());
+                };
+                let DynamicColumn::U64(values) = handle.open()? else {
+                    return Err(invalid());
+                };
+                let len = (count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
+                if values.get_cardinality() != Cardinality::Full
+                    || values.num_docs() as usize != len
+                    || values.max_value() > u64::from(self.docs)
+                {
+                    return Err(invalid());
+                }
+                self.values = Some((chunk, values));
+            }
+            let (_, values) = self.values.as_ref().unwrap();
+            let chunk_start = u64::from(self.first_block) + (chunk * CHUNK_SIZE) as u64;
+            let len = blocks.partition_point(|&block| block < chunk_start + CHUNK_SIZE as u64);
+            let positions: Vec<_> = blocks[..len]
+                .iter()
+                .map(|&block| (block - chunk_start) as u32)
+                .collect();
+            if positions
+                .last()
+                .is_some_and(|&position| position >= values.num_docs())
+            {
+                return Err(invalid());
+            }
+            let (batch, rest) = output.split_at_mut(len);
+            values.u32_vals(&positions, batch);
+            blocks = &blocks[len..];
+            output = rest;
         }
-        let (_, values) = self.values.as_ref().unwrap();
-        u32::try_from(values.values.get_val((index % CHUNK_SIZE) as u32)).map_err(|_| invalid())
+        Ok(())
     }
 }

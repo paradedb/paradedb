@@ -36,7 +36,7 @@ use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
 use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::{
-    Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
+    Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions, SortExpr,
     WindowFunctionDefinition, col,
 };
 use datafusion::optimizer::{Optimizer, OptimizerRule};

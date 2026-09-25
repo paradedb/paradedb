@@ -82,8 +82,8 @@ impl AggregationExec for Aggregations {
                 }),
             )));
             let factory: DocVisibilityFilterFactory = Arc::new(move |segment_reader| {
-                let tid_ff = TidReader::open(segment_reader.schema(), segment_reader.fast_fields())
-                    .expect("tid columns should be present");
+                let tid_ff =
+                    TidReader::open(segment_reader).expect("tid columns should be present");
                 let vischeck = vischeck.get().clone();
                 // TODO: Migrate from as_u64 point lookup to as_u64s batching
                 #[allow(deprecated)]

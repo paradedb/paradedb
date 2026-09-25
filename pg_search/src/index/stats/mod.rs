@@ -43,6 +43,8 @@ use crate::postgres::types::is_datetime_type;
 use crate::schema::{SearchField, SearchFieldType};
 
 mod heap_blocks;
+pub use heap_blocks::HeapBlockMap;
+pub(crate) use heap_blocks::MissingBlockRange;
 mod plugin;
 mod pruning;
 #[cfg(any(test, feature = "pg_test"))]

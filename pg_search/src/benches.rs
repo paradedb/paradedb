@@ -11,8 +11,17 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
-/// Benchmark batch size matching DataFusion's default (~8k rows).
+/// Benchmark batch size matching DataFusion's default batch size (~8k rows).
 const BATCH_SIZE: usize = 8192;
+
+/// Number of dense batches streamed in sequence (30 * 8,192 = 245,760 docs).
+const DENSE_BATCH_COUNT: usize = 30;
+
+/// Number of sparse batches streamed in sequence (3 * 8,192 = 24,576 docs).
+const SPARSE_BATCH_COUNT: usize = 3;
+
+/// Stride between sparse document matches, spanning across heap blocks and boundary chunks.
+const SPARSE_STRIDE: DocId = 10;
 
 /// Sets the visibility map `all-visible` bit for all heap blocks of the specified relation.
 ///
@@ -52,30 +61,40 @@ fn mark_all_blocks_visible(table_name: &str) {
     }
 }
 
-/// Sets up a 10,000-row table where all heap pages are marked all-visible.
+/// Sets up a table with 250,000 rows where all heap pages are marked all-visible.
+/// Spans ~2,500 blocks and ~10 boundary chunks (> 256 blocks per chunk) to benchmark
+/// multi-chunk boundary decoding, chunk cache behavior, and batch streaming.
 fn setup_fully_visible() {
     Spi::run("DROP TABLE IF EXISTS bench_vis_full CASCADE;").unwrap();
     Spi::run("CREATE TABLE bench_vis_full (id serial, data text);").unwrap();
     Spi::run(
         "INSERT INTO bench_vis_full (data) \
-         SELECT 'bench ' || i FROM generate_series(1, 10000) i;",
+         SELECT 'bench ' || i || ' ' || repeat('x', 50) FROM generate_series(1, 250000) i;",
     )
     .unwrap();
-    Spi::run("CREATE INDEX bench_vis_full_idx ON bench_vis_full USING bm25 (id, data);").unwrap();
+    Spi::run(
+        "CREATE INDEX bench_vis_full_idx ON bench_vis_full USING paradedb (id, data) \
+         WITH (target_segment_count = 1);",
+    )
+    .unwrap();
     mark_all_blocks_visible("bench_vis_full");
 }
 
-/// Sets up a 10,000-row table where ~10% of heap pages have their all-visible bit cleared by row deletions.
+/// Sets up a table with 250,000 rows where ~10% of heap pages have their all-visible bit cleared by row deletions,
+/// spanning ~2,500 blocks and ~10 boundary chunks.
 fn setup_partially_visible() {
     Spi::run("DROP TABLE IF EXISTS bench_vis_partial CASCADE;").unwrap();
     Spi::run("CREATE TABLE bench_vis_partial (id serial, data text);").unwrap();
     Spi::run(
         "INSERT INTO bench_vis_partial (data) \
-         SELECT 'bench ' || i FROM generate_series(1, 10000) i;",
+         SELECT 'bench ' || i || ' ' || repeat('x', 50) FROM generate_series(1, 250000) i;",
     )
     .unwrap();
-    Spi::run("CREATE INDEX bench_vis_partial_idx ON bench_vis_partial USING bm25 (id, data);")
-        .unwrap();
+    Spi::run(
+        "CREATE INDEX bench_vis_partial_idx ON bench_vis_partial USING paradedb (id, data) \
+         WITH (target_segment_count = 1);",
+    )
+    .unwrap();
     mark_all_blocks_visible("bench_vis_partial");
     // Clear visibility map all-visible bit for ~10% of pages by deleting 1 row per 10 blocks:
     Spi::run(
@@ -86,29 +105,7 @@ fn setup_partially_visible() {
     .unwrap();
 }
 
-/// Sparse batch size (1,024 documents strided across the segment at ~11% density).
-const SPARSE_BATCH_SIZE: usize = 1024;
-const SPARSE_STRIDE: DocId = 9;
-
-/// Opens the relation and index, preparing a `VisibilityChecker` and document IDs for benchmarking.
-fn prepare_checker(table_name: &str, index_name: &str) -> (VisibilityChecker, Vec<DocId>) {
-    let doc_ids: Vec<DocId> = (0..BATCH_SIZE as DocId).collect();
-    prepare_checker_with_docs(table_name, index_name, doc_ids)
-}
-
-/// Opens the relation and index, preparing a `VisibilityChecker` and sparse document IDs.
-fn prepare_checker_sparse(table_name: &str, index_name: &str) -> (VisibilityChecker, Vec<DocId>) {
-    let doc_ids: Vec<DocId> = (0..SPARSE_BATCH_SIZE as DocId)
-        .map(|i| i * SPARSE_STRIDE)
-        .collect();
-    prepare_checker_with_docs(table_name, index_name, doc_ids)
-}
-
-fn prepare_checker_with_docs(
-    table_name: &str,
-    index_name: &str,
-    doc_ids: Vec<DocId>,
-) -> (VisibilityChecker, Vec<DocId>) {
+fn prepare_checker(table_name: &str, index_name: &str, max_doc: DocId) -> VisibilityChecker {
     unsafe {
         pg_sys::CommandCounterIncrement();
         if pg_sys::GetActiveSnapshot().is_null() {
@@ -134,7 +131,6 @@ fn prepare_checker_with_docs(
     .expect("Failed to open search index reader");
 
     let segment_reader = &reader.searcher().segment_readers()[0];
-    let max_doc = doc_ids.iter().copied().max().unwrap_or(0);
     assert!(
         segment_reader.max_doc() > max_doc,
         "Segment 0 must contain at least {} docs, found {}",
@@ -144,109 +140,199 @@ fn prepare_checker_with_docs(
 
     let ffhelper = Arc::new(FFHelper::for_ctid(&reader));
     let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-    let checker = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot).with_ffhelper(ffhelper);
-
-    (checker, doc_ids)
+    VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot).with_ffhelper(ffhelper)
 }
 
-/// Benchmarks boolean mask visibility checking over 8,192 docs on fully visible blocks.
+/// Prepares a `VisibilityChecker` and consecutive 8,192-sized dense batches spanning the table.
+fn prepare_dense_stream(
+    table_name: &str,
+    index_name: &str,
+) -> (VisibilityChecker, Vec<Vec<DocId>>) {
+    let mut batches = Vec::with_capacity(DENSE_BATCH_COUNT);
+    for b in 0..DENSE_BATCH_COUNT {
+        let start = (b * BATCH_SIZE) as DocId;
+        let batch: Vec<DocId> = (start..start + BATCH_SIZE as DocId).collect();
+        batches.push(batch);
+    }
+    let max_doc = (DENSE_BATCH_COUNT * BATCH_SIZE) as DocId - 1;
+    let checker = prepare_checker(table_name, index_name, max_doc);
+    (checker, batches)
+}
+
+/// Prepares a `VisibilityChecker` and consecutive 8,192-sized sparse batches striding across the table.
+fn prepare_sparse_stream(
+    table_name: &str,
+    index_name: &str,
+) -> (VisibilityChecker, Vec<Vec<DocId>>) {
+    let mut batches = Vec::with_capacity(SPARSE_BATCH_COUNT);
+    for b in 0..SPARSE_BATCH_COUNT {
+        let start_i = (b * BATCH_SIZE) as DocId;
+        let batch: Vec<DocId> = (start_i..start_i + BATCH_SIZE as DocId)
+            .map(|i| i * SPARSE_STRIDE)
+            .collect();
+        batches.push(batch);
+    }
+    let max_doc = ((SPARSE_BATCH_COUNT * BATCH_SIZE - 1) as DocId) * SPARSE_STRIDE;
+    let checker = prepare_checker(table_name, index_name, max_doc);
+    (checker, batches)
+}
+
+/// Streams 30 consecutive 8,192-doc dense batches (245,760 docs total) through boolean mask
+/// visibility checking on a fully visible relation.
 #[pg_bench(
     setup = setup_fully_visible,
     transaction = "shared",
     warm_up_time_ms = 5_000,
     measurement_time_ms = 25_000
 )]
-fn bench_visibility_fully_visible_mask(b: &mut Bencher) {
-    let (mut checker, doc_ids) = prepare_checker("bench_vis_full", "bench_vis_full_idx");
+fn bench_visibility_full_dense_mask(b: &mut Bencher) {
+    let (mut checker, batches) = prepare_dense_stream("bench_vis_full", "bench_vis_full_idx");
     let mut mask = vec![false; BATCH_SIZE];
 
     b.iter(move || {
-        checker.check_segment_docs_mask(0, &doc_ids, &mut mask);
-        black_box(&mask);
+        for batch in &batches {
+            checker.check_segment_docs_mask(0, batch, &mut mask);
+            black_box(&mask);
+        }
     });
 }
 
-/// Benchmarks CTID array visibility checking over 8,192 docs on fully visible blocks.
+/// Streams 30 consecutive 8,192-doc dense batches (245,760 docs total) through CTID resolution
+/// on a fully visible relation.
 #[pg_bench(
     setup = setup_fully_visible,
     transaction = "shared",
     warm_up_time_ms = 5_000,
     measurement_time_ms = 25_000
 )]
-fn bench_visibility_fully_visible_ctid(b: &mut Bencher) {
-    let (mut checker, doc_ids) = prepare_checker("bench_vis_full", "bench_vis_full_idx");
+fn bench_visibility_full_dense_ctid(b: &mut Bencher) {
+    let (mut checker, batches) = prepare_dense_stream("bench_vis_full", "bench_vis_full_idx");
     let mut ctids = vec![None; BATCH_SIZE];
 
     b.iter(move || {
-        checker.check_segment_docs(0, &doc_ids, &mut ctids);
-        black_box(&ctids);
+        for batch in &batches {
+            checker.check_segment_docs(0, batch, &mut ctids);
+            black_box(&ctids);
+        }
     });
 }
 
-/// Benchmarks boolean mask visibility checking over 1,024 sparse docs on fully visible blocks.
+/// Streams 3 consecutive 8,192-doc sparse batches (24,576 docs with stride 10 spanning 245,750 docs)
+/// through boolean mask visibility checking on a fully visible relation.
 #[pg_bench(
     setup = setup_fully_visible,
     transaction = "shared",
     warm_up_time_ms = 5_000,
     measurement_time_ms = 25_000
 )]
-fn bench_visibility_full_mask_sparse(b: &mut Bencher) {
-    let (mut checker, doc_ids) = prepare_checker_sparse("bench_vis_full", "bench_vis_full_idx");
-    let mut mask = vec![false; SPARSE_BATCH_SIZE];
+fn bench_visibility_full_sparse_mask(b: &mut Bencher) {
+    let (mut checker, batches) = prepare_sparse_stream("bench_vis_full", "bench_vis_full_idx");
+    let mut mask = vec![false; BATCH_SIZE];
 
     b.iter(move || {
-        checker.check_segment_docs_mask(0, &doc_ids, &mut mask);
-        black_box(&mask);
+        for batch in &batches {
+            checker.check_segment_docs_mask(0, batch, &mut mask);
+            black_box(&mask);
+        }
     });
 }
 
-/// Benchmarks CTID array visibility checking over 1,024 sparse docs on fully visible blocks.
+/// Streams 3 consecutive 8,192-doc sparse batches (24,576 docs with stride 10 spanning 245,750 docs)
+/// through CTID resolution on a fully visible relation.
 #[pg_bench(
     setup = setup_fully_visible,
     transaction = "shared",
     warm_up_time_ms = 5_000,
     measurement_time_ms = 25_000
 )]
-fn bench_visibility_full_ctid_sparse(b: &mut Bencher) {
-    let (mut checker, doc_ids) = prepare_checker_sparse("bench_vis_full", "bench_vis_full_idx");
-    let mut ctids = vec![None; SPARSE_BATCH_SIZE];
+fn bench_visibility_full_sparse_ctid(b: &mut Bencher) {
+    let (mut checker, batches) = prepare_sparse_stream("bench_vis_full", "bench_vis_full_idx");
+    let mut ctids = vec![None; BATCH_SIZE];
 
     b.iter(move || {
-        checker.check_segment_docs(0, &doc_ids, &mut ctids);
-        black_box(&ctids);
+        for batch in &batches {
+            checker.check_segment_docs(0, batch, &mut ctids);
+            black_box(&ctids);
+        }
     });
 }
 
-/// Benchmarks boolean mask visibility checking over 8,192 docs on partially visible blocks (~10% missing VM bit).
+/// Streams 30 consecutive 8,192-doc dense batches (245,760 docs total) through boolean mask
+/// visibility checking on a partially visible relation (~10% missing VM bit).
 #[pg_bench(
     setup = setup_partially_visible,
     transaction = "shared",
     warm_up_time_ms = 5_000,
     measurement_time_ms = 25_000
 )]
-fn bench_visibility_partially_visible_mask(b: &mut Bencher) {
-    let (mut checker, doc_ids) = prepare_checker("bench_vis_partial", "bench_vis_partial_idx");
+fn bench_visibility_partial_dense_mask(b: &mut Bencher) {
+    let (mut checker, batches) = prepare_dense_stream("bench_vis_partial", "bench_vis_partial_idx");
     let mut mask = vec![false; BATCH_SIZE];
 
     b.iter(move || {
-        checker.check_segment_docs_mask(0, &doc_ids, &mut mask);
-        black_box(&mask);
+        for batch in &batches {
+            checker.check_segment_docs_mask(0, batch, &mut mask);
+            black_box(&mask);
+        }
     });
 }
 
-/// Benchmarks CTID array visibility checking over 8,192 docs on partially visible blocks (~10% missing VM bit).
+/// Streams 30 consecutive 8,192-doc dense batches (245,760 docs total) through CTID resolution
+/// on a partially visible relation (~10% missing VM bit).
 #[pg_bench(
     setup = setup_partially_visible,
     transaction = "shared",
     warm_up_time_ms = 5_000,
     measurement_time_ms = 25_000
 )]
-fn bench_visibility_partially_visible_ctid(b: &mut Bencher) {
-    let (mut checker, doc_ids) = prepare_checker("bench_vis_partial", "bench_vis_partial_idx");
+fn bench_visibility_partial_dense_ctid(b: &mut Bencher) {
+    let (mut checker, batches) = prepare_dense_stream("bench_vis_partial", "bench_vis_partial_idx");
     let mut ctids = vec![None; BATCH_SIZE];
 
     b.iter(move || {
-        checker.check_segment_docs(0, &doc_ids, &mut ctids);
-        black_box(&ctids);
+        for batch in &batches {
+            checker.check_segment_docs(0, batch, &mut ctids);
+            black_box(&ctids);
+        }
+    });
+}
+
+/// Streams 3 consecutive 8,192-doc sparse batches (24,576 docs with stride 10 spanning 245,750 docs)
+/// through boolean mask visibility checking on a partially visible relation (~10% missing VM bit).
+#[pg_bench(
+    setup = setup_partially_visible,
+    transaction = "shared",
+    warm_up_time_ms = 5_000,
+    measurement_time_ms = 25_000
+)]
+fn bench_visibility_partial_sparse_mask(b: &mut Bencher) {
+    let (mut checker, batches) = prepare_sparse_stream("bench_vis_partial", "bench_vis_partial_idx");
+    let mut mask = vec![false; BATCH_SIZE];
+
+    b.iter(move || {
+        for batch in &batches {
+            checker.check_segment_docs_mask(0, batch, &mut mask);
+            black_box(&mask);
+        }
+    });
+}
+
+/// Streams 3 consecutive 8,192-doc sparse batches (24,576 docs with stride 10 spanning 245,750 docs)
+/// through CTID resolution on a partially visible relation (~10% missing VM bit).
+#[pg_bench(
+    setup = setup_partially_visible,
+    transaction = "shared",
+    warm_up_time_ms = 5_000,
+    measurement_time_ms = 25_000
+)]
+fn bench_visibility_partial_sparse_ctid(b: &mut Bencher) {
+    let (mut checker, batches) = prepare_sparse_stream("bench_vis_partial", "bench_vis_partial_idx");
+    let mut ctids = vec![None; BATCH_SIZE];
+
+    b.iter(move || {
+        for batch in &batches {
+            checker.check_segment_docs(0, batch, &mut ctids);
+            black_box(&ctids);
+        }
     });
 }

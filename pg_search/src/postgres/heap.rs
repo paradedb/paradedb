@@ -18,14 +18,14 @@
 pub(crate) use util::HEAPBLOCKS_PER_PAGE;
 
 use std::collections::VecDeque;
-use std::ops::{Deref, Range};
+use std::ops::Deref;
 use std::slice;
 use std::sync::Arc;
 
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, TID_BLOCK_FIELD_NAME};
 use crate::index::fast_fields_helper::{FFHelper, TidReader};
-use crate::index::stats::SegmentStats;
+use crate::index::stats::{MissingBlockRange, SegmentStats};
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
@@ -150,13 +150,19 @@ impl<'a> TidBatch<'a> {
                 scratch.blocks.resize(docs.len(), 0);
                 block.u32_vals(docs, scratch.blocks.as_mut_slice());
             }
+            TidReader::Boundaries { map, .. } => {
+                scratch.blocks.resize(docs.len(), 0);
+                map.lock()
+                    .blocks_of_docs(docs, scratch.blocks.as_mut_slice())
+                    .expect("corrupt heap blocks map");
+            }
         }
 
         Self {
             reader,
             docs,
             scratch,
-            is_split: matches!(reader, TidReader::Split { .. }),
+            is_split: !matches!(reader, TidReader::Legacy(_)),
             has_read_all_offsets: false,
         }
     }
@@ -256,13 +262,14 @@ impl<'a> TidBatch<'a> {
 
     /// Reads offsets exclusively for documents recorded as missed.
     ///
-    /// For split columns, decodes `tid_offset` for `missed` indices.
-    /// For legacy columns, this is a no-op as offsets are already in `blocks`.
+    /// For split or boundary readers, decodes `tid_offset` for `missed` indices.
+    /// For legacy readers, this is a no-op as CTIDs are already decoded in `legacy_ctids`.
     fn read_missed_offsets(&mut self) {
         if !self.is_split || self.has_read_all_offsets || self.scratch.missed.is_empty() {
             return;
         }
-        let TidReader::Split { offset, .. } = self.reader else {
+        let (TidReader::Split { offset, .. } | TidReader::Boundaries { offset, .. }) = self.reader
+        else {
             unreachable!()
         };
         if self.scratch.offsets.len() < self.docs.len() {
@@ -308,13 +315,14 @@ impl<'a> TidBatch<'a> {
 
     /// Reads offsets for all documents in the batch.
     ///
-    /// For split columns, this decodes `tid_offset` for the entire batch.
-    /// For legacy columns, this is a no-op as offsets are already in `blocks`.
+    /// For split or boundary readers, this decodes `tid_offset` for the entire batch.
+    /// For legacy readers, this is a no-op as CTIDs are already decoded in `legacy_ctids`.
     fn read_all_offsets(&mut self) {
         if !self.is_split || self.has_read_all_offsets {
             return;
         }
-        let TidReader::Split { offset, .. } = self.reader else {
+        let (TidReader::Split { offset, .. } | TidReader::Boundaries { offset, .. }) = self.reader
+        else {
             unreachable!()
         };
         self.scratch.offsets.resize(self.docs.len(), None);
@@ -328,7 +336,7 @@ enum SegmentCheck {
     #[default]
     Unchecked,
     Unavailable,
-    Ranges(Arc<[Range<DocId>]>),
+    Ranges(Arc<[MissingBlockRange]>),
 }
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
@@ -625,40 +633,55 @@ impl VisibilityChecker {
             {
                 break 'proof false;
             }
-            let (first, last) = if segment.schema().get_field(TID_BLOCK_FIELD_NAME).is_ok() {
-                let blocks = segment.fast_fields().u64(TID_BLOCK_FIELD_NAME)?;
-                if blocks.get_cardinality() != Cardinality::Full
-                    || blocks.num_docs() != segment.max_doc()
-                {
-                    break 'proof false;
+            let (first, last) = 'bounds: {
+                if let Ok(Some(stats)) = SegmentStats::of_reader(segment) {
+                    let field = segment
+                        .schema()
+                        .get_field(TID_BLOCK_FIELD_NAME)
+                        .or_else(|_| segment.schema().get_field(CTID_FIELD_NAME));
+                    if let Ok(field) = field
+                        && let Ok(Some(map)) =
+                            stats.heap_blocks(field, segment.max_doc(), HEAPBLOCKS_PER_VM_PAGE)
+                        && let (Ok(first), Ok(last)) = (map.min_block(), map.max_block())
+                    {
+                        break 'bounds (first, last);
+                    }
                 }
-                let (Ok(first), Ok(last)) = (
-                    u32::try_from(blocks.min_value()),
-                    u32::try_from(blocks.max_value()),
-                ) else {
-                    break 'proof false;
-                };
-                (first, last)
-            } else {
-                let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
-                if ctids.get_cardinality() != Cardinality::Full
-                    || ctids.num_docs() != segment.max_doc()
-                {
-                    break 'proof false;
+                if segment.schema().get_field(TID_BLOCK_FIELD_NAME).is_ok() {
+                    let blocks = segment.fast_fields().u64(TID_BLOCK_FIELD_NAME)?;
+                    if blocks.get_cardinality() != Cardinality::Full
+                        || blocks.num_docs() != segment.max_doc()
+                    {
+                        break 'proof false;
+                    }
+                    let (Ok(first), Ok(last)) = (
+                        u32::try_from(blocks.min_value()),
+                        u32::try_from(blocks.max_value()),
+                    ) else {
+                        break 'proof false;
+                    };
+                    (first, last)
+                } else {
+                    let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+                    if ctids.get_cardinality() != Cardinality::Full
+                        || ctids.num_docs() != segment.max_doc()
+                    {
+                        break 'proof false;
+                    }
+                    let (Ok(first), Ok(last)) = (
+                        u32::try_from(ctids.min_value() >> 16),
+                        u32::try_from(ctids.max_value() >> 16),
+                    ) else {
+                        break 'proof false;
+                    };
+                    (first, last)
                 }
-                let (Ok(first), Ok(last)) = (
-                    u32::try_from(ctids.min_value() >> 16),
-                    u32::try_from(ctids.max_value() >> 16),
-                ) else {
-                    break 'proof false;
-                };
-                (first, last)
             };
             let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
             if vm_pages > 64 {
                 break 'proof false;
             }
-            // Read CTID bounds before fresh VM bits; FFHelper retains the VACUUM cleanup pin.
+            // Read block bounds from HeapBlockMap (or fast field fallback) before fresh VM bits; FFHelper retains the VACUUM cleanup pin.
             self.is_range_all_visible(first, last)
         };
         self.segment_visibility = Some((segment.segment_id(), visible));
@@ -775,7 +798,7 @@ impl VisibilityChecker {
     fn doc_id_ranges_needing_visibility_checks(
         &mut self,
         segment_ord: SegmentOrdinal,
-    ) -> Option<Arc<[Range<DocId>]>> {
+    ) -> Option<Arc<[MissingBlockRange]>> {
         let ord = segment_ord as usize;
         if self.segment_checks.len() <= ord {
             self.segment_checks
@@ -783,7 +806,7 @@ impl VisibilityChecker {
         }
         if matches!(self.segment_checks[ord], SegmentCheck::Unchecked) {
             // Intersect the immutable segment’s presence map with the VM once per snapshot.
-            let ranges = (|| -> tantivy::Result<Option<Vec<Range<DocId>>>> {
+            let ranges = (|| -> tantivy::Result<Option<Vec<MissingBlockRange>>> {
                 if self.snapshot.is_null()
                     || unsafe {
                         (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC
@@ -839,8 +862,9 @@ impl VisibilityChecker {
     /// `doc_ids.windows(2).all(|w| w[0] <= w[1])`.
     ///
     /// For all-visible blocks, visibility is confirmed via the visibility map fast-path without
-    /// reading heap buffers. For split columns, this never reads or decodes `tid_offset` for
-    /// docs on all-visible blocks.
+    /// reading heap buffers. For split columns with heap-block presence, this never reads or decodes
+    /// `tid_offset` for docs on all-visible blocks, and resolves block numbers for invisible docs
+    /// directly from presence ranges without reading `tid_block`.
     pub fn check_segment_docs_mask(
         &mut self,
         segment_ord: SegmentOrdinal,
@@ -872,20 +896,22 @@ impl VisibilityChecker {
 
         self.tid_scratch.missed.clear();
         self.tid_scratch.missed_doc_ids.clear();
+        self.tid_scratch.blocks.clear();
 
         let mut start = 0;
-        let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
+        let first_range = ranges.partition_point(|range| range.doc_range.end <= doc_ids[0]);
         let mut remaining_ranges = &ranges[first_range..];
         while let Some((range, rest)) = remaining_ranges.split_first() {
             remaining_ranges = rest;
-            start += doc_ids[start..].partition_point(|&doc| doc < range.start);
+            start += doc_ids[start..].partition_point(|&doc| doc < range.doc_range.start);
             if start == doc_ids.len() {
                 break;
             }
-            let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
+            let end = start + doc_ids[start..].partition_point(|&doc| doc < range.doc_range.end);
             if start == end {
                 // Jump over ranges that end before the next query match.
-                let skip = remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
+                let skip =
+                    remaining_ranges.partition_point(|range| range.doc_range.end <= doc_ids[start]);
                 remaining_ranges = &remaining_ranges[skip..];
                 continue;
             }
@@ -893,6 +919,9 @@ impl VisibilityChecker {
             self.tid_scratch
                 .missed_doc_ids
                 .extend_from_slice(&doc_ids[start..end]);
+            self.tid_scratch
+                .blocks
+                .resize(self.tid_scratch.missed.len(), range.block);
             start = end;
         }
 
@@ -918,10 +947,7 @@ impl VisibilityChecker {
         let count = scratch.missed_doc_ids.len();
 
         match reader {
-            TidReader::Split { block, offset } => {
-                scratch.blocks.resize(count, 0);
-                block.u32_vals(&scratch.missed_doc_ids, scratch.blocks.as_mut_slice());
-
+            TidReader::Split { offset, .. } | TidReader::Boundaries { offset, .. } => {
                 scratch.missed_offsets.resize(count, None);
                 offset.first_vals(
                     &scratch.missed_doc_ids,
@@ -937,7 +963,7 @@ impl VisibilityChecker {
         scratch.order.clear();
         scratch.order.extend(0..count);
         match reader {
-            TidReader::Split { .. } => {
+            TidReader::Split { .. } | TidReader::Boundaries { .. } => {
                 let blocks = &scratch.blocks;
                 scratch.order.sort_unstable_by_key(|&i| blocks[i]);
             }
@@ -955,7 +981,7 @@ impl VisibilityChecker {
         for &i in &scratch.order {
             let mask_idx = scratch.missed[i];
             let (blockno, raw_ctid) = match reader {
-                TidReader::Split { .. } => {
+                TidReader::Split { .. } | TidReader::Boundaries { .. } => {
                     let b = scratch.blocks[i];
                     let Some(o) = scratch.missed_offsets[i] else {
                         self.invisible_tuple_count += 1;

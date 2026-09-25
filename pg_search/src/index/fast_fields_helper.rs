@@ -18,9 +18,12 @@
 use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
+use parking_lot::Mutex;
+
 use crate::api::{CTID_FIELD_NAME, TID_BLOCK_FIELD_NAME, TID_OFFSET_FIELD_NAME};
 use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 use crate::index::reader::index::SearchIndexReader;
+use crate::index::stats::{HeapBlockMap, SegmentStats};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::storage::buffer::PinnedBuffer;
@@ -29,7 +32,6 @@ use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::postgres::utils::{TidBlock, TidOffset};
 use crate::schema::{SearchFieldType, is_columnar_json_path};
 use tantivy::index::SegmentId;
-use tantivy::schema::Schema;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
@@ -62,10 +64,14 @@ pub struct CanonicalColumn {
 /// Cache of the active segment's tuple identifier reader and ordinal.
 pub type TidCache = Option<(tantivy::SegmentOrdinal, TidReader)>;
 
-/// Reads document tuple identifiers from Tantivy fast fields.
+/// Reads document tuple identifiers from Tantivy fast fields or heap block metadata.
 ///
-/// Supports backwards compatibility: reads either from the legacy single `ctid`
-/// column or by combining the split `tid_block` and `tid_offset` columns.
+/// Supports backwards compatibility and run-length boundary decoding:
+/// - [`TidReader::Boundaries`]: for immutable CTID-sorted segments, decodes block numbers
+///   from `.stats` heap block boundaries and reads only the split `tid_offset` column.
+/// - [`TidReader::Split`]: reads both split `tid_block` and `tid_offset` fast field columns
+///   when heap block boundaries are not available (e.g. mutable or non-CTID sorted segments).
+/// - [`TidReader::Legacy`]: reads from the legacy single `ctid` column.
 ///
 /// If you are reading multiple columns during a scan, use a nearby [`FFHelper`]
 /// (via `ff_helper.ctid(segment_ord)`) rather than constructing a `TidReader` directly.
@@ -78,18 +84,43 @@ pub enum TidReader {
         block: Column<u64>,
         offset: Column<u64>,
     },
+    Boundaries {
+        map: Arc<Mutex<HeapBlockMap>>,
+        offset: Column<u64>,
+    },
 }
 
 impl TidReader {
-    /// Opens tuple identifier fast field column(s) for a segment.
+    /// Opens tuple identifier fast field column(s) or heap block metadata for a segment.
     ///
     /// NOTE: If you are reading multiple columns during a scan, use a nearby [`FFHelper`]
     /// rather than constructing a `TidReader` directly.
-    pub fn open(schema: &Schema, ffr: &FastFieldReaders) -> tantivy::Result<Self> {
+    pub fn open(segment: &SegmentReader) -> tantivy::Result<Self> {
+        let schema = segment.schema();
+        let ffr = segment.fast_fields();
         if schema.get_field(TID_BLOCK_FIELD_NAME).is_ok() {
-            let block = ffr.u64(TID_BLOCK_FIELD_NAME)?;
+            let heap_blocks_map = (|| -> Option<HeapBlockMap> {
+                let stats = SegmentStats::of_reader(segment).ok()??;
+                let field = schema.get_field(TID_BLOCK_FIELD_NAME).ok()?;
+                stats
+                    .heap_blocks(
+                        field,
+                        segment.max_doc(),
+                        crate::postgres::heap::HEAPBLOCKS_PER_PAGE,
+                    )
+                    .ok()?
+            })();
+
             let offset = ffr.u64(TID_OFFSET_FIELD_NAME)?;
-            Ok(Self::Split { block, offset })
+            if let Some(map) = heap_blocks_map {
+                Ok(Self::Boundaries {
+                    map: Arc::new(Mutex::new(map)),
+                    offset,
+                })
+            } else {
+                let block = ffr.u64(TID_BLOCK_FIELD_NAME)?;
+                Ok(Self::Split { block, offset })
+            }
         } else {
             Ok(Self::Legacy(ffr.u64(CTID_FIELD_NAME)?))
         }
@@ -110,6 +141,14 @@ impl TidReader {
                     o as TidOffset,
                 ))
             }
+            Self::Boundaries { map, offset } => {
+                let o = offset.first(doc)?;
+                let b = map.lock().block_of_doc(doc).ok()?;
+                Some(crate::postgres::utils::tid_from_components(
+                    b as TidBlock,
+                    o as TidOffset,
+                ))
+            }
         }
     }
 
@@ -125,6 +164,23 @@ impl TidReader {
             }
             Self::Split { block, offset } => {
                 block.first_vals(docs, output);
+                scratch.resize(docs.len(), None);
+                scratch.fill(None);
+                offset.first_vals(docs, scratch.as_mut_slice());
+                for (out, &o) in output.iter_mut().zip(scratch.iter()) {
+                    *out = match (*out, o) {
+                        (Some(b), Some(o)) => Some(crate::postgres::utils::tid_from_components(
+                            b as TidBlock,
+                            o as TidOffset,
+                        )),
+                        _ => None,
+                    };
+                }
+            }
+            Self::Boundaries { map, offset } => {
+                map.lock()
+                    .blocks_of_docs_u64(docs, output)
+                    .expect("corrupt heap blocks map");
                 scratch.resize(docs.len(), None);
                 scratch.fill(None);
                 offset.first_vals(docs, scratch.as_mut_slice());
@@ -253,9 +309,8 @@ impl FFHelper {
     // TODO: Rename ctid -> tid
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &TidReader {
         self.caches()[segment_ord as usize].ctid.get_or_init(|| {
-            let ffr = self.fast_fields(segment_ord);
-            let schema = self.searcher().schema();
-            TidReader::open(schema, ffr).expect("ctid columns should be present")
+            let segment_reader = self.searcher().segment_reader(segment_ord);
+            TidReader::open(segment_reader).expect("ctid columns should be present")
         })
     }
 
@@ -737,8 +792,7 @@ pub fn resolve_ctid(
         let segment_reader = searcher.segment_reader(seg_ord);
         *cache = Some((
             seg_ord,
-            TidReader::open(searcher.schema(), segment_reader.fast_fields())
-                .expect("ctid columns should be present"),
+            TidReader::open(segment_reader).expect("ctid columns should be present"),
         ));
     }
     // TODO: Migrate from as_u64 point lookup to as_u64s batching

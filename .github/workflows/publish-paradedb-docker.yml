@@ -148,10 +148,8 @@ jobs:
           PG_MAJORS=$(echo '${{ needs.set-matrix.outputs.matrix }}' | jq -r 'map(tostring) | join(" ")')
           docker/generate-dockerfiles.sh "${{ steps.version.outputs.version }}" "$PG_MAJORS"
 
-      - name: Commit Generated Dockerfiles
+      - name: Stage Generated Dockerfiles
         id: generated_branch
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git add docker
           if git diff --cached --quiet; then
@@ -162,27 +160,22 @@ jobs:
             BRANCH="update-dockerfiles/${{ steps.version.outputs.tag }}"
             git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
             git checkout -B "$BRANCH"
-            # GitHub signs API-created commits authenticated with the App token.
-            # Do not supply author/committer fields: those disable bot signing.
-            TREE=$(git diff --cached --name-only --diff-filter=AM -z -- docker | while IFS= read -r -d '' FILE; do
-              MODE=$(git ls-files --stage -- "$FILE" | awk '{print $1}')
-              git show ":$FILE" | jq -Rs --arg path "$FILE" --arg mode "$MODE" \
-                '{path: $path, mode: $mode, type: "blob", content: .}'
-            done | jq -s --arg base_tree "$(git rev-parse 'HEAD^{tree}')" \
-              '{base_tree: $base_tree, tree: .}' | \
-              gh api "repos/$GITHUB_REPOSITORY/git/trees" --input - --jq .sha)
-            COMMIT=$(gh api "repos/$GITHUB_REPOSITORY/git/commits" \
-              -f message="Generate Dockerfiles for ${{ steps.version.outputs.tag }}" -f tree="$TREE" \
-              -f "parents[]=$(git rev-parse HEAD)" \
-              --jq 'if .verification.verified then .sha else error("Generated commit is not verified") end')
-            git fetch origin "$COMMIT"
-            # Refuse to push if the API tree differs from the staged Dockerfiles.
-            test "$(git rev-parse "$COMMIT^{tree}")" = "$(git write-tree)"
-            git reset --soft "$COMMIT"
-            git push --force-with-lease origin "$BRANCH"
             echo "branch=$BRANCH" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
+
+      - name: Commit Generated Dockerfiles
+        if: steps.generated_branch.outputs.has_changes == 'true'
+        uses: ./.github/actions/commit-with-paradedb-github-app
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          message: "Generate Dockerfiles for ${{ steps.version.outputs.tag }}"
+
+      - name: Push Generated Dockerfiles
+        if: steps.generated_branch.outputs.has_changes == 'true'
+        env:
+          BRANCH: ${{ steps.generated_branch.outputs.branch }}
+        run: git push --force-with-lease origin "$BRANCH"
 
   test-generated-dockerfiles:
     name: Test Generated Dockerfiles
@@ -530,10 +523,8 @@ jobs:
             gh pr create --base "$BASE" --head "$BRANCH" --title "chore: Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}" --body "Updates generated Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }} after the Docker images were published."
           fi
 
-      - name: Open Main PR
+      - name: Stage Main Dockerfiles
         if: ${{ needs.generate-dockerfiles.outputs.is_latest == 'true' }}
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           VERSION="${{ needs.generate-dockerfiles.outputs.version }}"
           TAG="${{ needs.generate-dockerfiles.outputs.tag }}"
@@ -546,34 +537,29 @@ jobs:
           docker/generate-dockerfiles.sh "$VERSION"
 
           git add docker
-          if git diff --cached --quiet; then
-            echo "No generated Dockerfile changes to commit for main."
-          else
-            # GitHub signs API-created commits authenticated with the App token.
-            # Do not supply author/committer fields: those disable bot signing.
-            TREE=$(git diff --cached --name-only --diff-filter=AM -z -- docker | while IFS= read -r -d '' FILE; do
-              MODE=$(git ls-files --stage -- "$FILE" | awk '{print $1}')
-              git show ":$FILE" | jq -Rs --arg path "$FILE" --arg mode "$MODE" \
-                '{path: $path, mode: $mode, type: "blob", content: .}'
-            done | jq -s --arg base_tree "$(git rev-parse 'HEAD^{tree}')" \
-              '{base_tree: $base_tree, tree: .}' | \
-              gh api "repos/$GITHUB_REPOSITORY/git/trees" --input - --jq .sha)
-            COMMIT=$(gh api "repos/$GITHUB_REPOSITORY/git/commits" \
-              -f message="Generate Dockerfiles for $TAG" -f tree="$TREE" \
-              -f "parents[]=$(git rev-parse HEAD)" \
-              --jq 'if .verification.verified then .sha else error("Generated commit is not verified") end')
-            git fetch origin "$COMMIT"
-            # Refuse to push if the API tree differs from the staged Dockerfiles.
-            test "$(git rev-parse "$COMMIT^{tree}")" = "$(git write-tree)"
-            git reset --soft "$COMMIT"
-            git push --force-with-lease origin "$BRANCH"
 
-            PR=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // ""')
-            if [ -n "$PR" ]; then
-              echo "Main PR already exists: #$PR"
-            else
-              gh pr create --base main --head "$BRANCH" --title "chore: Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published." --label "Do Not Cherry Pick"
-            fi
+      - name: Commit Main Dockerfiles
+        id: main-dockerfiles
+        if: ${{ needs.generate-dockerfiles.outputs.is_latest == 'true' }}
+        uses: ./.github/actions/commit-with-paradedb-github-app
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          message: "Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}"
+
+      - name: Open Main PR
+        if: steps.main-dockerfiles.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ needs.generate-dockerfiles.outputs.tag }}
+        run: |
+          BRANCH="update-dockerfiles/${TAG}-main"
+          git push --force-with-lease origin "$BRANCH"
+
+          PR=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // ""')
+          if [ -n "$PR" ]; then
+            echo "Main PR already exists: #$PR"
+          else
+            gh pr create --base main --head "$BRANCH" --title "chore: Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published." --label "Do Not Cherry Pick"
           fi
 
   notify-orm-repos:

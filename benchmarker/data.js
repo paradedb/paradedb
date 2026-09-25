@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790150492659,
+  "lastUpdate": 1790323902162,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -5223,6 +5223,53 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.159,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bdf1132ca8d0a8ddbe260f4003b7b1f9b81bb793",
+          "message": "feat: enable MaxScore with a query pruning setting (#6462)\n\nEnable Tantivy's MaxScore algorithm for eligible score-ordered top-k OR\nqueries. Pin all Tantivy dependencies to merged commit\n`ccfd11a918e7727082805d23f777feba5f94212c` from [Tantivy\n#243](https://github.com/paradedb/tantivy/pull/243).\n\nAdd `paradedb.disjunction_pruning` to choose `auto` (default), `wand`,\nor `maxscore`. Automatic selection uses each segment's term count and\npostings density. The setting is read at execution time, including for\nprepared queries, and can be scoped with `SET LOCAL`.\n\nValidation:\n- PostgreSQL 18 `disjunction_pruning` regression: defaults, invalid\nvalues, result/score parity, prepared queries, and `SET LOCAL` reset.\n- `cargo check --locked --features pg18,io_stats`.\n- Repository commit checks, including formatting, Clippy, workspace\ncompilation, and documentation.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-25T04:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bdf1132ca8d0a8ddbe260f4003b7b1f9b81bb793"
+        },
+        "date": 1790323900208,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6570756892230454,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.582,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.011,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.07,
             "unit": "ms"
           }
         ]

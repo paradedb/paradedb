@@ -87,10 +87,7 @@ impl AggregationExec for Aggregations {
             let cardinality_stats = visibility_stats.clone();
             let factory: DocVisibilityFilterFactory = Arc::new(move |segment_reader| {
                 if let Some(stats) = &cardinality_stats {
-                    stats
-                        .lock()
-                        .record_segment(segment_reader, false)
-                        .expect("failed to read segment block bounds");
+                    stats.lock().record_segment(segment_reader, false);
                 }
                 let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
                 let vischeck = vischeck.get().clone();

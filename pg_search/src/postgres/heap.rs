@@ -17,13 +17,13 @@
 
 use std::collections::VecDeque;
 use std::io;
-use std::ops::{Deref, Range, RangeInclusive};
+use std::ops::{Deref, Range};
 use std::slice;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
-use crate::api::HashMap;
 use crate::api::version::Version;
+use crate::api::{CTID_FIELD_NAME, HashMap, HashSet};
 use crate::gucs::enable_visibility_map_shortcuts;
 use crate::index::ctid_map::BlockToDocIdMap;
 use crate::index::fast_fields_helper::FFHelper;
@@ -80,59 +80,63 @@ crate::impl_safe_drop!(HeapBufferPin, |self| {
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct SegmentVisibilityStats {
     skipped: bool,
-    blocks_total: u64,
-    blocks_requiring_checks: u64,
+    blocks_requiring_checks: Option<u64>,
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct VisibilityStats {
+    blocks_total: u64,
     segments: HashMap<SegmentId, SegmentVisibilityStats>,
 }
 
 impl VisibilityStats {
     pub(crate) fn merge(&mut self, other: Self) {
+        self.blocks_total = self.blocks_total.max(other.blocks_total);
         self.segments.extend(other.segments);
     }
 
-    fn record_bounds(&mut self, id: SegmentId, bounds: Option<RangeInclusive<BlockNumber>>) {
-        let total = bounds.map_or(0, |bounds| {
-            u64::from(*bounds.end()) + 1 - u64::from(*bounds.start())
-        });
-        self.segments.entry(id).or_insert(SegmentVisibilityStats {
-            blocks_total: total,
-            blocks_requiring_checks: total,
-            ..Default::default()
-        });
+    pub(crate) fn record_segment(&mut self, segment: &SegmentReader, skipped: bool) {
+        self.segments
+            .entry(segment.segment_id())
+            .or_insert(SegmentVisibilityStats {
+                skipped,
+                blocks_requiring_checks: skipped.then_some(0),
+            });
     }
 
-    pub(crate) fn record_segment(
-        &mut self,
-        segment: &SegmentReader,
-        skipped: bool,
-    ) -> anyhow::Result<()> {
-        if !self.segments.contains_key(&segment.segment_id()) {
-            let bounds = if segment.max_doc() == 0 {
-                None
-            } else {
-                SearchIndexReader::block_bounds(segment)?
+    /// Count represented blocks for fallback segments, excluding holes in their spans.
+    pub(crate) fn finish(&mut self, reader: &SearchIndexReader) -> anyhow::Result<()> {
+        for segment in reader.segment_readers() {
+            let Some(stats) = self.segments.get_mut(&segment.segment_id()) else {
+                continue;
             };
-            self.record_bounds(segment.segment_id(), bounds);
-        }
-        let stats = self.segments.get_mut(&segment.segment_id()).unwrap();
-        stats.skipped = skipped;
-        if skipped {
-            stats.blocks_requiring_checks = 0;
+            if stats.blocks_requiring_checks.is_some() {
+                continue;
+            }
+            let count = if let Some(mut map) = BlockToDocIdMap::open(segment)? {
+                map.count_blocks(&[map.block_range()])?
+            } else {
+                let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+                let mut blocks = HashSet::default();
+                for (i, ctid) in ctids.values.iter().enumerate() {
+                    if i % 4096 == 0 {
+                        check_for_interrupts!();
+                    }
+                    blocks.insert(ctid >> 16);
+                }
+                blocks.len() as u64
+            };
+            stats.blocks_requiring_checks = Some(count);
         }
         Ok(())
     }
 
-    /// Block counts sum segment spans, including gaps and overlap between segments.
+    /// Total counts heap blocks once; requiring checks sums represented blocks per segment.
     pub(crate) fn totals(&self) -> [u64; 4] {
-        let mut totals = [0; 4];
+        let mut totals = [0, 0, self.blocks_total, 0];
         for stats in self.segments.values() {
             totals[if stats.skipped { 0 } else { 1 }] += 1;
-            totals[2] += stats.blocks_total;
-            totals[3] += stats.blocks_requiring_checks;
+            totals[3] += stats.blocks_requiring_checks.unwrap_or_default();
         }
         totals
     }
@@ -261,6 +265,9 @@ impl VisibilityChecker {
         mut self,
         stats: Option<Arc<Mutex<VisibilityStats>>>,
     ) -> Self {
+        if let Some(stats) = &stats {
+            stats.lock().blocks_total = u64::from(self.nblocks);
+        }
         self.visibility_stats = stats;
         self
     }
@@ -413,10 +420,7 @@ impl VisibilityChecker {
         let mut guard = checker.lock();
         let all_visible = guard.is_segment_all_visible(segment)?;
         if let Some(stats) = &guard.visibility_stats {
-            stats
-                .lock()
-                .record_segment(segment, all_visible)
-                .map_err(io::Error::other)?;
+            stats.lock().record_segment(segment, all_visible);
         }
         Ok((!all_visible).then(|| checker.clone()))
     }
@@ -450,11 +454,6 @@ impl VisibilityChecker {
             else {
                 break 'proof false;
             };
-            if let Some(stats) = &self.visibility_stats {
-                stats
-                    .lock()
-                    .record_bounds(segment.segment_id(), Some(blocks.clone()));
-            }
             let (first, last) = (*blocks.start(), *blocks.end());
             let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
             if vm_pages > 64 {
@@ -635,18 +634,11 @@ impl VisibilityChecker {
                 }
                 if let Some(stats) = &self.visibility_stats {
                     let mut stats = stats.lock();
-                    stats.record_bounds(
-                        segment.segment_id(),
-                        Some(map.block_range().start..=map.block_range().end - 1),
-                    );
                     stats
                         .segments
                         .get_mut(&segment.segment_id())
                         .unwrap()
-                        .blocks_requiring_checks = block_ranges
-                        .iter()
-                        .map(|blocks| u64::from(blocks.end - blocks.start))
-                        .sum();
+                        .blocks_requiring_checks = Some(map.count_blocks(&block_ranges)?);
                 }
                 Ok(Some(ranges))
             })()

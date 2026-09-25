@@ -18,6 +18,7 @@ DECLARE
     visibility jsonb;
     expected_enabled jsonb;
     expected_totals bigint[];
+    expected_fallback bigint;
     skipped bigint;
     checked bigint;
     total bigint;
@@ -31,7 +32,7 @@ BEGIN
     ASSERT NOT (plan #> '{0,Plan}') ? 'Visibility';
     FOREACH workers IN ARRAY ARRAY[0, 2] LOOP
         PERFORM set_config('max_parallel_workers_per_gather', workers::text, true);
-        FOREACH enabled IN ARRAY ARRAY[true, false] LOOP
+        FOREACH enabled IN ARRAY ARRAY[false, true] LOOP
             PERFORM set_config('paradedb.enable_visibility_map_shortcuts', enabled::text, true);
             EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) ' || query INTO plan;
             visibility := plan #> '{0,Plan,Visibility}';
@@ -41,9 +42,13 @@ BEGIN
             required := (visibility ->> 'Blocks Requiring Checks')::bigint;
             ASSERT skipped IS NOT NULL AND checked IS NOT NULL
                 AND total IS NOT NULL AND required IS NOT NULL;
-            ASSERT skipped + checked >= 2 AND total > 0 AND required <= total;
-            IF NOT enabled OR phase = 'dirty' THEN
-                ASSERT skipped = 0 AND required = total;
+            ASSERT skipped + checked >= 2 AND total > 0;
+            ASSERT total = pg_relation_size('visibility_stats_docs') / current_setting('block_size')::bigint;
+            IF NOT enabled THEN
+                expected_fallback := required;
+                ASSERT skipped = 0 AND required >= total;
+            ELSIF phase = 'dirty' THEN
+                ASSERT skipped = 0 AND required = expected_fallback;
             ELSIF phase = 'visible' THEN
                 ASSERT checked = 0 AND required = 0;
             ELSE
@@ -76,6 +81,35 @@ VACUUM (INDEX_CLEANUP ON) visibility_stats_docs;
 SELECT check_visibility_stats('visible');
 UPDATE visibility_stats_docs SET padding = 'changed' WHERE id % 97 = 0;
 SELECT check_visibility_stats('mixed');
+-- A sparse update segment must not add its min/max span to either counter.
+UPDATE visibility_stats_docs SET title = title WHERE id % 41 = 0;
+SELECT check_visibility_stats('mixed');
+
+-- Two indexed blocks separated by thousands of unindexed blocks, with and without a map.
+CREATE FUNCTION check_sparse_visibility_stats() RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+    plan jsonb;
+BEGIN
+    EXECUTE $q$EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT count(*) FROM visibility_stats_docs
+        WHERE title === 'database' AND id IN (1, 20000)$q$ INTO plan;
+    ASSERT (plan #>> '{0,Plan,Visibility,Blocks Total}')::bigint =
+        pg_relation_size('visibility_stats_docs') / current_setting('block_size')::bigint;
+    ASSERT (plan #>> '{0,Plan,Visibility,Blocks Requiring Checks}')::bigint = 2;
+END;
+$$;
+DROP INDEX visibility_stats_idx;
+UPDATE visibility_stats_docs SET padding = 'dirty endpoints' WHERE id IN (1, 20000);
+CREATE INDEX visibility_stats_idx ON visibility_stats_docs USING paradedb(id, title)
+    WITH (sort_by = 'ctid ASC NULLS FIRST', mutable_segment_rows = 0, target_segment_count = 1)
+    WHERE id IN (1, 20000);
+SELECT check_sparse_visibility_stats();
+DROP INDEX visibility_stats_idx;
+CREATE INDEX visibility_stats_idx ON visibility_stats_docs USING paradedb(id, title)
+    WITH (sort_by = 'id ASC NULLS FIRST', mutable_segment_rows = 0, target_segment_count = 1)
+    WHERE id IN (1, 20000);
+SELECT check_sparse_visibility_stats();
+DROP FUNCTION check_sparse_visibility_stats();
 
 DROP FUNCTION check_visibility_stats(text);
 DROP TABLE visibility_stats_docs;

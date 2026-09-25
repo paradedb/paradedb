@@ -194,6 +194,26 @@ impl BlockToDocIdMap {
         Ok(ranges)
     }
 
+    /// Counts nonempty blocks in the requested ranges for EXPLAIN instrumentation.
+    pub(crate) fn count_blocks(&mut self, ranges: &[Range<BlockNumber>]) -> anyhow::Result<u64> {
+        let mut count = 0;
+        for range in ranges {
+            for start in (range.start..range.end).step_by(CHUNK_SIZE) {
+                pgrx::check_for_interrupts!();
+                let end = start
+                    .saturating_add(CHUNK_SIZE as BlockNumber)
+                    .min(range.end);
+                let blocks: Vec<_> = (start..=end).collect();
+                let boundaries = self.boundaries(&blocks)?;
+                count += boundaries
+                    .windows(2)
+                    .filter(|pair| pair[0] != pair[1])
+                    .count() as u64;
+            }
+        }
+        Ok(count)
+    }
+
     /// Given sorted block numbers, returns the starting doc ID of each block.
     fn boundaries(&mut self, mut blocks: &[BlockNumber]) -> anyhow::Result<Vec<DocId>> {
         let mut output = Vec::with_capacity(blocks.len());

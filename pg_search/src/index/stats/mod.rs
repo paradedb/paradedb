@@ -28,20 +28,24 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::io;
 use std::ops::Bound;
+use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use tantivy::columnar::Cardinality;
 use tantivy::directory::error::OpenReadError;
 use tantivy::directory::{CompositeFile, FileSlice};
 use tantivy::index::{Segment, SegmentReader};
 use tantivy::schema::Field;
 
+use crate::api::CTID_FIELD_NAME;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
 use crate::postgres::storage::block::STATS_EXT;
 use crate::postgres::types::is_datetime_type;
 use crate::schema::{SearchField, SearchFieldType};
 
+mod heap_blocks;
 mod plugin;
 mod pruning;
 #[cfg(any(test, feature = "pg_test"))]
@@ -397,13 +401,13 @@ impl EmpiricalStats {
 
 /// A segment's `.stats` file, opened on its footer. Entries are decoded on request.
 pub(crate) struct SegmentStats {
-    file: CompositeFile,
+    file: Arc<CompositeFile>,
 }
 
 impl SegmentStats {
     pub(crate) fn open(slice: FileSlice) -> io::Result<Self> {
         Ok(Self {
-            file: CompositeFile::open(&slice)?,
+            file: Arc::new(CompositeFile::open(&slice)?),
         })
     }
 
@@ -470,6 +474,59 @@ impl SegmentStats {
         Ok(self
             .read::<LogicalWire>(field, LOGICAL_IDX)?
             .map(LogicalBounds::from))
+    }
+
+    /// Reuses observed CTID bounds, falling back for segments without usable statistics.
+    pub(crate) fn ctid_bounds(
+        &self,
+        segment: &SegmentReader,
+    ) -> tantivy::Result<Option<(u64, u64)>> {
+        let field = segment.schema().get_field(CTID_FIELD_NAME)?;
+        if let Some(EmpiricalStats {
+            min: PdbOwnedValue::U64(min),
+            max: PdbOwnedValue::U64(max),
+            nullable: false,
+        }) = self.empirical(field)?
+        {
+            return Ok(Some((min, max)));
+        }
+        let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+        Ok(
+            (ctids.get_cardinality() == Cardinality::Full && ctids.num_docs() == segment.max_doc())
+                .then(|| (ctids.min_value(), ctids.max_value())),
+        )
+    }
+
+    /// Opens optional boundaries using the segment's existing CTID bounds.
+    pub(crate) fn heap_blocks(
+        &self,
+        segment: &SegmentReader,
+        descending: bool,
+        pages_per_vm: u32,
+    ) -> io::Result<Option<heap_blocks::HeapBlockMap>> {
+        let field = segment
+            .schema()
+            .get_field(CTID_FIELD_NAME)
+            .map_err(io::Error::other)?;
+        if self
+            .file
+            .open_read_with_idx(field, heap_blocks::COLUMNS_IDX)
+            .is_none()
+        {
+            return Ok(None);
+        }
+        let Some((min, max)) = self.ctid_bounds(segment).map_err(io::Error::other)? else {
+            return Ok(None);
+        };
+        heap_blocks::HeapBlockMap::open(
+            min..=max,
+            segment.max_doc(),
+            descending,
+            self.file.clone(),
+            field,
+            pages_per_vm,
+        )
+        .map(Some)
     }
 
     fn read<T: DeserializeOwned>(&self, field: Field, idx: usize) -> io::Result<Option<T>> {

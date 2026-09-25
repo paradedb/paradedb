@@ -343,6 +343,19 @@ pub fn vector_router_recall() -> f32 {
     VECTOR_ROUTER_RECALL.get() as f32
 }
 
+/// Recall target for each segment's own cluster scan. Below `1.0` the probe
+/// loop stops once the estimated recall of the clusters covered so far
+/// reaches the target (adaptive partition scanning); `1.0` leaves
+/// `vector_cluster_max_probe` as the only bound. Tantivy applies it to
+/// stacked-router segments only and ignores it above `APS_MAX_DIM` (128)
+/// dimensions.
+static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+
+/// Returns the segment cluster scan's recall target.
+pub fn vector_recall_target() -> f32 {
+    VECTOR_RECALL_TARGET.get() as f32
+}
+
 /// Minimum merged-segment row count for IVF vector storage.
 static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
 
@@ -621,6 +634,17 @@ pub fn init() {
         c"Recall target for the stacked IVF router's (vector_router = 'ivf') centroid ranking in vector ORDER BY queries",
         c"Below 1.0 the stacked router stops scanning its centroid lists once the estimated recall of the ranked clusters reaches this target (adaptive partition scanning); 1.0 ranks with the fixed per-level nprobe fractions. Ignored, and treated as 1.0, for vectors of more than 128 dimensions where the recall estimate is unreliable.",
         &VECTOR_ROUTER_RECALL,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_recall_target",
+        c"Recall target for each segment's cluster scan in vector ORDER BY queries",
+        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to segments built with vector_router = 'ivf', and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable.",
+        &VECTOR_RECALL_TARGET,
         0.000001,
         1.0,
         GucContext::Userset,

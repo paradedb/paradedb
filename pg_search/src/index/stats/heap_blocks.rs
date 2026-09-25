@@ -1,63 +1,25 @@
 // Copyright (c) 2023-2026 ParadeDB, Inc.
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Imagine a segment containing documents 0–6, corresponding to these heap pages:
+//! A CTID-sorted segment can map heap pages directly to document ranges:
 //!
 //! ```text
-//! doc ID:             0  1  2  3  4  5  6
-//! heap block:        10 10 11 11 11 15 15
+//! doc ID:       0  1  2  3  4  5  6
+//! heap block:  10 10 10 11 11 15 15
+//!
+//! heap block:  10 11 12 13 14 15 end
+//! boundary:     0  3  5  5  5  5  7
 //! ```
 //!
-//! We want to go efficiently from distinct heap blocks to the document IDs that need
-//! visibility checks. Getting this mapping from the CTID column alone would require
-//! decoding and walking a value for every document, even when many share the same page.
-//! CTID sorting keeps each block's documents contiguous, so we can represent them as ranges.
+//! If the visibility map says page 11 needs checking, its two boundaries give docs
+//! [3, 5). Page 12 gives [5, 5): it has no documents. Consecutive dirty pages need only
+//! the two outer boundaries. All-visible pages need no boundary reads.
 //!
-//! First, a page presence bitmap records which heap blocks occur in the segment:
-//!
-//! ```text
-//! heap block:        10 11 12 13 14 15
-//! presence:           1  1  0  0  0  1
-//! ```
-//!
-//! We intersect presence with the complement of PostgreSQL's VM all-visible bits to
-//! identify the pages that still need visibility checks:
-//!
-//! ```text
-//! heap block:        10 11 12 13 14 15
-//! presence:           1  1  0  0  0  1
-//! VM all-visible:     1  0  1  1  1  1
-//!                         |
-//!             presence AND NOT all-visible
-//!                         v
-//! needs checking:     0  1  0  0  0  0  -> heap block 11
-//! ```
-//!
-//! Now that we know page 11 needs checking, we need to find which document IDs belong to
-//! it. Rank gives its position among the present pages, and boundaries translate that
-//! position into a document range. We only read boundaries for pages needing checks:
-//!
-//! ```text
-//! present blocks:    [10, 11, 15]
-//! rank:                0   1   2
-//! boundaries:        [0,  2,  5,  7]
-//!
-//! heap block 11 -> rank 1 -> [boundaries[1], boundaries[2]) -> doc IDs [2, 5)
-//!                                                                  |
-//! query matches: [0, 3, 6] -----------------------------------------+
-//!                                                                  v
-//!                                                      only doc 3 needs checking
-//! ```
-//!
-//! Presence words cover the segment's full min/max heap-block span, including zero words
-//! for gaps. A word's position identifies its heap blocks directly; no VM-page directory
-//! is needed. Presence, prefix ranks, and document boundaries are ordinary integer columns
-//! in `.stats`, written in bounded ColumnarWriter batches with bitpacking or BlockwiseLinearV2.
-//! At query time, read the VM first: visible words need no column reads.
-//! Builds and merges write directly to `.stats`, without temporary files. Value buffers
-//! are bounded; Tantivy's composite footer retains one entry per column chunk.
-//! `VisibilityChecker` performs the VM comparison once per eligible segment
-//! and snapshot, caches the resulting ranges, and uses them to filter subsequent batches.
+//! Boundaries are a standard Tantivy numeric column, written in bounded ColumnarWriter
+//! batches after sorting or merging. Each batch is addressed through the `.stats`
+//! composite directory and opened lazily with ColumnarReader. There is no presence
+//! bitmap, rank structure, custom column encoding, or temporary file. Value buffers are
+//! bounded; the composite footer retains one entry per batch.
 
 use std::io::{self, Write};
 use std::ops::Range;
@@ -78,27 +40,22 @@ use crate::index::reader::io_stats::trace;
 
 pub(super) const METADATA_IDX: usize = 7;
 const COLUMNS_IDX: usize = 9;
-const COLUMN_COUNT: usize = 3;
-const PRESENCE: usize = 0;
-const RANK: usize = 1;
-const BOUNDARIES: usize = 2;
 const CHUNK_SIZE: usize = 32768;
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 
 fn invalid() -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, "invalid heap-block columns")
+    io::Error::new(io::ErrorKind::InvalidData, "invalid heap-block boundaries")
 }
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct Metadata {
-    first_word: u32,
-    words: u32,
-    blocks: u32,
+    first_block: u32,
+    last_block: u32,
     docs: u32,
     descending: bool,
 }
 
-/// Writes presence and boundary entries from the finished CTID column at flush or merge.
+/// Builds the boundary column from the final live CTIDs at flush or merge.
 pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Result<()> {
     if !segment
         .index()
@@ -132,124 +89,63 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
         column.values.iter()
     };
     let mut values = values.peekable();
-    let first_word = u32::try_from(values.peek().unwrap() >> 16).map_err(|_| invalid())? / 32;
-    let last_word =
+    let first_block = u32::try_from(values.peek().unwrap() >> 16).map_err(|_| invalid())?;
+    let last_block =
         u32::try_from(column.values.get_val(if descending { 0 } else { docs - 1 }) >> 16)
-            .map_err(|_| invalid())?
-            / 32;
-    let mut presence = ChunkWriter::new(field, PRESENCE);
-    let mut ranks = ChunkWriter::new(field, RANK);
-    let mut boundaries = ChunkWriter::new(field, BOUNDARIES);
-    let mut blocks = 0u32;
+            .map_err(|_| invalid())?;
+    let count = (u64::from(last_block) - u64::from(first_block) + 2) as usize;
     let mut processed = 0u32;
     let mut previous = None;
-
-    for word in first_word..=last_word {
+    for start in (0..count).step_by(CHUNK_SIZE) {
         pgrx::check_for_interrupts!();
-        ranks.push(blocks, out)?;
-        let mut bitmap = 0u32;
-        while let Some(&value) = values.peek() {
-            let block = u32::try_from(value >> 16).map_err(|_| invalid())?;
-            if previous.is_some_and(|last| block < last) {
-                return Ok(());
+        let len = (count - start).min(CHUNK_SIZE);
+        let mut writer = ColumnarWriter::default();
+        writer.record_column_type("boundary", ColumnType::U64, false);
+        for row in 0..len {
+            let block = u64::from(first_block) + (start + row) as u64;
+            while let Some(&value) = values.peek() {
+                if value >> 16 >= block {
+                    break;
+                }
+                if previous.is_some_and(|last| value < last) {
+                    return Err(invalid().into());
+                }
+                previous = values.next();
+                processed += 1;
             }
-            if block / 32 != word {
-                break;
-            }
-            values.next();
-            if previous != Some(block) {
-                boundaries.push(processed, out)?;
-                bitmap |= 1 << (block % 32);
-                blocks += 1;
-            }
-            previous = Some(block);
-            processed += 1;
+            writer.record_numerical(row as u32, "boundary", u64::from(processed));
         }
-        presence.push(bitmap, out)?;
+        writer.serialize(
+            len as u32,
+            None,
+            CODECS,
+            out.for_field_with_idx(field, COLUMNS_IDX + start / CHUNK_SIZE),
+        )?;
     }
     if processed != docs {
         return Err(invalid().into());
     }
-    boundaries.push(docs, out)?;
     let metadata = Metadata {
-        first_word,
-        words: last_word - first_word + 1,
-        blocks,
+        first_block,
+        last_block,
         docs,
         descending,
     };
     out.for_field_with_idx(field, METADATA_IDX)
         .write_all(&postcard::to_allocvec(&metadata).map_err(io::Error::other)?)?;
-    presence.flush(out)?;
-    ranks.flush(out)?;
-    boundaries.flush(out)?;
     Ok(())
 }
 
-struct ChunkWriter {
-    writer: ColumnarWriter,
-    rows: u32,
-    chunk: usize,
-    field: Field,
-    column: usize,
-}
-
-impl ChunkWriter {
-    fn new(field: Field, column: usize) -> Self {
-        Self {
-            writer: ColumnarWriter::default(),
-            rows: 0,
-            chunk: 0,
-            field,
-            column,
-        }
-    }
-
-    fn push(&mut self, value: u32, out: &mut CompositeWrite) -> io::Result<()> {
-        if self.rows == 0 {
-            self.writer
-                .record_column_type("value", ColumnType::U64, false);
-        }
-        self.writer
-            .record_numerical(self.rows, "value", u64::from(value));
-        self.rows += 1;
-        if self.rows as usize == CHUNK_SIZE {
-            self.flush(out)?;
-        }
-        Ok(())
-    }
-
-    fn flush(&mut self, out: &mut CompositeWrite) -> io::Result<()> {
-        if self.rows == 0 {
-            return Ok(());
-        }
-        let index = COLUMNS_IDX + self.chunk * COLUMN_COUNT + self.column;
-        self.writer.serialize(
-            self.rows,
-            None,
-            CODECS,
-            out.for_field_with_idx(self.field, index),
-        )?;
-        self.writer = ColumnarWriter::default();
-        self.rows = 0;
-        self.chunk += 1;
-        Ok(())
-    }
-}
-
 pub(crate) struct HeapBlockMap {
-    first_word: u32,
-    presence: ChunkReader,
-    ranks: ChunkReader,
-    boundaries: ChunkReader,
-    docs: u32,
-    blocks: u32,
+    metadata: Metadata,
+    file: Arc<CompositeFile>,
+    field: Field,
     pages_per_vm: u32,
-    descending: bool,
+    values: Option<(usize, Column<u64>)>,
 }
 
 impl HeapBlockMap {
-    /// Uses segment bounds to address bitmap words, leaving the columns unopened.
+    /// Opens segment bounds without reading the boundary column.
     pub(super) fn open(
         metadata: Metadata,
         file: Arc<CompositeFile>,
@@ -257,170 +153,123 @@ impl HeapBlockMap {
         docs: u32,
         pages_per_vm: u32,
     ) -> io::Result<Self> {
-        let Metadata {
-            first_word,
-            words,
-            blocks,
-            docs: stored_docs,
-            descending,
-        } = metadata;
-        if stored_docs != docs
-            || blocks == 0
-            || blocks > docs
-            || words == 0
-            || u64::from(first_word) + u64::from(words) > (u64::from(u32::MAX) + 1) / 32
+        if metadata.docs != docs
+            || docs == 0
+            || metadata.first_block > metadata.last_block
             || pages_per_vm == 0
             || !pages_per_vm.is_multiple_of(32)
         {
             return Err(invalid());
         }
         Ok(Self {
-            descending,
-            first_word,
-            presence: ChunkReader::new(
-                file.clone(),
-                field,
-                PRESENCE,
-                words as usize,
-                "Visibility Presence",
-            ),
-            ranks: ChunkReader::new(file.clone(), field, RANK, words as usize, "Visibility Rank"),
-            boundaries: ChunkReader::new(
-                file,
-                field,
-                BOUNDARIES,
-                blocks as usize + 1,
-                "Visibility Boundaries",
-            ),
-            docs,
-            blocks,
+            metadata,
+            file,
+            field,
             pages_per_vm,
+            values: None,
         })
     }
 
-    /// Reads columns only for dirty VM words and coalesces ordinals before decoding boundaries.
+    /// Coalesces dirty VM pages, then reads two boundaries per range.
     pub(crate) fn missing_ranges(
         &mut self,
         mut retain_invisible: impl FnMut(u32, &mut [u32]),
     ) -> io::Result<Vec<Range<u32>>> {
-        let mut ranges: Vec<Range<u32>> = Vec::new();
+        let first = u64::from(self.metadata.first_block);
+        let end = u64::from(self.metadata.last_block) + 1;
+        let mut block = first / 32 * 32;
         let mut scratch = vec![u32::MAX; self.pages_per_vm as usize / 32];
-        let mut add = |range: Range<u32>| {
-            if let Some(last) = ranges.last_mut().filter(|last| last.end == range.start) {
-                last.end = range.end;
-            } else {
-                ranges.push(range);
-            }
-        };
-        let mut row = 0usize;
-        while row < self.presence.count {
+        let mut pending: Option<Range<u64>> = None;
+        let mut ranges = Vec::new();
+        while block < end {
             pgrx::check_for_interrupts!();
-            let first = (self.first_word + row as u32) * 32;
-            let words = ((self.pages_per_vm - first % self.pages_per_vm) / 32) as usize;
-            let words = words.min(self.presence.count - row);
+            let span = u64::from(self.pages_per_vm) - block % u64::from(self.pages_per_vm);
+            let words = (end - block).min(span).div_ceil(32) as usize;
             let missing = &mut scratch[..words];
             missing.fill(u32::MAX);
-            retain_invisible(first, missing);
-            for (word, &dirty) in missing.iter().enumerate() {
-                if dirty == 0 {
-                    continue;
-                }
-                let present = self.presence.get(row + word)?;
-                let mut bad = dirty & present;
-                if bad == 0 {
-                    continue;
-                }
-                let rank = self.ranks.get(row + word)?;
-                if bad == present {
-                    add(rank..rank + present.count_ones());
-                    continue;
-                }
-                while bad != 0 {
-                    let bit = bad.trailing_zeros();
-                    let ordinal = rank + (present & ((1u32 << bit) - 1)).count_ones();
-                    add(ordinal..ordinal + 1);
-                    bad &= bad - 1;
+            retain_invisible(block as u32, missing);
+            for (word, &bits) in missing.iter().enumerate() {
+                let mut bits = bits;
+                while bits != 0 {
+                    let bit = bits.trailing_zeros();
+                    let len = (bits >> bit).trailing_ones();
+                    bits &= !((u32::MAX >> (32 - len)) << bit);
+                    let start = block + word as u64 * 32 + u64::from(bit);
+                    let range = start.max(first)..(start + u64::from(len)).min(end);
+                    if range.is_empty() {
+                        continue;
+                    }
+                    if let Some(last) = pending.as_mut().filter(|last| last.end == range.start) {
+                        last.end = range.end;
+                    } else {
+                        if let Some(pages) = pending.replace(range) {
+                            self.append_range(pages, &mut ranges)?;
+                        }
+                    }
                 }
             }
-            row += words;
+            block += words as u64 * 32;
         }
-        for range in &mut ranges {
-            if range.start >= range.end || range.end > self.blocks {
-                return Err(invalid());
-            }
-            let start = self.boundaries.get(range.start as usize)?;
-            let end = self.boundaries.get(range.end as usize)?;
-            if start >= end || end > self.docs {
-                return Err(invalid());
-            }
-            *range = if self.descending {
-                self.docs - end..self.docs - start
-            } else {
-                start..end
-            };
+        if let Some(pages) = pending {
+            self.append_range(pages, &mut ranges)?;
         }
-        if self.descending {
+        if self.metadata.descending {
+            for range in &mut ranges {
+                *range = self.metadata.docs - range.end..self.metadata.docs - range.start;
+            }
             ranges.reverse();
         }
         Ok(ranges)
     }
-}
 
-struct ChunkReader {
-    file: Arc<CompositeFile>,
-    field: Field,
-    column: usize,
-    count: usize,
-    values: Option<(usize, Column<u64>)>,
-    _label: &'static str,
-}
-
-impl ChunkReader {
-    fn new(
-        file: Arc<CompositeFile>,
-        field: Field,
-        column: usize,
-        count: usize,
-        label: &'static str,
-    ) -> Self {
-        Self {
-            file,
-            field,
-            column,
-            count,
-            values: None,
-            _label: label,
-        }
-    }
-
-    fn get(&mut self, index: usize) -> io::Result<u32> {
-        if index >= self.count {
+    /// Converts a dirty page range into a nonempty document range.
+    fn append_range(&mut self, pages: Range<u64>, ranges: &mut Vec<Range<u32>>) -> io::Result<()> {
+        let start = self.boundary(pages.start)?;
+        let end = self.boundary(pages.end)?;
+        if start > end || end > self.metadata.docs {
             return Err(invalid());
         }
+        if start == end {
+            return Ok(());
+        }
+        if let Some(last) = ranges.last_mut().filter(|last| last.end == start) {
+            last.end = end;
+        } else {
+            ranges.push(start..end);
+        }
+        Ok(())
+    }
+
+    /// Reads a page boundary, retaining only the most recently used column batch.
+    fn boundary(&mut self, block: u64) -> io::Result<u32> {
         #[cfg(feature = "io_stats")]
-        let _io = trace::external(self._label);
+        let _io = trace::external("Visibility Boundaries");
+        let index = (block - u64::from(self.metadata.first_block)) as usize;
+        let count = (u64::from(self.metadata.last_block) - u64::from(self.metadata.first_block) + 2)
+            as usize;
+        if index >= count {
+            return Err(invalid());
+        }
         let chunk = index / CHUNK_SIZE;
         if self
             .values
             .as_ref()
             .is_none_or(|(current, _)| *current != chunk)
         {
-            let address = COLUMNS_IDX + chunk * COLUMN_COUNT + self.column;
             let file = self
                 .file
-                .open_read_with_idx(self.field, address)
+                .open_read_with_idx(self.field, COLUMNS_IDX + chunk)
                 .ok_or_else(invalid)?;
             let reader = ColumnarReader::open(file)?;
-            let handles = reader.read_columns("value")?;
+            let handles = reader.read_columns("boundary")?;
             let [handle] = handles.as_slice() else {
                 return Err(invalid());
             };
             let DynamicColumn::U64(values) = handle.open()? else {
                 return Err(invalid());
             };
-            let count = (self.count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
-            if values.get_cardinality() != Cardinality::Full || values.num_docs() as usize != count
-            {
+            let len = (count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
+            if values.get_cardinality() != Cardinality::Full || values.num_docs() as usize != len {
                 return Err(invalid());
             }
             self.values = Some((chunk, values));

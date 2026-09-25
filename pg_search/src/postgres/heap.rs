@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, HashMap};
+use crate::gucs::enable_visibility_map_shortcuts;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::stats::SegmentStats;
 use crate::postgres::composite::CompositeSlotValues;
@@ -333,6 +334,9 @@ impl VisibilityChecker {
         &mut self,
         segment: &SegmentReader,
     ) -> tantivy::Result<bool> {
+        if !enable_visibility_map_shortcuts() {
+            return Ok(false);
+        }
         if let Some((id, visible)) = self.segment_visibility
             && id == segment.segment_id()
         {
@@ -502,6 +506,9 @@ impl VisibilityChecker {
         &mut self,
         segment_ord: SegmentOrdinal,
     ) -> Option<Arc<[Range<DocId>]>> {
+        if !enable_visibility_map_shortcuts() {
+            return None;
+        }
         if !self.segment_checks.contains_key(&segment_ord) {
             // Map dirty VM pages to document ranges once per snapshot.
             let ranges = (|| -> tantivy::Result<Option<Vec<Range<DocId>>>> {

@@ -35,13 +35,14 @@ use cost::{
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use crate::api::operator::{estimate_query_cost, estimate_selectivity_and_cost};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
@@ -164,6 +165,10 @@ impl BaseScan {
             needs_tokenizer_manager,
         )
         .expect("should be able to open the search index reader");
+        let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
+        if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
+            checker.set_ffhelper(Arc::clone(&ffhelper));
+        }
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let parallel_aware = unsafe { (*(*state.planstate()).plan).parallel_aware };
@@ -2259,10 +2264,12 @@ fn choose_exec_method(
 /// needed at execution time.
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData>) {
+    let limit_offset = builder.custom_private().limit_offset().clone();
     match builder.custom_state_ref().exec_method_type.clone() {
-        ExecMethodType::Normal => builder
-            .custom_state()
-            .assign_exec_method(NormalScanExecState::default(), Some(ExecMethodType::Normal)),
+        ExecMethodType::Normal => builder.custom_state().assign_exec_method(
+            NormalScanExecState::new(limit_offset),
+            Some(ExecMethodType::Normal),
+        ),
         ExecMethodType::TopK {
             heaprelid,
             limit_offset,
@@ -2286,7 +2293,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                 )
             } else {
                 builder.custom_state().assign_exec_method(
-                    NormalScanExecState::default(),
+                    NormalScanExecState::new(limit_offset),
                     Some(ExecMethodType::Normal),
                 )
             }

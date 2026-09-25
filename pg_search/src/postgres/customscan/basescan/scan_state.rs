@@ -17,9 +17,11 @@
 
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
@@ -436,10 +438,13 @@ impl BaseScanState {
         self.telemetry.reset();
         self.virtual_tuple_count = 0;
         if self.visibility_checker.is_some() {
-            self.visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
-                self.heaprel(),
-                unsafe { pg_sys::GetActiveSnapshot() },
-            ));
+            let mut checker = VisibilityChecker::with_rel_and_snap(self.heaprel(), unsafe {
+                pg_sys::GetActiveSnapshot()
+            });
+            if let Some(reader) = &self.search_reader {
+                checker.set_ffhelper(Arc::new(FFHelper::for_ctid(reader)));
+            }
+            self.visibility_checker = Some(checker);
         }
         if self.doc_from_heap_state.is_some() {
             self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));

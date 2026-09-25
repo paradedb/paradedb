@@ -75,6 +75,9 @@ use crate::api::CTID_FIELD_NAME;
 use crate::index::reader::io_stats::trace;
 use crate::postgres::heap::HEAPBLOCKS_PER_PAGE;
 
+// Benchmark-only: retain both formats to compare readers on identical segments.
+mod legacy;
+
 pub(super) const DIRECTORY_IDX: usize = 7;
 pub(super) const PRESENCE_IDX: usize = 8;
 pub(super) const RANK_IDX: usize = 9;
@@ -96,6 +99,7 @@ fn u32_at(bytes: &[u8], at: usize) -> u32 {
 
 /// Writes presence and boundary entries from the finished CTID column at flush or merge.
 pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Result<()> {
+    legacy::write(segment, out)?;
     if !segment
         .index()
         .settings()

@@ -353,19 +353,24 @@ impl VisibilityChecker {
             {
                 break 'proof false;
             }
-            let ctids = {
+            let Some((min, max)) = ({
                 #[cfg(feature = "io_stats")]
                 let _io = trace::external("Visibility Bounds");
-                segment.fast_fields().u64(CTID_FIELD_NAME)?
-            };
-            if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc()
-            {
+                if let Some(stats) = SegmentStats::of_reader(segment)? {
+                    stats.ctid_bounds(segment)?
+                } else {
+                    let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+                    if ctids.get_cardinality() != Cardinality::Full
+                        || ctids.num_docs() != segment.max_doc()
+                    {
+                        break 'proof false;
+                    }
+                    Some((ctids.min_value(), ctids.max_value()))
+                }
+            }) else {
                 break 'proof false;
-            }
-            let (Ok(first), Ok(last)) = (
-                u32::try_from(ctids.min_value() >> 16),
-                u32::try_from(ctids.max_value() >> 16),
-            ) else {
+            };
+            let (Ok(first), Ok(last)) = (u32::try_from(min >> 16), u32::try_from(max >> 16)) else {
                 break 'proof false;
             };
             let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;

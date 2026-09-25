@@ -22,7 +22,7 @@
 //! bounded; the composite footer retains one entry per batch.
 
 use std::io;
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 
 use tantivy::columnar::column_values::CodecType;
@@ -132,17 +132,16 @@ pub(crate) struct HeapBlockMap {
 impl HeapBlockMap {
     /// Uses the CTID column bounds without reading the boundary column.
     pub(super) fn open(
-        ctids: &Column<u64>,
+        ctids: RangeInclusive<u64>,
+        docs: u32,
         descending: bool,
         file: Arc<CompositeFile>,
         field: Field,
         pages_per_vm: u32,
     ) -> io::Result<Self> {
-        let docs = ctids.num_docs();
-        let first_block = u32::try_from(ctids.min_value() >> 16).map_err(|_| invalid())?;
-        let last_block = u32::try_from(ctids.max_value() >> 16).map_err(|_| invalid())?;
-        if ctids.get_cardinality() != Cardinality::Full
-            || docs == 0
+        let first_block = u32::try_from(*ctids.start() >> 16).map_err(|_| invalid())?;
+        let last_block = u32::try_from(*ctids.end() >> 16).map_err(|_| invalid())?;
+        if docs == 0
             || first_block > last_block
             || pages_per_vm == 0
             || !pages_per_vm.is_multiple_of(32)

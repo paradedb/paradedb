@@ -1,0 +1,102 @@
+-- =====================================================================
+-- Rows whose partition key is NULL belong to range partition 0. A LEFT
+-- JOIN preserves posts without an owner, so the range-partitioned scan
+-- of `rpn_posts` must produce them: an inner join could never tell. The
+-- orphan count references `u.id` so the planner cannot remove the join.
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_range_partitioned_join TO on;
+SET paradedb.mpp_min_rows TO 0;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET max_parallel_maintenance_workers TO 0;
+CREATE TABLE rpn_users (id bigserial PRIMARY KEY, display_name text, about_me text);
+CREATE TABLE rpn_posts (id bigserial PRIMARY KEY, owner_user_id bigint, title text, body text);
+INSERT INTO rpn_users (display_name, about_me)
+SELECT 'user_' || g, repeat('a', 900) || g FROM generate_series(1, 20000) g;
+INSERT INTO rpn_posts (owner_user_id, title, body)
+SELECT 1 + ((g * 7919) % 20000), CASE WHEN g % 3 = 0 THEN 'error in build ' ELSE 'note ' END || g, repeat('b', 900) || g
+FROM generate_series(1, 20000) g;
+CREATE INDEX rpn_users_idx ON rpn_users USING paradedb (id, (display_name::pdb.literal))
+WITH (partition_by = 'id', target_segment_count = 4);
+WARNING:  only 0 parallel workers were available for index build
+CREATE INDEX rpn_posts_idx ON rpn_posts USING paradedb (id, owner_user_id, title)
+WITH (partition_by = 'owner_user_id', target_segment_count = 4);
+WARNING:  only 0 parallel workers were available for index build
+SET paradedb.global_mutable_segment_rows TO 0;
+INSERT INTO rpn_posts (owner_user_id, title, body)
+SELECT NULL, 'error without owner ' || g, repeat('b', 900) || g
+FROM generate_series(1, 7) g;
+RESET paradedb.global_mutable_segment_rows;
+SET max_parallel_workers_per_gather TO 0;
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM rpn_posts p LEFT JOIN rpn_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title @@@ 'error';
+ total | orphans 
+-------+---------
+  6673 |       7
+(1 row)
+
+-- The range-partitioned Left join must produce the same rows.
+SET max_parallel_workers_per_gather TO 3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM rpn_posts p LEFT JOIN rpn_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title @@@ 'error';
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*)), (count(*) FILTER (WHERE (u.id IS NULL)))
+   Backend: DataFusion
+   Indexes: rpn_posts_idx (p), rpn_users_idx (u)
+   Aggregates: COUNT(*), COUNT(*)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
+     : │   CoalescePartitionsExec
+     : │     [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 3 ── tasks=3, partitions=3
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
+     :   │   HashJoinExec: mode=Partitioned, join_type=Left, on=[(owner_user_id@0, id@0)], projection=[id@1]
+     :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=3, partitions=9
+     :     │ RepartitionExec: partitioning=Hash([owner_user_id@0], 9), input_partitions=1
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=p, segments={partial=0, included=3, pruned=2}, partition=owner_user_id[-∞..10001), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :     │     t1: PgSearchScan: table=p, segments={partial=0, included=1, pruned=4}, partition=owner_user_id[10001..15001), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :     │     t2: PgSearchScan: table=p, segments={partial=0, included=1, pruned=4}, partition=owner_user_id[15001..∞), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :     └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── tasks=3, partitions=9
+     :     │ RepartitionExec: partitioning=Hash([id@0], 9), input_partitions=1
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=u, segments={partial=0, included=2, pruned=2}, partition=id[-∞..10001), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t1: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[10001..15001), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t2: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[15001..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     └──────────────────────────────────────────────────
+(31 rows)
+
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM rpn_posts p LEFT JOIN rpn_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title @@@ 'error';
+ total | orphans 
+-------+---------
+  6673 |       7
+(1 row)
+
+DROP TABLE rpn_posts;
+DROP TABLE rpn_users;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_range_partitioned_join;
+RESET paradedb.mpp_min_rows;
+RESET max_parallel_workers;
+RESET max_parallel_workers_per_gather;
+RESET min_parallel_table_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET max_parallel_maintenance_workers;

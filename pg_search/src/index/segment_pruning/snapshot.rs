@@ -17,7 +17,8 @@
 
 use std::sync::{Arc, OnceLock};
 
-use crate::index::stats::SegmentStats;
+use crate::api::HashMap;
+use crate::index::stats::{EmpiricalStats, PartitionSegments, SegmentInclusion, SegmentStats};
 use crate::scan::range_partitioning::PartitionRange;
 use crate::schema::SearchField;
 use tantivy::index::SegmentId;
@@ -43,6 +44,7 @@ struct CapturedSegment {
 pub(crate) struct SegmentStatsSnapshot {
     searcher: Searcher,
     segments: Box<[CapturedSegment]>,
+    ordinal_by_id: HashMap<SegmentId, usize>,
 }
 
 impl SegmentStatsSnapshot {
@@ -56,9 +58,44 @@ impl SegmentStatsSnapshot {
                 stats: OnceLock::new(),
             })
             .collect::<Box<[_]>>();
+        let ordinal_by_id = segments
+            .iter()
+            .enumerate()
+            .map(|(ord, segment)| (segment.id, ord))
+            .collect();
         Arc::new(Self {
             searcher: searcher.clone(),
             segments,
+            ordinal_by_id,
+        })
+    }
+
+    #[cfg(any(test, feature = "pg_test"))]
+    pub(crate) fn len(&self) -> usize {
+        self.segments.len()
+    }
+
+    /// The searcher ordinal of `id`, or `None` when the segment is not in this snapshot.
+    pub(crate) fn segment_index(&self, id: SegmentId) -> Option<usize> {
+        self.ordinal_by_id.get(&id).copied()
+    }
+
+    /// Decode one field for one execution segment. Missing components or entries return None;
+    /// read and conversion errors abort the query. Decoded entries are not cached.
+    pub(crate) fn empirical(&self, ord: usize, field: &SearchField) -> Option<EmpiricalStats> {
+        let stats = self.stats(ord)?;
+        let segment_id = self.segments[ord].id;
+        #[cfg(any(test, feature = "pg_test"))]
+        test_support::EMPIRICAL_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let empirical = stats.empirical_for(field);
+        #[cfg(any(test, feature = "pg_test"))]
+        let empirical = test_support::maybe_fail(
+            segment_id,
+            test_support::InjectedStatsFailure::Empirical,
+            empirical,
+        );
+        empirical.unwrap_or_else(|error| {
+            pgrx::error!("could not read empirical statistics for field {:?} in segment {segment_id:?}: {error}", field.field())
         })
     }
 
@@ -86,32 +123,23 @@ impl SegmentStatsSnapshot {
             .as_ref()
     }
 
-    /// Logical bounds describe where the build routed rows; empirical bounds describe what
-    /// the segment contains. Both must overlap when available. An absent entry still permits
-    /// the other kind of bounds to prune; an unreadable entry aborts the query.
-    fn may_intersect_partition(
+    /// Classify a segment's relation to this partition: fully included, partially included,
+    /// or excluded. Missing statistics fall back to partially included; an unreadable entry
+    /// aborts the query.
+    pub(crate) fn classify_partition_segment(
         &self,
         ord: usize,
         field: &SearchField,
         range: &PartitionRange,
-    ) -> bool {
+    ) -> SegmentInclusion {
+        if !range.includes_nulls() && range.values().is_none() {
+            return SegmentInclusion::Excluded;
+        }
         let segment_id = self.segments[ord].id;
         let Some(stats) = self.stats(ord) else {
-            return true;
+            return SegmentInclusion::PartiallyIncluded;
         };
-        let empirical = stats.empirical_for(field);
-        #[cfg(any(test, feature = "pg_test"))]
-        let empirical = test_support::maybe_fail(
-            segment_id,
-            test_support::InjectedStatsFailure::Empirical,
-            empirical,
-        );
-        let empirical = empirical.unwrap_or_else(|error| {
-            pgrx::error!(
-                "could not read empirical statistics for field {:?} in segment {segment_id:?}: {error}",
-                field.field()
-            )
-        });
+        let empirical = self.empirical(ord, field);
         let logical = stats.logical(field.field());
         #[cfg(any(test, feature = "pg_test"))]
         let logical = test_support::maybe_fail(
@@ -125,24 +153,90 @@ impl SegmentStatsSnapshot {
                 field.field()
             )
         });
-        let (lower, upper) = (&range.lower, &range.upper);
+        let Some((lower, upper)) = range.values() else {
+            if logical.is_some_and(|b| !b.may_hold_nulls()) {
+                return SegmentInclusion::Excluded;
+            }
+            if empirical.is_some_and(|e| !e.nullable) {
+                return SegmentInclusion::Excluded;
+            }
+            return SegmentInclusion::PartiallyIncluded;
+        };
         match (logical, empirical) {
-            (None, None) => true,
+            (None, None) => SegmentInclusion::PartiallyIncluded,
             (Some(bounds), None) => {
-                (range.includes_nulls && bounds.may_hold_nulls()) || bounds.intersects(lower, upper)
+                let intersects = (range.includes_nulls() && bounds.may_hold_nulls())
+                    || bounds.intersects(lower, upper);
+                if !intersects {
+                    SegmentInclusion::Excluded
+                } else if (range.includes_nulls() || !bounds.may_hold_nulls())
+                    && bounds.is_subset_of(lower, upper)
+                {
+                    SegmentInclusion::FullyIncluded
+                } else {
+                    SegmentInclusion::PartiallyIncluded
+                }
             }
             (None, Some(empirical)) => {
-                (range.includes_nulls && empirical.nullable) || empirical.intersects(lower, upper)
+                let intersects = (range.includes_nulls() && empirical.nullable)
+                    || empirical.intersects(lower, upper);
+                if !intersects {
+                    SegmentInclusion::Excluded
+                } else if (range.includes_nulls() || !empirical.nullable)
+                    && empirical.is_subset_of(lower, upper)
+                {
+                    SegmentInclusion::FullyIncluded
+                } else {
+                    SegmentInclusion::PartiallyIncluded
+                }
             }
             (Some(bounds), Some(empirical)) => {
-                (range.includes_nulls && empirical.nullable)
-                    || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
+                let intersects = (range.includes_nulls() && empirical.nullable)
+                    || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper));
+                if !intersects {
+                    SegmentInclusion::Excluded
+                } else {
+                    let logical_subset = (range.includes_nulls() || !bounds.may_hold_nulls())
+                        && bounds.is_subset_of(lower, upper);
+                    let empirical_subset = (range.includes_nulls() || !empirical.nullable)
+                        && empirical.is_subset_of(lower, upper);
+                    if logical_subset || empirical_subset {
+                        SegmentInclusion::FullyIncluded
+                    } else {
+                        SegmentInclusion::PartiallyIncluded
+                    }
+                }
             }
+        }
+    }
+
+    /// Classify all execution segments for this partition into included, partially included,
+    /// and pruned lists.
+    pub(crate) fn classify_partition_segments(
+        &self,
+        field: &SearchField,
+        range: &PartitionRange,
+    ) -> PartitionSegments {
+        let mut included = Vec::new();
+        let mut partially_included = Vec::new();
+        let mut pruned = Vec::new();
+        for (ord, segment) in self.segments.iter().enumerate() {
+            match self.classify_partition_segment(ord, field, range) {
+                SegmentInclusion::FullyIncluded => included.push(segment.id),
+                SegmentInclusion::PartiallyIncluded => partially_included.push(segment.id),
+                SegmentInclusion::Excluded => pruned.push(segment.id),
+            }
+        }
+        PartitionSegments {
+            included,
+            partially_included,
+            pruned,
         }
     }
 
     /// Yield execution segment IDs whose available bounds overlap this partition, in searcher
     /// order. Missing statistics retain the segment; a read or decode error aborts the query.
+    #[cfg(any(test, feature = "pg_test"))]
     pub(crate) fn segments_intersecting_partition<'a>(
         &'a self,
         field: &'a SearchField,
@@ -151,7 +245,9 @@ impl SegmentStatsSnapshot {
         self.segments
             .iter()
             .enumerate()
-            .filter(move |(ord, _)| self.may_intersect_partition(*ord, field, range))
+            .filter(move |(ord, _)| {
+                self.classify_partition_segment(*ord, field, range) != SegmentInclusion::Excluded
+            })
             .map(|(_, segment)| segment.id)
     }
 }
@@ -166,6 +262,7 @@ pub(crate) mod test_support {
 
     /// Number of `.stats` open attempts, including ones that fail.
     pub(crate) static STATS_OPENS: AtomicUsize = AtomicUsize::new(0);
+    pub(crate) static EMPIRICAL_READS: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) enum InjectedStatsFailure {

@@ -23,10 +23,8 @@ use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::gucs::WorkMem;
-use crate::index::fast_fields_helper::{FFType, resolve_ctid};
-use crate::index::reader::index::{
-    MAX_TOPK_FEATURES, SearchIndexReader, TopKAuxiliaryCollector, TopKSearch, TopKSearchResults,
-};
+use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
+use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader, TopKAuxiliaryCollector};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
@@ -39,11 +37,11 @@ use crate::postgres::customscan::parallel::checkout_segment_for_source;
 use crate::query::SearchQueryInput;
 
 use pgrx::{IntoDatum, check_for_interrupts, direct_function_call, pg_sys};
-use tantivy::SegmentOrdinal;
 use tantivy::aggregation::AggregationLimitsGuard;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::index::SegmentId;
+use tantivy::{DocAddress, Score};
 
 struct PreparedAggregations {
     aggregations: Aggregations,
@@ -53,6 +51,12 @@ struct PreparedAggregations {
     /// Determined by the mvcc_visibility setting of any pdb.agg() calls.
     /// If any aggregate has MVCC disabled, this will be false.
     mvcc_enabled: bool,
+}
+
+struct TopKCandidate {
+    ctid: u64,
+    score: Score,
+    doc_address: DocAddress,
 }
 
 pub struct TopKScanExecState {
@@ -68,7 +72,7 @@ pub struct TopKScanExecState {
     search_reader: Option<SearchIndexReader>,
 
     // state tracking
-    search_results: TopKSearchResults,
+    candidates: std::vec::IntoIter<TopKCandidate>,
     nresults: usize,
     did_query: bool,
     exhausted: bool,
@@ -80,8 +84,6 @@ pub struct TopKScanExecState {
     scale_factor: f64,
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
-    /// Cached per-segment ctid fast-field reader.
-    ctid_cache: Option<(SegmentOrdinal, FFType)>,
 }
 
 impl TopKScanExecState {
@@ -121,7 +123,7 @@ impl TopKScanExecState {
             orderby_info,
             search_query_input: None,
             search_reader: None,
-            search_results: TopKSearchResults::empty(),
+            candidates: Vec::new().into_iter(),
             nresults: 0,
             did_query: false,
             exhausted: false,
@@ -131,7 +133,6 @@ impl TopKScanExecState {
             claimed_segments: RefCell::default(),
             scale_factor,
             window_aggregates: Vec::new(),
-            ctid_cache: None,
         }
     }
 
@@ -372,7 +373,7 @@ impl ExecMethod for TopKScanExecState {
         );
 
         // Run the Top K (and optional aggregate) query.
-        self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
+        let mut search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = prepared.as_ref().map(|prepared| {
                 let search_reader = self.search_reader.as_ref().unwrap();
                 let (aggregation_collector, vischeck) = prepared.aggregations.plan(
@@ -395,10 +396,7 @@ impl ExecMethod for TopKScanExecState {
             } else {
                 None
             };
-            let TopKSearch {
-                results,
-                segment_info,
-            } = self
+            let mut top_k_search = self
                 .search_reader
                 .as_ref()
                 .unwrap()
@@ -415,10 +413,10 @@ impl ExecMethod for TopKScanExecState {
                 );
             // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
             // DSM once at EndCustomScan; the leader merges at Shutdown.
-            if !segment_info.is_empty() {
-                state.accumulate_segment_info(segment_info);
+            if !top_k_search.segment_info.is_empty() {
+                state.accumulate_segment_info(std::mem::take(&mut top_k_search.segment_info));
             }
-            results
+            top_k_search
         } else {
             self.search_reader
                 .as_ref()
@@ -438,9 +436,9 @@ impl ExecMethod for TopKScanExecState {
         if let Some(prepared) = prepared {
             let intermediate_results = if self.orderby_info.is_some() {
                 // Ordered TopK: aggregation was piggybacked on the search via aux collector
-                let agg_result = self
-                    .search_results
-                    .take_aggregation_results()
+                let agg_result = search_results
+                    .aggregation_results
+                    .take()
                     .expect("an aggregation request should produce a result");
                 if let Some(parallel_state) = state.parallel_state() {
                     let segment_count = self
@@ -468,16 +466,11 @@ impl ExecMethod for TopKScanExecState {
                     prepared.mvcc_enabled,
                     agg_limits.clone(),
                 );
-                let searcher = search_reader.searcher();
                 if let Some(vischeck) = vischeck {
-                    searcher.search(
-                        search_reader.query(),
-                        &MVCCFilterCollector::new(aggregation_collector, vischeck),
-                    )
+                    search_reader.collect(MVCCFilterCollector::new(aggregation_collector, vischeck))
                 } else {
-                    searcher.search(search_reader.query(), &aggregation_collector)
+                    search_reader.collect(aggregation_collector)
                 }
-                .expect("failed to run window aggregation query")
             };
 
             let search_reader = state.search_reader.as_ref().unwrap();
@@ -496,10 +489,53 @@ impl ExecMethod for TopKScanExecState {
 
         // If we got fewer results than we requested, then the query is exhausted: there is no
         // point executing further queries.
-        self.exhausted = self.search_results.original_len() < local_limit;
+        self.exhausted = search_results.results.len() < local_limit;
+
+        // Batch-resolve ctids across segments using FFHelper.
+        let raw_results = search_results.results;
+        let mut resolved_ctids = vec![0u64; raw_results.len()];
+        let mut seg_ctids_buffer = Vec::new();
+
+        let search_reader = self
+            .search_reader
+            .as_ref()
+            .expect("Search reader must be initialized");
+        let ffhelper = FFHelper::for_ctid(search_reader);
+        let num_segments = ffhelper.num_segments();
+
+        let doc_addresses = raw_results
+            .iter()
+            .enumerate()
+            .map(|(idx, (_, doc_addr))| (idx, *doc_addr));
+
+        for_each_segment(num_segments, doc_addresses, |seg_ord, rows| {
+            let doc_ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+            seg_ctids_buffer.resize(doc_ids.len(), None);
+            ffhelper
+                .ctid(seg_ord)
+                .as_u64s(&doc_ids, &mut seg_ctids_buffer);
+            for ((orig_idx, _), maybe_ctid) in rows.into_iter().zip(seg_ctids_buffer.drain(..)) {
+                resolved_ctids[orig_idx] = maybe_ctid.expect("All rows must have ctids.");
+            }
+            Ok(())
+        })
+        .expect("segment iteration should succeed");
+
+        let candidates: Vec<TopKCandidate> = raw_results
+            .into_iter()
+            .zip(resolved_ctids)
+            .map(|((scored, doc_address), ctid)| TopKCandidate {
+                ctid,
+                score: scored.bm25,
+                doc_address,
+            })
+            .collect();
+
+        let num_candidates = candidates.len();
+        self.candidates = candidates.into_iter();
 
         // But if we got any results at all, then the query was a success.
-        self.search_results.original_len() > 0
+        num_candidates > 0
     }
 
     fn increment_visible(&mut self) {
@@ -510,7 +546,7 @@ impl ExecMethod for TopKScanExecState {
         loop {
             check_for_interrupts!();
 
-            match self.search_results.next() {
+            match self.candidates.next() {
                 None if !self.did_query => {
                     // we haven't even done a query yet, so this is our very first time in
                     return ExecState::Eof;
@@ -519,14 +555,12 @@ impl ExecMethod for TopKScanExecState {
                     // we found all the matching rows
                     return ExecState::Eof;
                 }
-                Some((scored, doc_address)) => {
+                Some(candidate) => {
                     self.nresults += 1;
-                    let searcher = self.search_reader.as_ref().unwrap().searcher();
-                    let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
                     return ExecState::FromHeap {
-                        ctid,
-                        score: scored.bm25,
-                        doc_address,
+                        ctid: candidate.ctid,
+                        score: candidate.score,
+                        doc_address: candidate.doc_address,
                     };
                 }
                 None => {
@@ -560,8 +594,7 @@ impl ExecMethod for TopKScanExecState {
         self.exhausted = false;
         self.search_query_input = Some(state.search_query_input().clone());
         self.search_reader = state.search_reader.clone();
-        self.search_results = TopKSearchResults::empty();
-        self.ctid_cache = None;
+        self.candidates = Vec::new().into_iter();
 
         // Get window aggregates from state if available
         if let ExecMethodType::TopK {

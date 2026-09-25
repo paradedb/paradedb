@@ -1,0 +1,19 @@
+---
+title: "0.25.10"
+description: "ParadeDB release notes for 0.25.10"
+canonical: https://www.paradedb.com/docs/project/changelog/0.25.10
+---
+
+See GitHub release: [v0.25.10](https://github.com/paradedb/paradedb/releases/tag/v0.25.10)
+
+## Performance Improvements 🚀
+
+- Top-K searches over a common phrase, or over a regex combined with another filter, plan parallel workers again. Their estimated scan cost collapsed to near zero, so the planner read them as cheap enough for a single core.
+
+## Stability Improvements 💪
+
+- Fixed the join scan dropping rows after a HOT update and a `VACUUM`. The index keeps the HOT root, `VACUUM` prunes that root into a redirect line pointer, and the scan's final heap fetch stopped at the redirect instead of following the chain to the visible row (#6375).
+
+- A query that reads a JSON path now returns NULL for a segment whose documents never carry that key, instead of failing with `` `metadata.brand` is missing or is not configured as columnar ``. A segment writes a column for a JSON path only when one of its documents has the key, so a row inserted after `CREATE INDEX` without the key used to break the scan (#6363).
+
+- Fixed wrong results for `SUM`, `AVG`, `MIN` and `MAX` over `COALESCE(field, default)` when the column can't hold the default exactly, such as a fraction on an integer column, a negative value on a JSON sub-field, or `NaN`. Postgres now runs these aggregates, also as window aggregates in top K queries. `COUNT(COALESCE(field, default))` now counts every row, also over string columns (#6353).

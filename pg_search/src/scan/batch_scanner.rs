@@ -156,7 +156,6 @@ pub struct Scanner {
     batch_size: usize,
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
-    maybe_ctids: Vec<Option<u64>>,
     visibility_results: Vec<Option<u64>>,
     /// When true, visibility checking is deferred to VisibilityFilterExec.
     /// Packed DocAddresses are emitted instead of real ctids.
@@ -308,7 +307,6 @@ impl Scanner {
             batch_size,
             which_fast_fields,
             table_oid,
-            maybe_ctids: Vec::new(),
             visibility_results: Vec::new(),
             defer_visibility,
             fetch_ordinals_in_scan,
@@ -466,7 +464,7 @@ impl Scanner {
     /// term ordinals rather than requiring expensive dictionary lookups.
     pub fn next(
         &mut self,
-        ffhelper: &FFHelper,
+        ffhelper: &Arc<FFHelper>,
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) -> Option<Batch> {
@@ -539,14 +537,13 @@ impl Scanner {
             // No real ctid lookup needed.
             None
         } else {
-            self.maybe_ctids.resize(ids.len(), None);
-            ffhelper
-                .ctid(segment_ord)
-                .as_u64s(&ids, &mut self.maybe_ctids);
+            if visibility.ffhelper().is_none() {
+                visibility.set_ffhelper(Arc::clone(ffhelper));
+            }
 
-            // Filter out invisible rows.
+            // Filter out invisible rows and resolve ctids.
             self.visibility_results.resize(ids.len(), None);
-            visibility.check_batch(&self.maybe_ctids, &mut self.visibility_results);
+            visibility.check_segment_docs(segment_ord, &ids, &mut self.visibility_results);
 
             let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
             let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());

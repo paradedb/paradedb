@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::any::Any;
+use std::io;
 use std::sync::Arc;
 
 use tantivy::directory::CompositeWrite;
@@ -29,7 +30,10 @@ impl SegmentPlugin for CtidMapPlugin {
     }
 
     fn merge(&self, ctx: PluginMergeContext) -> tantivy::Result<()> {
-        write_component(ctx.target_segment)
+        let mut output = CompositeWrite::wrap(ctx.target_segment.open_write(component())?);
+        super::write(ctx.target_segment, &mut output).map_err(io::Error::other)?;
+        output.close()?;
+        Ok(())
     }
 }
 
@@ -39,7 +43,10 @@ impl PluginWriter for CtidMapWriter {
         segment: &Segment,
         _doc_id_map: Option<&DocIdMapping>,
     ) -> tantivy::Result<()> {
-        write_component(segment)
+        let mut output = CompositeWrite::wrap(segment.open_write(component())?);
+        super::write(segment, &mut output).map_err(io::Error::other)?;
+        output.close()?;
+        Ok(())
     }
 
     fn mem_usage(&self) -> usize {
@@ -57,12 +64,4 @@ impl PluginWriter for CtidMapWriter {
 
 pub(super) fn component() -> SegmentComponent {
     SegmentComponent::Custom(CTID_MAP_EXT.to_string())
-}
-
-/// Builds from final CTIDs after sorting or merging has assigned document IDs.
-fn write_component(segment: &Segment) -> tantivy::Result<()> {
-    let mut output = CompositeWrite::wrap(segment.open_write(component())?);
-    super::write(segment, &mut output)?;
-    output.close()?;
-    Ok(())
 }

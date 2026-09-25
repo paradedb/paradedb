@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
+use std::io;
 use std::ops::{Deref, Range};
 use std::slice;
 use std::sync::Arc;
@@ -23,8 +24,9 @@ use std::sync::Arc;
 use crate::api::HashMap;
 use crate::api::version::Version;
 use crate::gucs::enable_visibility_map_shortcuts;
-use crate::index::ctid_map::{BlockToDocIdMap, block_bounds};
+use crate::index::ctid_map::BlockToDocIdMap;
 use crate::index::fast_fields_helper::FFHelper;
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
@@ -353,7 +355,9 @@ impl VisibilityChecker {
             {
                 break 'proof false;
             }
-            let Some(blocks) = block_bounds(segment)? else {
+            let Some(blocks) =
+                SearchIndexReader::block_bounds(segment).map_err(io::Error::other)?
+            else {
                 break 'proof false;
             };
             let (first, last) = (*blocks.start(), *blocks.end());
@@ -496,7 +500,7 @@ impl VisibilityChecker {
         }
         if !self.segment_checks.contains_key(&segment_ord) {
             // Map dirty VM pages to document ranges once per snapshot.
-            let ranges = (|| -> tantivy::Result<Option<Vec<Range<DocId>>>> {
+            let ranges = (|| -> anyhow::Result<Option<Vec<Range<DocId>>>> {
                 if self.snapshot.is_null()
                     || unsafe {
                         (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC

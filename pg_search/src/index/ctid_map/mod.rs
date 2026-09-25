@@ -17,13 +17,11 @@
 //!
 //! Boundaries are a standard Tantivy numeric column, written in bounded ColumnarWriter
 //! batches after sorting or merging. Each batch is addressed through the `.ctid_map`
-//! composite directory and opened lazily with ColumnarReader. There is no presence
-//! bitmap, rank structure, custom column encoding, or temporary file. Value buffers are
-//! bounded; the composite footer retains one entry per batch.
+//! composite directory and opened lazily with ColumnarReader.
 
-use std::io;
-use std::ops::{Range, RangeInclusive};
+use std::ops::Range;
 
+use anyhow::{Context, bail};
 use pgrx::pg_sys::{BlockNumber, InvalidBlockNumber};
 use tantivy::DocId;
 use tantivy::columnar::column_values::CodecType;
@@ -36,8 +34,7 @@ use tantivy::index::{Segment, SegmentComponent, SegmentReader};
 use tantivy::schema::Field;
 
 use crate::api::CTID_FIELD_NAME;
-use crate::index::stats::{EmpiricalStats, SegmentStats};
-use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::index::reader::index::SearchIndexReader;
 
 mod plugin;
 pub(crate) use plugin::register;
@@ -49,12 +46,8 @@ const CHUNK_SIZE: usize = 32768;
 // Let Tantivy choose between bitpacking and blockwise linear compression.
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 
-fn invalid() -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, "invalid heap-block boundaries")
-}
-
 /// Builds the boundary column from the final live CTIDs at flush or merge.
-pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Result<()> {
+pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Result<()> {
     if !segment
         .index()
         .settings()
@@ -87,10 +80,11 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
         column.values.iter()
     };
     let mut values = values.peekable();
-    let first_block = u32::try_from(values.peek().unwrap() >> 16).map_err(|_| invalid())?;
+    let first_block = u32::try_from(values.peek().unwrap() >> 16)
+        .context("heap block number exceeds BlockNumber")?;
     let last_block =
         u32::try_from(column.values.get_val(if descending { 0 } else { docs - 1 }) >> 16)
-            .map_err(|_| invalid())?;
+            .context("heap block number exceeds BlockNumber")?;
     let count = (u64::from(last_block) - u64::from(first_block) + 2) as usize;
     let mut processed = 0u32;
     let mut previous = None;
@@ -106,7 +100,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
                     break;
                 }
                 if previous.is_some_and(|last| value < last) {
-                    return Err(invalid().into());
+                    bail!("invalid heap-block boundaries");
                 }
                 previous = values.next();
                 processed += 1;
@@ -121,38 +115,9 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
         )?;
     }
     if processed != docs {
-        return Err(invalid().into());
+        bail!("invalid heap-block boundaries");
     }
     Ok(())
-}
-
-/// Reuses CTID statistics, falling back to the fast field for older segments.
-pub(crate) fn block_bounds(
-    segment: &SegmentReader,
-) -> tantivy::Result<Option<RangeInclusive<BlockNumber>>> {
-    let field = segment.schema().get_field(CTID_FIELD_NAME)?;
-    let stats = SegmentStats::of_reader(segment)?;
-    let empirical = stats
-        .map(|stats| stats.empirical(field))
-        .transpose()?
-        .flatten();
-    let (min, max) = if let Some(EmpiricalStats {
-        min: PdbOwnedValue::U64(min),
-        max: PdbOwnedValue::U64(max),
-        nullable: false,
-    }) = empirical
-    {
-        (min, max)
-    } else {
-        let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
-        if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc() {
-            return Ok(None);
-        }
-        (ctids.min_value(), ctids.max_value())
-    };
-    let first = BlockNumber::try_from(min >> 16).map_err(|_| invalid())?;
-    let last = BlockNumber::try_from(max >> 16).map_err(|_| invalid())?;
-    Ok(Some(first..=last))
 }
 
 pub(crate) struct BlockToDocIdMap {
@@ -166,7 +131,7 @@ pub(crate) struct BlockToDocIdMap {
 
 impl BlockToDocIdMap {
     /// Opens the optional component, reusing CTID statistics for its block bounds.
-    pub(crate) fn open(segment: &SegmentReader) -> tantivy::Result<Option<Self>> {
+    pub(crate) fn open(segment: &SegmentReader) -> anyhow::Result<Option<Self>> {
         let slice = match segment.open_read(plugin::component()) {
             Ok(slice) => slice,
             Err(OpenReadError::FileDoesNotExist(_)) => return Ok(None),
@@ -177,14 +142,14 @@ impl BlockToDocIdMap {
         if file.open_read_with_idx(field, 0).is_none() {
             return Ok(None);
         }
-        let Some(blocks) = block_bounds(segment)? else {
+        let Some(blocks) = SearchIndexReader::block_bounds(segment)? else {
             return Ok(None);
         };
         let first_block = *blocks.start();
         let last_block = *blocks.end();
         let num_docs = segment.max_doc();
         if num_docs == 0 || first_block > last_block || last_block == InvalidBlockNumber {
-            return Err(invalid().into());
+            bail!("invalid heap-block boundaries");
         }
         Ok(Some(Self {
             first_block,
@@ -205,7 +170,7 @@ impl BlockToDocIdMap {
     pub(crate) fn doc_id_ranges_for_blocks(
         &mut self,
         block_ranges: &[Range<BlockNumber>],
-    ) -> io::Result<Vec<Range<DocId>>> {
+    ) -> anyhow::Result<Vec<Range<DocId>>> {
         let mut ranges: Vec<Range<DocId>> = Vec::with_capacity(block_ranges.len());
         let blocks: Vec<_> = block_ranges
             .iter()
@@ -215,7 +180,7 @@ impl BlockToDocIdMap {
         for pair in boundaries.chunks_exact(2) {
             let [start, end] = [pair[0], pair[1]];
             if start > end || end > self.num_docs {
-                return Err(invalid());
+                bail!("invalid heap-block boundaries");
             }
             if start == end {
                 continue;
@@ -230,14 +195,17 @@ impl BlockToDocIdMap {
     }
 
     /// Given sorted block numbers, returns the starting doc ID of each block.
-    fn boundaries(&mut self, mut blocks: &[BlockNumber]) -> io::Result<Vec<DocId>> {
+    fn boundaries(&mut self, mut blocks: &[BlockNumber]) -> anyhow::Result<Vec<DocId>> {
         let mut output = Vec::with_capacity(blocks.len());
         debug_assert!(blocks.is_sorted());
         while let Some(&block) = blocks.first() {
-            let index = block.checked_sub(self.first_block).ok_or_else(invalid)? as usize;
+            let index = block
+                .checked_sub(self.first_block)
+                .context("block precedes the segment block range")?
+                as usize;
             let count = (u64::from(self.last_block) - u64::from(self.first_block) + 2) as usize;
             if index >= count {
-                return Err(invalid());
+                bail!("invalid heap-block boundaries");
             }
             let chunk = index / CHUNK_SIZE;
             if self
@@ -248,21 +216,21 @@ impl BlockToDocIdMap {
                 let file = self
                     .file
                     .open_read_with_idx(self.field, chunk)
-                    .ok_or_else(invalid)?;
+                    .context("missing heap-block boundary chunk")?;
                 let reader = ColumnarReader::open(file)?;
                 let handles = reader.read_columns(BLOCK_BOUNDARIES)?;
                 let [handle] = handles.as_slice() else {
-                    return Err(invalid());
+                    bail!("invalid heap-block boundaries");
                 };
                 let DynamicColumn::U64(values) = handle.open()? else {
-                    return Err(invalid());
+                    bail!("invalid heap-block boundaries");
                 };
                 let len = (count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
                 if values.get_cardinality() != Cardinality::Full
                     || values.num_docs() as usize != len
                     || values.max_value() > u64::from(self.num_docs)
                 {
-                    return Err(invalid());
+                    bail!("invalid heap-block boundaries");
                 }
                 self.values = Some((chunk, values));
             }
@@ -271,7 +239,7 @@ impl BlockToDocIdMap {
             let len =
                 blocks.partition_point(|&block| block - chunk_start < CHUNK_SIZE as BlockNumber);
             if blocks[len - 1] - chunk_start >= values.num_docs() {
-                return Err(invalid());
+                bail!("invalid heap-block boundaries");
             }
             output.extend(
                 blocks[..len]

@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::reader::index::enable_scoring;
+use crate::postgres::utils::DropUnlessExiting;
 use std::sync::{Arc, OnceLock};
 use tantivy::Term;
 use tantivy::query::{
@@ -164,7 +165,7 @@ impl Weight for SharedQuery {
 pub struct DeferredScorer {
     weight: Arc<LazyWeight>,
     segment_reader: SegmentReader,
-    scorer: OnceLock<Box<dyn PruningScorer>>,
+    scorer: DropUnlessExiting<OnceLock<Box<dyn PruningScorer>>>,
 }
 
 impl DeferredScorer {

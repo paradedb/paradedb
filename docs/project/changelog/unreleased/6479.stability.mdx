@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed leaked locks and buffer pins when a search was terminated mid-scan. Terminating a backend (for example with `pg_terminate_backend`) while it ran a parallel search, or a search whose filter calls a function such as `pg_sleep`, could log `Oh no! We never placed the Core back` or `invalid Once state` and leave its table locks and pinned buffers behind until the server restarted, so commands such as `ALTER TABLE`, `DROP` or `VACUUM FULL` on that table waited forever. Cancelling or timing out a parallel search could log the same error from its workers.

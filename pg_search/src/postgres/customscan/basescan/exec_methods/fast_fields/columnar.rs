@@ -32,6 +32,7 @@ use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
+use crate::postgres::utils::DropUnlessExiting;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 
 use pgrx::{IntoDatum, PgOid, PgTupleDesc, pg_sys};
@@ -140,7 +141,7 @@ pub struct ColumnarExecState {
 
     /// Tokio runtime for driving async DataFusion streams synchronously.
     /// Created once and reused (same pattern as JoinScan).
-    runtime: Option<Runtime>,
+    runtime: Option<DropUnlessExiting<Runtime>>,
 
     /// The DataFusion stream producing RecordBatches.
     stream: Option<SendableRecordBatchStream>,
@@ -451,11 +452,11 @@ impl ExecMethod for ColumnarExecState {
         // This is a single-threaded runtime used to drive DataFusion's async streams
         // synchronously within PostgreSQL's execution model.
         if self.runtime.is_none() {
-            self.runtime = Some(
+            self.runtime = Some(DropUnlessExiting::new(
                 tokio::runtime::Builder::new_current_thread()
                     .build()
                     .expect("Failed to create tokio runtime for DataFusion stream execution"),
-            );
+            ));
         }
 
         loop {

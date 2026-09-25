@@ -61,6 +61,9 @@ unsafe extern "C-unwind" {
 /// PostgreSQL's transaction abort mechanism will clean up resources (buffers, relations, etc.)
 /// when the transaction is aborted due to the error.
 ///
+/// This covers an ERROR only. A FATAL does not unwind, so `panicking()` is false during
+/// `proc_exit`; see `DropUnlessExiting` for values that must not be dropped then.
+///
 /// # Example
 /// ```ignore
 /// impl_safe_drop!(MyStruct, |self| {
@@ -83,6 +86,57 @@ macro_rules! impl_safe_drop {
             }
         }
     };
+}
+
+/// Owns a value whose `Drop` is skipped once `proc_exit` is in progress.
+///
+/// Unlike the ERROR that `impl_safe_drop!` covers, a FATAL runs `proc_exit` without unwinding, so
+/// a Rust call that never returned may still be using a value that exit cleanup frees. Wrap the
+/// values whose `Drop` panics then: tokio's `Runtime` while `block_on` holds its core, and std's
+/// `OnceLock` while `get_or_init` is running. Skipping the drop only leaks memory in a process that
+/// is exiting; Postgres releases the pins, locks and temp files itself.
+#[derive(Debug, Default)]
+pub(crate) struct DropUnlessExiting<T>(std::mem::ManuallyDrop<T>);
+
+impl<T> DropUnlessExiting<T> {
+    pub(crate) fn new(value: T) -> Self {
+        Self(std::mem::ManuallyDrop::new(value))
+    }
+}
+
+impl<T> std::ops::Deref for DropUnlessExiting<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for DropUnlessExiting<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+impl<T> Drop for DropUnlessExiting<T> {
+    fn drop(&mut self) {
+        if exiting() {
+            return;
+        }
+        // SAFETY: the value is dropped exactly once, here.
+        unsafe { std::mem::ManuallyDrop::drop(&mut self.0) }
+    }
+}
+
+#[cfg(not(test))]
+fn exiting() -> bool {
+    // SAFETY: plain read of a backend-local flag on the backend thread.
+    unsafe { pgrx::pg_sys::proc_exit_inprogress }
+}
+
+/// The lib-test binary doesn't link the PG globals, and no test runs `proc_exit`.
+#[cfg(test)]
+fn exiting() -> bool {
+    false
 }
 
 /// RAII guard for PostgreSQL standalone expression context

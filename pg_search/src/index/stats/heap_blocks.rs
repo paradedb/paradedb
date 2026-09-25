@@ -35,7 +35,7 @@ use tantivy::schema::Field;
 
 use crate::api::CTID_FIELD_NAME;
 
-pub(super) const COLUMNS_IDX: usize = 9;
+pub(super) const COLUMNS_IDX: usize = 3;
 const CHUNK_SIZE: usize = 32768;
 const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
 

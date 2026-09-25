@@ -15,7 +15,7 @@ permissions:
   contents: read
 jobs:
   paired:
-    name: Same-index main vs 6346 (${{ inputs.size }})
+    name: ${{ inputs.suite == 'workers' && 'Segment and worker profiling' || 'Same-index main vs 6346' }} (${{ inputs.size }})
     timeout-minutes: 720
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -86,6 +86,7 @@ jobs:
             date) python3 -u benchmarks/diagnostics/partition_pruning.py "$EXPERIMENT_SIZE" ;;
             unchanged) python3 -u benchmarks/diagnostics/partition_layouts.py "$EXPERIMENT_SIZE" ;;
             segments) python3 -u benchmarks/diagnostics/partition_layouts.py "$EXPERIMENT_SIZE" ;;
+            workers) python3 -u benchmarks/diagnostics/segment_workers.py "$EXPERIMENT_SIZE" ;;
             *) echo "Unknown experiment suite"; exit 1 ;;
           esac
       - name: Preserve failure logs

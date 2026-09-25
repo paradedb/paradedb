@@ -31,13 +31,14 @@ on:
         type: boolean
         default: false
       pruning_suite:
-        description: "Isolated experiment: date probes, unchanged-query layouts, or a 16/48/64 segment-count sweep (1M only)."
+        description: "Isolated experiment: date probes, unchanged-query layouts, segment-count sweep, or segment/worker profiling (1M only)."
         type: choice
         default: date
         options:
           - date
           - unchanged
           - segments
+          - workers
       profile_pruning:
         description: "Capture DataFusion plans and system-wide perf counters for selected pruning cases."
         type: boolean

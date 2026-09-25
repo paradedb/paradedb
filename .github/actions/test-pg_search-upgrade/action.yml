@@ -254,7 +254,7 @@ runs:
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: cat ~"/.pgrx/${INPUTS_PG_VERSION}.log"
+      run: cat "${HOME}/.pgrx/${INPUTS_PG_VERSION}.log"
 
     - name: Print Crashdump Stacktrace
       if: always()

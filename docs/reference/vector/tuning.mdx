@@ -4,10 +4,11 @@ description: Trade recall against latency for vector search
 canonical: https://www.paradedb.com/docs/reference/vector/tuning
 ---
 
-Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. Two session-level settings control this tradeoff:
+Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. Three session-level settings control this tradeoff:
 
 ```sql
 SET paradedb.vector_cluster_max_probe = 0.02;
+SET paradedb.vector_recall_target = 1.0;
 SET paradedb.vector_router_recall = 0.99;
 ```
 
@@ -22,6 +23,16 @@ Within the ceiling, clusters that provably cannot improve the current top-K
 are skipped automatically using per-cluster bounds stored in the index; this
 skipping never reduces recall, so raising the ceiling only ever improves it.
 
+</ParamField>
+
+<ParamField body="paradedb.vector_recall_target" default={1.0}>
+  Lets easy queries stop before the ceiling. Below `1.0`, each segment stops
+  probing clusters once the estimated chance that the true top-K have been
+  found reaches this target; `1.0` disables this and probes until the
+  `vector_cluster_max_probe` ceiling or the ranked clusters run out. The
+  ceiling always applies. Must be between `0.000001` and `1.0`. Only applies to
+  indexes built with `vector_router = 'ivf'`, and only to vectors of 128 or
+  fewer dimensions. Set it per query with `SET LOCAL`.
 </ParamField>
 
 <ParamField body="paradedb.vector_router_recall" default={0.99}>

@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use crate::index::fast_fields_helper::{FFHelper, FFType};
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::heap::{VisibilityChecker, VisibilityStats};
 use crate::postgres::rel::PgSearchRelation;
 use pgrx::pg_sys;
 use tantivy::aggregation::agg_req::{AggregationVariants, Aggregations};
@@ -49,6 +49,7 @@ pub trait AggregationExec {
         heaprel: &PgSearchRelation,
         solve_mvcc: bool,
         limits: AggregationLimitsGuard,
+        visibility_stats: Option<Arc<Mutex<VisibilityStats>>>,
     ) -> (DistributedAggregationCollector, Option<VisibilityChecker>);
 }
 
@@ -60,6 +61,7 @@ impl AggregationExec for Aggregations {
         heaprel: &PgSearchRelation,
         solve_mvcc: bool,
         limits: AggregationLimitsGuard,
+        visibility_stats: Option<Arc<Mutex<VisibilityStats>>>,
     ) -> (DistributedAggregationCollector, Option<VisibilityChecker>) {
         let use_cardinality_fast_path = solve_mvcc
             && !self.is_empty()
@@ -79,9 +81,17 @@ impl AggregationExec for Aggregations {
             let vischeck = SendSyncWrapper(Arc::new(Mutex::new(
                 VisibilityChecker::with_rel_and_snap(heaprel, unsafe {
                     pg_sys::GetActiveSnapshot()
-                }),
+                })
+                .with_visibility_stats(visibility_stats.clone()),
             )));
+            let cardinality_stats = visibility_stats.clone();
             let factory: DocVisibilityFilterFactory = Arc::new(move |segment_reader| {
+                if let Some(stats) = &cardinality_stats {
+                    stats
+                        .lock()
+                        .record_segment(segment_reader, false)
+                        .expect("failed to read segment block bounds");
+                }
                 let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
                 let vischeck = vischeck.get().clone();
                 Some(Box::new(move |doc| {
@@ -98,6 +108,7 @@ impl AggregationExec for Aggregations {
             let ffhelper = Arc::new(FFHelper::for_ctid(reader));
             VisibilityChecker::with_rel_and_snap(heaprel, unsafe { pg_sys::GetActiveSnapshot() })
                 .with_ffhelper(ffhelper)
+                .with_visibility_stats(visibility_stats)
         });
         (collector, vischeck)
     }

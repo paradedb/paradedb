@@ -873,6 +873,17 @@ impl CustomScan for AggregateScan {
             .aggregate_clause
             .add_to_explainer(explainer);
 
+        if explainer.is_analyze() {
+            let stats = &state.custom_state().visibility_stats;
+            let [skipped, checked, total, requiring_checks] = stats.totals();
+            explainer.add_group("Visibility", |explainer| {
+                explainer.add_unsigned_integer("segments skipped", skipped, None);
+                explainer.add_unsigned_integer("segments checked", checked, None);
+                explainer.add_unsigned_integer("blocks total", total, None);
+                explainer.add_unsigned_integer("blocks requiring checks", requiring_checks, None);
+            });
+        }
+
         // Add note about recursive cost estimation if GUC is enabled
         if gucs::explain_recursive_estimates() && explainer.is_verbose() {
             explainer.add_text(

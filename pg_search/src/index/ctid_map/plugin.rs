@@ -49,6 +49,7 @@ impl PluginWriter for CtidMapWriter {
         Ok(())
     }
 
+    // No buffered state during indexing; temporary column buffers exist only during serialization.
     fn mem_usage(&self) -> usize {
         0
     }

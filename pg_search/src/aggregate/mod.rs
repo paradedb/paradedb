@@ -19,6 +19,7 @@ pub mod exec;
 
 use std::error::Error;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
@@ -38,6 +39,7 @@ use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
+use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -47,6 +49,7 @@ use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 use crate::query::tid_bitmap_stream::{BitmapCell, BitmapCursorSource};
 use crate::schema::SearchIndexSchema;
 
+use parking_lot::Mutex;
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::Aggregations;
@@ -92,6 +95,7 @@ struct Config {
     indexrelid: pg_sys::Oid,
     total_segments: usize,
     solve_mvcc: bool,
+    collect_visibility_stats: bool,
 
     memory_limit: u64,
     bucket_limit: u32,
@@ -145,6 +149,7 @@ impl ParallelAggregation {
         query: &SearchQueryInput,
         aggregation: &AggregateRequest,
         solve_mvcc: bool,
+        collect_visibility_stats: bool,
         memory_limit: u64,
         bucket_limit: u32,
         segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
@@ -161,6 +166,7 @@ impl ParallelAggregation {
                 indexrelid,
                 total_segments: segment_ids.len(),
                 solve_mvcc,
+                collect_visibility_stats,
                 memory_limit,
                 bucket_limit,
             },
@@ -223,6 +229,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
         solve_mvcc: bool,
+        collect_visibility_stats: bool,
         memory_limit: u64,
         bucket_limit: u32,
         state: &'a mut State,
@@ -233,6 +240,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 indexrelid,
                 total_segments: segment_ids.len(),
                 solve_mvcc,
+                collect_visibility_stats,
                 memory_limit,
                 bucket_limit,
             },
@@ -282,7 +290,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         expr_context: Option<*mut pg_sys::ExprContext>,
         planstate: Option<*mut pg_sys::PlanState>,
         existing_reader: Option<&SearchIndexReader>,
-    ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
+    ) -> anyhow::Result<Option<(IntermediateAggregationResults, VisibilityStats)>> {
         let segment_ids = self.checkout_segments(worker_style.worker_number());
         if segment_ids.is_empty() {
             return Ok(None);
@@ -338,8 +346,17 @@ impl<'a> ParallelAggregationWorker<'a> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should belong to a heap relation");
-        let (base_collector, vischeck) =
-            aggregations.plan(reader, &heaprel, self.config.solve_mvcc, limits);
+        let visibility_stats = self
+            .config
+            .collect_visibility_stats
+            .then(|| Arc::new(Mutex::new(VisibilityStats::default())));
+        let (base_collector, vischeck) = aggregations.plan(
+            reader,
+            &heaprel,
+            self.config.solve_mvcc,
+            limits,
+            visibility_stats.clone(),
+        );
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
@@ -353,7 +370,10 @@ impl<'a> ParallelAggregationWorker<'a> {
             unsafe { pg_sys::ParallelWorkerNumber },
             start.elapsed()
         );
-        Ok(Some(intermediate_results))
+        let stats = visibility_stats
+            .map(|stats| std::mem::take(&mut *stats.lock()))
+            .unwrap_or_default();
+        Ok(Some((intermediate_results, stats)))
     }
 }
 
@@ -445,6 +465,7 @@ pub fn execute_aggregate(
     expr_context: *mut pg_sys::ExprContext,
     planstate: *mut pg_sys::PlanState,
     mut bitmap_exec: Option<&mut BitmapExec>,
+    mut visibility_stats: Option<&mut VisibilityStats>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     // Resolve `visibility` to a single decision for this execution before anything
     // branches on it. `threshold` estimates the query's matching row count here
@@ -556,6 +577,7 @@ pub fn execute_aggregate(
             &query,
             &agg_req,
             solve_mvcc,
+            visibility_stats.is_some(),
             memory_limit,
             bucket_limit,
             segment_ids,
@@ -607,20 +629,28 @@ pub fn execute_aggregate(
                 if let Some(source) = leader_bitmap_source.clone() {
                     worker.attach_bitmap_source(source);
                 }
-                if let Some(result) = worker.execute_aggregate(
+                if let Some((result, stats)) = worker.execute_aggregate(
                     QueryWorkerStyle::ParallelLeader,
                     Some(expr_context),
                     Some(planstate),
                     None,
                 )? {
+                    if let Some(output) = visibility_stats.as_deref_mut() {
+                        output.merge(stats);
+                    }
                     agg_results.push(Ok(result));
                 }
             }
 
             // wait for workers to finish, collecting their intermediate aggregate results
             for (_worker_number, message) in process {
-                let worker_results =
-                    postcard::from_bytes::<IntermediateAggregationResults>(&message)?;
+                let (worker_results, stats) = postcard::from_bytes::<(
+                    IntermediateAggregationResults,
+                    VisibilityStats,
+                )>(&message)?;
+                if let Some(output) = visibility_stats.as_deref_mut() {
+                    output.merge(stats);
+                }
 
                 agg_results.push(Ok(worker_results));
             }
@@ -664,17 +694,21 @@ pub fn execute_aggregate(
                 ambulkdelete_epoch,
                 index.oid(),
                 solve_mvcc,
+                visibility_stats.is_some(),
                 memory_limit as _,
                 bucket_limit as _,
                 &mut state,
             );
 
-            if let Some(agg_results) = worker.execute_aggregate(
+            if let Some((agg_results, stats)) = worker.execute_aggregate(
                 QueryWorkerStyle::NonParallel,
                 Some(expr_context),
                 Some(planstate),
                 Some(&reader),
             )? {
+                if let Some(output) = visibility_stats {
+                    output.merge(stats);
+                }
                 Ok(agg_results.into_final_result(
                     {
                         let mut aggregations: Aggregations = agg_req.try_into()?;

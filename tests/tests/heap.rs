@@ -166,3 +166,89 @@ async fn visibility_map_shortcuts(database: Db) {
         }
     });
 }
+
+#[rstest]
+#[tokio::test]
+async fn visibility_explain_statistics(database: Db) {
+    let mut conn = database.connection().await;
+    r#"
+        CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+        CREATE TABLE visibility_stats_docs(id int PRIMARY KEY, title text, padding text)
+            WITH (autovacuum_enabled = false, fillfactor = 70);
+        INSERT INTO visibility_stats_docs
+            SELECT id, 'database', repeat('x', 600) FROM generate_series(1, 10000) id;
+        CREATE INDEX visibility_stats_idx ON visibility_stats_docs USING paradedb(id, title)
+            WITH (sort_by = 'ctid ASC NULLS FIRST', mutable_segment_rows = 0,
+                  target_segment_count = 2, layer_sizes = '10TB', background_layer_sizes = '0');
+        INSERT INTO visibility_stats_docs
+            SELECT id, 'database', repeat('x', 600) FROM generate_series(10001, 20000) id;
+    "#
+    .execute(&mut conn);
+    let query = "SELECT count(*) FROM visibility_stats_docs WHERE title === 'database'";
+    let (plain,): (serde_json::Value,) =
+        format!("EXPLAIN (FORMAT JSON) {query}").fetch_one(&mut conn);
+    assert!(plain[0]["Plan"].get("Visibility").is_none());
+
+    let mut expected_totals = None;
+    for phase in 0..3 {
+        if phase == 1 {
+            "VACUUM (INDEX_CLEANUP ON) visibility_stats_docs".execute(&mut conn);
+        } else if phase == 2 {
+            "UPDATE visibility_stats_docs SET padding = 'changed' WHERE id % 97 = 0"
+                .execute(&mut conn);
+        }
+        let mut expected_enabled = None;
+        for workers in [0, 2] {
+            format!("SET max_parallel_workers_per_gather = {workers}").execute(&mut conn);
+            for enabled in [true, false] {
+                format!("SET paradedb.enable_visibility_map_shortcuts = {enabled}")
+                    .execute(&mut conn);
+                let (plan,): (serde_json::Value,) =
+                    format!("EXPLAIN (ANALYZE, FORMAT JSON) {query}").fetch_one(&mut conn);
+                let visibility = &plan[0]["Plan"]["Visibility"];
+                let skipped = visibility["segments skipped"].as_u64().unwrap();
+                let checked = visibility["segments checked"].as_u64().unwrap();
+                let total = visibility["blocks total"].as_u64().unwrap();
+                let required = visibility["blocks requiring checks"].as_u64().unwrap();
+                assert!(skipped + checked >= 2);
+                assert!(total > 0);
+                assert!(required <= total);
+                if !enabled || phase == 0 {
+                    assert_eq!(skipped, 0);
+                    assert_eq!(required, total);
+                } else if phase == 1 {
+                    assert_eq!(checked, 0);
+                    assert_eq!(required, 0);
+                } else {
+                    assert!(checked > 0);
+                    assert!(required > 0 && required < total);
+                }
+                if let Some(expected) = expected_totals {
+                    assert_eq!((skipped + checked, total), expected);
+                } else {
+                    expected_totals = Some((skipped + checked, total));
+                }
+                if enabled {
+                    if let Some(expected) = &expected_enabled {
+                        assert_eq!(visibility, expected);
+                    } else {
+                        expected_enabled = Some(visibility.clone());
+                    }
+                }
+            }
+        }
+    }
+    let text: Vec<(String,)> = format!("EXPLAIN (ANALYZE) {query}").fetch(&mut conn);
+    assert!(text.iter().any(|(line,)| line.trim() == "Visibility:"));
+    for label in [
+        "segments skipped:",
+        "segments checked:",
+        "blocks total:",
+        "blocks requiring checks:",
+    ] {
+        assert!(
+            text.iter()
+                .any(|(line,)| line.trim_start().starts_with(label))
+        );
+    }
+}

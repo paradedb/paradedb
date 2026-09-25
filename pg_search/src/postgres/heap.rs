@@ -17,7 +17,7 @@
 
 use std::collections::VecDeque;
 use std::io;
-use std::ops::{Deref, Range};
+use std::ops::{Deref, Range, RangeInclusive};
 use std::slice;
 use std::sync::Arc;
 use std::vec::IntoIter;
@@ -77,6 +77,67 @@ crate::impl_safe_drop!(HeapBufferPin, |self| {
     }
 });
 
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct SegmentVisibilityStats {
+    skipped: bool,
+    blocks_total: u64,
+    blocks_requiring_checks: u64,
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct VisibilityStats {
+    segments: HashMap<SegmentId, SegmentVisibilityStats>,
+}
+
+impl VisibilityStats {
+    pub(crate) fn merge(&mut self, other: Self) {
+        self.segments.extend(other.segments);
+    }
+
+    fn record_bounds(&mut self, id: SegmentId, bounds: Option<RangeInclusive<BlockNumber>>) {
+        let total = bounds.map_or(0, |bounds| {
+            u64::from(*bounds.end()) + 1 - u64::from(*bounds.start())
+        });
+        self.segments.entry(id).or_insert(SegmentVisibilityStats {
+            blocks_total: total,
+            blocks_requiring_checks: total,
+            ..Default::default()
+        });
+    }
+
+    pub(crate) fn record_segment(
+        &mut self,
+        segment: &SegmentReader,
+        skipped: bool,
+    ) -> anyhow::Result<()> {
+        if !self.segments.contains_key(&segment.segment_id()) {
+            let bounds = if segment.max_doc() == 0 {
+                None
+            } else {
+                SearchIndexReader::block_bounds(segment)?
+            };
+            self.record_bounds(segment.segment_id(), bounds);
+        }
+        let stats = self.segments.get_mut(&segment.segment_id()).unwrap();
+        stats.skipped = skipped;
+        if skipped {
+            stats.blocks_requiring_checks = 0;
+        }
+        Ok(())
+    }
+
+    /// Block counts sum segment spans, including gaps and overlap between segments.
+    pub(crate) fn totals(&self) -> [u64; 4] {
+        let mut totals = [0; 4];
+        for stats in self.segments.values() {
+            totals[if stats.skipped { 0 } else { 1 }] += 1;
+            totals[2] += stats.blocks_total;
+            totals[3] += stats.blocks_requiring_checks;
+        }
+        totals
+    }
+}
+
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
 /// When querying ParadeDB indexes, individual ctid entries may be stale. After an UPDATE,
@@ -133,6 +194,7 @@ pub struct VisibilityChecker {
     segment_visibility: Option<(SegmentId, bool)>,
     dirty_blocks: HashMap<SegmentId, Arc<[Range<BlockNumber>]>>,
     segment_checks: HashMap<SegmentOrdinal, SegmentVisibilityChecks>,
+    visibility_stats: Option<Arc<Mutex<VisibilityStats>>>,
 }
 
 #[derive(Default)]
@@ -147,6 +209,7 @@ impl Clone for VisibilityChecker {
         let mut checker = Self::with_rel_and_snap(&self.heaprel, self.snapshot);
         checker.check_visibility = self.check_visibility;
         checker.ffhelper = self.ffhelper.clone();
+        checker.visibility_stats = self.visibility_stats.clone();
         checker
     }
 }
@@ -189,8 +252,17 @@ impl VisibilityChecker {
                 segment_visibility: None,
                 dirty_blocks: HashMap::default(),
                 segment_checks: HashMap::default(),
+                visibility_stats: None,
             }
         }
+    }
+
+    pub(crate) fn with_visibility_stats(
+        mut self,
+        stats: Option<Arc<Mutex<VisibilityStats>>>,
+    ) -> Self {
+        self.visibility_stats = stats;
+        self
     }
 
     /// Attaches an [`FFHelper`] for resolving segment `DocId`s to ctids directly.
@@ -338,7 +410,15 @@ impl VisibilityChecker {
         checker: &Arc<Mutex<Self>>,
         segment: &SegmentReader,
     ) -> tantivy::Result<Option<Arc<Mutex<Self>>>> {
-        Ok((!checker.lock().is_segment_all_visible(segment)?).then(|| checker.clone()))
+        let mut guard = checker.lock();
+        let all_visible = guard.is_segment_all_visible(segment)?;
+        if let Some(stats) = &guard.visibility_stats {
+            stats
+                .lock()
+                .record_segment(segment, all_visible)
+                .map_err(io::Error::other)?;
+        }
+        Ok((!all_visible).then(|| checker.clone()))
     }
 
     pub(crate) fn is_segment_all_visible(
@@ -370,6 +450,11 @@ impl VisibilityChecker {
             else {
                 break 'proof false;
             };
+            if let Some(stats) = &self.visibility_stats {
+                stats
+                    .lock()
+                    .record_bounds(segment.segment_id(), Some(blocks.clone()));
+            }
             let (first, last) = (*blocks.start(), *blocks.end());
             let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
             if vm_pages > 64 {
@@ -547,6 +632,21 @@ impl VisibilityChecker {
                         *range = segment.max_doc() - range.end..segment.max_doc() - range.start;
                     }
                     ranges.reverse();
+                }
+                if let Some(stats) = &self.visibility_stats {
+                    let mut stats = stats.lock();
+                    stats.record_bounds(
+                        segment.segment_id(),
+                        Some(map.block_range().start..=map.block_range().end - 1),
+                    );
+                    stats
+                        .segments
+                        .get_mut(&segment.segment_id())
+                        .unwrap()
+                        .blocks_requiring_checks = block_ranges
+                        .iter()
+                        .map(|blocks| u64::from(blocks.end - blocks.start))
+                        .sum();
                 }
                 Ok(Some(ranges))
             })()

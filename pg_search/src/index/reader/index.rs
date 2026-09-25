@@ -414,6 +414,7 @@ pub(crate) mod test_support {
     use super::SearchIndexReader;
     use crate::api::FieldName;
     use crate::index::mvcc::MvccSatisfies;
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::query::SearchQueryInput;
     use crate::query::pdb_query::pdb;
     use pgrx::Spi;
@@ -555,7 +556,7 @@ struct IndexComponents {
 }
 
 impl SearchIndexReader {
-    /// Reuses CTID statistics, falling back to the fast field for older segments.
+    /// Returns the minimum and maximum heap block numbers represented in the segment.
     pub(crate) fn block_bounds(
         segment: &SegmentReader,
     ) -> Result<Option<RangeInclusive<BlockNumber>>> {

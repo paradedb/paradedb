@@ -22,8 +22,8 @@ use std::slice;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use crate::api::HashMap;
 use crate::api::version::Version;
-use crate::api::{CTID_FIELD_NAME, HashMap, HashSet};
 use crate::gucs::enable_visibility_map_shortcuts;
 use crate::index::ctid_map::BlockToDocIdMap;
 use crate::index::fast_fields_helper::FFHelper;
@@ -98,45 +98,27 @@ impl VisibilityStats {
     pub(crate) fn record_segment(&mut self, segment: &SegmentReader, skipped: bool) {
         self.segments
             .entry(segment.segment_id())
+            .and_modify(|stats| stats.skipped = skipped)
             .or_insert(SegmentVisibilityStats {
                 skipped,
                 blocks_requiring_checks: skipped.then_some(0),
             });
     }
 
-    /// Count represented blocks for fallback segments, excluding holes in their spans.
-    pub(crate) fn finish(&mut self, reader: &SearchIndexReader) -> anyhow::Result<()> {
-        for segment in reader.segment_readers() {
-            let Some(stats) = self.segments.get_mut(&segment.segment_id()) else {
-                continue;
-            };
-            if stats.blocks_requiring_checks.is_some() {
-                continue;
-            }
-            let count = if let Some(mut map) = BlockToDocIdMap::open(segment)? {
-                map.count_blocks(&[map.block_range()])?
-            } else {
-                let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
-                let mut blocks = HashSet::default();
-                for (i, ctid) in ctids.values.iter().enumerate() {
-                    if i % 4096 == 0 {
-                        check_for_interrupts!();
-                    }
-                    blocks.insert(ctid >> 16);
-                }
-                blocks.len() as u64
-            };
-            stats.blocks_requiring_checks = Some(count);
-        }
-        Ok(())
-    }
-
-    /// Total counts heap blocks once; requiring checks sums represented blocks per segment.
+    /// Total counts heap blocks once; dirty counts come directly from each segment's VM scan.
     pub(crate) fn totals(&self) -> [u64; 4] {
         let mut totals = [0, 0, self.blocks_total, 0];
         for stats in self.segments.values() {
             totals[if stats.skipped { 0 } else { 1 }] += 1;
             totals[3] += stats.blocks_requiring_checks.unwrap_or_default();
+        }
+        // Without a VM scan, conservatively report the heap as requiring checks.
+        if self
+            .segments
+            .values()
+            .any(|stats| stats.blocks_requiring_checks.is_none())
+        {
+            totals[3] = self.blocks_total;
         }
         totals
     }
@@ -483,6 +465,7 @@ impl VisibilityChecker {
         let mut block = blocks.start / 32 * 32;
         let mut scratch = vec![TinySet::range_lower(32); util::HEAPBLOCKS_PER_PAGE as usize / 32];
         let mut ranges: Vec<Range<BlockNumber>> = Vec::new();
+        let mut dirty_count = 0;
         while block < blocks.end {
             check_for_interrupts!();
             let span = util::HEAPBLOCKS_PER_PAGE - block % util::HEAPBLOCKS_PER_PAGE;
@@ -491,7 +474,13 @@ impl VisibilityChecker {
             missing.fill(TinySet::range_lower(32));
             self.retain_invisible_blocks(block, missing);
             for (word, &bits) in missing.iter().enumerate() {
-                let mut bits = u64::from_le_bytes(bits.into_bytes());
+                let word_start = block + word as BlockNumber * 32;
+                let first = blocks.start.saturating_sub(word_start);
+                let end = (blocks.end - word_start).min(32);
+                let mut bits = u64::from_le_bytes(bits.into_bytes())
+                    & (u64::MAX << first)
+                    & (u64::MAX >> (64 - end));
+                dirty_count += u64::from(bits.count_ones());
                 while bits != 0 {
                     let bit = bits.trailing_zeros();
                     let len = (bits >> bit).trailing_ones();
@@ -509,6 +498,14 @@ impl VisibilityChecker {
                 }
             }
             block = block.saturating_add(words as BlockNumber * 32);
+        }
+        if let Some(stats) = &self.visibility_stats {
+            stats
+                .lock()
+                .segments
+                .entry(segment_id)
+                .or_default()
+                .blocks_requiring_checks = Some(dirty_count);
         }
         let ranges: Arc<[Range<BlockNumber>]> = ranges.into();
         self.dirty_blocks.insert(segment_id, ranges.clone());
@@ -631,14 +628,6 @@ impl VisibilityChecker {
                         *range = segment.max_doc() - range.end..segment.max_doc() - range.start;
                     }
                     ranges.reverse();
-                }
-                if let Some(stats) = &self.visibility_stats {
-                    let mut stats = stats.lock();
-                    stats
-                        .segments
-                        .get_mut(&segment.segment_id())
-                        .unwrap()
-                        .blocks_requiring_checks = Some(map.count_blocks(&block_ranges)?);
                 }
                 Ok(Some(ranges))
             })()

@@ -18,7 +18,6 @@ DECLARE
     visibility jsonb;
     expected_enabled jsonb;
     expected_totals bigint[];
-    expected_fallback bigint;
     skipped bigint;
     checked bigint;
     total bigint;
@@ -45,10 +44,9 @@ BEGIN
             ASSERT skipped + checked >= 2 AND total > 0;
             ASSERT total = pg_relation_size('visibility_stats_docs') / current_setting('block_size')::bigint;
             IF NOT enabled THEN
-                expected_fallback := required;
-                ASSERT skipped = 0 AND required >= total;
+                ASSERT skipped = 0 AND required = total;
             ELSIF phase = 'dirty' THEN
-                ASSERT skipped = 0 AND required = expected_fallback;
+                ASSERT skipped = 0 AND required >= total;
             ELSIF phase = 'visible' THEN
                 ASSERT checked = 0 AND required = 0;
             ELSE
@@ -85,7 +83,7 @@ SELECT check_visibility_stats('mixed');
 UPDATE visibility_stats_docs SET title = title WHERE id % 41 = 0;
 SELECT check_visibility_stats('mixed');
 
--- Two indexed blocks separated by thousands of unindexed blocks, with and without a map.
+-- Count VM bits directly, including a dirty block in a gap of the sparse segment.
 CREATE FUNCTION check_sparse_visibility_stats() RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
     plan jsonb;
@@ -95,11 +93,12 @@ BEGIN
         WHERE title === 'database' AND id IN (1, 20000)$q$ INTO plan;
     ASSERT (plan #>> '{0,Plan,Visibility,Blocks Total}')::bigint =
         pg_relation_size('visibility_stats_docs') / current_setting('block_size')::bigint;
-    ASSERT (plan #>> '{0,Plan,Visibility,Blocks Requiring Checks}')::bigint = 2;
+    ASSERT (plan #>> '{0,Plan,Visibility,Blocks Requiring Checks}')::bigint = 3;
 END;
 $$;
 DROP INDEX visibility_stats_idx;
-UPDATE visibility_stats_docs SET padding = 'dirty endpoints' WHERE id IN (1, 20000);
+VACUUM visibility_stats_docs;
+UPDATE visibility_stats_docs SET padding = 'dirty blocks' WHERE id IN (1, 10000, 20000);
 CREATE INDEX visibility_stats_idx ON visibility_stats_docs USING paradedb(id, title)
     WITH (sort_by = 'ctid ASC NULLS FIRST', mutable_segment_rows = 0, target_segment_count = 1)
     WHERE id IN (1, 20000);

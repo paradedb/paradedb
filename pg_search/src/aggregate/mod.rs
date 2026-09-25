@@ -370,13 +370,9 @@ impl<'a> ParallelAggregationWorker<'a> {
             unsafe { pg_sys::ParallelWorkerNumber },
             start.elapsed()
         );
-        let stats = if let Some(stats) = visibility_stats {
-            let mut stats = stats.lock();
-            stats.finish(reader)?;
-            std::mem::take(&mut *stats)
-        } else {
-            VisibilityStats::default()
-        };
+        let stats = visibility_stats
+            .map(|stats| std::mem::take(&mut *stats.lock()))
+            .unwrap_or_default();
         Ok(Some((intermediate_results, stats)))
     }
 }

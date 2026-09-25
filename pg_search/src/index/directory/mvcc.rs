@@ -662,7 +662,7 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(
+                            SegmentComponentReader::new_uncommitted(
                                 &self.indexrel,
                                 file_entry,
                                 path.extension()

@@ -1,3 +1,4 @@
+SET paradedb.enable_range_partitioned_join TO off;
 -- DataFusion aggregate scan
 SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT p.post_type_id, COUNT(*), SUM(c.score)
 FROM stackoverflow_posts p

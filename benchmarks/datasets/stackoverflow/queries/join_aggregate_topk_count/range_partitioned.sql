@@ -1,5 +1,5 @@
 -- DataFusion TopK aggregate scan with range partitioned join
-SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_range_partitioned_join TO on; SELECT
+SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_range_partitioned_join TO DEFAULT; SELECT
     b.name,
     COUNT(*)
 FROM stackoverflow_posts p

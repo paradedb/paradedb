@@ -1,3 +1,4 @@
+SET paradedb.enable_range_partitioned_join TO off;
 SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
   users.id,
   stackoverflow_posts.id,

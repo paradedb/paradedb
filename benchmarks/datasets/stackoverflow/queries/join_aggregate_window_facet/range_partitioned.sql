@@ -1,5 +1,5 @@
 -- FIXME(https://github.com/paradedb/paradedb/issues/6359): Switch this query from PARTITION BY window functions to pdb.agg once supported over joins.
-SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_range_partitioned_join TO on; SELECT
+SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_range_partitioned_join TO DEFAULT; SELECT
     c.id,
     p.post_type_id,
     p.owner_user_id,

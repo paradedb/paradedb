@@ -1,3 +1,4 @@
+SET paradedb.enable_range_partitioned_join TO off;
 SET work_mem TO '8GB'; SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT
     u.id,
     u.display_name,

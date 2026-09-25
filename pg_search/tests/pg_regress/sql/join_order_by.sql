@@ -125,7 +125,6 @@ LIMIT 5 OFFSET 10;
 
 SET max_parallel_workers_per_gather = 2;
 SET paradedb.mpp_min_rows = 0;
-SET paradedb.enable_range_partitioned_join = on;
 
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.val, t2.val
@@ -142,7 +141,6 @@ WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5 OFFSET 10;
 
-RESET paradedb.enable_range_partitioned_join;
 RESET paradedb.mpp_min_rows;
 SET max_parallel_workers_per_gather = 0;
 

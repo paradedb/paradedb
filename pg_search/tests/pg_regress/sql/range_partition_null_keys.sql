@@ -8,7 +8,6 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.enable_range_partitioned_join TO on;
 SET paradedb.mpp_min_rows TO 0;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
@@ -58,7 +57,6 @@ DROP TABLE rpn_posts;
 DROP TABLE rpn_users;
 
 RESET paradedb.enable_join_custom_scan;
-RESET paradedb.enable_range_partitioned_join;
 RESET paradedb.mpp_min_rows;
 RESET max_parallel_workers;
 RESET max_parallel_workers_per_gather;

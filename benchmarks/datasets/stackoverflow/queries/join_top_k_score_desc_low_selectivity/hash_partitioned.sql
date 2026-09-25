@@ -1,3 +1,4 @@
+SET paradedb.enable_range_partitioned_join TO off;
 -- version with scan on (pg-search-driven join)
 SET paradedb.enable_join_custom_scan TO on; SELECT 
   p.id, 

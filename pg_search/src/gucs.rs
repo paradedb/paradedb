@@ -70,7 +70,7 @@ static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle range co-partitioning for joins.
-static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
+static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
@@ -409,7 +409,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.enable_range_partitioned_join",
         c"Allows the user to enable or disable range co-partitioned joins",
-        c"When enabled, DataFusion optimizer rules co-partition inner joins across tables on the split points a partitioned build recorded. Both tables must define partition_by on the join key. An index created empty records no split points until it is reindexed. Default is false.",
+        c"When enabled, DataFusion optimizer rules co-partition inner joins across tables on the split points a partitioned build recorded. Both tables must define partition_by on the join key. An index created empty records no split points until it is reindexed. Default is true.",
         &ENABLE_RANGE_PARTITIONED_JOIN,
         GucContext::Userset,
         GucFlags::default(),

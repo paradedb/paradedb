@@ -25,6 +25,8 @@ use std::io;
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 
+use pgrx::pg_sys::BlockNumber;
+use tantivy::DocId;
 use tantivy::columnar::column_values::CodecType;
 use tantivy::columnar::{
     Cardinality, Column, ColumnType, ColumnarReader, ColumnarWriter, DynamicColumn,
@@ -34,6 +36,7 @@ use tantivy::index::{Segment, SegmentComponent};
 use tantivy::schema::Field;
 
 use crate::api::CTID_FIELD_NAME;
+use crate::postgres::heap::HeapBlockBoundary;
 
 pub(super) const COLUMNS_IDX: usize = 3;
 const PAGE_BOUNDARIES: &str = "page_boundaries";
@@ -118,24 +121,24 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> tantivy::Res
 }
 
 pub(crate) struct HeapBlockMap {
-    first_block: u32,
-    last_block: u32,
-    docs: u32,
+    first_block: BlockNumber,
+    last_block: BlockNumber,
+    docs: DocId,
     file: Arc<CompositeFile>,
     field: Field,
     values: Option<(usize, Column<u64>)>,
 }
 
 impl HeapBlockMap {
-    /// Uses the CTID column bounds without reading the boundary column.
+    /// Uses heap-block bounds without reading the boundary column.
     pub(super) fn open(
-        ctids: RangeInclusive<u64>,
-        docs: u32,
+        blocks: RangeInclusive<BlockNumber>,
+        docs: DocId,
         file: Arc<CompositeFile>,
         field: Field,
     ) -> io::Result<Self> {
-        let first_block = u32::try_from(*ctids.start() >> 16).map_err(|_| invalid())?;
-        let last_block = u32::try_from(*ctids.end() >> 16).map_err(|_| invalid())?;
+        let first_block = *blocks.start();
+        let last_block = *blocks.end();
         if docs == 0 || first_block > last_block {
             return Err(invalid());
         }
@@ -150,15 +153,15 @@ impl HeapBlockMap {
     }
 
     /// Returns the heap-page span covered by the boundary column.
-    pub(crate) fn block_range(&self) -> Range<u64> {
+    pub(crate) fn block_range(&self) -> Range<HeapBlockBoundary> {
         u64::from(self.first_block)..u64::from(self.last_block) + 1
     }
 
     /// Batch-decodes dirty page endpoints and coalesces their document ranges.
     pub(crate) fn append_ranges(
         &mut self,
-        pages: &[Range<u64>],
-        ranges: &mut Vec<Range<u32>>,
+        pages: &[Range<HeapBlockBoundary>],
+        ranges: &mut Vec<Range<DocId>>,
     ) -> io::Result<()> {
         let blocks: Vec<_> = pages
             .iter()
@@ -184,7 +187,11 @@ impl HeapBlockMap {
     }
 
     /// Reads sorted boundaries in batches, retaining only the current column chunk.
-    fn boundaries(&mut self, mut blocks: &[u64], mut output: &mut [u32]) -> io::Result<()> {
+    fn boundaries(
+        &mut self,
+        mut blocks: &[HeapBlockBoundary],
+        mut output: &mut [DocId],
+    ) -> io::Result<()> {
         debug_assert_eq!(blocks.len(), output.len());
         debug_assert!(blocks.is_sorted());
         while let Some(&block) = blocks.first() {
@@ -230,7 +237,7 @@ impl HeapBlockMap {
             }
             let (batch, rest) = output.split_at_mut(len);
             for (&block, boundary) in blocks[..len].iter().zip(batch) {
-                *boundary = values.values.get_val((block - chunk_start) as u32) as u32;
+                *boundary = values.values.get_val((block - chunk_start) as u32) as DocId;
             }
             blocks = &blocks[len..];
             output = rest;

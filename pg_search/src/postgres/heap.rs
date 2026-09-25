@@ -30,15 +30,19 @@ use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuff
 use crate::postgres::utils;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use parking_lot::Mutex;
-use pgrx::pg_sys;
+use pgrx::pg_sys::{self, BlockNumber};
 use pgrx::{PgList, PgTupleDesc, check_for_interrupts};
 use tantivy::SegmentReader;
 use tantivy::columnar::Cardinality;
 use tantivy::index::SegmentId;
 use tantivy::{DocId, Order, SegmentOrdinal, TantivyDocument};
+use tantivy_common::TinySet;
 
 use util::HEAPBLOCKS_PER_BYTE;
 use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
+
+/// A heap-page boundary, including the exclusive endpoint beyond the last block.
+pub(crate) type HeapBlockBoundary = u64;
 
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
@@ -51,7 +55,7 @@ impl HeapBufferPin {
     ///
     /// # Safety
     /// `heaprel` must stay open for the lifetime of the returned pin.
-    pub(crate) unsafe fn read(heaprel: &PgSearchRelation, blockno: pg_sys::BlockNumber) -> Self {
+    pub(crate) unsafe fn read(heaprel: &PgSearchRelation, blockno: BlockNumber) -> Self {
         Self(pg_sys::ReadBufferExtended(
             heaprel.as_ptr(),
             pg_sys::ForkNumber::MAIN_FORKNUM,
@@ -103,18 +107,18 @@ pub struct VisibilityChecker {
     heaprel: PgSearchRelation,
     bman: BufferManager,
 
-    vm_block_no: Option<pg_sys::BlockNumber>,
+    vm_block_no: Option<BlockNumber>,
     vmbuff: pg_sys::Buffer,
     // tracks our previous block visibility so we can elide checking again
-    blockvis: (pg_sys::BlockNumber, bool),
+    blockvis: (BlockNumber, bool),
 
     /// Cached relation size (in blocks) at scan start. Used to cheaply skip
     /// stale ctids pointing to pages truncated by a previous VACUUM.
-    nblocks: pg_sys::BlockNumber,
+    nblocks: BlockNumber,
 
     /// Pin on the heap block last checked by `resolve_visible`, held across
     /// calls since consecutive checks tend to hit the same block.
-    cached_heap_block: pg_sys::BlockNumber,
+    cached_heap_block: BlockNumber,
     cached_heap_pin: Option<PinnedBuffer>,
 
     pub heap_tuple_check_count: usize,
@@ -226,7 +230,7 @@ impl VisibilityChecker {
         slot: *mut pg_sys::TupleTableSlot,
         mut func: F,
     ) -> Option<T> {
-        let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+        let blockno = (ctid >> 16) as BlockNumber;
         if blockno >= self.nblocks {
             self.invisible_tuple_count += 1;
             return None;
@@ -266,7 +270,7 @@ impl VisibilityChecker {
     /// Returns true if the tuple was found and visible, false otherwise.
     pub fn fetch_tuple_direct(&self, ctid: u64, slot: *mut pg_sys::TupleTableSlot) -> bool {
         unsafe {
-            let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+            let blockno = (ctid >> 16) as BlockNumber;
             if blockno >= self.nblocks {
                 return false;
             }
@@ -284,7 +288,7 @@ impl VisibilityChecker {
     }
 
     /// Returns true if the block is all visible.
-    pub fn is_block_all_visible(&mut self, blockno: pg_sys::BlockNumber) -> bool {
+    pub fn is_block_all_visible(&mut self, blockno: BlockNumber) -> bool {
         if blockno == self.blockvis.0 {
             return self.blockvis.1;
         }
@@ -378,11 +382,7 @@ impl VisibilityChecker {
         Ok(visible)
     }
 
-    fn is_range_all_visible(
-        &mut self,
-        first: pg_sys::BlockNumber,
-        last: pg_sys::BlockNumber,
-    ) -> bool {
+    fn is_range_all_visible(&mut self, first: BlockNumber, last: BlockNumber) -> bool {
         if first > last || last >= self.nblocks {
             return false;
         }
@@ -420,7 +420,7 @@ impl VisibilityChecker {
     }
 
     /// Clears all-visible heap blocks from the candidate bitmap, pinning each VM page once.
-    fn retain_invisible_blocks(&mut self, first_block: u32, mut blocks: &mut [u32]) {
+    fn retain_invisible_blocks(&mut self, first_block: BlockNumber, mut blocks: &mut [TinySet]) {
         const ALL_VISIBLE_BITS: u64 = 0x5555_5555_5555_5555;
         const LOW_PAIR_PER_NIBBLE: u64 = 0x3333_3333_3333_3333;
         const LOW_NIBBLE_PER_BYTE: u64 = 0x0f0f_0f0f_0f0f_0f0f;
@@ -453,13 +453,13 @@ impl VisibilityChecker {
                 // The VM alternates all-visible and all-frozen bits. Keep only all-visible bits,
                 // then pack them into a u32 by doubling the occupied group size at each step.
                 for (bytes, blocks) in map.chunks_exact(8).zip(&mut page_blocks[..valid_words]) {
-                    if *blocks == 0 {
+                    if blocks.is_empty() {
                         continue;
                     }
                     let mut visible =
                         u64::from_le_bytes(bytes.try_into().unwrap()) & ALL_VISIBLE_BITS;
                     if visible == ALL_VISIBLE_BITS {
-                        *blocks = 0;
+                        blocks.clear();
                         continue;
                     }
                     visible = (visible | (visible >> 1)) & LOW_PAIR_PER_NIBBLE;
@@ -467,10 +467,11 @@ impl VisibilityChecker {
                     visible = (visible | (visible >> 4)) & LOW_BYTE_PER_U16;
                     visible = (visible | (visible >> 8)) & LOW_U16_PER_U32;
                     visible = (visible | (visible >> 16)) & u64::from(u32::MAX);
-                    *blocks &= !(visible as u32);
+                    *blocks = blocks.intersect(TinySet::deserialize((!visible).to_le_bytes()));
                 }
                 if !valid.is_multiple_of(32) {
-                    page_blocks[valid_words - 1] |= last & (u32::MAX << (valid % 32));
+                    page_blocks[valid_words - 1] = page_blocks[valid_words - 1]
+                        .union(last.intersect(TinySet::range_greater_or_equal(valid % 32)));
                 }
             }
             block += words as u64 * 32;
@@ -520,8 +521,9 @@ impl VisibilityChecker {
                 let first = map.block_range().start;
                 let end = map.block_range().end;
                 let mut block = first / 32 * 32;
-                let mut scratch = vec![u32::MAX; util::HEAPBLOCKS_PER_PAGE as usize / 32];
-                let mut pending: Option<Range<u64>> = None;
+                let mut scratch =
+                    vec![TinySet::range_lower(32); util::HEAPBLOCKS_PER_PAGE as usize / 32];
+                let mut pending: Option<Range<HeapBlockBoundary>> = None;
                 let mut ranges = Vec::new();
                 let mut pages = Vec::with_capacity(RANGES_PER_BATCH);
                 while block < end {
@@ -530,14 +532,14 @@ impl VisibilityChecker {
                         - block % u64::from(util::HEAPBLOCKS_PER_PAGE);
                     let words = (end - block).min(span).div_ceil(32) as usize;
                     let missing = &mut scratch[..words];
-                    missing.fill(u32::MAX);
-                    self.retain_invisible_blocks(block as u32, missing);
+                    missing.fill(TinySet::range_lower(32));
+                    self.retain_invisible_blocks(block as BlockNumber, missing);
                     for (word, &bits) in missing.iter().enumerate() {
-                        let mut bits = bits;
+                        let mut bits = u64::from_le_bytes(bits.into_bytes());
                         while bits != 0 {
                             let bit = bits.trailing_zeros();
                             let len = (bits >> bit).trailing_ones();
-                            bits &= !((u32::MAX >> (32 - len)) << bit);
+                            bits &= !((u64::MAX >> (64 - len)) << bit);
                             let start = block + word as u64 * 32 + u64::from(bit);
                             let range = start.max(first)..(start + u64::from(len)).min(end);
                             if range.is_empty() {
@@ -754,7 +756,7 @@ impl VisibilityChecker {
         let mut current_block = pg_sys::InvalidBlockNumber;
 
         for (idx, ctid) in sorted_indices {
-            let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+            let blockno = (ctid >> 16) as BlockNumber;
             // acquire the block's buffer once per run of same-block ctids and
             // hold its lock across the run; resolve_visible's own VM re-check
             // hits the blockvis cache
@@ -786,7 +788,7 @@ impl VisibilityChecker {
         locked_buffer: Option<pg_sys::Buffer>,
         resolve_hot: bool,
     ) -> Option<u64> {
-        let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+        let blockno = (ctid >> 16) as BlockNumber;
         if blockno >= self.nblocks {
             self.invisible_tuple_count += 1;
             return None;
@@ -854,7 +856,7 @@ pub struct HeapFetchState {
 
     /// Cached relation size (in blocks) at scan start. Used to cheaply skip
     /// stale ctids pointing to pages truncated by a previous VACUUM.
-    nblocks: pg_sys::BlockNumber,
+    nblocks: BlockNumber,
 }
 
 impl HeapFetchState {

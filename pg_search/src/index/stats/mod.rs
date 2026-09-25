@@ -30,6 +30,7 @@ use std::io;
 use std::ops::Bound;
 use std::sync::Arc;
 
+use pgrx::pg_sys::BlockNumber;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tantivy::columnar::Cardinality;
@@ -516,8 +517,15 @@ impl SegmentStats {
         let Some((min, max)) = self.ctid_bounds(segment).map_err(io::Error::other)? else {
             return Ok(None);
         };
-        heap_blocks::HeapBlockMap::open(min..=max, segment.max_doc(), self.file.clone(), field)
-            .map(Some)
+        let first_block = BlockNumber::try_from(min >> 16).map_err(io::Error::other)?;
+        let last_block = BlockNumber::try_from(max >> 16).map_err(io::Error::other)?;
+        heap_blocks::HeapBlockMap::open(
+            first_block..=last_block,
+            segment.max_doc(),
+            self.file.clone(),
+            field,
+        )
+        .map(Some)
     }
 
     fn read<T: DeserializeOwned>(&self, field: Field, idx: usize) -> io::Result<Option<T>> {

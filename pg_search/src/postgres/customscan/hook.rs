@@ -466,7 +466,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 
     if !pg_search_extension_installed() {
         let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
-            prev_hook(parse, query_string, cursor_options, bound_params)
+            pg_sys::ffi::pg_guard_ffi_boundary(|| {
+                prev_hook(parse, query_string, cursor_options, bound_params)
+            })
         } else {
             pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
         };
@@ -498,7 +500,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     // Call the previous planner hook (e.g., Citus) or standard planner
     // PREV_PLANNER_HOOK is defined at module level to ensure proper hook chaining
     let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
-        prev_hook(parse, query_string, cursor_options, bound_params)
+        pg_sys::ffi::pg_guard_ffi_boundary(|| {
+            prev_hook(parse, query_string, cursor_options, bound_params)
+        })
     } else {
         pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
     };
@@ -910,5 +914,52 @@ pub fn register_subplan_join_pathlist() {
             PREV_HOOK = pg_sys::set_rel_pathlist_hook;
         }
         pg_sys::set_rel_pathlist_hook = Some(callback);
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::api::operator::planning;
+    use pgrx::pg_sys::panic::CaughtError;
+    use pgrx::{PgSqlErrorCode, PgTryBuilder, Spi, pg_test};
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn erroring_planner_hook(
+        _parse: *mut pg_sys::Query,
+        _query_string: *const core::ffi::c_char,
+        _cursor_options: core::ffi::c_int,
+        _bound_params: pg_sys::ParamListInfo,
+    ) -> *mut pg_sys::PlannedStmt {
+        assert!(planning::is_active());
+        pgrx::error!("chained planner hook failed");
+    }
+
+    #[pg_test]
+    fn chained_planner_error_drops_estimate_scope() {
+        assert!(!planning::is_active());
+        let previous = unsafe { PREV_PLANNER_HOOK };
+        unsafe { PREV_PLANNER_HOOK = Some(erroring_planner_hook) };
+        let caught = PgTryBuilder::new(|| {
+            Spi::run("SELECT 1").unwrap();
+            false
+        })
+        .catch_when(
+            PgSqlErrorCode::ERRCODE_INTERNAL_ERROR,
+            |cause| match cause {
+                CaughtError::PostgresError(report) => {
+                    assert_eq!(report.message(), "chained planner hook failed");
+                    true
+                }
+                other => other.rethrow(),
+            },
+        )
+        .finally(|| unsafe { PREV_PLANNER_HOOK = previous })
+        .execute();
+        assert!(caught);
+        assert!(!planning::is_active());
+        assert_eq!(Spi::get_one::<i32>("SELECT 1").unwrap(), Some(1));
+        assert!(!planning::is_active());
     }
 }

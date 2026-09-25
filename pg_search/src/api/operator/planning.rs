@@ -49,6 +49,11 @@ impl Drop for EstimateScope {
     }
 }
 
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) fn is_active() -> bool {
+    ACTIVE.with_borrow(Option::is_some)
+}
+
 pub(crate) fn segment_count(index: Oid) -> Option<usize> {
     ACTIVE.with_borrow(|state| {
         let (source, _, estimate) = state.as_ref()?.last.as_ref()?;

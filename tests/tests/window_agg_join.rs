@@ -18,9 +18,10 @@
 //! Global window aggregates (empty `OVER ()`) over a join with fast-field join
 //! keys: the join itself is JoinScan-compatible, so the window aggregate must
 //! not be a reason for the custom scans to decline (issue #5637). The plan
-//! assertions verify the JoinScan absorbs the window aggregates; the value
-//! assertions must hold no matter which plan executes. The pg_regress twins
-//! are Tests 27b/27c in `pg_search/tests/pg_regress/sql/topk-agg-facet.sql`.
+//! assertions verify the JoinScan absorbs the window aggregates into its Top-K
+//! aggregate node; the value assertions must hold no matter which plan
+//! executes. The pg_regress twins are Tests 27b/27c in
+//! `pg_search/tests/pg_regress/sql/topk-agg-facet.sql`.
 
 use rstest::*;
 use sqlx::PgConnection;
@@ -65,6 +66,22 @@ fn explain(conn: &mut PgConnection, query: &str) -> String {
     lines.join("\n")
 }
 
+/// The JoinScan computes the window aggregates in its Top-K aggregate node,
+/// beside `topk_as_agg`; no window operator exists anywhere in the plan.
+fn assert_windows_in_topk_agg(plan: &str) {
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    assert!(!plan.contains("WindowAgg "), "{plan}");
+    assert!(!plan.contains("WindowAggExec"), "{plan}");
+    let aggregate = plan
+        .lines()
+        .find(|line| line.contains("AggregateExec"))
+        .unwrap_or_else(|| panic!("no AggregateExec in plan:\n{plan}"));
+    assert!(
+        aggregate.contains("topk_as_agg(") && aggregate.contains("as window_agg_"),
+        "{aggregate}"
+    );
+}
+
 #[derive(Debug, Clone, Copy)]
 enum WindowJoinCase {
     /// Every SQL-native aggregate that window_func.rs can convert, as one
@@ -105,12 +122,8 @@ fn global_window_aggregates_over_join(
             "#;
 
             // The custom scans absorb the global window aggregates (#5637),
-            // so the JoinScan engages and no WindowAgg node remains, while a
-            // WindowAggExec now exists.
-            let plan = explain(&mut conn, query);
-            assert!(plan.contains(JOIN_SCAN), "{plan}");
-            assert!(!plan.contains("WindowAgg "), "{plan}");
-            assert!(plan.contains("WindowAggExec"), "{plan}");
+            // so the JoinScan engages and no WindowAgg node remains.
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
 
             let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i32, i32)>(&mut conn)?;
             assert_eq!(rows.len(), 3);
@@ -141,10 +154,7 @@ fn global_window_aggregates_over_join(
                 LIMIT 3
             "#;
 
-            let plan = explain(&mut conn, query);
-            assert!(plan.contains(JOIN_SCAN), "{plan}");
-            assert!(!plan.contains("WindowAgg "), "{plan}");
-            assert!(plan.contains("WindowAggExec"), "{plan}");
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
 
             let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i64)>(&mut conn)?;
             assert_eq!(rows.len(), 3);
@@ -240,10 +250,7 @@ fn global_window_aggregates_over_join_numeric(
                 LIMIT 3
             "#;
 
-            let plan = explain(&mut conn, query);
-            assert!(plan.contains(JOIN_SCAN), "{plan}");
-            assert!(!plan.contains("WindowAgg "), "{plan}");
-            assert!(plan.contains("WindowAggExec"), "{plan}");
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
 
             let rows = query.fetch_result::<(i32, f64, i64, f64, f64, f64, f64)>(&mut conn)?;
             assert_eq!(rows.len(), 3);
@@ -341,13 +348,9 @@ fn global_window_aggregates_over_pruned_anti_join(
         LIMIT 10
     "#;
 
-    let plan = explain(&mut conn, query);
-    assert!(plan.contains(JOIN_SCAN), "{plan}");
-    assert!(!plan.contains("WindowAgg "), "{plan}");
-    // COUNT(*) is a real window over the surviving rows; the pruned-argument
-    // aggregates are plan-time constants that never reach the window
-    // operator.
-    assert!(plan.contains("WindowAggExec"), "{plan}");
+    // COUNT(*) is a real aggregate over the surviving rows; the pruned-argument
+    // aggregates are plan-time constants that never reach the aggregate node.
+    assert_windows_in_topk_agg(&explain(&mut conn, query));
 
     let rows = query
         .fetch_result::<(i64, Option<f64>, i64, i64, Option<bigdecimal::BigDecimal>)>(&mut conn)?;
@@ -358,6 +361,71 @@ fn global_window_aggregates_over_pruned_anti_join(
         assert_eq!(*matched_count, 0);
         assert_eq!(*total_count, 3);
         assert_eq!(*total_price, None);
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+enum WindowShape {
+    /// A LIMIT with no ORDER BY: the Top-K aggregate keeps any three rows,
+    /// and the window aggregate still counts the whole join.
+    NoOrderBy,
+    /// The window aggregates run inside the Top-K aggregate, which needs k at
+    /// planning time; a parameterized LIMIT declines and PostgreSQL computes
+    /// the query.
+    ParameterizedLimitDeclines,
+}
+
+#[rstest]
+#[case::no_order_by(WindowShape::NoOrderBy)]
+#[case::parameterized_limit_declines(WindowShape::ParameterizedLimitDeclines)]
+fn global_window_aggregates_query_shapes(
+    mut conn: PgConnection,
+    #[case] shape: WindowShape,
+) -> Result<(), sqlx::Error> {
+    setup(&mut conn);
+
+    match shape {
+        WindowShape::NoOrderBy => {
+            let query = r#"
+                SELECT p.id, COUNT(*) OVER () AS total_count
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                LIMIT 3
+            "#;
+
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
+
+            let rows = query.fetch_result::<(i32, i64)>(&mut conn)?;
+            assert_eq!(rows.len(), 3);
+            assert!(
+                rows.iter().all(|(id, total)| id % 2 == 1 && *total == 1000),
+                "{rows:?}"
+            );
+        }
+        WindowShape::ParameterizedLimitDeclines => {
+            r#"
+            SET plan_cache_mode = force_generic_plan;
+            PREPARE wj_page AS
+                SELECT p.id, COUNT(*) OVER () AS total_count
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY r.score DESC
+                LIMIT $1;
+            "#
+            .execute(&mut conn);
+
+            let plan = explain(&mut conn, "EXECUTE wj_page(3)");
+            assert!(!plan.contains(JOIN_SCAN), "{plan}");
+
+            let rows = "EXECUTE wj_page(3)".fetch_result::<(i32, i64)>(&mut conn)?;
+            assert_eq!(rows, vec![(999, 1000), (997, 1000), (995, 1000)]);
+
+            "DEALLOCATE wj_page".execute(&mut conn);
+        }
     }
 
     Ok(())

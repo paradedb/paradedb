@@ -32,12 +32,13 @@
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
+use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
 use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
 use datafusion::functions::expr_fn::get_field;
-use datafusion::logical_expr::expr::WindowFunction;
+use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::{
-    Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions, SortExpr,
-    WindowFunctionDefinition, col,
+    AggregateUDF, Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
+    SortExpr, col,
 };
 use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -870,14 +871,16 @@ fn build_clause_df<'a>(
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
-        let df = apply_window_functions(df, join_clause)?;
-
-        // 4. DISTINCT + Top-(offset + K). When enabled, rows come
-        // back as (offset + k) rows, not necessarily in order, and the sort, limit
+        // 4. DISTINCT + Top-(offset + K) as one aggregate node. Rows come back
+        // as (offset + k) rows, not necessarily in order, and the sort, limit
         // and output projection below resolve through `distinct_col_map` as before.
+        // Window aggregates always take this path: they are computed in the same
+        // aggregate node (see `topk_aggregate`), so planning declines a window
+        // query whose k is not statically known.
         //
-        // When disabled, use apply_distinct_group_by
-        let (df, distinct_col_map) = if gucs::joinscan_force_topk_as_agg()
+        // Otherwise DISTINCT runs as a GROUP BY and the Top-K as a SortExec(fetch).
+        let (df, distinct_col_map) = if (gucs::joinscan_force_topk_as_agg()
+            || !join_clause.window_aggs.is_empty())
             // The Top-K aggregate needs a known k
             && let Some(k) = topk_as_agg_limit(join_clause.limit_offset.as_ref())
         {
@@ -930,7 +933,10 @@ fn build_clause_df<'a>(
     f.boxed_local()
 }
 
-fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
+/// `OFFSET + LIMIT`, the number of leading rows the Top-K aggregate keeps, when
+/// both are statically known. Planning checks this too: window aggregates are
+/// computed inside that aggregate, so a window query without a known k declines.
+pub(super) fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
     if let Some(lo) = limit_offset {
         if let (Some(fetch), Some(skip)) = (lo.static_limit(), lo.static_offset()) {
             Some(
@@ -1014,8 +1020,6 @@ fn apply_distinct_topk_as_agg(
         &key_positions,
         &ctid_positions,
     );
-    let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
-    let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
 
     // Restore the GROUP BY's output names: `col_{i}` for the key, the ctid names
     // for the ctids.
@@ -1031,7 +1035,12 @@ fn apply_distinct_topk_as_agg(
             .alias(name.as_str())
         }))
         .collect();
-    df.select(name_restoration_exprs)
+    topk_aggregate(
+        df,
+        topk_agg,
+        WindowAggExprs::default(),
+        name_restoration_exprs,
+    )
 }
 
 fn apply_topk_as_agg(df: DataFrame, join_clause: &JoinCSClause, k: usize) -> Result<DataFrame> {
@@ -1042,12 +1051,6 @@ fn apply_topk_as_agg(df: DataFrame, join_clause: &JoinCSClause, k: usize) -> Res
     let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
     let topk_agg = topk_as_agg(&all_col_exprs, sort_exprs, k);
 
-    // Do aggregations
-    let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
-
-    // unnest/flatten back to rows
-    let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
-
     // restore original column names
     let name_restoration_exprs: Vec<_> = columns
         .iter()
@@ -1057,9 +1060,12 @@ fn apply_topk_as_agg(df: DataFrame, join_clause: &JoinCSClause, k: usize) -> Res
                 .alias_qualified(c.relation.clone(), c.name.clone())
         })
         .collect();
-    let df = df.select(name_restoration_exprs)?;
-
-    Ok(df)
+    topk_aggregate(
+        df,
+        topk_agg,
+        window_agg_exprs(join_clause)?,
+        name_restoration_exprs,
+    )
 }
 
 /// The accumulator rejects a k of 0. Empty the input instead and keep one row,
@@ -1071,6 +1077,38 @@ fn empty_input_for_zero_k(df: DataFrame, k: usize) -> Result<(DataFrame, usize)>
     } else {
         Ok((df, k))
     }
+}
+
+/// Both Top-K forms end the same way: one aggregate node with no group key
+/// carrying the Top-K aggregate and every window aggregate, an unnest of the
+/// kept rows, and a projection that restores the payload's column names and
+/// appends the `window_agg_N` columns. With no group key the window aggregates
+/// see every input row, which is the `OVER ()` frame, and the unnest fans their
+/// one value out to each kept row.
+fn topk_aggregate(
+    df: DataFrame,
+    topk_agg: Expr,
+    window: WindowAggExprs,
+    mut restore_payload: Vec<Expr>,
+) -> Result<DataFrame> {
+    let mut agg_exprs = vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)];
+    agg_exprs.extend(
+        window
+            .aggregates
+            .iter()
+            .map(|(name, expr)| expr.clone().alias(name)),
+    );
+    let df = df.aggregate(vec![], agg_exprs)?;
+    let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
+
+    restore_payload.extend(window.aggregates.iter().map(|(name, _)| col(name.as_str())));
+    restore_payload.extend(
+        window
+            .constants
+            .into_iter()
+            .map(|(name, expr)| expr.alias(name)),
+    );
+    df.select(restore_payload)
 }
 
 /// Translate every clause in `custom_exprs` (a Postgres `List*`) into a
@@ -1392,38 +1430,56 @@ fn resolve_orderby_feature(
     }
 }
 
-/// Compute every extracted window aggregate as a `window_agg_N` column.
-/// Driven by `join_clause.window_aggs` rather than the output projection:
-/// an aggregate embedded in an expression has no `ChildProjection::WindowAgg`
-/// entry — only a sentinel Var referencing the column by name.
-fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
-    let mut window_exprs: Vec<Expr> = Vec::new();
-    // Materialize only canonical entries: duplicates share the canonical
-    // column, and identical window expressions in one Window node trip
-    // DataFusion's CSE (see WindowAggList::canonical_index).
+/// The extracted window aggregates, each paired with its `window_agg_N`
+/// column name.
+#[derive(Default)]
+struct WindowAggExprs {
+    /// Aggregates over the join result; they join the Top-K aggregate node.
+    aggregates: Vec<(String, Expr)>,
+    /// Plan-time constants (the aggregate of a pruned argument column); an
+    /// aggregate node cannot carry them, so they are projected after it.
+    constants: Vec<(String, Expr)>,
+}
+
+/// Every extracted window aggregate as `(window_agg_N, expression)`. Driven by
+/// `join_clause.window_aggs` rather than the output projection: an aggregate
+/// embedded in an expression has no `ChildProjection::WindowAgg` entry, only a
+/// sentinel Var referencing the column by name. Only canonical entries are
+/// materialized; duplicates resolve to the canonical column
+/// (see `WindowAggList::canonical_index`).
+fn window_agg_exprs(join_clause: &JoinCSClause) -> Result<WindowAggExprs> {
+    let mut exprs = WindowAggExprs::default();
     for (index, info) in join_clause
         .window_aggs
         .iter_indexed()
         .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
     {
-        let expr = window_expr(info, join_clause)?;
-        if matches!(expr, Expr::WindowFunction(_)) {
-            window_exprs.push(expr.alias(index.as_col_name()));
+        let expr = window_agg_expr(info, join_clause)?;
+        let target = if matches!(expr, Expr::AggregateFunction(_)) {
+            &mut exprs.aggregates
         } else {
-            // A plan-time constant (the aggregate of a pruned argument
-            // column): a Window node cannot carry non-window expressions,
-            // so add it as a plain column instead.
-            df = df.with_column(&index.as_col_name(), expr)?;
-        }
+            &mut exprs.constants
+        };
+        target.push((index.as_col_name(), expr));
     }
-
-    if window_exprs.is_empty() {
-        return Ok(df);
-    }
-    df.window(window_exprs)
+    Ok(exprs)
 }
 
-fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
+fn aggregate_udf(udaf: Arc<AggregateUDF>, args: Vec<Expr>) -> Expr {
+    Expr::AggregateFunction(AggregateFunction::new_udf(
+        udaf,
+        args,
+        false,
+        None,
+        vec![],
+        None,
+    ))
+}
+
+/// The aggregate computing one window aggregate. `agg OVER ()` is the aggregate
+/// over the whole join result, so it is an ordinary aggregate function in the
+/// group-key-free Top-K aggregate node.
+fn window_agg_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
     use crate::customscan::datafusion::numeric_agg;
     use datafusion::functions_aggregate::{average, count, min_max, sum};
 
@@ -1465,50 +1521,47 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
         SupportedWindowAggType::Sum => {
             let ce = col_expr.expect("should always have a column expression for SUM");
             match numeric_field {
-                None => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
-                    vec![ce],
-                ))),
-                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_sum_udaf()),
+                None => Ok(aggregate_udf(sum::sum_udaf(), vec![ce])),
+                Some(SearchFieldType::Numeric64(_, scale)) => Ok(aggregate_udf(
+                    numeric_agg::numeric64_sum_udaf(),
                     vec![ce, scale.lit()],
-                ))),
-                Some(_) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_sum_udaf()),
+                )),
+                Some(_) => Ok(aggregate_udf(
+                    numeric_agg::numeric_bytes_sum_udaf(),
                     vec![ce],
-                ))),
+                )),
             }
         }
         SupportedWindowAggType::Avg => {
             let ce = col_expr.expect("should always have a column expression for AVG");
             match numeric_field {
-                None => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
-                    vec![ce],
-                ))),
-                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_avg_udaf()),
+                None => Ok(aggregate_udf(average::avg_udaf(), vec![ce])),
+                Some(SearchFieldType::Numeric64(_, scale)) => Ok(aggregate_udf(
+                    numeric_agg::numeric64_avg_udaf(),
                     vec![ce, scale.lit()],
-                ))),
-                Some(_) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_avg_udaf()),
+                )),
+                Some(_) => Ok(aggregate_udf(
+                    numeric_agg::numeric_bytes_avg_udaf(),
                     vec![ce],
-                ))),
+                )),
             }
         }
-        SupportedWindowAggType::Min => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(min_max::min_udaf()),
+        SupportedWindowAggType::Min => Ok(aggregate_udf(
+            min_max::min_udaf(),
             vec![col_expr.expect("should always have a column expression for MIN")],
-        ))),
-        SupportedWindowAggType::Max => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(min_max::max_udaf()),
+        )),
+        SupportedWindowAggType::Max => Ok(aggregate_udf(
+            min_max::max_udaf(),
             vec![col_expr.expect("should always have a column expression for MAX")],
-        ))),
-        SupportedWindowAggType::Count => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(count::count_udaf()),
+        )),
+        SupportedWindowAggType::Count => Ok(aggregate_udf(
+            count::count_udaf(),
             vec![col_expr.expect("should always have a column expression for COUNT")],
-        ))),
-        SupportedWindowAggType::CountStar => Ok(count::count_all_window()),
+        )),
+        SupportedWindowAggType::CountStar => Ok(aggregate_udf(
+            count::count_udaf(),
+            vec![Expr::Literal(COUNT_STAR_EXPANSION, None)],
+        )),
     }
 }
 

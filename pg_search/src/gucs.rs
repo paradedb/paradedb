@@ -189,7 +189,8 @@ static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
-/// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path.
+/// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
+/// a query with window aggregates takes that path regardless.
 static JOINSCAN_FORCE_TOPK_AS_AGG: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in

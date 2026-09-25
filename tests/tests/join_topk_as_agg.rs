@@ -243,3 +243,45 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
         8,
     );
 }
+
+/// Window aggregates are computed inside the Top-K aggregate node, so a query
+/// with them takes this path with the GUC off. Under MPP every aggregate in the
+/// node splits into a Partial per worker and a Final on the leader. PostgreSQL's
+/// own WindowAgg plan is the oracle.
+#[rstest]
+#[case::serial(Mode::Serial)]
+#[case::mpp(Mode::Mpp)]
+fn window_aggregates_in_topk_agg(#[case] mode: Mode, mut conn: PgConnection) {
+    match mode {
+        Mode::Serial => SERIAL_SETUP.execute(&mut conn),
+        Mode::Mpp => MPP_SETUP.execute(&mut conn),
+    }
+    "SET paradedb.joinscan_force_topk_as_agg = off".execute(&mut conn);
+
+    let query = r#"
+        SELECT t1.id, t2.id,
+               COUNT(*) OVER () AS total,
+               SUM(t2.qty) OVER () AS qty_sum,
+               AVG(t1.rating) OVER ()::float8 AS rating_avg,
+               MIN(t1.rating) OVER () AS rating_min,
+               MAX(t2.qty) OVER () AS qty_max
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.rating DESC NULLS FIRST, t2.qty ASC, t2.id ASC
+        OFFSET 3 LIMIT 10
+    "#;
+    type Row = (i32, i32, i64, i64, f64, i32, i32);
+
+    let plan: Vec<String> = format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(&mut conn);
+    let plan = plan.join("\n");
+    assert!(plan.contains("Custom Scan (ParadeDB Join Scan)"), "{plan}");
+    assert!(!plan.contains("WindowAggExec"), "{plan}");
+    let join_scan: Vec<Row> = query.fetch(&mut conn);
+
+    "SET paradedb.enable_join_custom_scan = off".execute(&mut conn);
+    let postgres: Vec<Row> = query.fetch(&mut conn);
+
+    assert_eq!(postgres.len(), 10);
+    assert_eq!(join_scan, postgres);
+}

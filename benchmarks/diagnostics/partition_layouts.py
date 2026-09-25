@@ -20,6 +20,7 @@ import sys
 import partition_pruning as paired
 
 BASELINE = 'c3479d9a1fd78fd85676524a7ead9820513ad67a'
+SEGMENT_SWEEP = os.environ.get('EXPERIMENT_SUITE') == 'segments'
 # Keep every original join key. Each treatment changes exactly one index option.
 LAYOUTS = {
     'original': None,
@@ -32,6 +33,9 @@ LAYOUTS = {
 
 
 def cases():
+    if SEGMENT_SWEEP:
+        return {'filtered_lowcard.sql': 'id',
+                'join_distinct_parent_sort/range_partitioned.sql': 'u.id'}
     # Value: unique ordering key for the separately labeled correctness companion.
     result = {name + '.sql': 'id' for name in (
         'filtered_highcard', 'filtered_lowcard', 'paging_string_min',
@@ -218,9 +222,10 @@ def profile_cases(layout, version, selected):
 
 def layout_summary(samples):
     """Compare layouts within each binary, separately from main-vs-PR effects."""
-    baseline = samples['bm25_layout_original']
     rows = []
     for layout, builds in samples.items():
+        suffix = '_' + layout.rsplit('_', 1)[1] if SEGMENT_SWEEP else ''
+        baseline = samples['bm25_layout_original' + suffix]
         for build, queries in builds.items():
             for name, values in queries.items():
                 original = baseline[build][name]
@@ -229,6 +234,21 @@ def layout_summary(samples):
                              'mean_change_from_original_pct': 100 * (statistics.mean(values) / statistics.mean(original) - 1),
                              'median_change_from_original_pct': 100 * (statistics.median(values) / statistics.median(original) - 1)})
     paired.save('layout-comparison.json', rows)
+
+
+def segment_inventory(layout, target):
+    """Record actual segments rather than assuming the build hit its target."""
+    inventory = {}
+    for name in ('stackoverflow_posts_idx', 'users_idx', 'comments_idx', 'badges_idx'):
+        inventory[name] = json.loads(paired.psql(f"""SELECT json_build_object(
+            'segments', count(*),
+            'nonempty_segments', count(*) FILTER (WHERE num_docs > 0),
+            'mutable_segments', count(*) FILTER (WHERE mutable),
+            'documents', sum(num_docs),
+            'min_segment_documents', min(num_docs),
+            'max_segment_documents', max(num_docs))
+            FROM paradedb.index_info('{name}')"""))
+    paired.save(layout + '-segment-counts.json', {'target': target, 'indexes': inventory})
 
 
 def main():
@@ -249,7 +269,20 @@ def main():
         'comments', (SELECT json_build_object('rows', count(*), 'score_filter_rows', count(*) FILTER (WHERE score > 0)) FROM comments))""")))
     samples, expected, validation_failures = {}, None, []
     try:
-        for arm, change in LAYOUTS.items():
+        configurations = [(arm, change, 48) for arm, change in LAYOUTS.items()]
+        if SEGMENT_SWEEP:
+            configurations = [(f'{arm}_s{count}', LAYOUTS[arm], count)
+                              for count in (16, 48, 64)
+                              for arm in ('original', 'posts_type')]
+        paired.save('experiment-design.json', {
+            'suite': os.environ.get('EXPERIMENT_SUITE', 'unchanged'),
+            'configurations': configurations, 'build_order': paired.ROUNDS,
+            'samples_per_round': paired.RUNS,
+            'segment_count_scope': 'All four ParadeDB indexes use the global target; record actual counts.',
+            'layout_comparison': 'Same build and target; only posts partition_by differs.',
+            'count_comparison': 'Same build and layout; the target changes for all indexes.',
+        })
+        for arm, change, target in configurations:
             layout = 'bm25_layout_' + arm
             directory = paired.DATASET / 'queries' / layout
             fixture = paired.DATASET / 'indexes' / (layout + '.sql')
@@ -264,12 +297,17 @@ def main():
                 names = re.findall(r'CREATE INDEX ([a-z_0-9]+)', ddl)
                 assert len(names) == len(set(names))
                 paired.switch('main')
+                paired.psql(f'ALTER SYSTEM SET paradedb.global_target_segment_count = {target}')
+                paired.psql('SELECT pg_reload_conf()')
                 paired.psql(';'.join('DROP INDEX IF EXISTS ' + n for n in names))
                 inventory = None
                 samples[layout] = {'main': {}, 'pr': {}}
                 for number, version in enumerate(paired.ROUNDS, 1):
                     paired.switch(version)
+                    assert paired.psql('SHOW paradedb.global_target_segment_count').strip() == str(target)
                     label = f'{layout}-r{number}-{version}'
+                    (paired.OUT / f'{label}-settings.csv').write_text(paired.psql(
+                        'SELECT name, setting, unit FROM pg_settings ORDER BY name', csv_output=True))
                     for name, content in raw.items():
                         assert (directory / (name + '.sql')).read_bytes() == content
                     if inventory is not None:
@@ -278,8 +316,14 @@ def main():
                     if inventory is None:
                         inventory = paired.identity()
                         paired.save(layout + '-index-identity.json', inventory)
+                        segment_inventory(layout, target)
                     assert paired.identity() == inventory, 'Index changed during measurement'
                     results = evidence(label, selected, keys)
+                    modes = json.loads((paired.OUT / f'{label}-execution-modes.json').read_text())
+                    assert all(v['paradedb'] for v in modes.values()), modes
+                    if SEGMENT_SWEEP:
+                        join = modes['join_distinct_parent_sort__range_partitioned']
+                        assert join['distributed'] and join['workers_launched'] and join['range_assignment'], join
                     if os.environ.get('PROFILE_PRUNING') == 'true':
                         profile_cases(layout, version, selected)
                     if expected is None:
@@ -304,8 +348,9 @@ def main():
         with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as stream:
             stream.write(text)
         paired.save('completion.json', {'complete': True, 'size': size, 'unchanged_queries': len(selected),
-                    'layouts': len(LAYOUTS), 'companion_results_match': not validation_failures,
-                    'limits': 'Tie/unordered original outputs saved for audit; equality check uses separate deterministic companions. Six layouts built once each; no write lifecycle or segment-count sweep.'})
+                    'layouts': len(configurations), 'companion_results_match': not validation_failures,
+                    'segment_targets': [16, 48, 64] if SEGMENT_SWEEP else [48],
+                    'limits': 'Tie/unordered original outputs saved for audit; equality uses deterministic companions. Each layout/count built once; no repeated builds or write lifecycle measurements.'})
         assert not validation_failures, 'Correctness companions differ; see validation-failures.json before accepting any recommendations'
     finally:
         paired.run(['cargo', 'pgrx', 'stop', 'pg18'], cwd=paired.ROOT / 'pg_search')

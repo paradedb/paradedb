@@ -31,12 +31,13 @@ on:
         type: boolean
         default: false
       pruning_suite:
-        description: "Isolated pruning experiment: date probes, or unchanged existing queries with one layout change at a time (1M only)."
+        description: "Isolated experiment: date probes, unchanged-query layouts, or a 16/48/64 segment-count sweep (1M only)."
         type: choice
         default: date
         options:
           - date
           - unchanged
+          - segments
       profile_pruning:
         description: "Capture DataFusion plans and system-wide perf counters for selected pruning cases."
         type: boolean
@@ -574,7 +575,7 @@ jobs:
 
   pruning-20m:
     needs: pruning-1m
-    if: github.event_name == 'workflow_dispatch' && inputs.partition_pruning_experiment && inputs.pruning_suite != 'unchanged'
+    if: github.event_name == 'workflow_dispatch' && inputs.partition_pruning_experiment && inputs.pruning_suite == 'date'
     permissions:
       contents: read
     uses: ./.github/workflows/benchmark-partition-pruning.yml

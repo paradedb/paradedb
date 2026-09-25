@@ -40,6 +40,7 @@ jobs:
           set -euo pipefail
           git cat-file -e "$BASELINE_SHA^{commit}"
           git cat-file -e "$PR_SHA^{commit}"
+          git diff --exit-code "$PR_SHA" HEAD -- pg_search Cargo.lock Cargo.toml
           mkdir -p diagnostic-output
           printf 'main=%s\npr=%s\nbenchmarks=%s\nsize=%s\nsuite=%s\n' "$BASELINE_SHA" "$PR_SHA" "$GITHUB_SHA" "$EXPERIMENT_SIZE" "$EXPERIMENT_SUITE" > diagnostic-output/source-commits.txt
       - uses: runs-on/action@v2
@@ -84,6 +85,7 @@ jobs:
           case "$EXPERIMENT_SUITE" in
             date) python3 -u benchmarks/diagnostics/partition_pruning.py "$EXPERIMENT_SIZE" ;;
             unchanged) python3 -u benchmarks/diagnostics/partition_layouts.py "$EXPERIMENT_SIZE" ;;
+            segments) python3 -u benchmarks/diagnostics/partition_layouts.py "$EXPERIMENT_SIZE" ;;
             *) echo "Unknown experiment suite"; exit 1 ;;
           esac
       - name: Preserve failure logs

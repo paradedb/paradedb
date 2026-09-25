@@ -20,6 +20,7 @@ use std::io;
 use std::ops::{Deref, Range};
 use std::slice;
 use std::sync::Arc;
+use std::vec::IntoIter;
 
 use crate::api::HashMap;
 use crate::api::version::Version;
@@ -40,7 +41,6 @@ use tantivy::index::SegmentId;
 use tantivy::{DocId, Order, SegmentOrdinal, TantivyDocument};
 use tantivy_common::TinySet;
 
-use util::HEAPBLOCKS_PER_BYTE;
 use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
 
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
@@ -131,7 +131,14 @@ pub struct VisibilityChecker {
     ffhelper: Option<Arc<FFHelper>>,
     raw_ctids_scratch: Vec<Option<u64>>,
     segment_visibility: Option<(SegmentId, bool)>,
-    segment_checks: HashMap<SegmentOrdinal, Option<Arc<[Range<DocId>]>>>,
+    dirty_blocks: HashMap<SegmentId, Arc<[Range<BlockNumber>]>>,
+    segment_checks: HashMap<SegmentOrdinal, SegmentVisibilityChecks>,
+}
+
+#[derive(Default)]
+struct SegmentVisibilityChecks {
+    ranges: Option<IntoIter<Range<DocId>>>,
+    last_doc: Option<DocId>,
 }
 
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
@@ -180,6 +187,7 @@ impl VisibilityChecker {
                 ffhelper: None,
                 raw_ctids_scratch: Vec::new(),
                 segment_visibility: None,
+                dirty_blocks: HashMap::default(),
                 segment_checks: HashMap::default(),
             }
         }
@@ -188,6 +196,7 @@ impl VisibilityChecker {
     /// Attaches an [`FFHelper`] for resolving segment `DocId`s to ctids directly.
     pub fn with_ffhelper(mut self, ffhelper: Arc<FFHelper>) -> Self {
         self.segment_checks.clear();
+        self.dirty_blocks.clear();
         self.ffhelper = Some(ffhelper);
         self.segment_visibility = None;
         self
@@ -195,6 +204,7 @@ impl VisibilityChecker {
 
     pub fn set_ffhelper(&mut self, ffhelper: Arc<FFHelper>) {
         self.segment_checks.clear();
+        self.dirty_blocks.clear();
         self.ffhelper = Some(ffhelper);
         self.segment_visibility = None;
     }
@@ -366,62 +376,59 @@ impl VisibilityChecker {
                 break 'proof false;
             }
             // Read CTID bounds before fresh VM bits; FFHelper retains the VACUUM cleanup pin.
-            self.is_range_all_visible(first, last)
+            if first > last || last == pg_sys::InvalidBlockNumber {
+                break 'proof false;
+            }
+            self.dirty_blocks_for_segment(segment.segment_id(), first..last + 1)
+                .is_empty()
         };
         self.segment_visibility = Some((segment.segment_id(), visible));
         Ok(visible)
     }
 
-    fn is_range_all_visible(&mut self, first: BlockNumber, last: BlockNumber) -> bool {
-        if first > last || last >= self.nblocks {
-            return false;
+    /// Scans each VM page once and retains dirty ranges for subsequent document lookup.
+    fn dirty_blocks_for_segment(
+        &mut self,
+        segment_id: SegmentId,
+        blocks: Range<BlockNumber>,
+    ) -> Arc<[Range<BlockNumber>]> {
+        if let Some(ranges) = self.dirty_blocks.get(&segment_id) {
+            return ranges.clone();
         }
-        const VISIBLE_MASK: u8 = (u8::MAX as u32 / ((1 << pg_sys::BITS_PER_HEAPBLOCK) - 1)
-            * pg_sys::VISIBILITYMAP_ALL_VISIBLE) as u8;
         self.blockvis = (pg_sys::InvalidBlockNumber, false);
-        let mut block = first;
-        while block <= last {
+        let mut block = blocks.start / 32 * 32;
+        let mut scratch = vec![TinySet::range_lower(32); util::HEAPBLOCKS_PER_PAGE as usize / 32];
+        let mut ranges: Vec<Range<BlockNumber>> = Vec::new();
+        while block < blocks.end {
             check_for_interrupts!();
-            if !self.is_block_all_visible(block) {
-                return false;
-            }
-            if !block.is_multiple_of(HEAPBLOCKS_PER_BYTE) || last - block < HEAPBLOCKS_PER_BYTE - 1
-            {
-                block += 1;
-                continue;
-            }
-            let local_block = block % HEAPBLOCKS_PER_VM_PAGE;
-            let bytes =
-                (last - block + 1).min(HEAPBLOCKS_PER_VM_PAGE - local_block) / HEAPBLOCKS_PER_BYTE;
-            // is_block_all_visible pins the VM page; only scan complete bytes in our range.
-            unsafe {
-                let map = pg_sys::PageGetContents(pg_sys::BufferGetPage(self.vmbuff))
-                    .cast::<u8>()
-                    .add((local_block / HEAPBLOCKS_PER_BYTE) as usize);
-                let bytes = bytes as usize;
-                let prefix = map.align_offset(size_of::<u64>()).min(bytes);
-                for byte in 0..prefix {
-                    if map.add(byte).read_volatile() & VISIBLE_MASK != VISIBLE_MASK {
-                        return false;
+            let span = util::HEAPBLOCKS_PER_PAGE - block % util::HEAPBLOCKS_PER_PAGE;
+            let words = (blocks.end - block).min(span).div_ceil(32) as usize;
+            let missing = &mut scratch[..words];
+            missing.fill(TinySet::range_lower(32));
+            self.retain_invisible_blocks(block, missing);
+            for (word, &bits) in missing.iter().enumerate() {
+                let mut bits = u64::from_le_bytes(bits.into_bytes());
+                while bits != 0 {
+                    let bit = bits.trailing_zeros();
+                    let len = (bits >> bit).trailing_ones();
+                    bits &= !((u64::MAX >> (64 - len)) << bit);
+                    let start = block + word as BlockNumber * 32 + bit;
+                    let range = start.max(blocks.start)..start.saturating_add(len).min(blocks.end);
+                    if range.is_empty() {
+                        continue;
                     }
-                }
-                // Aligned volatile words test 32 heap blocks without crossing the VM-page slice.
-                const WORD_MASK: u64 = u64::from_ne_bytes([VISIBLE_MASK; size_of::<u64>()]);
-                let words_end = prefix + (bytes - prefix) / size_of::<u64>() * size_of::<u64>();
-                for byte in (prefix..words_end).step_by(size_of::<u64>()) {
-                    if map.add(byte).cast::<u64>().read_volatile() & WORD_MASK != WORD_MASK {
-                        return false;
-                    }
-                }
-                for byte in words_end..bytes {
-                    if map.add(byte).read_volatile() & VISIBLE_MASK != VISIBLE_MASK {
-                        return false;
+                    if let Some(last) = ranges.last_mut().filter(|last| last.end == range.start) {
+                        last.end = range.end;
+                    } else {
+                        ranges.push(range);
                     }
                 }
             }
-            block += bytes * HEAPBLOCKS_PER_BYTE;
+            block = block.saturating_add(words as BlockNumber * 32);
         }
-        true
+        let ranges: Arc<[Range<BlockNumber>]> = ranges.into();
+        self.dirty_blocks.insert(segment_id, ranges.clone());
+        ranges
     }
 
     /// Clears all-visible heap blocks from the candidate bitmap, pinning each VM page once.
@@ -490,11 +497,11 @@ impl VisibilityChecker {
         !self.check_visibility || self.resolve_visible(ctid, None, false).is_some()
     }
 
-    /// Caches the document ranges needing visibility checks for this segment and snapshot.
+    /// Takes the cached ranges for a batch; the caller restores the iterator afterward.
     fn doc_id_ranges_needing_visibility_checks(
         &mut self,
         segment_ord: SegmentOrdinal,
-    ) -> Option<Arc<[Range<DocId>]>> {
+    ) -> Option<IntoIter<Range<DocId>>> {
         if !enable_visibility_map_shortcuts() {
             return None;
         }
@@ -518,58 +525,14 @@ impl VisibilityChecker {
                 let Some(mut map) = BlockToDocIdMap::open(segment)? else {
                     return Ok(None);
                 };
-                // The immutable reader's cleanup pin keeps these entries live until fresh VM bits
-                // have been checked. A cached proof belongs only to this checker's snapshot.
-                self.blockvis = (pg_sys::InvalidBlockNumber, false);
-                // Coalesce dirty heap blocks, then batch-decode their document boundaries.
+                // Reuse the VM scan from the segment proof, or scan once on first use.
+                let block_ranges =
+                    self.dirty_blocks_for_segment(segment.segment_id(), map.block_range());
                 const RANGES_PER_BATCH: usize = 128;
-                let first = map.block_range().start;
-                let end = map.block_range().end;
-                let mut block = first / 32 * 32;
-                let mut scratch =
-                    vec![TinySet::range_lower(32); util::HEAPBLOCKS_PER_PAGE as usize / 32];
-                let mut pending: Option<Range<BlockNumber>> = None;
                 let mut ranges = Vec::new();
-                let mut block_ranges = Vec::with_capacity(RANGES_PER_BATCH);
-                while block < end {
-                    pgrx::check_for_interrupts!();
-                    let span = util::HEAPBLOCKS_PER_PAGE - block % util::HEAPBLOCKS_PER_PAGE;
-                    let words = (end - block).min(span).div_ceil(32) as usize;
-                    let missing = &mut scratch[..words];
-                    missing.fill(TinySet::range_lower(32));
-                    self.retain_invisible_blocks(block, missing);
-                    for (word, &bits) in missing.iter().enumerate() {
-                        let mut bits = u64::from_le_bytes(bits.into_bytes());
-                        while bits != 0 {
-                            let bit = bits.trailing_zeros();
-                            let len = (bits >> bit).trailing_ones();
-                            bits &= !((u64::MAX >> (64 - len)) << bit);
-                            let start = block + word as BlockNumber * 32 + bit;
-                            let range = start.max(first)..start.saturating_add(len).min(end);
-                            if range.is_empty() {
-                                continue;
-                            }
-                            if let Some(last) =
-                                pending.as_mut().filter(|last| last.end == range.start)
-                            {
-                                last.end = range.end;
-                            } else {
-                                if let Some(previous) = pending.replace(range) {
-                                    block_ranges.push(previous);
-                                    if block_ranges.len() == RANGES_PER_BATCH {
-                                        ranges.extend(map.doc_id_ranges_for_blocks(&block_ranges)?);
-                                        block_ranges.clear();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    block = block.saturating_add(words as BlockNumber * 32);
+                for blocks in block_ranges.chunks(RANGES_PER_BATCH) {
+                    ranges.extend(map.doc_id_ranges_for_blocks(blocks)?);
                 }
-                if let Some(last) = pending {
-                    block_ranges.push(last);
-                }
-                ranges.extend(map.doc_id_ranges_for_blocks(&block_ranges)?);
                 // Coalesce adjacent document ranges across batch boundaries.
                 ranges.dedup_by(|next, previous| {
                     if previous.end == next.start {
@@ -588,10 +551,20 @@ impl VisibilityChecker {
                 Ok(Some(ranges))
             })()
             .expect("failed to read heap-block visibility metadata")
-            .map(Arc::from);
-            self.segment_checks.insert(segment_ord, ranges);
+            .map(Vec::into_iter);
+            self.segment_checks.insert(
+                segment_ord,
+                SegmentVisibilityChecks {
+                    ranges,
+                    ..Default::default()
+                },
+            );
         }
-        self.segment_checks[&segment_ord].clone()
+        self.segment_checks
+            .get_mut(&segment_ord)
+            .unwrap()
+            .ranges
+            .take()
     }
 
     /// Checks visibility without fetching CTIDs for documents outside unresolved ranges.
@@ -606,10 +579,17 @@ impl VisibilityChecker {
         if doc_ids.is_empty() || !self.check_visibility {
             return;
         }
-        let ranges = doc_ids
-            .is_sorted()
-            .then(|| self.doc_id_ranges_needing_visibility_checks(segment_ord))
-            .flatten();
+        assert!(
+            doc_ids.is_sorted(),
+            "visibility batches must be in doc ID order"
+        );
+        let ranges = self.doc_id_ranges_needing_visibility_checks(segment_ord);
+        if let Some(checks) = self.segment_checks.get(&segment_ord) {
+            assert!(
+                checks.last_doc.is_none_or(|last| doc_ids[0] > last),
+                "visibility batches must advance within each segment"
+            );
+        }
         let mut ctids = Vec::new();
         let mut check = |start: usize, end: usize| {
             if start == end {
@@ -621,12 +601,12 @@ impl VisibilityChecker {
                 *visible = ctid.is_some();
             }
         };
-        if let Some(ranges) = ranges {
+        if let Some(mut ranges) = ranges {
             let mut start = 0;
-            let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
-            let mut remaining_ranges = &ranges[first_range..];
-            while let Some((range, rest)) = remaining_ranges.split_first() {
-                remaining_ranges = rest;
+            while let Some(range) = ranges.as_slice().first().cloned() {
+                if start == doc_ids.len() {
+                    break;
+                }
                 start += doc_ids[start..].partition_point(|&doc| doc < range.start);
                 if start == doc_ids.len() {
                     break;
@@ -634,14 +614,22 @@ impl VisibilityChecker {
                 let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
                 if start == end {
                     // Jump over ranges that end before the next query match.
-                    let skip =
-                        remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
-                    remaining_ranges = &remaining_ranges[skip..];
+                    let skip = ranges
+                        .as_slice()
+                        .partition_point(|range| range.end <= doc_ids[start]);
+                    ranges.nth(skip - 1);
                     continue;
                 }
                 check(start, end);
                 start = end;
+                // Keep the current range when the batch ends inside it.
+                if doc_ids[doc_ids.len() - 1] >= range.end {
+                    ranges.next();
+                }
             }
+            let checks = self.segment_checks.get_mut(&segment_ord).unwrap();
+            checks.ranges = Some(ranges);
+            checks.last_doc = doc_ids.last().copied();
         } else {
             check(0, doc_ids.len());
         }
@@ -717,8 +705,10 @@ impl VisibilityChecker {
         {
             results.copy_from_slice(&raw_ctids);
             let mut start = 0;
-            let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
-            let mut remaining_ranges = &ranges[first_range..];
+            let first_range = ranges
+                .as_slice()
+                .partition_point(|range| range.end <= doc_ids[0]);
+            let mut remaining_ranges = &ranges.as_slice()[first_range..];
             while let Some((range, rest)) = remaining_ranges.split_first() {
                 remaining_ranges = rest;
                 start += doc_ids[start..].partition_point(|&doc| doc < range.start);
@@ -736,6 +726,7 @@ impl VisibilityChecker {
                 self.check_raw_ctids_impl(&raw_ctids[start..end], &mut results[start..end], false);
                 start = end;
             }
+            self.segment_checks.get_mut(&segment_ord).unwrap().ranges = Some(ranges);
         } else {
             self.check_raw_ctids_impl(&raw_ctids, results, resolve_hot);
         }

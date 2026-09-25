@@ -307,7 +307,28 @@ pub async fn build_join_aggregate_plan(
             plan,
         )?,
         None => {
-            let df = df.aggregate(group_exprs, agg_exprs)?;
+            // Deliberately *not* `DataFrame::aggregate`: that hardcodes
+            // `add_implicit_group_by_exprs(true)`, which appends every column
+            // functionally determined by the group key to the group expression
+            // list (MySQL-style `SELECT col ... GROUP BY pk`). If any scanned
+            // columns are unique or functionally dependent, that expansion would
+            // widen the group key behind our back and invalidate
+            // `group_df_indices` - the aggregate columns would no longer start
+            // where `project_aggregate_row_to_slot` expects them, and the
+            // projection would silently read a grouping column as an aggregate
+            // result.
+            //
+            // Postgres has already validated and fully enumerated the GROUP BY
+            // clause by the time we get here, so the implicit expansion has
+            // nothing to add. Functional dependencies still reach the optimizer
+            // via the plan schema; only the group-key rewrite is suppressed.
+            let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
+            let (state, plan) = df.into_parts();
+            let aggregated = LogicalPlanBuilder::from(plan)
+                .with_options(options)
+                .aggregate(group_exprs, agg_exprs)?
+                .build()?;
+            let df = DataFrame::new(state, aggregated);
             match having_expr {
                 Some(expr) => df.filter(expr)?,
                 None => df,
@@ -383,8 +404,9 @@ fn build_pdb_aggregate_plan(
             }
         })
         .collect();
-
-    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(true);
+    // Suppress implicit group-by widening (matching `build_join_aggregate_plan`),
+    // so functionally dependent columns are not appended to the group key.
+    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
     if array_keys.is_empty() {
         return LogicalPlanBuilder::from(input)
             .with_options(options)

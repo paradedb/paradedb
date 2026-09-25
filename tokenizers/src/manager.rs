@@ -240,6 +240,10 @@ impl SearchTokenizerFilters {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
             is_empty = false;
         }
+        if let Some(value) = self.trim {
+            write!(buffer, "{}trim={value}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
 
         if is_empty {
             "".into()
@@ -1008,6 +1012,26 @@ mod tests {
                 }
             }
         );
+    }
+
+    #[rstest]
+    fn test_trim_filter_changes_tokenizer_name() {
+        // Regression test: `trim` was the only SearchTokenizerFilters field excluded from
+        // name_suffix(), so two fields sharing a base tokenizer but differing only in `trim`
+        // both resolved to the same TokenizerManager registration name -- one field silently
+        // got the other's tokenizer. Every filter field must produce a distinct name.
+        let without_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: None,
+            ..SearchTokenizerFilters::default()
+        });
+        let with_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: Some(true),
+            ..SearchTokenizerFilters::default()
+        });
+
+        assert_eq!(without_trim.name(), "default");
+        assert_eq!(with_trim.name(), "default[trim=true]");
+        assert_ne!(without_trim.name(), with_trim.name());
     }
 
     #[rstest]

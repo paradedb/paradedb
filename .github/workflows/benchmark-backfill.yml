@@ -41,6 +41,7 @@ jobs:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
+      # Check out the local signing action separately because gh-pages does not contain it.
       - name: Checkout Workflow Actions
         if: ${{ inputs.reset_data }}
         uses: actions/checkout@v7

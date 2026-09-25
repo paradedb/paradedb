@@ -552,7 +552,10 @@ pub(crate) mod pdb {
     define_tokenizer_type!(
         "ChineseCompatibleDef",
         ChineseCompatible,
-        SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default()),
+        SearchTokenizer::ChineseCompatible {
+            chinese_convert: None,
+            filters: SearchTokenizerFilters::default(),
+        },
         tokenize_chinese_compatible,
         json_to_chinese_compatible,
         jsonb_to_chinese_compatible,

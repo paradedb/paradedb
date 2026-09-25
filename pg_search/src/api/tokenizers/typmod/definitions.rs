@@ -43,6 +43,12 @@ pub struct JiebaTypmod {
     pub filters: SearchTokenizerFilters,
 }
 
+// for pdb.chinese_compatible
+pub struct ChineseCompatibleTypmod {
+    pub chinese_convert: Option<ConvertMode>,
+    pub filters: SearchTokenizerFilters,
+}
+
 // for pdb.ngram
 pub struct NgramTypmod {
     pub min_gram: usize,
@@ -108,6 +114,15 @@ impl TypmodRules for JiebaTypmod {
             ),
             rule!("search_mode", ValueConstraint::Boolean),
         ]
+    }
+}
+
+impl TypmodRules for ChineseCompatibleTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![rule!(
+            "chinese_convert",
+            ValueConstraint::StringChoice(vec!["t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"])
+        )]
     }
 }
 
@@ -259,6 +274,34 @@ impl TryFrom<i32> for JiebaTypmod {
         Ok(JiebaTypmod {
             chinese_convert,
             search_mode,
+            filters,
+        })
+    }
+}
+
+impl TryFrom<i32> for ChineseCompatibleTypmod {
+    type Error = typmod::Error;
+
+    fn try_from(typmod: i32) -> Result<Self, Self::Error> {
+        let parsed = Self::parsed(typmod)?;
+        let filters = SearchTokenizerFilters::from(&parsed);
+        let chinese_convert = parsed
+            .get("chinese_convert")
+            .and_then(|p| p.as_str())
+            .map(|s| {
+                let lcase: String = s.to_lowercase();
+                match lcase.as_str() {
+                    "t2s" => ConvertMode::T2S,
+                    "s2t" => ConvertMode::S2T,
+                    "tw2s" => ConvertMode::TW2S,
+                    "tw2sp" => ConvertMode::TW2SP,
+                    "s2tw" => ConvertMode::S2TW,
+                    "s2twp" => ConvertMode::S2TWP,
+                    other => panic!("unknown chinese convert mode: {other}"),
+                }
+            });
+        Ok(ChineseCompatibleTypmod {
+            chinese_convert,
             filters,
         })
     }

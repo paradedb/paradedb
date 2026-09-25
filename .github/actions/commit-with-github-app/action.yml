@@ -63,8 +63,6 @@ runs:
         parent = git("rev-parse", "HEAD").decode().strip()
         base_tree = git("rev-parse", "HEAD^{tree}").decode().strip()
         staged_tree = git("write-tree").decode().strip()
-        if staged_tree == base_tree:
-            raise SystemExit("No staged changes to commit")
 
         # Disable rename detection so renames become an addition and a deletion.
         paths = git("diff", "--cached", "--no-renames", "--name-only", "-z").split(b"\0")

@@ -524,7 +524,6 @@ jobs:
           fi
 
       - name: Stage Main Dockerfiles
-        id: main-dockerfiles
         if: ${{ needs.generate-dockerfiles.outputs.is_latest == 'true' }}
         run: |
           VERSION="${{ needs.generate-dockerfiles.outputs.version }}"
@@ -538,21 +537,17 @@ jobs:
           docker/generate-dockerfiles.sh "$VERSION"
 
           git add docker
-          if git diff --cached --quiet; then
-            echo "No generated Dockerfile changes to commit for main."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Commit Main Dockerfiles
-        if: steps.main-dockerfiles.outputs.changed == 'true'
+        id: main-dockerfiles
+        if: ${{ needs.generate-dockerfiles.outputs.is_latest == 'true' }}
         uses: ./.github/actions/commit-with-github-app
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           message: "Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}"
 
       - name: Open Main PR
-        if: steps.main-dockerfiles.outputs.changed == 'true'
+        if: steps.main-dockerfiles.outputs.created == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ needs.generate-dockerfiles.outputs.tag }}

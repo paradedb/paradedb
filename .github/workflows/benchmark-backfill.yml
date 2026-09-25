@@ -87,12 +87,14 @@ jobs:
     steps:
       - name: Fire Benchmark for ${{ matrix.sha }}
         uses: actions/github-script@v9
+        env:
+          BENCHMARK_SHA: ${{ matrix.sha }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
-            const sha   = '${{ matrix.sha }}';
+            const sha   = process.env.BENCHMARK_SHA;
             const wf = 'benchmark-pg_search-queries.yml';
 
             /*  createWorkflowDispatch must point at a branch or tag, not a
@@ -109,12 +111,14 @@ jobs:
 
       - name: Fire Stressgres for ${{ matrix.sha }}
         uses: actions/github-script@v9
+        env:
+          BENCHMARK_SHA: ${{ matrix.sha }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
-            const sha   = '${{ matrix.sha }}';
+            const sha   = process.env.BENCHMARK_SHA;
             const wf = 'benchmark-pg_search-stressgres.yml';
 
             /*  createWorkflowDispatch must point at a branch or tag, not a

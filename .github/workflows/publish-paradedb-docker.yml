@@ -55,15 +55,18 @@ jobs:
     steps:
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
+        env:
+          RELEASE_REF: ${{ github.event.inputs.version || github.ref_name }}
+          PG_VERSIONS: ${{ github.event.inputs.pg_version || '[15, 16, 17, 18]' }}
         run: |
-          REF_NAME="${{ github.event.inputs.version || github.ref_name }}"
+          REF_NAME="${RELEASE_REF}"
           echo "Evaluating ref: $REF_NAME"
           if [[ "$REF_NAME" == *"-"* ]]; then
             echo "Pre-release version (contains a dash, e.g. a beta -rc. tag); publishing PostgreSQL 18 only."
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
-            echo "matrix=${{ github.event.inputs.pg_version || '[15, 16, 17, 18]' }}" >> $GITHUB_OUTPUT
+            echo "matrix=${PG_VERSIONS}" >> $GITHUB_OUTPUT
           fi
 
   generate-dockerfiles:
@@ -93,9 +96,11 @@ jobs:
 
       - name: Retrieve GitHub Release Version
         id: version
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version.
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          if [ -z "${INPUTS_VERSION}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
               VERSION=${GITHUB_REF#refs/tags/v}
               TAG=${GITHUB_REF#refs/tags/}
@@ -105,8 +110,8 @@ jobs:
               TAG="v0.0.0"
             fi
           else
-            VERSION=${{ github.event.inputs.version }}
-            TAG=v${{ github.event.inputs.version }}
+            VERSION="${INPUTS_VERSION}"
+            TAG="v${INPUTS_VERSION}"
           fi
           RELEASE_VERSION=${VERSION%%-*}
           IFS=. read -r MAJOR MINOR _ <<< "$RELEASE_VERSION"
@@ -120,8 +125,9 @@ jobs:
         id: release_latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEP_VERSION_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          current_tag_version="${{ steps.version.outputs.version }}"
+          current_tag_version="${STEP_VERSION_VERSION}"
           latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
           echo "Current latest release is $latest_tag_version"
           echo "Current version to be released is $current_tag_version"
@@ -144,20 +150,25 @@ jobs:
       # Only generate the PG majors we're publishing this run. For beta (`-rc.`) releases the matrix
       # is [18], and only the PG 18 .deb are published.
       - name: Generate Dockerfiles
+        env:
+          JOB_SET_MATRIX_MATRIX: ${{ needs.set-matrix.outputs.matrix }}
+          STEP_VERSION_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          PG_MAJORS=$(echo '${{ needs.set-matrix.outputs.matrix }}' | jq -r 'map(tostring) | join(" ")')
-          docker/generate-dockerfiles.sh "${{ steps.version.outputs.version }}" "$PG_MAJORS"
+          PG_MAJORS=$(echo "${JOB_SET_MATRIX_MATRIX}" | jq -r 'map(tostring) | join(" ")')
+          docker/generate-dockerfiles.sh "${STEP_VERSION_VERSION}" "$PG_MAJORS"
 
       - name: Stage Generated Dockerfiles
         id: generated_branch
+        env:
+          STEP_VERSION_TAG: ${{ steps.version.outputs.tag }}
         run: |
           git add docker
           if git diff --cached --quiet; then
             echo "No generated Dockerfile changes to commit; building from the release commit."
-            echo "branch=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "branch=${GITHUB_SHA}" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
           else
-            BRANCH="update-dockerfiles/${{ steps.version.outputs.tag }}"
+            BRANCH="update-dockerfiles/${STEP_VERSION_TAG}"
             git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
             git checkout -B "$BRANCH"
             echo "branch=$BRANCH" >> $GITHUB_OUTPUT
@@ -275,7 +286,9 @@ jobs:
       - name: Sign Image with Cosign (keyless)
         env:
           COSIGN_YES: "true"
-        run: cosign sign --recursive "index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}"
+          EVENT_REPOSITORY_NAME: ${{ github.event.repository.name }}
+          STEP_BUILD_PUSH_DIGEST: ${{ steps.build-push.outputs.digest }}
+        run: cosign sign --recursive "index.docker.io/paradedb/${EVENT_REPOSITORY_NAME}@${STEP_BUILD_PUSH_DIGEST}"
 
       # Signed SLSA provenance over the image digest via Sigstore. Works without GitHub Enterprise.
       - name: Attest Build Provenance with Cosign (keyless)
@@ -436,7 +449,8 @@ jobs:
       - name: Sign Image with Cosign (keyless)
         env:
           COSIGN_YES: "true"
-        run: cosign sign --recursive "index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}"
+          STEP_BUILD_PUSH_DIGEST: ${{ steps.build-push.outputs.digest }}
+        run: cosign sign --recursive "index.docker.io/${{ env.image_name }}@${STEP_BUILD_PUSH_DIGEST}"
 
       # Signed SLSA provenance over the image digest via Sigstore. Works without GitHub Enterprise.
       - name: Attest Build Provenance with Cosign (keyless)
@@ -512,22 +526,28 @@ jobs:
       - name: Open Release Branch PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JOB_GENERATE_DOCKERFILES_BRANCH: ${{ needs.generate-dockerfiles.outputs.branch }}
+          JOB_GENERATE_DOCKERFILES_RELEASE_BRANCH: ${{ needs.generate-dockerfiles.outputs.release_branch }}
+          JOB_GENERATE_DOCKERFILES_TAG: ${{ needs.generate-dockerfiles.outputs.tag }}
         run: |
-          BRANCH="${{ needs.generate-dockerfiles.outputs.branch }}"
-          BASE="${{ needs.generate-dockerfiles.outputs.release_branch }}"
+          BRANCH="${JOB_GENERATE_DOCKERFILES_BRANCH}"
+          BASE="${JOB_GENERATE_DOCKERFILES_RELEASE_BRANCH}"
 
           PR=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number // ""')
           if [ -n "$PR" ]; then
             echo "Release branch PR already exists: #$PR"
           else
-            gh pr create --base "$BASE" --head "$BRANCH" --title "chore: Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}" --body "Updates generated Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }} after the Docker images were published."
+            gh pr create --base "$BASE" --head "$BRANCH" --title "chore: Generate Dockerfiles for ${JOB_GENERATE_DOCKERFILES_TAG}" --body "Updates generated Dockerfiles for ${JOB_GENERATE_DOCKERFILES_TAG} after the Docker images were published."
           fi
 
       - name: Stage Main Dockerfiles
         if: ${{ needs.generate-dockerfiles.outputs.is_latest == 'true' }}
+        env:
+          JOB_GENERATE_DOCKERFILES_VERSION: ${{ needs.generate-dockerfiles.outputs.version }}
+          JOB_GENERATE_DOCKERFILES_TAG: ${{ needs.generate-dockerfiles.outputs.tag }}
         run: |
-          VERSION="${{ needs.generate-dockerfiles.outputs.version }}"
-          TAG="${{ needs.generate-dockerfiles.outputs.tag }}"
+          VERSION="${JOB_GENERATE_DOCKERFILES_VERSION}"
+          TAG="${JOB_GENERATE_DOCKERFILES_TAG}"
           BRANCH="update-dockerfiles/${TAG}-main"
 
           git fetch origin main:refs/remotes/origin/main
@@ -579,11 +599,13 @@ jobs:
     steps:
       - name: Retrieve GitHub Release Version
         id: version
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          if [ -z "${INPUTS_VERSION}" ]; then
             VERSION=${GITHUB_REF#refs/tags/v}
           else
-            VERSION=${{ github.event.inputs.version }}
+            VERSION="${INPUTS_VERSION}"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
@@ -604,6 +626,7 @@ jobs:
       - name: Notify ORM Repos of New Release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          STEP_VERSION_VERSION: ${{ steps.version.outputs.version }}
         run: |
           # Attempt every repo even if one fails (e.g. the ParadeDB GitHub App is
           # not installed on it), so a single misconfigured repo doesn't block the
@@ -616,7 +639,7 @@ jobs:
             echo "Dispatching to $repo..."
             if ! gh api "repos/$repo/dispatches" \
               --field event_type=paradedb-release \
-              --field "client_payload[version]=${{ steps.version.outputs.version }}"; then
+              --field "client_payload[version]=${STEP_VERSION_VERSION}"; then
               echo "::error::Failed to dispatch paradedb-release event to $repo"
               failed+=("$repo")
             fi

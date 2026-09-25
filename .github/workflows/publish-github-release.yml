@@ -54,47 +54,49 @@ jobs:
         id: validate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
+          INPUTS_BETA: ${{ github.event.inputs.beta }}
         run: |
           echo "start_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "Checking for existing release..."
-          if gh release view v${{ github.event.inputs.version }} > /dev/null 2>&1; then
-            echo "Release v${{ github.event.inputs.version }} already exists. All releases must be unique."
+          if gh release view "v${INPUTS_VERSION}" > /dev/null 2>&1; then
+            echo "Release v${INPUTS_VERSION} already exists. All releases must be unique."
             exit 1
           fi
           echo "Release check passed!"
 
-          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+          if [[ "${INPUTS_BETA}" == "true" ]]; then
             echo "Validating that the version contains '-rc.X'..."
-            if [[ "${{ github.event.inputs.version }}" != *"-rc."* ]]; then
-              echo "Version (${{ github.event.inputs.version }}) does not contain '-rc.X' but is marked as a beta release."
+            if [[ "${INPUTS_VERSION}" != *"-rc."* ]]; then
+              echo "Version (${INPUTS_VERSION}) does not contain '-rc.X' but is marked as a beta release."
               exit 1
             fi
             echo "Beta release: skipping branch prefix checks (can be run from any branch/commit)."
           else
             echo "Validating that the version does not contain '-rc.X'..."
-            if [[ "${{ github.event.inputs.version }}" == *"-rc."* ]]; then
-              echo "Version (${{ github.event.inputs.version }}) contains '-rc.X' but is not marked as a beta release."
+            if [[ "${INPUTS_VERSION}" == *"-rc."* ]]; then
+              echo "Version (${INPUTS_VERSION}) contains '-rc.X' but is not marked as a beta release."
               exit 1
             fi
 
-            if [[ "${{ github.ref_name }}" == "main" ]]; then
+            if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
               echo "Validating that the version is a minor release on the main branch..."
-              if [[ ! "${{ github.event.inputs.version }}" =~ ^[0-9]+\.[0-9]+\.0$ ]]; then
+              if [[ ! "${INPUTS_VERSION}" =~ ^[0-9]+\.[0-9]+\.0$ ]]; then
                 echo "On releases of the 'main' branch, releases must be minor (patch = 0)."
-                echo "Provided version '${{ github.event.inputs.version }}' is not a minor release."
+                echo "Provided version '${INPUTS_VERSION}' is not a minor release."
                 exit 1
               fi
-            elif [[ "${{ github.ref_name }}" =~ ^([0-9]+\.[0-9]+)\.x$ ]]; then
+            elif [[ "${GITHUB_REF_NAME}" =~ ^([0-9]+\.[0-9]+)\.x$ ]]; then
               BRANCH_PREFIX="${BASH_REMATCH[1]}"
               echo "Validating that version matches stable branch '${BRANCH_PREFIX}.x'..."
-              if [[ ! "${{ github.event.inputs.version }}" =~ ^${BRANCH_PREFIX}\.[0-9]+$ ]]; then
-                echo "❌ Error: On stable branch '${{ github.ref_name }}', version must match '${BRANCH_PREFIX}.<patch>'."
-                echo "Provided version '${{ github.event.inputs.version }}' does not match."
+              if [[ ! "${INPUTS_VERSION}" =~ ^${BRANCH_PREFIX}\.[0-9]+$ ]]; then
+                echo "❌ Error: On stable branch '${GITHUB_REF_NAME}', version must match '${BRANCH_PREFIX}.<patch>'."
+                echo "Provided version '${INPUTS_VERSION}' does not match."
                 exit 1
               fi
             else
               echo "❌ Error: Full releases must be triggered from 'main' or a stable branch ('<major>.<minor>.x')."
-              echo "Current ref '${{ github.ref_name }}' is not a valid release branch."
+              echo "Current ref '${GITHUB_REF_NAME}' is not a valid release branch."
               exit 1
             fi
           fi
@@ -121,35 +123,45 @@ jobs:
 
       - name: Assemble Release Artifacts
         if: github.repository == 'paradedb/paradedb'
+        env:
+          INPUTS_BETA: ${{ github.event.inputs.beta }}
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           FLAGS=""
-          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+          if [[ "${INPUTS_BETA}" == "true" ]]; then
             FLAGS="--preserve-fragments --beta"
           fi
-          ./scripts/release.sh all "${{ github.event.inputs.version }}" $FLAGS
+          ./scripts/release.sh all "${INPUTS_VERSION}" $FLAGS
 
       - name: Update Cargo Version, Lockfile, and Nix Hash
         if: github.repository == 'paradedb/paradedb'
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
-          ./scripts/release.sh set-version "${{ github.event.inputs.version }}"
+          ./scripts/release.sh set-version "${INPUTS_VERSION}"
 
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
+        env:
+          INPUTS_BETA: ${{ github.event.inputs.beta }}
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           FLAGS=""
-          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+          if [[ "${INPUTS_BETA}" == "true" ]]; then
             FLAGS="--beta"
           fi
-          IS_LATEST=$(./scripts/release.sh is-latest "${{ github.event.inputs.version }}" $FLAGS)
+          IS_LATEST=$(./scripts/release.sh is-latest "${INPUTS_VERSION}" $FLAGS)
           echo "is_latest=${IS_LATEST}"
           echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
 
       - name: Prepare Approval Details
         if: github.event.inputs.beta != 'true'
         id: approval_details
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
-          ./scripts/release.sh approval-body "${{ github.event.inputs.version }}" \
-            --branch "${{ github.ref_name }}" \
+          ./scripts/release.sh approval-body "${INPUTS_VERSION}" \
+            --branch "${GITHUB_REF_NAME}" \
             --output-file /tmp/approval-body.md
           {
             echo "issue_body<<EOF"
@@ -201,8 +213,10 @@ jobs:
           fi
 
       - name: Create Tag
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
-          TAG="v${{ github.event.inputs.version }}"
+          TAG="v${INPUTS_VERSION}"
           echo "Creating and pushing tag ${TAG}..."
           git tag -s "$TAG" -m "Release $TAG"
           git verify-tag "$TAG"
@@ -309,16 +323,17 @@ jobs:
         if: github.ref_name == 'main' && github.event.inputs.beta != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${INPUTS_VERSION}"
           MAJOR_MINOR=$(echo "$VERSION" | awk -F. '{print $1"."$2}')
           STABLE_BRANCH="${MAJOR_MINOR}.x"
           sha=$(git rev-parse HEAD)
 
           echo "Checking if stable branch refs/heads/${STABLE_BRANCH} exists..."
-          if ! gh api "repos/${{ github.repository }}/git/ref/heads/${STABLE_BRANCH}" > /dev/null 2>&1; then
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${STABLE_BRANCH}" > /dev/null 2>&1; then
             echo "Creating stable branch refs/heads/${STABLE_BRANCH} pointing at $sha"
-            gh api -X POST "repos/${{ github.repository }}/git/refs" \
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
               -f ref="refs/heads/${STABLE_BRANCH}" \
               -f sha="$sha"
             echo "✅ Created stable branch ${STABLE_BRANCH}"

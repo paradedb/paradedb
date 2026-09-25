@@ -267,6 +267,10 @@ impl WindowAggList {
         self.0.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &WindowAgg> {
         self.0.iter()
     }

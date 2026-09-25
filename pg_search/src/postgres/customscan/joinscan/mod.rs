@@ -674,21 +674,24 @@ impl JoinScan {
             }
         }
 
-        // A `pdb.agg()` is computed inside the Top-K aggregate node, which needs
-        // OFFSET + LIMIT known at planning, and its fields have to come from a
-        // source the join still puts out: the aggregate reads the join's rows.
+        // Window aggregates are computed inside the Top-K aggregate node, which
+        // needs OFFSET + LIMIT known at planning.
+        if !window_aggs.is_empty()
+            && limit_offset
+                .as_ref()
+                .and_then(|lo| lo.static_fetch())
+                .is_none()
+        {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: window functions require a statically known LIMIT and OFFSET",
+            ));
+        }
+
+        // The fields of a `pdb.agg()` have to come from a source the join still
+        // puts out: the aggregate reads the join's rows.
         let root_id = PlannerRootId::from(root);
         for window_agg in &mut window_aggs {
             if let WindowAggDef::PdbAgg(request) = &mut window_agg.agg_def {
-                if limit_offset
-                    .as_ref()
-                    .and_then(|lo| lo.static_fetch())
-                    .is_none()
-                {
-                    return Err(JoinDeclineReason::new(
-                        "JoinScan not used: pdb.agg() as a window function requires a statically known LIMIT and OFFSET",
-                    ));
-                }
                 request
                     .assign_plan_positions(|field| {
                         plan.plan_position(root_id, field.rti, field.attno)

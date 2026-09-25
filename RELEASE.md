@@ -73,6 +73,14 @@ To publish a beta release from any branch or commit:
 
 Fixes intended for a stable release are labeled with `cherry-pick/<branch>` (e.g. `cherry-pick/0.25.x`) on `main` and automatically backported via `.github/workflows/cherry-pick.yml` upon merge into the stable branch.
 
+The cherry-pick workflow signs backport commits, including draft commits containing conflicts, with an SSH signing key. Before enabling it in Community or Enterprise, configure these repository or organization settings:
+
+- Secret `RELEASE_SIGNING_KEY`: an unencrypted OpenSSH private key dedicated to signing.
+- Variable `RELEASE_SIGNING_USER`: the GitHub account that owns the signing key, preferably a release automation account.
+- Variable `RELEASE_SIGNING_EMAIL`: a verified email address on that account.
+
+Register the public key on that account as an **SSH signing key**. These settings are shared with release signing. The workflow checks key registration before backporting and fails if signing is unavailable. The original author is preserved, the signing account becomes the committer, and the GitHub App still authenticates pushes and creates PRs. Existing backports are unchanged.
+
 To publish a patch release from a stable branch:
 
 1. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml).

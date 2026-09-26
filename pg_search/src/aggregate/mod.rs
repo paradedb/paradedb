@@ -15,12 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod count_all_collector;
 pub mod exec;
 
 use std::error::Error;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
+use crate::aggregate::count_all_collector::CountAllCollector;
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
@@ -331,6 +333,10 @@ impl<'a> ParallelAggregationWorker<'a> {
             _ => HashSet::default(),
         };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
+        let count_all = self.query.is_match_all()
+            && matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
+                if clause.is_bare_doc_count()
+                    && matches!(clause.aggregates().next(), Some(AggregateType::CountAny { .. })));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
         let schema = indexrel.schema()?;
         if from_sql {
@@ -360,8 +366,12 @@ impl<'a> ParallelAggregationWorker<'a> {
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
-            let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
-            reader.collect(InterruptableCollector::new(mvcc_collector))
+            if count_all {
+                reader.collect(CountAllCollector::new(base_collector, vischeck))
+            } else {
+                let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
+                reader.collect(InterruptableCollector::new(mvcc_collector))
+            }
         } else {
             reader.collect(InterruptableCollector::new(base_collector))
         };
@@ -1101,7 +1111,7 @@ pub mod mvcc_collector {
 
     pub struct MVCCFilterCollector<C: Collector> {
         inner: C,
-        lock: Arc<Mutex<VisibilityChecker>>,
+        pub(super) lock: Arc<Mutex<VisibilityChecker>>,
     }
 
     unsafe impl<C: Collector> Send for MVCCFilterCollector<C> {}

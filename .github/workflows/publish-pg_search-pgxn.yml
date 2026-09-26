@@ -1,9 +1,7 @@
 # workflows/publish-pg_search-pgxn.yml
 #
 # Publish pg_search (PGXN)
-# Build and publish the pg_search extension to the PostgreSQL Extension Network (PGXN). This
-# workflow is triggered on creation of a GitHub Tag, but beta releases get filtered out
-# by the `if` condition of the job.
+# Bundle and publish the pg_search extension source to the PostgreSQL Extension Network (PGXN).
 
 name: Publish pg_search (PGXN)
 

@@ -1,0 +1,47 @@
+-- Regression test for https://github.com/paradedb/paradedb/issues/6399:
+-- COUNT(*) with `ctid IN (subquery)` failed with
+-- "Pre-filter failed: Column 0 not fetched" under the aggregate custom scan.
+-- The probe-side semi-join on `ctid` was applied as a pre-filter even though
+-- `ctid` cannot be fetched before visibility checks, so it must be left to
+-- the parent operator instead.
+-- Setup
+DROP TABLE IF EXISTS issue_6399_pf CASCADE;
+DROP TABLE
+CREATE TABLE issue_6399_pf (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE
+INSERT INTO issue_6399_pf VALUES (1, 'alice'), (2, 'bob'), (3, 'bob');
+INSERT 0 3
+CREATE INDEX issue_6399_pf_idx ON issue_6399_pf USING paradedb (id, name)
+WITH (text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX
+SET max_parallel_workers_per_gather = 0;
+SET
+-- Previously errored with "Pre-filter failed: Column 0 not fetched".
+SELECT count(*) FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob');
+ count
+-------
+     2
+(1 row)
+
+-- Parity with the native plan.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SET
+SELECT count(*) FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob');
+ count
+-------
+     2
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET
+-- Non-aggregate shape over the same predicate still works.
+SELECT id FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob') ORDER BY id;
+ id
+----
+  2
+  3
+(2 rows)
+
+-- Teardown
+DROP TABLE issue_6399_pf CASCADE;
+DROP TABLE

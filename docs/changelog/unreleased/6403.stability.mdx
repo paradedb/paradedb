@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed a `bitmap intersection stream ... claimed twice` error from a Top K search over a bitmap intersection that built a second scorer for the same segment, either because its first batch lost rows to visibility and it queried again, or because a window aggregate ran its own search after the Top K one. A stream's claim now releases when its cursor drops (#6403).

@@ -95,9 +95,6 @@ impl TidReader {
         }
     }
 
-    #[deprecated(
-        note = "Point lookups for tuple IDs are inefficient with split columns; migrate to batch lookup via as_u64s"
-    )]
     #[inline(always)]
     pub fn as_u64(&self, doc: DocId) -> Option<u64> {
         match self {
@@ -136,6 +133,91 @@ impl TidReader {
                         )),
                         _ => None,
                     };
+                }
+            }
+        }
+    }
+
+    // NOTE: Architectural Design Principles for TidReader:
+    // 1. Prefer batch APIs (`read_blocks_u32`, `read_offsets_u32`) over point lookups (`as_u64`)
+    //    or eager scalar decoding (`as_u64s`). Batch APIs decode fast fields using SIMD/bitpacked
+    //    columnar unpacking (`u32_vals`) directly into contiguous slices.
+    // 2. Use the block index (`BlockToDocIdMap` / `.ctid_map`) rather than the `tid_block` columnar
+    //    fast field whenever possible. Because index segments are sorted by CTID, document ID ranges
+    //    for each heap block are indexed in memory, bypassing columnar fast field reads for block numbers.
+    // 3. Lazily load the `tid_offset` column only for documents which the visibility map has not
+    //    eliminated. We deliberately avoid combined batch lookup APIs that read both `tid_block` and
+    //    `tid_offset` simultaneously: blocks must be inspected first (or resolved from `ctid_map`) to
+    //    check relation bounds and the visibility map (`is_block_all_visible`), and offsets should only
+    //    be read for surviving rows that require heap verification or CTID assembly. Batching both
+    //    reads together forces unnecessary columnar decoding of `tid_offset` for rows on all-visible
+    //    or dead pages. Point lookups (`as_u64`) remain appropriate for single-row lookups.
+
+    /// Loads only block numbers for `docs` directly into a u32 slice.
+    ///
+    /// # Preconditions
+    /// `docs` must be sorted.
+    pub fn read_blocks_u32(&self, docs: &[DocId], blocks: &mut [u32]) {
+        assert_eq!(docs.len(), blocks.len());
+        if docs.is_empty() {
+            return;
+        }
+        match self {
+            Self::Split { block, .. } => {
+                if matches!(block.index, tantivy::columnar::ColumnIndex::Full) {
+                    block.u32_vals(docs, blocks);
+                } else {
+                    let mut scratch = vec![None; docs.len()];
+                    block.first_vals(docs, &mut scratch);
+                    for (&maybe_b, b) in scratch.iter().zip(blocks.iter_mut()) {
+                        *b = maybe_b
+                            .map(|v| v as u32)
+                            .unwrap_or(pgrx::pg_sys::InvalidBlockNumber);
+                    }
+                }
+            }
+            Self::Legacy(col) => {
+                let mut scratch = vec![None; docs.len()];
+                col.first_vals(docs, &mut scratch);
+                for (&maybe_val, b) in scratch.iter().zip(blocks.iter_mut()) {
+                    *b = maybe_val
+                        .map(|v| (v >> 16) as u32)
+                        .unwrap_or(pgrx::pg_sys::InvalidBlockNumber);
+                }
+            }
+        }
+    }
+
+    /// Loads only offset numbers for `docs` directly into a u32 slice.
+    ///
+    /// # Preconditions
+    /// `docs` must be sorted.
+    pub fn read_offsets_u32(&self, docs: &[DocId], offsets: &mut [u32]) {
+        assert_eq!(docs.len(), offsets.len());
+        if docs.is_empty() {
+            return;
+        }
+        match self {
+            Self::Split { offset, .. } => {
+                if matches!(offset.index, tantivy::columnar::ColumnIndex::Full) {
+                    offset.u32_vals(docs, offsets);
+                } else {
+                    let mut scratch = vec![None; docs.len()];
+                    offset.first_vals(docs, &mut scratch);
+                    for (&maybe_o, o) in scratch.iter().zip(offsets.iter_mut()) {
+                        *o = maybe_o
+                            .map(|v| v as u32)
+                            .unwrap_or(pgrx::pg_sys::InvalidOffsetNumber as u32);
+                    }
+                }
+            }
+            Self::Legacy(col) => {
+                let mut scratch = vec![None; docs.len()];
+                col.first_vals(docs, &mut scratch);
+                for (&maybe_val, o) in scratch.iter().zip(offsets.iter_mut()) {
+                    *o = maybe_val
+                        .map(|v| (v as u16) as u32)
+                        .unwrap_or(pgrx::pg_sys::InvalidOffsetNumber as u32);
                 }
             }
         }
@@ -244,7 +326,6 @@ impl FFHelper {
     fn fast_fields(&self, segment_ord: SegmentOrdinal) -> &FastFieldReaders {
         self.searcher().segment_reader(segment_ord).fast_fields()
     }
-
 
     // TODO: Rename ctid -> tid
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &TidReader {

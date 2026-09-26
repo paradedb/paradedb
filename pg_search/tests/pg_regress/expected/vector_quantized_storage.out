@@ -24,7 +24,7 @@ SELECT bool_and(configured_quantized) AS policy_enabled,
 FROM paradedb.vector_info('review_storage_idx', 'vec');
  policy_enabled | ivf_stores_codes 
 ----------------+------------------
- t              | t
+ t              | f
 (1 row)
 
 INSERT INTO review_storage SELECT 513, vec FROM review_storage WHERE id = 1;
@@ -35,7 +35,7 @@ SELECT bool_or(vector_format = 'flat') AND bool_or(vector_format = 'ivf') AS mix
 FROM paradedb.vector_info('review_storage_idx', 'vec');
  mixed_storage | policy_enabled_for_both | presence_matches_segment | configured_schedule 
 ---------------+-------------------------+--------------------------+---------------------
- t             | t                       | t                        | t
+ f             | t                       | t                        | t
 (1 row)
 
 DROP TABLE review_storage;

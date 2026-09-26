@@ -578,11 +578,7 @@ impl Scanner {
                 } else {
                     // Only a visibility mask is needed; avoid resolving CTIDs.
                     self.visibility_mask.resize(ids.len(), false);
-                    checker.check_segment_docs_mask(
-                        segment_ord,
-                        &ids,
-                        &mut self.visibility_mask,
-                    );
+                    checker.check_segment_docs_mask(segment_ord, &ids, &mut self.visibility_mask);
 
                     let mut mask_builder = BooleanBufferBuilder::new(ids.len());
                     mask_builder.append_slice(&self.visibility_mask);

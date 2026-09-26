@@ -163,6 +163,18 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Resu
     Ok(())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DirtyBlockRange {
+    pub block: BlockNumber,
+    pub range: Range<DocId>,
+}
+
+/// In-memory index of document ID boundaries per heap block (`.ctid_map`).
+///
+/// Because index segments are sorted by CTID, documents residing on the same heap block form a
+/// contiguous range of `DocId`s. This mapping records the starting document ID of each heap block,
+/// allowing block resolution and dirty block range mapping without reading or storing a dedicated
+/// `tid_block` columnar fast field.
 pub(crate) struct BlockToDocIdMap {
     first_block: BlockNumber,
     last_block: BlockNumber,
@@ -213,7 +225,52 @@ impl BlockToDocIdMap {
         self.first_block..self.last_block + 1
     }
 
+    /// Given ranges of dirty heap blocks, returns the document ID ranges mapped to their block numbers.
+    pub(crate) fn dirty_block_ranges(
+        &mut self,
+        block_ranges: &[Range<BlockNumber>],
+    ) -> anyhow::Result<Vec<DirtyBlockRange>> {
+        let mut blocks = Vec::new();
+        for range in block_ranges {
+            if range.is_empty() {
+                continue;
+            }
+            for b in range.start..=range.end {
+                if blocks.last() != Some(&b) {
+                    blocks.push(b);
+                }
+            }
+        }
+        if blocks.is_empty() {
+            return Ok(Vec::new());
+        }
+        let bounds = self.boundaries(&blocks)?;
+        let mut result = Vec::new();
+        let mut b_idx = 0;
+        for range in block_ranges {
+            for block in range.start..range.end {
+                while blocks[b_idx] < block {
+                    b_idx += 1;
+                }
+                debug_assert_eq!(blocks[b_idx], block);
+                let start = bounds[b_idx];
+                let end = bounds[b_idx + 1];
+                if start > end || end > self.num_docs {
+                    bail!("invalid heap-block boundaries");
+                }
+                if start != end {
+                    result.push(DirtyBlockRange {
+                        block,
+                        range: start..end,
+                    });
+                }
+            }
+        }
+        Ok(result)
+    }
+
     /// Given ranges of dirty heap blocks, returns the document ID ranges they map to.
+    #[cfg(any(test, feature = "pg_test"))]
     pub(crate) fn doc_id_ranges_for_blocks(
         &mut self,
         block_ranges: &[Range<BlockNumber>],

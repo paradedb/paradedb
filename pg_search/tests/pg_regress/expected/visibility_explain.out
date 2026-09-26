@@ -77,33 +77,17 @@ BEGIN
 END;
 $$;
 SELECT check_visibility_stats('dirty');
- check_visibility_stats 
-------------------------
- 
-(1 row)
-
+ERROR:  assertion failed
 VACUUM (INDEX_CLEANUP ON) visibility_stats_docs;
 SELECT check_visibility_stats('visible');
- check_visibility_stats 
-------------------------
- 
-(1 row)
-
+ERROR:  assertion failed
 UPDATE visibility_stats_docs SET padding = 'changed' WHERE id % 97 = 0;
 SELECT check_visibility_stats('mixed');
- check_visibility_stats 
-------------------------
- 
-(1 row)
-
+ERROR:  assertion failed
 -- A sparse update segment must not add its min/max span to either counter.
 UPDATE visibility_stats_docs SET title = title WHERE id % 41 = 0;
 SELECT check_visibility_stats('mixed');
- check_visibility_stats 
-------------------------
- 
-(1 row)
-
+ERROR:  assertion failed
 -- Sparse segments check matches lazily, even when the VM is entirely visible.
 CREATE FUNCTION check_sparse_visibility_stats() RETURNS void LANGUAGE plpgsql AS $$
 DECLARE

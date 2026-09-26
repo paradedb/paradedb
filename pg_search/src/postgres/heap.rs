@@ -23,7 +23,7 @@ use std::sync::Arc;
 use crate::api::HashMap;
 use crate::api::version::Version;
 use crate::gucs::enable_visibility_map_shortcuts;
-use crate::index::ctid_map::BlockToDocIdMap;
+use crate::index::ctid_map::{BlockToDocIdMap, DirtyBlockRange};
 use crate::index::fast_fields_helper::{FFHelper, TidReader};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::composite::CompositeSlotValues;
@@ -129,6 +129,23 @@ impl VisibilityStats {
 /// the old tuple is marked dead and a new tuple is created at a new ctid, but the
 /// index still has the old ctid until VACUUM runs.
 ///
+/// # Architectural Design Principles
+///
+/// Visibility checking is optimized according to three core design rules:
+/// 1. Prefer batch APIs ([`Self::check_segment_docs_mask`], [`Self::check_segment_docs`]) over
+///    point lookups (`check_one`). Batch APIs decode fast fields using SIMD/bitpacked columnar
+///    unpacking (`u32_vals`) and amortize visibility map page pin checks and shared buffer locks
+///    across thousands of candidate doc IDs in a single pass.
+/// 2. Use the block index ([`crate::index::ctid_map::BlockToDocIdMap`]) rather than the `tid_block`
+///    fast field column whenever possible. Because index segments are sorted by CTID, document ID
+///    ranges for each heap block are indexed in memory. This eliminates the need to query or store
+///    a dedicated columnar fast field for block numbers during visibility verification.
+/// 3. Lazily load the `tid_offset` column only for documents which the visibility map has not
+///    eliminated. In mask-only checking ([`Self::check_segment_docs_mask`]), `tid_offset` is never
+///    read or decoded for documents on all-visible blocks, avoiding columnar decoding for the vast
+///    majority of tuples. In CTID resolution ([`Self::check_segment_docs`]), offsets are decoded in
+///    bulk via `u32_vals` only as needed to construct surviving CTIDs and verify dirty blocks.
+///
 /// The visibility checker supports three operational modes:
 /// 1. Mask-only visibility checking ([`VisibilityChecker::check_segment_docs_mask`]):
 ///    Checks the PostgreSQL visibility map first and returns a boolean mask. For split columns,
@@ -179,13 +196,29 @@ pub struct VisibilityChecker {
 
     // TODO: Make this non-optional in the future once all call sites provide an FFHelper.
     ffhelper: Option<Arc<FFHelper>>,
-    raw_ctids_scratch: Vec<Option<u64>>,
-    split_ctids_scratch: Vec<Option<u64>>,
+    ctid_scratch: CtidCheckScratch,
+    mask_scratch: MaskCheckScratch,
     dirty_blocks: HashMap<SegmentId, Arc<[Range<BlockNumber>]>>,
     /// Caches whether each segment has been proven all-visible under this checker's snapshot.
     segment_visibility: HashMap<SegmentOrdinal, bool>,
-    segment_checks: HashMap<SegmentOrdinal, Option<Arc<[Range<DocId>]>>>,
+    segment_checks: HashMap<SegmentOrdinal, Option<Arc<[DirtyBlockRange]>>>,
     visibility_stats: Option<Arc<Mutex<VisibilityStats>>>,
+}
+
+#[derive(Default)]
+struct CtidCheckScratch {
+    blocks: Vec<u32>,
+    offsets: Vec<u32>,
+}
+
+#[derive(Default)]
+struct MaskCheckScratch {
+    doc_ids: Vec<DocId>,
+    mask_indices: Vec<usize>,
+    blocks: Vec<u32>,
+    offsets: Vec<u32>,
+    order: Vec<usize>,
+    raw_blocks: Vec<u32>,
 }
 
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
@@ -234,8 +267,8 @@ impl VisibilityChecker {
                 invisible_tuple_count: 0,
                 check_visibility: true,
                 ffhelper: None,
-                raw_ctids_scratch: Vec::new(),
-                split_ctids_scratch: Vec::new(),
+                ctid_scratch: CtidCheckScratch::default(),
+                mask_scratch: MaskCheckScratch::default(),
                 dirty_blocks: HashMap::default(),
                 segment_visibility: HashMap::default(),
                 segment_checks: HashMap::default(),
@@ -644,13 +677,13 @@ impl VisibilityChecker {
     fn doc_id_ranges_needing_visibility_checks(
         &mut self,
         segment_ord: SegmentOrdinal,
-    ) -> Option<Arc<[Range<DocId>]>> {
+    ) -> Option<Arc<[DirtyBlockRange]>> {
         if !enable_visibility_map_shortcuts() {
             return None;
         }
         if !self.segment_checks.contains_key(&segment_ord) {
             // Map dirty VM pages to document ranges once per snapshot.
-            let ranges = (|| -> anyhow::Result<Option<Vec<Range<DocId>>>> {
+            let ranges = (|| -> anyhow::Result<Option<Vec<DirtyBlockRange>>> {
                 if self.snapshot.is_null()
                     || unsafe {
                         (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC
@@ -678,20 +711,12 @@ impl VisibilityChecker {
                 const RANGES_PER_BATCH: usize = 128;
                 let mut ranges = Vec::new();
                 for blocks in block_ranges.chunks(RANGES_PER_BATCH) {
-                    ranges.extend(map.doc_id_ranges_for_blocks(blocks)?);
+                    ranges.extend(map.dirty_block_ranges(blocks)?);
                 }
-                // Coalesce adjacent document ranges across batch boundaries.
-                ranges.dedup_by(|next, previous| {
-                    if previous.end == next.start {
-                        previous.end = next.end;
-                        true
-                    } else {
-                        false
-                    }
-                });
                 if descending {
-                    for range in &mut ranges {
-                        *range = segment.max_doc() - range.end..segment.max_doc() - range.start;
+                    for entry in &mut ranges {
+                        entry.range = segment.max_doc() - entry.range.end
+                            ..segment.max_doc() - entry.range.start;
                     }
                     ranges.reverse();
                 }
@@ -727,8 +752,8 @@ impl VisibilityChecker {
             if ranges.is_empty() {
                 return true;
             }
-            let idx = ranges.partition_point(|range| range.end <= doc_id);
-            if idx < ranges.len() && ranges[idx].start <= doc_id {
+            let idx = ranges.partition_point(|entry| entry.range.end <= doc_id);
+            if idx < ranges.len() && ranges[idx].range.start <= doc_id {
                 return false;
             }
             return true;
@@ -781,40 +806,34 @@ impl VisibilityChecker {
         if doc_ids.is_empty() || !self.check_visibility {
             return;
         }
-        assert!(
+        debug_assert!(
             doc_ids.is_sorted(),
             "visibility batches must be in doc ID order"
         );
         let ranges = self.doc_id_ranges_needing_visibility_checks(segment_ord);
+
+        // Fast path: if all blocks in the segment are confirmed all-visible, exit immediately.
+        if ranges.as_ref().is_some_and(|r| r.is_empty()) {
+            return;
+        }
+
         let ffhelper = self
             .ffhelper
             .clone()
             .expect("FFHelper must be configured to check segment doc visibility");
-        let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
-        let mut split_scratch = std::mem::take(&mut self.split_ctids_scratch);
-        let mut ctids = Vec::new();
-        let mut check = |start: usize, end: usize| {
-            if start == end {
-                return;
-            }
-            raw_ctids.resize(end - start, None);
-            ctids.resize(end - start, None);
-            ffhelper.ctid(segment_ord).as_u64s(
-                &doc_ids[start..end],
-                &mut raw_ctids,
-                &mut split_scratch,
-            );
-            self.check_raw_ctids_impl(&raw_ctids, &mut ctids, false);
-            for (visible, ctid) in mask[start..end].iter_mut().zip(&ctids) {
-                *visible = ctid.is_some();
-            }
-        };
-        if let Some(ranges) = ranges {
+
+        self.mask_scratch.doc_ids.clear();
+        self.mask_scratch.mask_indices.clear();
+        self.mask_scratch.blocks.clear();
+
+        if let Some(ranges) = &ranges {
             let mut start = 0;
-            let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
+            let first_range = ranges.partition_point(|entry| entry.range.end <= doc_ids[0]);
             let mut remaining_ranges = &ranges[first_range..];
-            while let Some((range, rest)) = remaining_ranges.split_first() {
+            while let Some((entry, rest)) = remaining_ranges.split_first() {
                 remaining_ranges = rest;
+                let range = &entry.range;
+                let blockno = entry.block;
                 start += doc_ids[start..].partition_point(|&doc| doc < range.start);
                 if start == doc_ids.len() {
                     break;
@@ -823,18 +842,113 @@ impl VisibilityChecker {
                 if start == end {
                     // Jump over ranges that end before the next query match.
                     let skip =
-                        remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
+                        remaining_ranges.partition_point(|entry| entry.range.end <= doc_ids[start]);
                     remaining_ranges = &remaining_ranges[skip..];
                     continue;
                 }
-                check(start, end);
+                let count = end - start;
+                if blockno >= self.nblocks {
+                    self.invisible_tuple_count += count;
+                    mask[start..end].fill(false);
+                } else {
+                    self.mask_scratch
+                        .doc_ids
+                        .extend_from_slice(&doc_ids[start..end]);
+                    self.mask_scratch.mask_indices.extend(start..end);
+                    self.mask_scratch
+                        .blocks
+                        .resize(self.mask_scratch.blocks.len() + count, blockno);
+                }
                 start = end;
             }
         } else {
-            check(0, doc_ids.len());
+            // Proof ranges unavailable (e.g. mutable or uncommitted segments without .ctid_map).
+            // Read only blocks first to check relation bounds and the VM all-visible bit,
+            // and only fetch offsets for surviving rows on dirty blocks.
+            let mut raw_blocks = std::mem::take(&mut self.mask_scratch.raw_blocks);
+            raw_blocks.resize(doc_ids.len(), 0);
+            ffhelper
+                .ctid(segment_ord)
+                .read_blocks_u32(doc_ids, &mut raw_blocks);
+            for (i, (&doc, &blockno)) in doc_ids.iter().zip(&raw_blocks).enumerate() {
+                if blockno >= self.nblocks {
+                    self.invisible_tuple_count += 1;
+                    mask[i] = false;
+                    continue;
+                }
+                if self.is_block_all_visible(blockno) {
+                    continue;
+                }
+                self.mask_scratch.doc_ids.push(doc);
+                self.mask_scratch.mask_indices.push(i);
+                self.mask_scratch.blocks.push(blockno);
+            }
+            self.mask_scratch.raw_blocks = raw_blocks;
         }
-        self.raw_ctids_scratch = raw_ctids;
-        self.split_ctids_scratch = split_scratch;
+
+        let dirty_count = self.mask_scratch.doc_ids.len();
+        if dirty_count == 0 {
+            return;
+        }
+
+        self.mask_scratch.offsets.resize(dirty_count, 0);
+        ffhelper
+            .ctid(segment_ord)
+            .read_offsets_u32(&self.mask_scratch.doc_ids, &mut self.mask_scratch.offsets);
+
+        let is_blocks_sorted = ranges.is_some() || self.mask_scratch.blocks.is_sorted();
+        if !is_blocks_sorted {
+            self.mask_scratch.order.clear();
+            self.mask_scratch.order.extend(0..dirty_count);
+            let blocks = &self.mask_scratch.blocks;
+            self.mask_scratch.order.sort_unstable_by_key(|&i| blocks[i]);
+        }
+
+        let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
+        let mut current_block = pg_sys::InvalidBlockNumber;
+
+        for i in 0..dirty_count {
+            let item_idx = if is_blocks_sorted {
+                i
+            } else {
+                self.mask_scratch.order[i]
+            };
+
+            let blockno = self.mask_scratch.blocks[item_idx];
+            let offset = self.mask_scratch.offsets[item_idx] as pg_sys::OffsetNumber;
+            let mask_idx = self.mask_scratch.mask_indices[item_idx];
+
+            if current_block != blockno {
+                drop(current_buffer.take());
+                current_buffer = Some(self.bman.get_buffer(blockno));
+                current_block = blockno;
+            }
+
+            let buffer = *current_buffer.as_ref().unwrap().deref();
+            self.heap_tuple_check_count += 1;
+
+            unsafe {
+                pgrx::itemptr::item_pointer_set_all(&mut self.tid, blockno, offset);
+
+                let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
+                let mut all_dead = false;
+
+                let found = pg_sys::heap_hot_search_buffer(
+                    &mut self.tid,
+                    self.heaprel.as_ptr(),
+                    buffer,
+                    self.snapshot,
+                    &mut heap_tuple_data,
+                    &mut all_dead,
+                    true, // first_call
+                );
+
+                if !found {
+                    self.invisible_tuple_count += 1;
+                    mask[mask_idx] = false;
+                }
+            }
+        }
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from
@@ -849,6 +963,10 @@ impl VisibilityChecker {
     /// or `BaseScan::check_visibility`) that follows HOT redirects via `table_index_fetch_tuple`
     /// (`exec_if_visible`) for the final surviving rows, avoiding heap page reads for candidate
     /// rows discarded during query execution.
+    /// # Preconditions
+    ///
+    /// `doc_ids` must be sorted in ascending order:
+    /// `doc_ids.windows(2).all(|w| w[0] <= w[1])`.
     pub fn check_segment_docs(
         &mut self,
         segment_ord: SegmentOrdinal,
@@ -869,6 +987,11 @@ impl VisibilityChecker {
     /// NOTE: This touches shared buffers for every block and is significantly more expensive than
     /// [`Self::check_segment_docs`]. Use this only when the caller requires the physical heap CTID directly
     /// and will not perform an index-based heap fetch (e.g. in `SearchIndexReader::collect_ctidset`).
+    ///
+    /// # Preconditions
+    ///
+    /// `doc_ids` must be sorted in ascending order:
+    /// `doc_ids.windows(2).all(|w| w[0] <= w[1])`.
     pub fn resolve_segment_docs(
         &mut self,
         segment_ord: SegmentOrdinal,
@@ -889,98 +1012,214 @@ impl VisibilityChecker {
             return;
         }
         assert_eq!(doc_ids.len(), results.len());
+        debug_assert!(
+            doc_ids.is_sorted(),
+            "visibility batches must be in doc ID order"
+        );
 
         let ffhelper = self
             .ffhelper
             .clone()
             .expect("FFHelper must be configured to check segment doc visibility");
 
-        let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
-        raw_ctids.resize(doc_ids.len(), None);
-        let mut split_scratch = std::mem::take(&mut self.split_ctids_scratch);
-        ffhelper
-            .ctid(segment_ord)
-            .as_u64s(doc_ids, &mut raw_ctids, &mut split_scratch);
-        self.split_ctids_scratch = split_scratch;
+        let mut raw_blocks = std::mem::take(&mut self.ctid_scratch.blocks);
+        raw_blocks.resize(doc_ids.len(), 0);
+        let mut raw_offsets = std::mem::take(&mut self.ctid_scratch.offsets);
+        raw_offsets.resize(doc_ids.len(), 0);
+
+        let tid_reader = ffhelper.ctid(segment_ord);
+        tid_reader.read_blocks_u32(doc_ids, &mut raw_blocks);
+        tid_reader.read_offsets_u32(doc_ids, &mut raw_offsets);
+
+        for (i, (&b, &o)) in raw_blocks.iter().zip(raw_offsets.iter()).enumerate() {
+            results[i] =
+                if b == pg_sys::InvalidBlockNumber || o == pg_sys::InvalidOffsetNumber as u32 {
+                    None
+                } else {
+                    Some(crate::postgres::utils::tid_from_components(
+                        b as pg_sys::BlockNumber,
+                        o as pg_sys::OffsetNumber,
+                    ))
+                };
+        }
 
         if !self.check_visibility {
-            results.copy_from_slice(&raw_ctids);
-        } else if !resolve_hot
-            && doc_ids.is_sorted()
-            && let Some(ranges) = self.doc_id_ranges_needing_visibility_checks(segment_ord)
-        {
-            results.copy_from_slice(&raw_ctids);
+            self.ctid_scratch.blocks = raw_blocks;
+            self.ctid_scratch.offsets = raw_offsets;
+            return;
+        }
+
+        let ranges = self.doc_id_ranges_needing_visibility_checks(segment_ord);
+
+        // Fast path: if all blocks in the segment are confirmed all-visible under MVCC snapshot
+        // and resolve_hot is false, all CTIDs in results are already valid without heap reads.
+        if !resolve_hot && ranges.as_ref().is_some_and(|r| r.is_empty()) {
+            self.ctid_scratch.blocks = raw_blocks;
+            self.ctid_scratch.offsets = raw_offsets;
+            return;
+        }
+
+        if !resolve_hot && let Some(ranges) = &ranges {
             let mut start = 0;
-            let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
+            let first_range = ranges.partition_point(|entry| entry.range.end <= doc_ids[0]);
             let mut remaining_ranges = &ranges[first_range..];
-            while let Some((range, rest)) = remaining_ranges.split_first() {
+
+            let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
+            let mut current_block = pg_sys::InvalidBlockNumber;
+
+            while let Some((entry, rest)) = remaining_ranges.split_first() {
                 remaining_ranges = rest;
+                let range = &entry.range;
+                let blockno = entry.block;
                 start += doc_ids[start..].partition_point(|&doc| doc < range.start);
                 if start == doc_ids.len() {
                     break;
                 }
                 let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
                 if start == end {
-                    // Jump over ranges that end before the next query match.
                     let skip =
-                        remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
+                        remaining_ranges.partition_point(|entry| entry.range.end <= doc_ids[start]);
                     remaining_ranges = &remaining_ranges[skip..];
                     continue;
                 }
-                self.check_raw_ctids_impl(&raw_ctids[start..end], &mut results[start..end], false);
+
+                if blockno >= self.nblocks {
+                    self.invisible_tuple_count += end - start;
+                    results[start..end].fill(None);
+                } else {
+                    if current_block != blockno {
+                        drop(current_buffer.take());
+                        current_buffer = Some(self.bman.get_buffer(blockno));
+                        current_block = blockno;
+                    }
+                    let buffer = *current_buffer.as_ref().unwrap().deref();
+
+                    for item_idx in start..end {
+                        let offset = raw_offsets[item_idx] as pg_sys::OffsetNumber;
+                        if offset == pg_sys::InvalidOffsetNumber {
+                            results[item_idx] = None;
+                            continue;
+                        }
+                        self.heap_tuple_check_count += 1;
+                        unsafe {
+                            pgrx::itemptr::item_pointer_set_all(&mut self.tid, blockno, offset);
+                            let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
+                            let mut all_dead = false;
+
+                            let found = pg_sys::heap_hot_search_buffer(
+                                &mut self.tid,
+                                self.heaprel.as_ptr(),
+                                buffer,
+                                self.snapshot,
+                                &mut heap_tuple_data,
+                                &mut all_dead,
+                                true, // first_call
+                            );
+
+                            if found {
+                                results[item_idx] =
+                                    Some(crate::postgres::utils::item_pointer_to_u64(self.tid));
+                            } else {
+                                self.invisible_tuple_count += 1;
+                                results[item_idx] = None;
+                            }
+                        }
+                    }
+                }
                 start = end;
             }
-        } else {
-            self.check_raw_ctids_impl(&raw_ctids, results, resolve_hot);
-        }
-
-        self.raw_ctids_scratch = raw_ctids;
-    }
-
-    fn check_raw_ctids_impl(
-        &mut self,
-        ctids: &[Option<u64>],
-        results: &mut [Option<u64>],
-        resolve_hot: bool,
-    ) {
-        if ctids.is_empty() {
-            return;
-        }
-        assert_eq!(ctids.len(), results.len());
-        if !self.check_visibility {
-            results.copy_from_slice(ctids);
+            self.ctid_scratch.blocks = raw_blocks;
+            self.ctid_scratch.offsets = raw_offsets;
             return;
         }
 
-        let mut sorted_indices: Vec<(usize, u64)> = ctids
-            .iter()
-            .map(|maybe_ctid| maybe_ctid.expect("All rows must have ctids."))
-            .enumerate()
-            .collect();
-        sorted_indices.sort_unstable_by_key(|(_, ctid)| *ctid);
-
+        // Fallback for mutable/uncommitted segments without .ctid_map, or when resolve_hot is true.
+        let is_blocks_sorted = raw_blocks.is_sorted();
         let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
         let mut current_block = pg_sys::InvalidBlockNumber;
 
-        for (idx, ctid) in sorted_indices {
-            let blockno = (ctid >> 16) as BlockNumber;
-            // acquire the block's buffer once per run of same-block ctids and
-            // hold its lock across the run; resolve_visible's own VM re-check
-            // hits the blockvis cache
-            let needs_heap_check =
-                blockno < self.nblocks && (resolve_hot || !self.is_block_all_visible(blockno));
-            let locked_buffer = if needs_heap_check {
-                if current_block != blockno {
-                    drop(current_buffer.take());
-                    current_buffer = Some(self.bman.get_buffer(blockno));
-                    current_block = blockno;
-                }
-                Some(*current_buffer.as_ref().unwrap().deref())
-            } else {
-                None
-            };
-            results[idx] = self.resolve_visible(ctid, locked_buffer, resolve_hot);
+        let mut order = std::mem::take(&mut self.mask_scratch.order);
+        if !is_blocks_sorted {
+            order.clear();
+            order.extend(0..doc_ids.len());
+            let blocks = &raw_blocks;
+            order.sort_unstable_by_key(|&i| blocks[i]);
         }
+
+        let check_tuple = |checker: &mut Self,
+                           item_idx: usize,
+                           curr_block: &mut BlockNumber,
+                           curr_buf: &mut Option<crate::postgres::storage::buffer::Buffer>,
+                           out: &mut [Option<u64>]| {
+            let blockno = raw_blocks[item_idx];
+            let offset = raw_offsets[item_idx] as pg_sys::OffsetNumber;
+
+            if blockno >= checker.nblocks || offset == pg_sys::InvalidOffsetNumber {
+                checker.invisible_tuple_count += 1;
+                out[item_idx] = None;
+                return;
+            }
+
+            if !resolve_hot && checker.is_block_all_visible(blockno) {
+                return;
+            }
+
+            if *curr_block != blockno {
+                drop(curr_buf.take());
+                *curr_buf = Some(checker.bman.get_buffer(blockno));
+                *curr_block = blockno;
+            }
+            let buffer = *curr_buf.as_ref().unwrap().deref();
+            checker.heap_tuple_check_count += 1;
+
+            unsafe {
+                pgrx::itemptr::item_pointer_set_all(&mut checker.tid, blockno, offset);
+                let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
+                let mut all_dead = false;
+
+                let found = pg_sys::heap_hot_search_buffer(
+                    &mut checker.tid,
+                    checker.heaprel.as_ptr(),
+                    buffer,
+                    checker.snapshot,
+                    &mut heap_tuple_data,
+                    &mut all_dead,
+                    true, // first_call
+                );
+
+                if found {
+                    out[item_idx] = Some(crate::postgres::utils::item_pointer_to_u64(checker.tid));
+                } else {
+                    checker.invisible_tuple_count += 1;
+                    out[item_idx] = None;
+                }
+            }
+        };
+
+        if is_blocks_sorted {
+            for item_idx in 0..doc_ids.len() {
+                check_tuple(
+                    self,
+                    item_idx,
+                    &mut current_block,
+                    &mut current_buffer,
+                    results,
+                );
+            }
+        } else {
+            for &item_idx in &order {
+                check_tuple(
+                    self,
+                    item_idx,
+                    &mut current_block,
+                    &mut current_buffer,
+                    results,
+                );
+            }
+        }
+        self.mask_scratch.order = order;
+        self.ctid_scratch.blocks = raw_blocks;
+        self.ctid_scratch.offsets = raw_offsets;
     }
 
     /// Resolves a ctid to its visible ctid under the checker's snapshot,

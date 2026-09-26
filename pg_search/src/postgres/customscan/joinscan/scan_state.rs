@@ -33,9 +33,10 @@ use std::sync::Arc;
 
 use datafusion::catalog::Session;
 use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
+use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::{
-    Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
+    Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions, SortExpr,
     WindowFunctionDefinition, col,
 };
 use datafusion::optimizer::{Optimizer, OptimizerRule};
@@ -50,11 +51,16 @@ use super::window_func::{
     SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
+use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
+use crate::postgres::customscan::datafusion::topk_agg::{
+    TOPK_AGG_ROWS_COL_NAME, distinct_topk_as_agg, topk_as_agg,
+};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -866,9 +872,35 @@ fn build_clause_df<'a>(
 
         let df = apply_window_functions(df, join_clause)?;
 
-        // 4. Apply DISTINCT via GROUP BY
-        let (df, distinct_col_map) =
-            apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
+        // 4. DISTINCT + Top-(offset + K). When enabled, rows come
+        // back as (offset + k) rows, not necessarily in order, and the sort, limit
+        // and output projection below resolve through `distinct_col_map` as before.
+        //
+        // When disabled, use apply_distinct_group_by
+        let (df, distinct_col_map) = if gucs::joinscan_force_topk_as_agg()
+            // The Top-K aggregate needs a known k
+            && let Some(k) = topk_as_agg_limit(join_clause.limit_offset.as_ref())
+        {
+            match distinct_key_exprs(join_clause)? {
+                Some((key_exprs, distinct_col_map)) => (
+                    apply_distinct_topk_as_agg(
+                        df,
+                        join_clause,
+                        &private_data.output_columns,
+                        key_exprs,
+                        &distinct_col_map,
+                        k,
+                    )?,
+                    distinct_col_map,
+                ),
+                None => (
+                    apply_topk_as_agg(df, join_clause, k)?,
+                    DistinctColMap::default(),
+                ),
+            }
+        } else {
+            apply_distinct_group_by(df, join_clause, &private_data.output_columns)?
+        };
 
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
@@ -896,6 +928,149 @@ fn build_clause_df<'a>(
         )
     };
     f.boxed_local()
+}
+
+fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
+    if let Some(lo) = limit_offset {
+        if let (Some(fetch), Some(skip)) = (lo.static_limit(), lo.static_offset()) {
+            Some(
+                skip.checked_add(fetch)
+                    .expect("invalid limit of OFFSET {skip} + {fetch}"),
+            )
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn apply_distinct_topk_as_agg(
+    df: DataFrame,
+    join_clause: &JoinCSClause,
+    output_columns: &[OutputColumnInfo],
+    distinct_key_exprs: Vec<Expr>,
+    distinct_col_map: &DistinctColMap,
+    k: usize,
+) -> Result<DataFrame> {
+    let (df, k) = empty_input_for_zero_k(df, k)?;
+
+    {
+        let projection = join_clause
+            .output_projection
+            .as_ref()
+            .expect("should always exist by now");
+        assert_eq!(
+            distinct_key_exprs.len(),
+            projection.len(),
+            "This function is only correct as long as the DISTINCT keys cover all output projection columns",
+        );
+    }
+
+    // Only relations whose heap tuples are fetched need a ctid carried through,
+    // the same pruning the GROUP BY form applies.
+    let needed_ctids = relations_needing_ctid(output_columns);
+    let ctid_names: Vec<String> =
+        surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
+            .filter(|(pos, _)| needed_ctids.contains(pos))
+            .map(|(_, name)| name)
+            .collect();
+
+    let num_non_ctid_cols = distinct_key_exprs.len();
+    // The GROUP BY's group list, as a projection: col_{i} exists from here on.
+    let mut select: Vec<Expr> = distinct_key_exprs
+        .into_iter()
+        .enumerate()
+        .map(|(i, e)| e.alias(format!("col_{}", i + 1)))
+        .collect();
+    select.extend(ctid_names.iter().map(|n| col(n.as_str())));
+    let num_all_cols = select.len();
+    let df = df.select(select)?;
+
+    // The same list, just with the new names
+    let mut all_col_exprs: Vec<Expr> = (0..num_non_ctid_cols)
+        .map(|i| col(format!("col_{}", i + 1)))
+        .chain(ctid_names.iter().map(|n| col(n.as_str())))
+        .collect();
+
+    let mut key_positions: Vec<usize> = (0..num_non_ctid_cols).collect();
+    let ctid_positions: Vec<usize> = (num_non_ctid_cols..num_all_cols).collect();
+
+    // the sort expressions built from distinct_col_map will be correct thanks to the above SELECT
+    let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
+    // we must ensure all_col_exprs contains the sort expression. The appended expression is
+    // necessarily a function of key columns, so adding it does not change which rows are distinct
+    for sort in sort_exprs.iter() {
+        if !all_col_exprs.contains(&sort.expr) {
+            key_positions.push(all_col_exprs.len());
+            all_col_exprs.push(sort.expr.clone());
+        }
+    }
+
+    let topk_agg = distinct_topk_as_agg(
+        &all_col_exprs,
+        sort_exprs,
+        k,
+        &key_positions,
+        &ctid_positions,
+    );
+    let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
+    let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
+
+    // Restore the GROUP BY's output names: `col_{i}` for the key, the ctid names
+    // for the ctids.
+    let name_restoration_exprs: Vec<Expr> = (0..num_non_ctid_cols)
+        .map(|i| {
+            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(format!("col_{}", i + 1))
+        })
+        .chain(ctid_names.iter().enumerate().map(|(j, name)| {
+            get_field(
+                col(TOPK_AGG_ROWS_COL_NAME),
+                format!("c{}", num_non_ctid_cols + j),
+            )
+            .alias(name.as_str())
+        }))
+        .collect();
+    df.select(name_restoration_exprs)
+}
+
+fn apply_topk_as_agg(df: DataFrame, join_clause: &JoinCSClause, k: usize) -> Result<DataFrame> {
+    let (df, k) = empty_input_for_zero_k(df, k)?;
+
+    let columns = df.schema().columns();
+    let all_col_exprs: Vec<_> = columns.iter().cloned().map(Expr::from).collect();
+    let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
+    let topk_agg = topk_as_agg(&all_col_exprs, sort_exprs, k);
+
+    // Do aggregations
+    let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
+
+    // unnest/flatten back to rows
+    let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
+
+    // restore original column names
+    let name_restoration_exprs: Vec<_> = columns
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
+                .alias_qualified(c.relation.clone(), c.name.clone())
+        })
+        .collect();
+    let df = df.select(name_restoration_exprs)?;
+
+    Ok(df)
+}
+
+/// The accumulator rejects a k of 0. Empty the input instead and keep one row,
+/// which the LIMIT stage drops, so the schema the sort and output projection
+/// expect stays intact.
+fn empty_input_for_zero_k(df: DataFrame, k: usize) -> Result<(DataFrame, usize)> {
+    if k == 0 {
+        Ok((df.limit(0, Some(0))?, 1))
+    } else {
+        Ok((df, k))
+    }
 }
 
 /// Translate every clause in `custom_exprs` (a Postgres `List*`) into a
@@ -949,28 +1124,20 @@ fn surviving_ctid_columns<'a>(
     })
 }
 
-/// Apply a DISTINCT rewrite as `GROUP BY` over `output_projection`, taking the
-/// MIN of each ctid column as a stable representative. Returns the rewritten
-/// `DataFrame` plus the populated [`DistinctColMap`] used by the sort and
-/// projection stages to resolve column references against the new aliases.
-///
-/// When DISTINCT is not active (or there is no `output_projection`) the input
-/// frame is returned unchanged with an empty map.
-fn apply_distinct_group_by(
-    df: DataFrame,
-    join_clause: &JoinCSClause,
-    output_columns: &[OutputColumnInfo],
-) -> Result<(DataFrame, DistinctColMap)> {
+/// The DISTINCT key: one expression per output projection entry, in target-list
+/// order, plus the map the sort and output projection use to find those entries
+/// by their `col_{i}` names afterwards. `None` when there is no DISTINCT to apply.
+fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, DistinctColMap)>> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
     if !join_clause.has_distinct {
-        return Ok((df, distinct_col_map));
+        return Ok(None);
     }
     let Some(projection) = &join_clause.output_projection else {
-        return Ok((df, distinct_col_map));
+        return Ok(None);
     };
 
-    let mut group_exprs: Vec<Expr> = Vec::new();
+    let mut key_exprs: Vec<Expr> = Vec::new();
 
     for (i, proj) in projection.iter().enumerate() {
         let col_alias = format!("col_{}", i + 1);
@@ -1003,7 +1170,7 @@ fn apply_distinct_group_by(
             }
         };
 
-        group_exprs.push(expr.alias(&col_alias));
+        key_exprs.push(expr);
 
         if let Some(key) = map_key {
             match key {
@@ -1016,6 +1183,30 @@ fn apply_distinct_group_by(
             }
         }
     }
+
+    Ok(Some((key_exprs, distinct_col_map)))
+}
+
+/// Apply a DISTINCT rewrite as `GROUP BY` over the distinct key, taking the MIN
+/// of each ctid column as a stable representative. Returns the rewritten
+/// `DataFrame` plus the populated [`DistinctColMap`] used by the sort and
+/// projection stages to resolve column references against the new aliases.
+///
+/// When there is no DISTINCT to apply the input frame is returned unchanged
+/// with an empty map.
+fn apply_distinct_group_by(
+    df: DataFrame,
+    join_clause: &JoinCSClause,
+    output_columns: &[OutputColumnInfo],
+) -> Result<(DataFrame, DistinctColMap)> {
+    let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
+        return Ok((df, DistinctColMap::default()));
+    };
+    let group_exprs: Vec<Expr> = key_exprs
+        .into_iter()
+        .enumerate()
+        .map(|(i, expr)| expr.alias(format!("col_{}", i + 1)))
+        .collect();
 
     // Postgres needs the ctids to fetch the actual tuples after DataFusion
     // completes. Since GROUP BY collapses multiple rows into one, we use
@@ -1366,6 +1557,18 @@ fn apply_sort(
         return Ok(df);
     }
 
+    let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
+    df.sort(sort_exprs)
+}
+
+fn build_sort_exprs(
+    join_clause: &JoinCSClause,
+    distinct_col_map: &DistinctColMap,
+) -> Result<Vec<SortExpr>> {
+    if join_clause.order_by.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let mut sort_exprs = Vec::new();
     for info in &join_clause.order_by {
         let expr = match &info.feature {
@@ -1392,7 +1595,8 @@ fn apply_sort(
         );
         sort_exprs.push(expr.sort(asc, nulls_first));
     }
-    df.sort(sort_exprs)
+
+    Ok(sort_exprs)
 }
 
 /// Build the final SELECT list. When `output_projection` is set, every
@@ -1408,7 +1612,6 @@ fn apply_output_projection(
     output_columns: &[OutputColumnInfo],
 ) -> Result<DataFrame> {
     let mut final_cols = Vec::new();
-
     if let Some(projection) = &join_clause.output_projection {
         for (i, proj) in projection.iter().enumerate() {
             let col_alias = format!("col_{}", i + 1);
@@ -1456,7 +1659,6 @@ fn apply_output_projection(
             final_cols.push(col(field.name()));
         }
     }
-
     df.select(final_cols)
 }
 

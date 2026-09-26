@@ -703,7 +703,6 @@ impl JoinScan {
         }
 
         // --- Build JoinCSClause ---
-
         let mut join_clause = JoinCSClause::new(plan.clone())
             .with_limit_offset(limit_offset.clone())
             .with_distinct(has_distinct)

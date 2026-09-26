@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790323902162,
+  "lastUpdate": 1790409870557,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -5270,6 +5270,53 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.07,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "739a11c59d9d08625a619fb9f351300949e1a0b5",
+          "message": "feat: Much faster ctid map (#6498)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nImplements a block number to docId map as a custom component. See the\ndoc comments of `pg_search/src/index/ctid_map/mod.rs` for the layout,\nbut basically it's a column of doc ID boundaries keyed by block number\nwith an offset of the segment's lowest block number.\n\nImplementation details to note:\n\n- Implemented as a new `.ctid_map` plugin. The alternative was to\npiggyback off the `.stats` plugin but I didn't want to pollute the\n`.stats` entries especially if we decide to change this in the future.\n- A GUC that when turned off falls back to the original strategy of\nreading a ctid per matched docId, which allows us to proptest for\nequivalence\n- The ctid map uses Tantivy's `ColumnWriter` and can choose from\nbitpacked or blockwise linear as codecs\n\nWith this change in place, the visibility checking flow is now \n\n1. Check the segment's min/max block range, and see if that entire range\nis visible. If yes, skip visibility checking entirely (that was a\nprevious PR, already in main)\n2. If at least one block is dirty, see if the `.ctid_map` plugin is\navailable\n3. If it is, use the CTID map to efficiently go from `Vec<dirty blocks>`\nto `Vec<Range<DocId>>`, where each `Range<DocId>` means \"the doc Ids on\nthat dirty block that need to be rechecked.\"\n4. Then, execute the Tantivy query. For each `DocId`, check if it's in\nany of the ranges. The check right now is a batched binary search.\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-26T03:12:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/739a11c59d9d08625a619fb9f351300949e1a0b5"
+        },
+        "date": 1790409868943,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.5877329026747113,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.54,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.894,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.969,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.049,
             "unit": "ms"
           }
         ]

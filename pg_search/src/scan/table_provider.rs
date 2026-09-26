@@ -23,7 +23,7 @@ use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
 use datafusion::common::stats::{ColumnStatistics, Precision};
-use datafusion::common::{DataFusionError, Result, Statistics};
+use datafusion::common::{Constraint, Constraints, DataFusionError, Result, Statistics};
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 use pgrx::pg_sys;
@@ -76,6 +76,8 @@ pub struct PgSearchTableProvider {
     schema: OnceLock<SchemaRef>,
     #[serde(skip)]
     late_materialization_schema: OnceLock<SchemaRef>,
+    #[serde(skip)]
+    constraints: OnceLock<Option<Constraints>>,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
     /// re-injected by the execution codec during deserialization if
@@ -173,6 +175,9 @@ impl Clone for PgSearchTableProvider {
             fields: self.fields.clone(),
             schema: self.schema.clone(),
             late_materialization_schema: self.late_materialization_schema.clone(),
+            // Not carried over: a clone can have its fields rewritten (see
+            // `enable_deferred_visibility`), which would invalidate the cached position.
+            constraints: OnceLock::new(),
             parallel_state: self.parallel_state,
             expr_context: self.expr_context,
             planstate: self.planstate,
@@ -226,6 +231,7 @@ impl PgSearchTableProvider {
             fields,
             schema: OnceLock::new(),
             late_materialization_schema: OnceLock::new(),
+            constraints: OnceLock::new(),
             parallel_state: None,
             expr_context: None,
             planstate: None,
@@ -361,6 +367,7 @@ impl PgSearchTableProvider {
                 .push(WhichFastField::MatchTag(tag_name.to_string()));
             self.schema = OnceLock::new();
             self.late_materialization_schema = OnceLock::new();
+            self.constraints = OnceLock::new();
         }
     }
 
@@ -645,6 +652,27 @@ impl PgSearchTableProvider {
 impl TableProvider for PgSearchTableProvider {
     fn schema(&self) -> SchemaRef {
         self.get_schema()
+    }
+
+    /// `ctid` uniquely identifies a heap tuple. Even across unvacuumed MVCC update
+    /// chains, each tuple version receives a distinct physical ctid, so this holds
+    /// under both `Eager` and `Deferred` visibility and needs no gate.
+    fn constraints(&self) -> Option<&Constraints> {
+        self.constraints
+            .get_or_init(|| {
+                let schema = self.get_schema();
+                let position = self.fields.iter().find_map(|wff| match wff {
+                    WhichFastField::Ctid | WhichFastField::DeferredCtid(_) => {
+                        schema.index_of(&wff.name()).ok()
+                    }
+                    _ => None,
+                })?;
+
+                Some(Constraints::new_unverified(vec![Constraint::PrimaryKey(
+                    vec![position],
+                )]))
+            })
+            .as_ref()
     }
 
     fn table_type(&self) -> TableType {

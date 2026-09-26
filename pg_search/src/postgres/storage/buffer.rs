@@ -228,22 +228,6 @@ impl Deref for Buffer {
     }
 }
 
-/// Forgets a block tracked before `LockBufferForCleanup` if that call errors out: pgrx runs `Drop`
-/// handlers when a function it wraps raises an ERROR.
-struct InFlightCleanupGuard {
-    #[cfg_attr(not(feature = "block_tracker"), allow(dead_code))]
-    blockno: pg_sys::BlockNumber,
-    active: bool,
-}
-
-impl Drop for InFlightCleanupGuard {
-    fn drop(&mut self) {
-        if self.active {
-            block_tracker::forget!(self.blockno);
-        }
-    }
-}
-
 impl Buffer {
     fn new(pg_buffer: pg_sys::Buffer) -> Self {
         // The unguarded extern, not `pg_sys::IsTransactionState()`: this assert
@@ -1072,6 +1056,22 @@ impl BufferManager {
     }
 
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
+        /// Forgets a block tracked before `LockBufferForCleanup` if that call errors out: pgrx
+        /// runs `Drop` handlers when a function it wraps raises an ERROR.
+        struct InFlightCleanupGuard {
+            #[cfg_attr(not(feature = "block_tracker"), allow(dead_code))]
+            blockno: pg_sys::BlockNumber,
+            active: bool,
+        }
+
+        impl Drop for InFlightCleanupGuard {
+            fn drop(&mut self) {
+                if self.active {
+                    block_tracker::forget!(self.blockno);
+                }
+            }
+        }
+
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             block_tracker::track!(Cleanup, blockno);

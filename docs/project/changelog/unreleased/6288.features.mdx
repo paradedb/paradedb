@@ -1,0 +1,26 @@
+---
+header: features
+title: Index Partitioning and Range Co-Partitioned Joins (Beta)
+---
+
+Beta release of index partitioning (`partition_by`) and range co-partitioned joins.
+
+ParadeDB indexes can now partition rows across segments along one or more columnar fields using the `partition_by` index option:
+
+```sql
+CREATE INDEX items_idx ON items
+USING paradedb (id, tenant_id, description, created_at)
+WITH (
+  partition_by = 'tenant_id',
+  target_segment_count = 16
+);
+```
+
+Partitioning unlocks two key execution capabilities:
+
+- Multi-dimensional segment pruning: Each segment records min and max bounds for partition columns in its metadata. Equality and range filters evaluate against these bounds to skip non-matching segments before opening posting lists or columnar storage.
+- Range co-partitioned joins: When both tables in an equi-join partition on their join keys, enabling `paradedb.enable_range_partitioned_join = on` allows parallel workers to join matching partition ranges locally. This eliminates worker-to-worker IPC shuffle (`NetworkShuffleExec`) and allows downstream operations like Top-K sorts and partial aggregations to execute worker-locally.
+
+For optimal pruning granularity and cross-table join alignment, set `target_segment_count` to 2–8X your CPU core count (physical over-partitioning).
+
+Partition bounds are established during `CREATE INDEX` or `REINDEX` (dynamic write rebalancing is planned for future releases). See the [Partitioning Guide](/reference/indexing/partition-by) for data type constraints, column selection guidance, and execution plans.

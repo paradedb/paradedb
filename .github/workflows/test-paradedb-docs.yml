@@ -156,6 +156,9 @@ jobs:
 
           echo "🎉 All SEO checks passed!"
 
+      - name: Lint Changelog Fragments
+        run: python3 .github/scripts/release.py lint-fragments --changelog-only
+
       - name: Install pgrx
         env:
           STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}

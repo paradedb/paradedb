@@ -133,7 +133,7 @@ impl VisibilityStats {
 ///
 /// Visibility checking is optimized according to three core design rules:
 /// 1. Prefer batch APIs ([`Self::check_segment_docs_mask`], [`Self::check_segment_docs`]) over
-///    point lookups (`check_one`). Batch APIs decode fast fields using SIMD/bitpacked columnar
+///    point lookups ([`Self::check_doc`]). Batch APIs decode fast fields using SIMD/bitpacked columnar
 ///    unpacking (`u32_vals`) and amortize visibility map page pin checks and shared buffer locks
 ///    across thousands of candidate doc IDs in a single pass.
 /// 2. Use the block index ([`crate::index::ctid_map::BlockToDocIdMap`]) rather than the `tid_block`
@@ -479,10 +479,7 @@ impl VisibilityChecker {
     /// 2. Heap block bounds confirmed all-visible in Postgres's visibility map.
     ///
     /// Results are cached per segment in `self.segment_visibility`.
-    pub(crate) fn is_segment_all_visible(
-        &mut self,
-        segment_ord: SegmentOrdinal,
-    ) -> tantivy::Result<bool> {
+    pub fn is_segment_all_visible(&mut self, segment_ord: SegmentOrdinal) -> tantivy::Result<bool> {
         if let Some(&visible) = self.segment_visibility.get(&segment_ord) {
             return Ok(visible);
         }
@@ -674,12 +671,6 @@ impl VisibilityChecker {
         }
     }
 
-    /// Single-ctid visibility check for callers probing one doc at a time
-    /// (e.g. the cardinality fast path's visibility filter).
-    pub fn check_one(&mut self, ctid: u64) -> bool {
-        !self.check_visibility || self.resolve_visible(ctid, None, false).is_some()
-    }
-
     /// Caches the document ranges needing visibility checks for this segment and snapshot.
     fn doc_id_ranges_needing_visibility_checks(
         &mut self,
@@ -737,15 +728,6 @@ impl VisibilityChecker {
         self.segment_checks[&segment_ord].clone()
     }
 
-    /// Returns true if all documents in the segment are guaranteed all-visible under this snapshot.
-    pub fn is_segment_all_visible_ord(&mut self, segment_ord: SegmentOrdinal) -> bool {
-        if !self.check_visibility {
-            return true;
-        }
-        self.doc_id_ranges_needing_visibility_checks(segment_ord)
-            .is_some_and(|ranges| ranges.is_empty())
-    }
-
     fn doc_block_status(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> DocBlockStatus {
         if !self.check_visibility {
             return DocBlockStatus::AllVisible;
@@ -780,18 +762,6 @@ impl VisibilityChecker {
         DocBlockStatus::Dirty(blockno)
     }
 
-    /// Checks if a single document is on an all-visible block.
-    ///
-    /// For segments with heap-block presence, uses the cached non-all-visible document ranges
-    /// without reading any fast field columns or block numbers.
-    /// Falls back to checking the block visibility map directly without decoding offsets.
-    pub fn is_doc_all_visible(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> bool {
-        matches!(
-            self.doc_block_status(segment_ord, doc_id),
-            DocBlockStatus::AllVisible
-        )
-    }
-
     /// Checks if a single document is visible under this checker's snapshot.
     ///
     /// First checks if the document is in an all-visible block (using proof ranges or the
@@ -818,11 +788,7 @@ impl VisibilityChecker {
     }
 
     /// Returns the block number for a document within a segment without reading or decoding offsets.
-    pub fn block_of_doc(
-        &mut self,
-        segment_ord: SegmentOrdinal,
-        doc_id: DocId,
-    ) -> Option<BlockNumber> {
+    fn block_of_doc(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> Option<BlockNumber> {
         let ffhelper = self.ffhelper.as_ref()?;
         let reader = ffhelper.ctid(segment_ord);
         match reader {

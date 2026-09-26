@@ -95,6 +95,9 @@ impl TidReader {
         }
     }
 
+    #[deprecated(
+        note = "use `VisibilityChecker` if not immediately about to fetch the heap tuple, or `TidReader::as_u64s` batching if you are"
+    )]
     #[inline(always)]
     pub fn as_u64(&self, doc: DocId) -> Option<u64> {
         match self {

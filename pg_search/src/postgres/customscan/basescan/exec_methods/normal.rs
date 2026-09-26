@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use tantivy::{DocAddress, DocId, SegmentOrdinal};
 
-use crate::index::fast_fields_helper::{FFHelper, TidCache, TidReader};
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
@@ -53,8 +53,6 @@ pub struct NormalScanExecState {
     search_results: Option<MultiSegmentSearchResults>,
 
     did_query: bool,
-    /// Cached per-segment ctid fast-field reader.
-    ctid_cache: TidCache,
     /// Cached (segment_ord, is_all_visible) to avoid re-proving across docs in the same segment.
     segment_all_visible: Option<(SegmentOrdinal, bool)>,
 
@@ -81,7 +79,6 @@ impl NormalScanExecState {
             slot: std::ptr::null_mut(),
             search_results: None,
             did_query: false,
-            ctid_cache: None,
             segment_all_visible: None,
             prepared_batch: Vec::with_capacity(BATCH_SIZE),
             batch_idx: 0,
@@ -172,18 +169,19 @@ impl NormalScanExecState {
             return;
         }
 
-        if self.can_use_visibility_map {
-            if state.visibility_checker().ffhelper().is_none() {
-                let ffhelper = Arc::new(FFHelper::for_ctid(state.search_reader.as_ref().unwrap()));
-                state.visibility_checker().set_ffhelper(ffhelper);
-            }
+        if state.visibility_checker().ffhelper().is_none() {
+            let ffhelper = Arc::new(FFHelper::for_ctid(state.search_reader.as_ref().unwrap()));
+            state.visibility_checker().set_ffhelper(ffhelper);
+        }
 
+        if self.can_use_visibility_map {
             let is_all_vis = match self.segment_all_visible {
                 Some((cur_ord, all_vis)) if cur_ord == seg_ord => all_vis,
                 _ => {
                     let all_vis = state
                         .visibility_checker()
-                        .is_segment_all_visible_ord(seg_ord);
+                        .is_segment_all_visible(seg_ord)
+                        .unwrap_or(false);
                     self.segment_all_visible = Some((seg_ord, all_vis));
                     all_vis
                 }
@@ -205,23 +203,10 @@ impl NormalScanExecState {
                 }
             }
         } else {
-            if self.ctid_cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
-                let segment_reader = state
-                    .search_reader
-                    .as_ref()
-                    .unwrap()
-                    .searcher()
-                    .segment_reader(seg_ord);
-                self.ctid_cache = Some((
-                    seg_ord,
-                    TidReader::open(segment_reader).expect("ctid columns should be present"),
-                ));
-            }
-
-            let (_, tid_reader) = self.ctid_cache.as_ref().unwrap();
+            let ffhelper = state.visibility_checker().ffhelper().cloned().unwrap();
             self.batch_ctids.resize(count, None);
             self.batch_ctids.fill(None);
-            tid_reader.as_u64s(
+            ffhelper.ctid(seg_ord).as_u64s(
                 &self.batch_doc_ids,
                 &mut self.batch_ctids,
                 &mut self.batch_scratch,
@@ -330,7 +315,6 @@ impl ExecMethod for NormalScanExecState {
     fn reset(&mut self, _state: &mut BaseScanState) {
         self.did_query = false;
         self.search_results = None;
-        self.ctid_cache = None;
         self.segment_all_visible = None;
         self.prepared_batch.clear();
         self.batch_idx = 0;

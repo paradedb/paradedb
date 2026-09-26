@@ -103,7 +103,7 @@ jobs:
           echo "Input validation passed!"
 
       - name: Configure Release Tag Signing
-        uses: ./.github/actions/setup-git-signing
+        uses: paradedb/actions/setup-git-signing@v14
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           signing-key: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}

@@ -109,10 +109,8 @@ For optimal performance, the segment count should equal the number of parallel w
 performance.
 
 <Note>
-`target_segment_count` is merely a suggestion.
+  Actual segment counts may vary depending on parallel builder distribution, memory limits, and table size.
 
-While `pg_search` will endeavor to ensure the created index will have exactly this many segments, it is possible for it
-to have less or more. Mostly this depends on the distribution of work across parallel builder processes, memory
-constraints, and table size.
+When partitioning an index with [`partition_by`](/reference/indexing/partition-by), we recommend physically over-partitioning by setting `target_segment_count` to 2–8X `max_parallel_workers_per_gather` (or CPU count). This allows filtered queries to eliminate a larger fraction of non-matching data and enables the planner to align logical partition boundaries across tables during joins, balanced against segment scan and metadata overhead.
 
 </Note>

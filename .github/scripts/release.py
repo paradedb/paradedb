@@ -332,18 +332,21 @@ def load_headers_map(json_path):
 
 
 def parse_frontmatter(content):
-    """Parse YAML frontmatter header key and return (header, body)."""
+    """Parse YAML frontmatter header and title keys and return (header, title, body)."""
     match = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", content, re.DOTALL)
     if not match:
-        return None, content.strip()
+        return None, None, content.strip()
 
     frontmatter, body = match.group(1), match.group(2).strip()
+    header = None
+    title = None
     for line in frontmatter.splitlines():
         line = line.strip()
         if line.startswith("header:"):
-            val = line.split(":", 1)[1].strip().strip("\"'")
-            return val, body
-    return None, body
+            header = line.split(":", 1)[1].strip().strip("\"'")
+        elif line.startswith("title:"):
+            title = line.split(":", 1)[1].strip().strip("\"'")
+    return header, title, body
 
 
 def collect_changelog_fragments(unreleased_dir, headers_map):
@@ -361,16 +364,23 @@ def collect_changelog_fragments(unreleased_dir, headers_map):
 
     for fpath in files:
         with open(fpath, "r", encoding="utf-8") as f:
-            header, body = parse_frontmatter(f.read())
+            header, title, body = parse_frontmatter(f.read())
+        item = {"title": title, "body": body}
         if header and header in grouped:
-            grouped[header].append(body)
+            grouped[header].append(item)
         elif header:
-            extras.append((f"## {header.title()}", body))
+            extras.append((f"## {header.title()}", item))
         else:
             fallback_key = next(iter(headers_map))
-            grouped[fallback_key].append(body)
+            grouped[fallback_key].append(item)
 
     return files, grouped, extras
+
+
+def _normalize_changelog_item(item):
+    if isinstance(item, str):
+        return {"title": None, "body": item}
+    return item
 
 
 def render_changelog(version, headers_map, grouped, extras):
@@ -388,20 +398,53 @@ def render_changelog(version, headers_map, grouped, extras):
 
     has_content = False
     for key, header_title in headers_map.items():
-        items = grouped.get(key, [])
-        if items:
+        raw_items = grouped.get(key, [])
+        if raw_items:
             has_content = True
             lines.append(header_title)
             lines.append("")
-            for item in items:
-                lines.append(format_changelog_item(item))
+
+            items = [_normalize_changelog_item(it) for it in raw_items]
+            sections = [
+                it for it in items if it.get("title") or it["body"].startswith("### ")
+            ]
+            bullets = [
+                it
+                for it in items
+                if not (it.get("title") or it["body"].startswith("### "))
+            ]
+
+            for sec in sections:
+                if sec.get("title") and not sec["body"].startswith("### "):
+                    lines.append(f"### {sec['title']}")
+                    lines.append("")
+                lines.append(sec["body"])
                 lines.append("")
 
-    for title, body in extras:
+            if sections and bullets:
+                other_title = (
+                    "### Minor Changes" if key == "other" else "### Other Changes"
+                )
+                lines.append(other_title)
+                lines.append("")
+
+            for b in bullets:
+                lines.append(format_changelog_item(b["body"]))
+                lines.append("")
+
+    for title, raw_item in extras:
         has_content = True
         lines.append(title)
         lines.append("")
-        lines.append(format_changelog_item(body))
+        item = _normalize_changelog_item(raw_item)
+        if item.get("title") and not item["body"].startswith("### "):
+            lines.append(f"### {item['title']}")
+            lines.append("")
+            lines.append(item["body"])
+        elif item["body"].startswith("### "):
+            lines.append(item["body"])
+        else:
+            lines.append(format_changelog_item(item["body"]))
         lines.append("")
 
     if not has_content:
@@ -690,13 +733,13 @@ def get_rendered_changelog_body(repo_root, clean_ver):
     changelog_file = changelog_dir / f"{clean_ver}.mdx"
     if changelog_file.exists():
         with open(changelog_file, "r", encoding="utf-8") as f:
-            _, body = parse_frontmatter(f.read())
+            *_, body = parse_frontmatter(f.read())
         return body
 
     headers_map = load_headers_map(repo_root / ".changelog_headers.json")
     _, grouped, extras = collect_changelog_fragments(unreleased_dir, headers_map)
     rendered = render_changelog(clean_ver, headers_map, grouped, extras)
-    _, body = parse_frontmatter(rendered)
+    *_, body = parse_frontmatter(rendered)
     return body
 
 
@@ -1197,14 +1240,100 @@ def lint_release_branch_fragments(repo_root, base_ref):
     return errors
 
 
+def lint_changelog_fragments(repo_root):
+    """Validate that unreleased changelog fragments are properly formatted.
+
+    Ensures that:
+    - Every fragment has a valid 'header:' declared in .changelog_headers.json.
+    - Any multi-line fragment defines a 'title:' in frontmatter (or starts with '### ').
+    """
+    headers_map = load_headers_map(repo_root / ".changelog_headers.json")
+    _, unreleased_cl_dir, _ = get_changelog_dirs(repo_root)
+
+    if not unreleased_cl_dir.exists():
+        return 0
+
+    files = [
+        f
+        for f in unreleased_cl_dir.glob("*.mdx")
+        if f.is_file() and f.name != ".gitkeep"
+    ]
+    files.sort(key=lambda f: (parse_pr_number(f.name), f.name))
+
+    errors = 0
+    for fpath in files:
+        rel_path = fpath.relative_to(repo_root)
+        try:
+            content = fpath.read_text(encoding="utf-8")
+        except OSError as e:
+            print(f"❌ {rel_path}: Failed to read file: {e}", file=sys.stderr)
+            errors += 1
+            continue
+
+        header, title, body = parse_frontmatter(content)
+
+        if not header:
+            print(
+                f"::error file={rel_path}::Missing 'header:' frontmatter.",
+                file=sys.stderr,
+            )
+            print(f"❌ {rel_path}: Missing 'header:' frontmatter.", file=sys.stderr)
+            errors += 1
+        elif header not in headers_map:
+            valid_headers = ", ".join(repr(h) for h in headers_map)
+            print(
+                f"::error file={rel_path}::"
+                f"Invalid header '{header}'. Must be one of: {valid_headers}.",
+                file=sys.stderr,
+            )
+            print(
+                f"❌ {rel_path}: Invalid header '{header}'."
+                f" Must be one of: {valid_headers}.",
+                file=sys.stderr,
+            )
+            errors += 1
+
+        body_lines = [line for line in body.splitlines() if line.strip()]
+        is_multiline = len(body_lines) > 1
+        has_title = bool(title or body.startswith("### "))
+
+        if is_multiline and not has_title:
+            print(
+                f"::error file={rel_path}::"
+                f"Fragment is multi-line ({len(body_lines)} lines) "
+                "but missing a 'title:' in its frontmatter. "
+                "Multi-line changelog fragments must specify 'title: ...' "
+                "so they render as a dedicated subsection.",
+                file=sys.stderr,
+            )
+            print(
+                f"❌ {rel_path}: Multi-line fragment ({len(body_lines)} lines) "
+                "is missing 'title:' in frontmatter.\n"
+                "  To fix: Add 'title: <Feature Title>' to the frontmatter so it "
+                "renders as a subsection (### <Feature Title>).",
+                file=sys.stderr,
+            )
+            errors += 1
+
+    return errors
+
+
 def handle_lint_fragments_command(args, repo_root):
     """Handle lint-fragments subcommand."""
+    changelog_only = getattr(args, "changelog_only", False)
+    sql_only = getattr(args, "sql_only", False)
+
     print(f"Linting fragments with base_ref='{args.base_ref}' at {repo_root}")
 
-    if is_release_branch(args.base_ref):
-        errors = lint_release_branch_fragments(repo_root, args.base_ref)
-    else:
-        errors = lint_main_branch_fragments(repo_root, args.base_sha)
+    errors = 0
+    if not changelog_only:
+        if is_release_branch(args.base_ref):
+            errors += lint_release_branch_fragments(repo_root, args.base_ref)
+        else:
+            errors += lint_main_branch_fragments(repo_root, args.base_sha)
+
+    if not sql_only:
+        errors += lint_changelog_fragments(repo_root)
 
     if errors > 0:
         print(f"\n❌ Fragment lint failed with {errors} error(s).", file=sys.stderr)
@@ -1337,7 +1466,7 @@ def build_parser():
     )
 
     lint_parser = subparsers.add_parser(
-        "lint-fragments", help="Lint unreleased migration fragments"
+        "lint-fragments", help="Lint unreleased migration and changelog fragments"
     )
     lint_parser.add_argument(
         "--base-ref",
@@ -1348,6 +1477,16 @@ def build_parser():
         "--base-sha",
         default=None,
         help="Base commit SHA of the PR",
+    )
+    lint_parser.add_argument(
+        "--changelog-only",
+        action="store_true",
+        help="Only lint unreleased changelog fragments",
+    )
+    lint_parser.add_argument(
+        "--sql-only",
+        action="store_true",
+        help="Only lint unreleased SQL migration fragments",
     )
 
     return parser

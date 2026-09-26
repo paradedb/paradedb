@@ -54,6 +54,20 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
 
      Available `header` keys in `.changelog_headers.json` include `features`, `performance`, `stability`, `breaking`, and `docs`.
 
+     For significant features spanning multiple paragraphs or including code examples, specify a `title` in frontmatter so the fragment renders as a dedicated subsection (`### <Title>`):
+
+     ```markdown
+     ---
+     header: features
+     title: Window Aggregate Pushdown over Joins
+     ---
+
+     Global window aggregates are now pushed down over joins via the ParadeDB Join Scan.
+     ...
+     ```
+
+     Any fragment with multiple lines of content must declare a `title` in its frontmatter (enforced in CI).
+
    - SQL migration fragment: If your PR modifies the SQL schema/DDL of `pg_search` (such as adding or modifying functions, procedures, types, or opclasses), add a migration fragment in `pg_search/sql/unreleased/<PR_NUMBER>.<short_description>.sql`. SchemaBot enforces this in CI and will suggest the exact SQL statements if missing.
 
      **Fragment Rules & Dependencies:**

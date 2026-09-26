@@ -181,10 +181,28 @@ impl SearchFieldConfig {
             SearchFieldConfig::Text {
                 ref tokenizer,
                 ref mut fast,
+                ref mut record,
+                ref mut fieldnorms,
                 ..
             } => {
-                if matches!(tokenizer, SearchTokenizer::Keyword) {
-                    *fast = true;
+                #[allow(deprecated)]
+                let is_single_token = matches!(
+                    tokenizer,
+                    SearchTokenizer::Keyword
+                        | SearchTokenizer::KeywordDeprecated
+                        | SearchTokenizer::Raw(..)
+                        | SearchTokenizer::LiteralNormalized(..)
+                );
+                if is_single_token {
+                    if value.get("fast").is_none() {
+                        *fast = true;
+                    }
+                    if value.get("record").is_none() {
+                        *record = IndexRecordOption::Basic;
+                    }
+                    if value.get("fieldnorms").is_none() {
+                        *fieldnorms = false;
+                    }
                 }
                 Ok(config)
             }
@@ -204,12 +222,39 @@ impl SearchFieldConfig {
     }
 
     pub fn json_from_json(value: serde_json::Value) -> Result<Self> {
-        let config: Self = serde_json::from_value(json!({
+        let mut config: Self = serde_json::from_value(json!({
             "Json": value
         }))?;
 
         match config {
-            SearchFieldConfig::Json { .. } => Ok(config),
+            SearchFieldConfig::Json {
+                ref tokenizer,
+                ref mut fast,
+                ref mut record,
+                ref mut fieldnorms,
+                ..
+            } => {
+                #[allow(deprecated)]
+                let is_single_token = matches!(
+                    tokenizer,
+                    SearchTokenizer::Keyword
+                        | SearchTokenizer::KeywordDeprecated
+                        | SearchTokenizer::Raw(..)
+                        | SearchTokenizer::LiteralNormalized(..)
+                );
+                if is_single_token {
+                    if value.get("fast").is_none() {
+                        *fast = true;
+                    }
+                    if value.get("record").is_none() {
+                        *record = IndexRecordOption::Basic;
+                    }
+                    if value.get("fieldnorms").is_none() {
+                        *fieldnorms = false;
+                    }
+                }
+                Ok(config)
+            }
             _ => Err(anyhow::anyhow!("Expected Json configuration")),
         }
     }
@@ -333,11 +378,15 @@ impl SearchFieldConfig {
         if let SearchFieldConfig::Text {
             ref mut tokenizer,
             ref mut fast,
+            ref mut record,
+            ref mut fieldnorms,
             ..
         } = config
         {
             *tokenizer = SearchTokenizer::Keyword;
             *fast = true;
+            *record = IndexRecordOption::Basic;
+            *fieldnorms = false;
         }
         config
     }
@@ -385,7 +434,7 @@ impl SearchFieldConfig {
     }
 
     pub fn default_range() -> Self {
-        Self::from_json(json!({"Json": {"fast": true}}))
+        Self::Range { fast: true }
     }
 
     /// Applies the dimension-dependent default to an explicit vector configuration.
@@ -554,8 +603,13 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 }
             }
             SearchFieldConfig::Range { .. } => {
-                // Range must be indexed and fast to be searchable
-                let text_field_indexing = TextFieldIndexing::default();
+                // Range must be indexed and fast to be searchable.
+                // Range fields only use exact term matches and bound range queries, so they
+                // do not need term frequencies, positions, or fieldnorms.
+                let text_field_indexing = TextFieldIndexing::default()
+                    .set_index_option(tantivy::schema::IndexRecordOption::Basic)
+                    .set_fieldnorms(false)
+                    .set_tokenizer("raw");
                 json_options = json_options.set_indexing_options(text_field_indexing);
                 json_options = json_options.set_fast("raw");
             }

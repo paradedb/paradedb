@@ -976,13 +976,15 @@ type VisibilityDispatchPayload = (
 ///
 /// For each `(plan_position, heap_oid)` in `plan_pos_oids`, it:
 /// 1. Reads the `ctid_{plan_position}` column containing packed DocAddresses.
-/// 2. Runs [`VisibilityChecker::check_segment_docs`] to determine visible rows using the
-///    visibility map fast-path (which avoids heap buffer accesses for all-visible pages).
+/// 2. Uses [`VisibilityChecker::for_segment`] to determine if each segment is all-visible.
+///    For all-visible segments, per-doc visibility checks are skipped entirely and CTIDs are
+///    only read if the column is retained. For other segments, [`VisibilityChecker::check_segment_docs`]
+///    is run using the visibility map fast-path (avoiding heap buffer accesses for all-visible pages).
 /// 3. Filters the batch to only visible rows.
-/// 4. For retained ctid columns, replaces packed doc-addresses with the ctids returned by
-///    `check_segment_docs`. For all-visible pages, this preserves the raw index ctid (which may
-///    be an index root pointing to a HOT redirect). This is safe and intentional: downstream
-///    heap tuple fetching (in `JoinScanState::build_result_tuple`) resolves HOT redirects via
+/// 4. For retained ctid columns, replaces packed doc-addresses with the resolved ctids. For
+///    all-visible pages and segments, this preserves the raw index ctid (which may be an index
+///    root pointing to a HOT redirect). This is safe and intentional: downstream heap tuple
+///    fetching (in `JoinScanState::build_result_tuple`) resolves HOT redirects via
 ///    `table_index_fetch_tuple` (`exec_if_visible`) for the final surviving output rows only,
 ///    avoiding heap page reads for candidate rows in this node.
 /// 5. Applies an optional embedded projection to prune columns (including ctid columns).
@@ -1453,9 +1455,13 @@ pub(crate) struct DeferredCtidMaterializationState {
     segment_ctids: Vec<Option<u64>>,
 }
 
-/// Checks visibility of packed DocAddresses via [`VisibilityChecker::check_segment_docs`].
+/// Checks visibility of packed DocAddresses via [`VisibilityChecker::for_segment`] and
+/// [`VisibilityChecker::check_segment_docs`].
 ///
-/// Uses the visibility map fast-path on all-visible pages to avoid reading heap buffers.
+/// For all-visible segments, visibility checking is skipped and all rows are marked visible;
+/// if `is_pruned` is true, CTID reads from the fast field are also skipped entirely.
+/// For segments requiring checks, uses the visibility map fast-path on all-visible pages to avoid
+/// reading heap buffers.
 /// On all-visible pages, the returned CTID is the raw index CTID (which may be a HOT redirect root).
 /// When `is_pruned` is false, returns `(visible_mask, Some(ctids_array))`. Downstream tuple
 /// fetching in `JoinScanState::build_result_tuple` resolves HOT redirects via `table_index_fetch_tuple`
@@ -1488,16 +1494,36 @@ pub(crate) fn materialize_and_check_deferred_ctid(
         state.segment_doc_ids.clear();
         state.segment_doc_ids.extend(rows.iter().map(|(_, id)| *id));
 
-        state.segment_ctids.clear();
-        state.segment_ctids.resize(rows.len(), None);
+        if let Some(checker) = checker
+            .for_segment(seg_ord)
+            .map_err(|e| DataFusionError::External(Box::new(e)))?
+        {
+            state.segment_ctids.clear();
+            state.segment_ctids.resize(rows.len(), None);
 
-        checker.check_segment_docs(seg_ord, &state.segment_doc_ids, &mut state.segment_ctids);
+            checker.check_segment_docs(seg_ord, &state.segment_doc_ids, &mut state.segment_ctids);
 
-        for ((row_idx, _), value) in rows.into_iter().zip(state.segment_ctids.iter()) {
-            if let Some(ctid) = value {
-                state.visible_mask[row_idx] = true;
-                if !is_pruned {
-                    state.resolved_ctids[row_idx] = Some(*ctid);
+            for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
+                if let Some(ctid) = value {
+                    state.visible_mask[*row_idx] = true;
+                    if !is_pruned {
+                        state.resolved_ctids[*row_idx] = Some(*ctid);
+                    }
+                }
+            }
+        } else {
+            for (row_idx, _) in &rows {
+                state.visible_mask[*row_idx] = true;
+            }
+            if !is_pruned {
+                state.segment_ctids.clear();
+                state.segment_ctids.resize(rows.len(), None);
+                let ffhelper = checker.ffhelper().expect("FFHelper must be configured");
+                ffhelper
+                    .ctid(seg_ord)
+                    .as_u64s(&state.segment_doc_ids, &mut state.segment_ctids);
+                for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
+                    state.resolved_ctids[*row_idx] = *value;
                 }
             }
         }
@@ -1532,7 +1558,7 @@ struct CtidCheckerEntry {
     is_pruned: bool,
 }
 
-/// Runs visibility check for a single relation's ctid column via [`VisibilityChecker::check_segment_docs`].
+/// Runs visibility check for a single relation's ctid column via [`materialize_and_check_deferred_ctid`].
 ///
 /// Uses the visibility map fast-path to confirm visibility, returning `(visible_mask, maybe_resolved_ctids)`.
 /// For pruned columns, `maybe_resolved_ctids` is `None` to skip unnecessary Arrow array materialization.

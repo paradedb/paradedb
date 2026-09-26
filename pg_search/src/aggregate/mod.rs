@@ -1118,7 +1118,7 @@ pub mod mvcc_collector {
         ) -> tantivy::Result<Self::Child> {
             let inner = self.inner.for_segment(segment_local_id, segment)?;
             let requires_scoring = self.inner.requires_scoring();
-            let lock = VisibilityChecker::for_segment(&self.lock, segment)?;
+            let lock = VisibilityChecker::for_segment_arc(&self.lock, segment_local_id)?;
             // All-visible segments forward documents directly and need no batch buffers.
             let capacity = if lock.is_some() { BATCH_SIZE } else { 0 };
 

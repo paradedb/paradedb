@@ -65,17 +65,22 @@ runs:
       env:
         DURATION: ${{ inputs.duration }}
         TEST_FILE: ${{ inputs.test_file }}
+        STEP_SANITIZE_INPUTS_JOBNAME: ${{ steps.sanitize-inputs.outputs.jobname }}
+        STEP_RESOLVE_REF_SHA: ${{ steps.resolve_ref.outputs.sha }}
       run: |
         sudo chmod a+rwx /var/run/postgresql/
         stressgres headless \
           "stressgres/suites/${TEST_FILE}" \
-          --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.log \
+          --log-file "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-""${STEP_RESOLVE_REF_SHA}".log \
           --pgversion pg18 \
           --runtime "${DURATION}"
 
     - name: Generate CSV
       shell: bash
-      run: stressgres csv stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.log output.csv
+      env:
+        STEP_SANITIZE_INPUTS_JOBNAME: ${{ steps.sanitize-inputs.outputs.jobname }}
+        STEP_RESOLVE_REF_SHA: ${{ steps.resolve_ref.outputs.sha }}
+      run: stressgres csv "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-""${STEP_RESOLVE_REF_SHA}".log output.csv
 
       # This is where we can configure how the different runs are aggregated
       # into multiple JSON files for plotting in our continuous benchmarks.
@@ -120,7 +125,7 @@ runs:
         auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
         for attempt in $(seq 1 10); do
           if git -c http.extraheader="$auth" ls-remote \
-              "https://github.com/${{ github.repository }}.git" HEAD >/dev/null 2>&1; then
+              "https://github.com/${GITHUB_REPOSITORY}.git" HEAD >/dev/null 2>&1; then
             echo "App token usable after ${attempt} attempt(s)"
             exit 0
           fi
@@ -176,7 +181,10 @@ runs:
 
     - name: Create Stressgres Graph
       shell: bash
-      run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png"
+      env:
+        STEP_SANITIZE_INPUTS_JOBNAME: ${{ steps.sanitize-inputs.outputs.jobname }}
+        STEP_RESOLVE_REF_SHA: ${{ steps.resolve_ref.outputs.sha }}
+      run: stressgres graph "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-${STEP_RESOLVE_REF_SHA}.log" "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-${STEP_RESOLVE_REF_SHA}.png"
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'

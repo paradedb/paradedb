@@ -33,23 +33,47 @@ jobs:
     name: Reset the `gh-pages` data.js Files
     runs-on: ubuntu-latest
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.reset_data }}
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
+      # Check out the local signing action separately because gh-pages does not contain it.
+      - name: Checkout Workflow Actions
+        if: ${{ inputs.reset_data }}
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - name: Checkout Git Repository at ref=gh-pages
         if: ${{ inputs.reset_data }}
         uses: actions/checkout@v7
         with:
           ref: gh-pages
+          path: benchmark-data
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Reset data.js Files
         if: ${{ inputs.reset_data }}
-        run: |
-          git config user.name "Benchmark Backfill Job"
-          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
-          files=$(git ls-files stressgres/data.js benchmarks/data.js)
-          if [ -n "$files" ]; then
-            echo "$files" | xargs git rm
-            git commit -m "Reset data.js files"
-            git push
-          fi
+        working-directory: benchmark-data
+        run: git rm --ignore-unmatch stressgres/data.js benchmarks/data.js
+
+      - name: Commit Benchmark Reset
+        id: reset-commit
+        if: ${{ inputs.reset_data }}
+        uses: ./.github/actions/commit-with-paradedb-github-app
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          working-directory: benchmark-data
+          message: Reset data.js files
+
+      - name: Push Benchmark Reset
+        if: steps.reset-commit.outputs.created == 'true'
+        working-directory: benchmark-data
+        run: git push origin HEAD:gh-pages
 
   # We run one job per commit
   dispatch:
@@ -63,12 +87,14 @@ jobs:
     steps:
       - name: Fire Benchmark for ${{ matrix.sha }}
         uses: actions/github-script@v9
+        env:
+          BENCHMARK_SHA: ${{ matrix.sha }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
-            const sha   = '${{ matrix.sha }}';
+            const sha   = process.env.BENCHMARK_SHA;
             const wf = 'benchmark-pg_search-queries.yml';
 
             /*  createWorkflowDispatch must point at a branch or tag, not a
@@ -85,12 +111,14 @@ jobs:
 
       - name: Fire Stressgres for ${{ matrix.sha }}
         uses: actions/github-script@v9
+        env:
+          BENCHMARK_SHA: ${{ matrix.sha }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
-            const sha   = '${{ matrix.sha }}';
+            const sha   = process.env.BENCHMARK_SHA;
             const wf = 'benchmark-pg_search-stressgres.yml';
 
             /*  createWorkflowDispatch must point at a branch or tag, not a

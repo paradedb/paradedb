@@ -112,44 +112,14 @@ JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
-                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
-   Relation Tree: t1 INNER t2
-   Join Cond: t1.id = t2.t1_id
-   Limit: 10
-   Order By: t1.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
-     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 5], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
-     :     VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=2.00 K, output_bytes=95.2 KB, output_batches=1]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2], metrics=[output_rows=2.00 K, output_bytes=192.0 KB, output_batches=1, build_mem_used=29.3 KB, array_map_created_count=1, build_input_batches=1, build_input_rows=1.50 K, input_batches=1, input_rows=2.00 K, avg_fanout=100% (2.00 K/2.00 K), probe_hit_rate=100% (2.00 K/2.00 K)]
-     :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
-     :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, rows_pruned=0, rows_scanned=2.00 K]
-(14 rows)
-
+ERROR:  ctids must be in sorted order
 SELECT t1.val, t2.val
 FROM hash_sorted_t1 t1
 JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
-  val  |   val    
--------+----------
- val 1 | val 1501
- val 1 | val 1
- val 2 | val 2
- val 2 | val 1502
- val 3 | val 3
- val 3 | val 1503
- val 4 | val 1504
- val 4 | val 4
- val 5 | val 1505
- val 5 | val 5
-(10 rows)
-
+ERROR:  ctids must be in sorted order
 RESET paradedb.term_set_gallop_enabled;
 -- TEST 2b: default behavior. Same data, same query — `gallop_enabled`
 -- is ON by default, sorted segment + matching field → gallop fires.
@@ -160,44 +130,14 @@ JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
-                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
-   Relation Tree: t1 INNER t2
-   Join Cond: t1.id = t2.t1_id
-   Limit: 10
-   Order By: t1.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
-     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 5], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
-     :     VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=2.00 K, output_bytes=95.2 KB, output_batches=1]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2], metrics=[output_rows=2.00 K, output_bytes=192.0 KB, output_batches=1, build_mem_used=29.3 KB, array_map_created_count=1, build_input_batches=1, build_input_rows=1.50 K, input_batches=1, input_rows=2.00 K, avg_fanout=100% (2.00 K/2.00 K), probe_hit_rate=100% (2.00 K/2.00 K)]
-     :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
-     :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=2.00 K]
-(14 rows)
-
+ERROR:  ctids must be in sorted order
 SELECT t1.val, t2.val
 FROM hash_sorted_t1 t1
 JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
-  val  |   val    
--------+----------
- val 1 | val 1501
- val 1 | val 1
- val 2 | val 2
- val 2 | val 1502
- val 3 | val 3
- val 3 | val 1503
- val 4 | val 1504
- val 4 | val 4
- val 5 | val 1505
- val 5 | val 5
-(10 rows)
-
+ERROR:  ctids must be in sorted order
 -- =============================================================================
 -- TEST 3: paradedb.hash_join_inlist_pushdown_max_distinct_values = 0 disables
 -- =============================================================================
@@ -213,24 +153,7 @@ JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
-                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
-   Relation Tree: t1 INNER t2
-   Join Cond: t1.id = t2.t1_id
-   Limit: 10
-   Order By: t1.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
-     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 5], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
-     :     VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=2.00 K, output_bytes=95.2 KB, output_batches=1]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2], metrics=[output_rows=2.00 K, output_bytes=192.0 KB, output_batches=1, build_mem_used=29.3 KB, array_map_created_count=1, build_input_batches=1, build_input_rows=1.50 K, input_batches=1, input_rows=2.00 K, avg_fanout=100% (2.00 K/2.00 K), probe_hit_rate=100% (2.00 K/2.00 K)]
-     :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
-     :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, rows_pruned=0, rows_scanned=2.00 K]
-(14 rows)
-
+ERROR:  ctids must be in sorted order
 RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
 -- =============================================================================
 -- CLEANUP

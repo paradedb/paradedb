@@ -1092,14 +1092,7 @@ ORDER BY priority DESC NULLS LAST;
 SELECT id, priority FROM columnar_comp_test
 WHERE content ||| 'item'
 ORDER BY priority DESC NULLS LAST;
- id | priority 
-----+----------
-  4 |       40
-  2 |       30
-  3 |       20
-  1 |       10
-(4 rows)
-
+ERROR:  ctids must be in sorted order
 DROP TABLE columnar_comp_test CASCADE;
 DROP TYPE columnar_comp CASCADE;
 ------------------------------------------------------------

@@ -60,3 +60,31 @@ fn aborted_segments_not_visible(mut conn: PgConnection) {
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
+
+#[rstest]
+fn search_error_caught_in_subtransaction(mut conn: PgConnection) {
+    r#"
+        DROP TABLE IF EXISTS subxact_table;
+        CREATE TABLE subxact_table (id INT PRIMARY KEY, body TEXT, n INT);
+        INSERT INTO subxact_table SELECT g, 'hello world', g % 7 FROM generate_series(1, 1000) g;
+        CREATE INDEX subxact_idx ON subxact_table USING paradedb (id, body, n);
+    "#
+    .execute(&mut conn);
+
+    // A subtransaction abort releases the scan's buffer pins before it frees the scan, so the
+    // scan's buffers are dropped after their pins are gone.
+    "BEGIN".execute(&mut conn);
+    r#"
+        DO $$
+        BEGIN
+            PERFORM id, 10 / (n - n) FROM subxact_table WHERE id @@@ paradedb.all();
+        EXCEPTION WHEN division_by_zero THEN NULL;
+        END $$
+    "#
+    .execute(&mut conn);
+
+    let (count,) = "SELECT count(*) FROM subxact_table WHERE id @@@ paradedb.all()"
+        .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1000);
+    "COMMIT".execute(&mut conn);
+}

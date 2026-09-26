@@ -18,6 +18,7 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
+use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -26,7 +27,7 @@ use std::time::Instant;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -34,9 +35,10 @@ use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
-use crate::index::stats::PartitionSegments;
+use crate::index::stats::{EmpiricalStats, PartitionSegments, SegmentStats};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::buffer::PinnedBuffer;
@@ -49,7 +51,8 @@ use crate::query::segment_pruning::SegmentPruner;
 use crate::scan::info::RowEstimate;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use pgrx::pg_sys::BlockNumber;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::collector::sort_key::{
@@ -57,6 +60,7 @@ use tantivy::collector::sort_key::{
     SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
+use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
@@ -552,6 +556,38 @@ struct IndexComponents {
 }
 
 impl SearchIndexReader {
+    /// Returns the minimum and maximum heap block numbers represented in the segment.
+    pub(crate) fn block_bounds(
+        segment: &SegmentReader,
+    ) -> Result<Option<RangeInclusive<BlockNumber>>> {
+        let field = segment.schema().get_field(CTID_FIELD_NAME)?;
+        let stats = SegmentStats::of_reader(segment)?;
+        let empirical = stats
+            .map(|stats| stats.empirical(field))
+            .transpose()?
+            .flatten();
+        let (min, max) = if let Some(EmpiricalStats {
+            min: PdbOwnedValue::U64(min),
+            max: PdbOwnedValue::U64(max),
+            nullable: false,
+        }) = empirical
+        {
+            (min, max)
+        } else {
+            let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+            if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc()
+            {
+                return Ok(None);
+            }
+            (ctids.min_value(), ctids.max_value())
+        };
+        let first =
+            BlockNumber::try_from(min >> 16).context("heap block number exceeds BlockNumber")?;
+        let last =
+            BlockNumber::try_from(max >> 16).context("heap block number exceeds BlockNumber")?;
+        Ok(Some(first..=last))
+    }
+
     fn open_index_components(
         index_relation: &PgSearchRelation,
         mvcc_style: MvccSatisfies,
@@ -2303,7 +2339,6 @@ mod tests {
     use super::*;
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
     use crate::index::stats::SegmentStats;
-    use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::scan::range_partitioning::RangePartitioning;
     use pgrx::prelude::*;
     use std::ops::Bound;

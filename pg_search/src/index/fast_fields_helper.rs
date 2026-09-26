@@ -603,6 +603,20 @@ impl WhichFastField {
             WhichFastField::MatchTag(_) => DataType::Boolean,
         }
     }
+
+    /// Whether this field can hold NULL.
+    ///
+    /// `ctid` and `tableoid` are system columns: PostgreSQL never stores NULL in
+    /// either. Declaring that lets `Filter::is_scalar()` deduce `max_rows == Some(1)`
+    /// on a scalar equality filter, which it cannot do for a nullable key.
+    pub fn is_nullable(&self) -> bool {
+        !matches!(
+            self,
+            WhichFastField::Ctid
+                | WhichFastField::TableOid
+                | WhichFastField::DeferredCtid(_)
+        )
+    }
 }
 
 /// Build an Arrow schema from a list of fast fields.
@@ -618,7 +632,7 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
         .iter()
         .map(|wff| match wff {
             WhichFastField::Deferred(name, _) => crate::scan::deferred_encode::deferred_field(name),
-            _ => Field::new(wff.name(), wff.arrow_data_type(), true),
+            _ => Field::new(wff.name(), wff.arrow_data_type(), wff.is_nullable()),
         })
         .collect();
     Arc::new(Schema::new(fields))

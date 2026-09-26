@@ -154,10 +154,14 @@ async fn visibility_map_shortcuts(database: Db) {
 
             for enabled in [true, false] {
                 format!("SET paradedb.enable_visibility_map_shortcuts = {enabled}").execute(&mut conn);
-                let count: (i64,) =
-                    "SELECT count(*) FROM visibility_blocks WHERE id @@@ pdb.all()"
-                        .fetch_one(&mut conn);
-                prop_assert_eq!(count, expected_count, "phase {}, shortcuts {}", phase, enabled);
+                for workers in [0, 2] {
+                    format!("SET max_parallel_workers_per_gather = {workers}").execute(&mut conn);
+                    let count: (i64,) =
+                        "SELECT count(*) FROM visibility_blocks WHERE id @@@ pdb.all()"
+                            .fetch_one(&mut conn);
+                    prop_assert_eq!(count, expected_count, "phase {}, shortcuts {}, workers {}", phase, enabled, workers);
+                }
+                "SET max_parallel_workers_per_gather = 0".execute(&mut conn);
                 let query = "SELECT count(*), sum(value) FROM visibility_blocks WHERE title === 'database'";
                 let (plan,): (serde_json::Value,) =
                     format!("EXPLAIN (FORMAT JSON) {query}").fetch_one(&mut conn);

@@ -23,10 +23,9 @@ use std::sync::Arc;
 
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
-use crate::aggregate::mvcc_collector::MVCCFilterCollector;
+use crate::aggregate::mvcc_collector::{CountAllCollector, MVCCFilterCollector};
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
-use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
@@ -40,7 +39,7 @@ use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
-use crate::postgres::heap::{VisibilityChecker, VisibilityStats};
+use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -332,6 +331,10 @@ impl<'a> ParallelAggregationWorker<'a> {
             _ => HashSet::default(),
         };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
+        let count_all = self.query.is_match_all()
+            && matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
+                if clause.is_bare_doc_count()
+                    && matches!(clause.aggregates().next(), Some(AggregateType::CountAny { .. })));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
         let schema = indexrel.schema()?;
         if from_sql {
@@ -361,8 +364,12 @@ impl<'a> ParallelAggregationWorker<'a> {
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
-            let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
-            reader.collect(InterruptableCollector::new(mvcc_collector))
+            if count_all {
+                reader.collect(CountAllCollector::new(base_collector, vischeck))
+            } else {
+                let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
+                reader.collect(InterruptableCollector::new(mvcc_collector))
+            }
         } else {
             reader.collect(InterruptableCollector::new(base_collector))
         };
@@ -515,43 +522,13 @@ pub fn execute_aggregate(
             query.needs_tokenizer(),
         )?;
 
-        let bare_doc_count =
-            matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count());
-        let visible_count = if solve_mvcc && bare_doc_count && query.is_match_all() {
-            let heaprel = index
-                .heap_relation()
-                .expect("index should belong to a heap relation");
-            let stats = visibility_stats
-                .is_some()
-                .then(|| Arc::new(Mutex::new(VisibilityStats::default())));
-            let checker = Arc::new(Mutex::new(
-                VisibilityChecker::with_rel_and_snap(&heaprel, pg_sys::GetActiveSnapshot())
-                    .with_ffhelper(Arc::new(FFHelper::for_ctid(&reader)))
-                    .with_visibility_stats(stats.clone()),
-            ));
-            let count = 'count: {
-                let mut count = 0u64;
-                for segment in reader.segment_readers() {
-                    check_for_interrupts!();
-                    if VisibilityChecker::for_segment(&checker, segment)?.is_some() {
-                        break 'count None;
-                    }
-                    // num_docs excludes Tantivy deletions; the proof above handles PostgreSQL MVCC.
-                    count += u64::from(segment.num_docs());
-                }
-                Some(count)
-            };
-            if count.is_some()
-                && let (Some(output), Some(stats)) = (visibility_stats.as_deref_mut(), stats)
-            {
-                output.merge(std::mem::take(&mut *stats.lock()));
-            }
-            count
-        } else {
-            None
-        };
-
-        if bare_doc_count && (!solve_mvcc || visible_count.is_some()) {
+        // Fast path: a bare doc count without MVCC filtering is answerable by
+        // `Weight::count` — a stored-doc_freq metadata read for term queries
+        // on delete-free segments, a scoreless docset drain otherwise —
+        // skipping the aggregation framework's per-doc column iteration.
+        if !solve_mvcc
+            && matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count())
+        {
             // Serial execution: the scorers claim private cursors.
             if let Some(bitmap_exec) = bitmap_exec.as_deref_mut()
                 && let Some(cell) = query.bitmap_cell()
@@ -560,10 +537,7 @@ pub fn execute_aggregate(
             {
                 cell.fill(source);
             }
-            let count = match visible_count {
-                Some(count) => count,
-                None => reader.count_matched_docs()?,
-            };
+            let count = reader.count_matched_docs()?;
             let mut results = AggregationResults::default();
             // Key "0" matches `CollectAggregations::collect`'s enumeration of
             // the single aggregate.
@@ -1132,6 +1106,77 @@ pub mod mvcc_collector {
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
     use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
+
+    use super::interrupt_collector::InterruptableCollector;
+    use tantivy::aggregation::DistributedAggregationCollector;
+    use tantivy::aggregation::intermediate_agg_result::{
+        IntermediateAggregationResult, IntermediateAggregationResults, IntermediateBucketResult,
+    };
+    use tantivy::query::Weight;
+
+    /// Only for a bare COUNT(*) whose query matches every document.
+    pub struct CountAllCollector {
+        inner: InterruptableCollector<MVCCFilterCollector<DistributedAggregationCollector>>,
+        checker: Arc<Mutex<VisibilityChecker>>,
+    }
+
+    impl CountAllCollector {
+        pub fn new(inner: DistributedAggregationCollector, checker: VisibilityChecker) -> Self {
+            let inner = MVCCFilterCollector::new(inner, checker);
+            Self {
+                checker: inner.lock.clone(),
+                inner: InterruptableCollector::new(inner),
+            }
+        }
+    }
+
+    unsafe impl Send for CountAllCollector {}
+    unsafe impl Sync for CountAllCollector {}
+
+    impl Collector for CountAllCollector {
+        type Fruit = IntermediateAggregationResults;
+        type Child = <InterruptableCollector<MVCCFilterCollector<DistributedAggregationCollector>> as Collector>::Child;
+
+        fn for_segment(
+            &self,
+            ord: SegmentOrdinal,
+            segment: &SegmentReader,
+        ) -> tantivy::Result<Self::Child> {
+            self.inner.for_segment(ord, segment)
+        }
+
+        fn requires_scoring(&self) -> bool {
+            false
+        }
+
+        fn merge_fruits(
+            &self,
+            fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
+        ) -> tantivy::Result<Self::Fruit> {
+            self.inner.merge_fruits(fruits)
+        }
+
+        fn collect_segment(
+            &self,
+            weight: &dyn Weight,
+            ord: SegmentOrdinal,
+            segment: &SegmentReader,
+        ) -> tantivy::Result<<Self::Child as SegmentCollector>::Fruit> {
+            pgrx::check_for_interrupts!();
+            if VisibilityChecker::for_segment(&self.checker, segment)?.is_none() {
+                let mut result = IntermediateAggregationResults::default();
+                result.push(
+                    "0".to_string(),
+                    IntermediateAggregationResult::Bucket(IntermediateBucketResult::Filter {
+                        doc_count: u64::from(segment.num_docs()),
+                        sub_aggregations: IntermediateAggregationResults::default(),
+                    }),
+                )?;
+                return Ok(Ok(result));
+            }
+            self.inner.collect_segment(weight, ord, segment)
+        }
+    }
 
     pub struct MVCCFilterCollector<C: Collector> {
         inner: C,

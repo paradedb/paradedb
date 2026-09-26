@@ -8,25 +8,28 @@
 //! heap block:  10 10 10 11 11 15 15
 //!
 //! heap block:  10 11 12 13 14 15 end
-//! boundary:     0  3  5  5  5  5  7
+//! boundary:     0  3  -  -  -  5  7
 //! ```
 //!
-//! If the visibility map says block 11 needs checking, its two boundaries give docs
-//! [3, 5). Block 12 gives [5, 5): it has no documents. Consecutive dirty blocks need only
-//! the two outer boundaries. All-visible blocks need no boundary reads.
+//! Absent blocks are null. Tantivy's nullable column index maps a block to its boundary,
+//! or the next present boundary if it is absent. Dirty block 11 therefore gives docs
+//! [3, 5), while block 12 gives [5, 5): it has no documents. Consecutive dirty blocks need
+//! only the two outer boundaries. All-visible blocks need no boundary reads.
 //!
 //! Boundaries are a standard Tantivy numeric column, written in bounded ColumnarWriter
 //! batches after sorting or merging. Each batch is addressed through the `.ctid_map`
-//! composite directory and opened lazily with ColumnarReader.
+//! composite directory and opened lazily with ColumnarReader. Each batch has a closing
+//! boundary so lookups never need to open another batch to resolve a trailing null.
 
 use std::ops::Range;
 
 use anyhow::{Context, bail};
 use pgrx::pg_sys::{BlockNumber, InvalidBlockNumber};
 use tantivy::DocId;
+use tantivy::columnar::column_index::Set;
 use tantivy::columnar::column_values::CodecType;
 use tantivy::columnar::{
-    Cardinality, Column, ColumnType, ColumnarReader, ColumnarWriter, DynamicColumn,
+    Cardinality, Column, ColumnIndex, ColumnType, ColumnarReader, ColumnarWriter, DynamicColumn,
 };
 use tantivy::directory::error::OpenReadError;
 use tantivy::directory::{CompositeFile, CompositeWrite};
@@ -38,6 +41,9 @@ use crate::index::reader::index::SearchIndexReader;
 
 mod plugin;
 pub(crate) use plugin::register;
+
+#[cfg(any(test, feature = "pg_test"))]
+mod tests;
 
 // Column name shared by the boundary writer and reader.
 const BLOCK_BOUNDARIES: &str = "block_boundaries";
@@ -91,9 +97,10 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Resu
     for start in (0..count).step_by(CHUNK_SIZE) {
         pgrx::check_for_interrupts!();
         let len = (count - start).min(CHUNK_SIZE);
+        let rows = len + usize::from(start + len < count);
         let mut writer = ColumnarWriter::default();
         writer.record_column_type(BLOCK_BOUNDARIES, ColumnType::U64, false);
-        for row in 0..len {
+        for row in 0..rows {
             let block = u64::from(first_block) + (start + row) as u64;
             while let Some(&value) = values.peek() {
                 if value >> 16 >= block {
@@ -105,10 +112,12 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Resu
                 previous = values.next();
                 processed += 1;
             }
-            writer.record_numerical(row as u32, BLOCK_BOUNDARIES, u64::from(processed));
+            if row == rows - 1 || values.peek().is_some_and(|value| value >> 16 == block) {
+                writer.record_numerical(row as u32, BLOCK_BOUNDARIES, u64::from(processed));
+            }
         }
         writer.serialize(
-            len as u32,
+            rows as u32,
             None,
             CODECS,
             out.for_field_with_idx(field, start / CHUNK_SIZE),
@@ -226,8 +235,12 @@ impl BlockToDocIdMap {
                     bail!("invalid heap-block boundaries");
                 };
                 let len = (count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
-                if values.get_cardinality() != Cardinality::Full
-                    || values.num_docs() as usize != len
+                let rows_with_boundary = len + usize::from((chunk + 1) * CHUNK_SIZE < count);
+                let rows = values.num_docs() as usize;
+                // Older dense chunks do not have the extra closing boundary.
+                if values.get_cardinality() == Cardinality::Multivalued
+                    || !(len..=rows_with_boundary).contains(&rows)
+                    || !values.index.has_value(rows as u32 - 1)
                     || values.max_value() > u64::from(self.num_docs)
                 {
                     bail!("invalid heap-block boundaries");
@@ -241,11 +254,14 @@ impl BlockToDocIdMap {
             if blocks[len - 1] - chunk_start >= values.num_docs() {
                 bail!("invalid heap-block boundaries");
             }
-            output.extend(
-                blocks[..len]
-                    .iter()
-                    .map(|&block| values.values.get_val(block - chunk_start) as DocId),
-            );
+            output.extend(blocks[..len].iter().map(|&block| {
+                let row = block - chunk_start;
+                let rank = match &values.index {
+                    ColumnIndex::Optional(index) => index.rank(row),
+                    _ => row,
+                };
+                values.values.get_val(rank) as DocId
+            }));
             blocks = &blocks[len..];
         }
         Ok(output)

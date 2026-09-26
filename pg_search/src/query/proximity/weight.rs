@@ -43,10 +43,8 @@ impl ProximityWeight {
 
     fn fieldnorm_reader(&self, reader: &SegmentReader) -> tantivy::Result<FieldNormReader> {
         let field = self.query.field();
-        if self.weight_opt.is_some()
-            && let Some(fieldnorm_reader) = reader.fieldnorms_readers().get_field(field)?
-        {
-            return Ok(fieldnorm_reader);
+        if self.weight_opt.is_some() {
+            return reader.scoring_fieldnorm_reader(field);
         }
         Ok(FieldNormReader::constant(reader.max_doc(), 1))
     }
@@ -112,11 +110,15 @@ impl ProximityWeight {
             );
 
             let mut doc_ids = Vec::new();
+            let mut fieldnorms = Vec::new();
             let mut positions = Vec::new();
             let mut offsets = Vec::new();
             while scorer.doc() != TERMINATED {
                 offsets.push(positions.len() as u32);
                 doc_ids.push(scorer.doc());
+                if self.weight_opt.is_some() {
+                    fieldnorms.push(scorer.fieldnorm_id());
+                }
 
                 for (l, r) in scorer.prox_iter() {
                     if nested {
@@ -151,6 +153,10 @@ impl ProximityWeight {
                 position_offsets: offsets.into_boxed_slice(),
                 positions: positions.into_boxed_slice(),
                 cursor: 0,
+                fieldnorms: self
+                    .weight_opt
+                    .as_ref()
+                    .map(|_| fieldnorms.into_boxed_slice()),
             };
 
             Ok(vec![Box::new(loaded_postings)])
@@ -192,6 +198,7 @@ impl ProximityWeight {
                             &term_infos,
                             segment_reader,
                             &inverted_index,
+                            self.weight_opt.is_some(),
                         )?;
                         postings.push(Box::new(union))
                     }
@@ -219,8 +226,7 @@ impl Weight for ProximityWeight {
         if scorer.seek(doc) != doc {
             return Err(does_not_match(doc));
         }
-        let fieldnorm_reader = self.fieldnorm_reader(reader)?;
-        let fieldnorm_id = fieldnorm_reader.fieldnorm_id(doc);
+        let fieldnorm_id = scorer.fieldnorm_id();
         let prox_count = scorer.prox_count();
         let mut explanation = Explanation::new("Proximity Scorer", scorer.score());
         if let Some(similarity_weight) = self.weight_opt.as_ref() {

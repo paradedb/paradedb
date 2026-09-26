@@ -38,6 +38,8 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pnorms: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
         #[serde(default)]
@@ -428,6 +430,7 @@ impl From<SearchFieldConfig> for TextOptions {
                 indexed,
                 fast,
                 fieldnorms,
+                pnorms,
                 tokenizer,
                 record,
                 normalizer,
@@ -436,6 +439,10 @@ impl From<SearchFieldConfig> for TextOptions {
                 ..
             } => {
                 validate_bm25_indexed(indexed, k1, b);
+                assert!(
+                    !pnorms || (indexed && fieldnorms),
+                    "pnorms=true requires indexed=true and fieldnorms=true"
+                );
                 if fast {
                     text_options = text_options.set_fast(normalizer.name());
                 }
@@ -443,6 +450,7 @@ impl From<SearchFieldConfig> for TextOptions {
                     let text_field_indexing = TextFieldIndexing::default()
                         .set_index_option(record.into())
                         .set_fieldnorms(fieldnorms)
+                        .set_pnorms(pnorms)
                         .set_tokenizer(&tokenizer.name());
                     let text_field_indexing = apply_bm25(text_field_indexing, k1, b);
                     text_options = text_options.set_indexing_options(text_field_indexing);

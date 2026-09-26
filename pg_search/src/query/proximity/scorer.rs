@@ -62,6 +62,13 @@ impl ProximityScorer {
         scorer
     }
 
+    pub(crate) fn fieldnorm_id(&self) -> u8 {
+        self.intersection
+            .docset_specialized(0)
+            .fieldnorm_id()
+            .unwrap_or_else(|| self.fieldnorm_reader.fieldnorm_id(self.doc()))
+    }
+
     pub(crate) fn prox_iter(&mut self) -> impl Iterator<Item = (u32, u32)> + '_ {
         self.lpos.clear();
         self.rpos.clear();
@@ -170,10 +177,8 @@ impl DocSet for ProximityScorer {
 
 impl Scorer for ProximityScorer {
     fn score(&mut self) -> Score {
-        let doc = self.doc();
-        let fieldnorm_id = self.fieldnorm_reader.fieldnorm_id(doc);
         if let Some(similarity_weight) = self.weight_opt.as_ref() {
-            similarity_weight.score(fieldnorm_id, self.nmatches as u32)
+            similarity_weight.score(self.fieldnorm_id(), self.nmatches as u32)
         } else {
             1.0f32
         }

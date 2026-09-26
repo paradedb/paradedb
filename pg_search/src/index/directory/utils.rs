@@ -164,6 +164,7 @@ pub unsafe fn save_new_metas(
                     ctid_map: files
                         .remove(&SegmentComponent::Custom(CTID_MAP_EXT.to_string()))
                         .map(|e| e.0),
+                    posting_norms: files.remove(&SegmentComponent::PostingNorms).map(|e| e.0),
                 },
             );
 

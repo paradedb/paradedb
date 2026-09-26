@@ -1726,8 +1726,8 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description ||| 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.rating, pc.description, (pdb.window_agg('count(*) OVER ()'::text))
    Relation Tree: p INNER pc
@@ -1737,14 +1737,16 @@ LIMIT 3;
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, rating@1 as col_3, NULL as col_4, window_agg_0@3 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=3), expr=[rating@1 DESC], preserve_partitioning=[false]
-     :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
-     :       VisibilityFilterExec: tables=[p, pc]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@1)], projection=[ctid_0@2, rating@4, ctid_1@0]
-     :           CooperativeExec
-     :             PgSearchScan: table=pc, segments=1, query="all"
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(16 rows)
+     :     ProjectionExec: expr=[get_field(__topk@0, c0) as ctid_0, get_field(__topk@0, c2) as rating, get_field(__topk@0, c3) as ctid_1, window_agg_0@1 as window_agg_0]
+     :       UnnestExec
+     :         AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.ctid_0, p_0.category, p_0.rating, pc_1.ctid_1, pc_1.name, 3) ORDER BY [p_0.rating DESC NULLS FIRST] as __topk, count(1) as window_agg_0]
+     :           VisibilityFilterExec: tables=[p, pc]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@1)], projection=[ctid_0@2, category@3, rating@4, ctid_1@0, name@1]
+     :               CooperativeExec
+     :                 PgSearchScan: table=pc, segments=1, query="all"
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(18 rows)
 
 SELECT
     p.id,
@@ -1801,8 +1803,8 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, r.score, (pdb.window_agg('count(*) OVER ()'::text)), (pdb.window_agg('sum(score) OVER ()'::text)), (pdb.window_agg('avg(score) OVER ()'::text)), (pdb.window_agg('min(score) OVER ()'::text)), (pdb.window_agg('max(score) OVER ()'::text))
    Relation Tree: p INNER r
@@ -1812,14 +1814,16 @@ LIMIT 3;
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, score@3 as col_3, window_agg_0@4 as col_4, window_agg_1@5 as col_5, window_agg_2@6 as col_6, window_agg_3@7 as col_7, window_agg_4@8 as col_8, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=3), expr=[score@3 DESC], preserve_partitioning=[false]
-     :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_1: Ok(Field { name: "window_agg_1", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_2: Ok(Field { name: "window_agg_2", data_type: Float64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_3: Ok(Field { name: "window_agg_3", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_4: Ok(Field { name: "window_agg_4", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
-     :       VisibilityFilterExec: tables=[p, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
-(16 rows)
+     :     ProjectionExec: expr=[get_field(__topk@0, c0) as ctid_0, get_field(__topk@0, c1) as id, get_field(__topk@0, c2) as ctid_1, get_field(__topk@0, c4) as score, window_agg_0@1 as window_agg_0, window_agg_1@2 as window_agg_1, window_agg_2@3 as window_agg_2, window_agg_3@4 as window_agg_3, window_agg_4@5 as window_agg_4]
+     :       UnnestExec
+     :         AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.ctid_0, p_0.id, r_1.ctid_1, r_1.product_id, r_1.score, 3) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) as window_agg_0, sum(r_1.score) as window_agg_1, avg(r_1.score) as window_agg_2, min(r_1.score) as window_agg_3, max(r_1.score) as window_agg_4]
+     :           VisibilityFilterExec: tables=[p, r]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT
     p.id,
@@ -1858,8 +1862,8 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                           QUERY PLAN                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, r.score, ((pdb.window_agg('count(*) OVER ()'::text) + 1)), ((pdb.window_agg('avg(score) OVER ()'::text))::double precision), ((r.score + pdb.window_agg('count(*) OVER ()'::text))), ((pdb.window_agg('count(*) OVER ()'::text) + pdb.window_agg('sum(score) OVER ()'::text)))
    Relation Tree: p INNER r
@@ -1869,14 +1873,16 @@ LIMIT 3;
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@1 as col_1, score@3 as col_2, window_agg_0@4 + 1 as col_3, pdb_eval_expr_funcexpr_956c81fe(window_agg_1@5) as col_4, score@3 + window_agg_0@4 as col_5, window_agg_0@4 + window_agg_4@6 as col_6, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=3), expr=[score@3 DESC], preserve_partitioning=[false]
-     :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_1: Ok(Field { name: "window_agg_1", data_type: Float64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_4: Ok(Field { name: "window_agg_4", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
-     :       VisibilityFilterExec: tables=[p, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
-(16 rows)
+     :     ProjectionExec: expr=[get_field(__topk@0, c0) as ctid_0, get_field(__topk@0, c1) as id, get_field(__topk@0, c2) as ctid_1, get_field(__topk@0, c4) as score, window_agg_0@1 as window_agg_0, window_agg_1@2 as window_agg_1, window_agg_4@3 as window_agg_4]
+     :       UnnestExec
+     :         AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.ctid_0, p_0.id, r_1.ctid_1, r_1.product_id, r_1.score, 3) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) as window_agg_0, avg(r_1.score) as window_agg_1, sum(r_1.score) as window_agg_4]
+     :           VisibilityFilterExec: tables=[p, r]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT
     p.id,

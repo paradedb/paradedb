@@ -125,9 +125,10 @@ jobs:
           contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search", "benchmark-cohere-pgvectorscale"]'), github.event.label.name)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
+          gh pr edit "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --remove-label benchmarks \
             --remove-label benchmark-stackoverflow \
             --remove-label benchmark-cohere-hnsw \
@@ -138,17 +139,19 @@ jobs:
 
       - name: Determine Ref to Benchmark
         id: determine-ref
+        env:
+          INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
           # If a specific commit was provided via workflow_dispatch, use that.
           # For pull_request events, benchmark the PR merge commit (github.sha),
           # which exists in the base repo even for forks.
           # Otherwise, default to main.
-          if [ -n "${{ inputs.commit }}" ]; then
-            echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from workflow_dispatch input: ${{ inputs.commit }}"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from pull_request event: ${{ github.sha }}"
+          if [ -n "${INPUTS_COMMIT}" ]; then
+            echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from workflow_dispatch input: ${INPUTS_COMMIT}"
+          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from pull_request event: ${GITHUB_SHA}"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
             echo "Determined ref as default: main"
@@ -264,7 +267,9 @@ jobs:
               : ref;
 
       - name: Running for ${{ steps.pr_label.outputs.result }}
-        run: echo ${{ steps.pr_label.outputs.result }}
+        env:
+          STEP_PR_LABEL_RESULT: ${{ steps.pr_label.outputs.result }}
+        run: echo "${STEP_PR_LABEL_RESULT}"
 
       - name: Set Up Benchmark Cluster
         uses: ./.github/actions/setup-benchmark-cluster
@@ -493,6 +498,7 @@ jobs:
         working-directory: benchmarks/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           # A size that was skipped/failed leaves its .tsv missing; touch both so `cat` (and thus
@@ -520,10 +526,10 @@ jobs:
             printf '\n<sub>Each cell is the swept parameter value the benchmark selected — the cheapest one whose measured recall@10 reaches the target — followed by the recall it achieved and the p50 / p95 / p99 latency at that point. Latency is measured once per held-out query vector (the same set recall uses), not by repeating a single vector. ⚠️ means no swept value reached that target, so the best available point is shown; widen the range in `[sweeps]`.</sub>\n'
           } > recall_body.md
           cat recall_body.md
-          if [ -n "${{ github.event.pull_request.number }}" ]; then
-            gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file recall_body.md
+          if [ -n "${PR_NUMBER}" ]; then
+            gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file recall_body.md
           else
-            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@recall_body.md
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@recall_body.md
           fi
 
   notify-slack-on-failure:

@@ -33,4 +33,6 @@ runs:
 
     - name: Configure PostgreSQL PATH
       shell: bash
-      run: echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> "$GITHUB_PATH"
+      env:
+        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+      run: echo "/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin" >> "$GITHUB_PATH"

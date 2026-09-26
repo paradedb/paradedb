@@ -65,9 +65,11 @@ jobs:
 
       - name: Retrieve GitHub Tag Version
         id: version
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          if [ -z "${INPUTS_VERSION}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
               VERSION=${GITHUB_REF#refs/tags/v}
             else
@@ -75,7 +77,7 @@ jobs:
               VERSION="0.0.0"
             fi
           else
-            VERSION=${{ github.event.inputs.version }}
+            VERSION="${INPUTS_VERSION}"
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
@@ -124,7 +126,9 @@ jobs:
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
-        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        env:
+          STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
+        run: cargo install --locked cargo-pgrx --version "${STEP_PGRX_VERSION}" --debug
 
       - name: Initialize pgrx Environment
         working-directory: pg_search/
@@ -178,10 +182,12 @@ jobs:
 
       - name: Build Postgres.app Installer Package
         id: pkg
+        env:
+          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           set -euo pipefail
           EXTENSION_NAME=pg_search
-          EXTENSION_VERSION=${{ steps.version.outputs.tag_version }}
+          EXTENSION_VERSION="${STEP_VERSION_TAG_VERSION}"
           PG_MAJOR_VERSION=${{ matrix.pg_version }}
           PREFIX=/Applications/Postgres.app/Contents/Versions/$PG_MAJOR_VERSION
           INSTALL_ROOT="${GITHUB_WORKSPACE}/target/release/${EXTENSION_NAME}-pg${PG_MAJOR_VERSION}${PREFIX}"
@@ -254,15 +260,16 @@ jobs:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          STEP_PKG_PKG_PATH: ${{ steps.pkg.outputs.pkg_path }}
         run: |
           set -euo pipefail
           echo "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
-          xcrun notarytool submit "${{ steps.pkg.outputs.pkg_path }}" \
+          xcrun notarytool submit "${STEP_PKG_PKG_PATH}" \
             --key "$RUNNER_TEMP/AuthKey.p8" \
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER_ID" \
             --wait
-          xcrun stapler staple "${{ steps.pkg.outputs.pkg_path }}"
+          xcrun stapler staple "${STEP_PKG_PKG_PATH}"
           rm -f "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Install Cosign
@@ -280,10 +287,11 @@ jobs:
         id: upload_url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+            "/repos/paradedb/paradedb/releases/tags/v${STEP_VERSION_TAG_VERSION}")
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
           echo "GitHub Release Upload URL is: $UPLOAD_URL"
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
@@ -320,14 +328,14 @@ jobs:
       # JSON files at docs/_data/extensions/<pg>/pg_search.json. The PR is raised
       # from the paradedb/PostgresApp fork; any previous open PR from the bot is
       # closed first so that only one update is ever pending review upstream.
-      - name: Open PR to PostgresApp/PostgresApp
+      - name: Prepare PostgresApp Update
+        id: postgresapp-update
         env:
           # Classic PAT with `repo` scope — required because fine-grained PATs cannot
           # invoke createPullRequest (or pr list/close) against repos outside their
           # resource owner, and PostgresApp/PostgresApp lives outside the paradedb org.
           # Reuses the existing enterprise-sync token, which already has `repo` scope.
           GH_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
-          APP_TOKEN: ${{ steps.postgresapp-app-token.outputs.token }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
           PG_MAJOR_VERSION: ${{ matrix.pg_version }}
           PKG_NAME: ${{ steps.pkg.outputs.pkg_name }}
@@ -398,27 +406,39 @@ jobs:
             exit 0
           fi
 
-          # Use the App installation token to have GitHub create and sign the commit in
-          # the ParadeDB fork. Keep the PAT for opening the upstream PR.
-          BASE_SHA=$(git rev-parse HEAD)
-          BASE_TREE=$(git rev-parse HEAD^{tree})
-          TREE_SHA=$(jq -n --arg base "$BASE_TREE" --arg path "$JSON_PATH" \
-            --rawfile content "$JSON_PATH" \
-            '{base_tree: $base, tree: [{path: $path, mode: "100644", type: "blob", content: $content}]}' |
-            GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/${FORK}/git/trees" --input - --jq .sha)
-          COMMIT_SHA=$(jq -n --arg message "Update pg_search to v${TAG_VERSION} for PostgreSQL ${PG_MAJOR_VERSION}" \
-            --arg tree "$TREE_SHA" --arg parent "$BASE_SHA" \
-            '{message: $message, tree: $tree, parents: [$parent]}' |
-            GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/${FORK}/git/commits" --input - --jq .sha)
+          git add "$JSON_PATH"
+          echo "directory=$WORK" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "base=$UPSTREAM_DEFAULT_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
-          VERIFIED=$(GH_TOKEN="$APP_TOKEN" gh api "repos/${FORK}/git/commits/${COMMIT_SHA}" --jq .verification.verified)
-          if [ "$VERIFIED" != "true" ]; then
-            echo "::error::GitHub did not verify the App commit; refusing to update the fork branch."
-            exit 1
-          fi
+      - name: Commit PostgresApp Update
+        if: steps.postgresapp-update.outputs.changed == 'true'
+        uses: ./.github/actions/commit-with-paradedb-github-app
+        with:
+          github-token: ${{ steps.postgresapp-app-token.outputs.token }}
+          repository: paradedb/PostgresApp
+          working-directory: ${{ steps.postgresapp-update.outputs.directory }}
+          message: "Update pg_search to v${{ steps.version.outputs.tag_version }} for PostgreSQL ${{ matrix.pg_version }}"
 
+      - name: Open PR to PostgresApp/PostgresApp
+        if: steps.postgresapp-update.outputs.changed == 'true'
+        working-directory: ${{ steps.postgresapp-update.outputs.directory }}
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.postgresapp-app-token.outputs.token }}
+          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          PG_MAJOR_VERSION: ${{ matrix.pg_version }}
+          PKG_NAME: ${{ steps.pkg.outputs.pkg_name }}
+          BRANCH: ${{ steps.postgresapp-update.outputs.branch }}
+          UPSTREAM_DEFAULT_BRANCH: ${{ steps.postgresapp-update.outputs.base }}
+        run: |
+          UPSTREAM=PostgresApp/PostgresApp
+          FORK_OWNER=paradedb
+          FORK="${FORK_OWNER}/PostgresApp"
+          DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v${TAG_VERSION}/${PKG_NAME}"
           GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/${FORK}/git/refs" \
-            -f ref="refs/heads/${BRANCH}" -f sha="$COMMIT_SHA" --jq .ref
+            -f ref="refs/heads/${BRANCH}" -f sha="$(git rev-parse HEAD)" --jq .ref
 
           BODY=$(cat <<EOF
           This PR updates the [pg_search](https://github.com/paradedb/paradedb) entry on https://postgresapp.com/extensions/ to point at the v${TAG_VERSION} release.

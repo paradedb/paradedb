@@ -76,10 +76,12 @@ jobs:
         run: cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
 
       - name: Initialize pgrx Environment
+        env:
+          STEP_TOOLCHAIN_PGRX_VERSION: ${{ steps.toolchain.outputs.pgrx_version }}
         run: |
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           # Save the pgrx version for comparison later
-          echo "FIRST_PGRX_VERSION=${{ steps.toolchain.outputs.pgrx_version }}" >> $GITHUB_ENV
+          echo "FIRST_PGRX_VERSION=${STEP_TOOLCHAIN_PGRX_VERSION}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
         run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
@@ -147,6 +149,8 @@ jobs:
 
       - name: Check Schema Diff and Validate Migration Fragment
         id: check_schema_diff
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           if test -s ~/diff.sql; then
             echo "=========================================="
@@ -161,11 +165,11 @@ jobs:
             echo
             echo "=========================================="
 
-            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_NUMBER="${PR_NUMBER}"
             shopt -s nullglob
 
             if [ -n "$PR_NUMBER" ]; then
-              MATCHING_FILES=(pg_search/sql/unreleased/"${PR_NUMBER}".*.sql)
+              MATCHING_FILES=("pg_search/sql/unreleased/${PR_NUMBER}."*.sql)
             else
               # Fallback for manual runs (workflow_dispatch)
               MATCHING_FILES=(pg_search/sql/unreleased/*.sql)

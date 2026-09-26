@@ -83,17 +83,26 @@ SELECT check_visibility_stats('mixed');
 UPDATE visibility_stats_docs SET title = title WHERE id % 41 = 0;
 SELECT check_visibility_stats('mixed');
 
--- Count VM bits directly, including a dirty block in a gap of the sparse segment.
+-- Sparse segments check matches lazily, even when the VM is entirely visible.
 CREATE FUNCTION check_sparse_visibility_stats() RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
     plan jsonb;
+    actual bigint;
+    expected bigint;
 BEGIN
     EXECUTE $q$EXPLAIN (ANALYZE, FORMAT JSON)
         SELECT count(*) FROM visibility_stats_docs
         WHERE title === 'database' AND id IN (1, 20000)$q$ INTO plan;
     ASSERT (plan #>> '{0,Plan,Visibility,Blocks Total}')::bigint =
         pg_relation_size('visibility_stats_docs') / current_setting('block_size')::bigint;
-    ASSERT (plan #>> '{0,Plan,Visibility,Blocks Requiring Checks}')::bigint = 3;
+    ASSERT (plan #>> '{0,Plan,Visibility,Segments Skipped}')::bigint = 0;
+    ASSERT (plan #>> '{0,Plan,Visibility,Blocks Requiring Checks}')::bigint =
+        (plan #>> '{0,Plan,Visibility,Blocks Total}')::bigint;
+    SELECT count(*) INTO actual FROM visibility_stats_docs
+        WHERE title === 'database' AND id IN (1, 20000);
+    SELECT count(*) INTO expected FROM visibility_stats_docs
+        WHERE title = 'database' AND id IN (1, 20000);
+    ASSERT actual = expected;
 END;
 $$;
 DROP INDEX visibility_stats_idx;
@@ -103,10 +112,14 @@ CREATE INDEX visibility_stats_idx ON visibility_stats_docs USING paradedb(id, ti
     WITH (sort_by = 'ctid ASC NULLS FIRST', mutable_segment_rows = 0, target_segment_count = 1)
     WHERE id IN (1, 20000);
 SELECT check_sparse_visibility_stats();
+VACUUM visibility_stats_docs;
+SELECT check_sparse_visibility_stats();
 DROP INDEX visibility_stats_idx;
 CREATE INDEX visibility_stats_idx ON visibility_stats_docs USING paradedb(id, title)
     WITH (sort_by = 'id ASC NULLS FIRST', mutable_segment_rows = 0, target_segment_count = 1)
     WHERE id IN (1, 20000);
+SELECT check_sparse_visibility_stats();
+DELETE FROM visibility_stats_docs WHERE id = 1;
 SELECT check_sparse_visibility_stats();
 DROP FUNCTION check_sparse_visibility_stats();
 

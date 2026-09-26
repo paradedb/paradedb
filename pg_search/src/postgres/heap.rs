@@ -41,6 +41,9 @@ use tantivy_common::TinySet;
 
 use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
 
+// Prefer per-match CTID checks at this heap-block span per live document.
+const BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY: u64 = 256;
+
 /// A pinned heap buffer that releases its pin on drop. It stays off the index block tracker
 /// that `PinnedBuffer` feeds. That tracker keys blocks by number with no relation, so a heap
 /// pin would collide with the index's tracked blocks under the `block_tracker` feature, and a
@@ -437,27 +440,32 @@ impl VisibilityChecker {
             if first > last || last == pg_sys::InvalidBlockNumber {
                 break 'proof false;
             }
-            self.dirty_blocks_for_segment(segment.segment_id(), first..last + 1)
-                .is_empty()
+            self.dirty_blocks_for_segment(segment, first..last + 1)
+                .is_some_and(|blocks| blocks.is_empty())
         };
         self.segment_visibility = Some((segment.segment_id(), visible));
         Ok(visible)
     }
 
-    /// Scans each VM page once and retains dirty ranges for subsequent document lookup.
+    /// Retains dirty ranges from one VM scan, or returns None to check sparse segments lazily.
     fn dirty_blocks_for_segment(
         &mut self,
-        segment_id: SegmentId,
+        segment: &SegmentReader,
         blocks: Range<BlockNumber>,
-    ) -> Arc<[Range<BlockNumber>]> {
-        if let Some(ranges) = self.dirty_blocks.get(&segment_id) {
-            return ranges.clone();
+    ) -> Option<Arc<[Range<BlockNumber>]>> {
+        let span = u64::from(blocks.end) - u64::from(blocks.start);
+        if span >= BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY * u64::from(segment.num_docs()) {
+            return None;
         }
-        if self.visibility_stats.is_some() {
+        let segment_id = segment.segment_id();
+        if let Some(ranges) = self.dirty_blocks.get(&segment_id) {
+            return Some(ranges.clone());
+        }
+        Some(if self.visibility_stats.is_some() {
             self.scan_dirty_blocks::<true>(segment_id, blocks)
         } else {
             self.scan_dirty_blocks::<false>(segment_id, blocks)
-        }
+        })
     }
 
     /// Compiles statistics work out of the ordinary-query scan.
@@ -614,8 +622,10 @@ impl VisibilityChecker {
                     return Ok(None);
                 };
                 // Reuse the VM scan from the segment proof, or scan once on first use.
-                let block_ranges =
-                    self.dirty_blocks_for_segment(segment.segment_id(), map.block_range());
+                let Some(block_ranges) = self.dirty_blocks_for_segment(segment, map.block_range())
+                else {
+                    return Ok(None);
+                };
                 const RANGES_PER_BATCH: usize = 128;
                 let mut ranges = Vec::new();
                 for blocks in block_ranges.chunks(RANGES_PER_BATCH) {

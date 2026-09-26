@@ -36,8 +36,8 @@ mod typmod;
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
 pub use crate::api::tokenizers::typmod::{
-    AliasTypmod, EdgeNgramTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod,
-    RegexTypmod, Typmod, UncheckedTypmod, UnicodeWordsTypmod,
+    AliasTypmod, ChineseCompatibleTypmod, EdgeNgramTypmod, GenericTypmod, JiebaTypmod,
+    LinderaTypmod, NgramTypmod, RegexTypmod, Typmod, UncheckedTypmod, UnicodeWordsTypmod,
 };
 
 // if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
@@ -114,9 +114,10 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
         "literal_normalized" => {
             SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default())
         }
-        "chinese_compatible" => {
-            SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default())
-        }
+        "chinese_compatible" => SearchTokenizer::ChineseCompatible {
+            chinese_convert: None,
+            filters: SearchTokenizerFilters::default(),
+        },
         "regex_pattern" => SearchTokenizer::RegexTokenizer {
             pattern: "".to_string(),
             filters: Default::default(),
@@ -275,11 +276,31 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
+        SearchTokenizer::ChineseCompatible {
+            chinese_convert,
+            filters,
+        } => {
+            *chinese_convert = parsed
+                .get("chinese_convert")
+                .and_then(|p| p.as_str())
+                .map(|s| {
+                    let lcase = s.to_lowercase();
+                    match lcase.as_str() {
+                        "t2s" => ConvertMode::T2S,
+                        "s2t" => ConvertMode::S2T,
+                        "tw2s" => ConvertMode::TW2S,
+                        "tw2sp" => ConvertMode::TW2SP,
+                        "s2tw" => ConvertMode::S2TW,
+                        "s2twp" => ConvertMode::S2TWP,
+                        other => panic!("unknown chinese convert mode: {other}"),
+                    }
+                });
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
         SearchTokenizer::ICUTokenizer(filters)
         | SearchTokenizer::Simple(filters)
         | SearchTokenizer::WhiteSpace(filters)
         | SearchTokenizer::SourceCode(filters)
-        | SearchTokenizer::ChineseCompatible(filters)
         | SearchTokenizer::LiteralNormalized(filters) => {
             *filters = SearchTokenizerFilters::from(parsed);
         }
@@ -473,7 +494,6 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::Simple(filters)
         | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)
-        | SearchTokenizer::ChineseCompatible(filters)
         | SearchTokenizer::ChineseLinderaDeprecated(filters)
         | SearchTokenizer::JapaneseLinderaDeprecated(filters)
         | SearchTokenizer::KoreanLinderaDeprecated(filters) => {
@@ -482,6 +502,18 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
                 panic!("{}", e);
             });
             *filters = generic_typmod.filters;
+        }
+
+        SearchTokenizer::ChineseCompatible {
+            chinese_convert,
+            filters,
+        } => {
+            let chinese_compatible_typmod = ChineseCompatibleTypmod::try_from(typmod)
+                .unwrap_or_else(|e| {
+                    panic!("{}", e);
+                });
+            *filters = chinese_compatible_typmod.filters;
+            *chinese_convert = chinese_compatible_typmod.chinese_convert;
         }
 
         SearchTokenizer::Jieba {

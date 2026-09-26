@@ -246,15 +246,6 @@ impl Buffer {
         }
     }
 
-    /// A placeholder left behind when the real buffer is moved out; its `Drop` does nothing.
-    fn invalid() -> Self {
-        Self {
-            pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
-            #[cfg(feature = "block_tracker")]
-            blockno: pg_sys::InvalidBlockNumber,
-        }
-    }
-
     pub fn page(&self) -> Page<'_> {
         let pg_page = unsafe { pg_sys::BufferGetPage(self.pg_buffer) };
         Page {
@@ -401,7 +392,14 @@ impl BufferMut {
             "BufferMut::into_immutable_page called on a dirty page"
         );
 
-        let inner = std::mem::replace(&mut self.inner, Buffer::invalid());
+        let inner = std::mem::replace(
+            &mut self.inner,
+            Buffer {
+                pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+                #[cfg(feature = "block_tracker")]
+                blockno: pg_sys::InvalidBlockNumber,
+            },
+        );
         unsafe { inner.into_immutable_page() }
     }
 

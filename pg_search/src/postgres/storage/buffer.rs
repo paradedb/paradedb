@@ -83,51 +83,21 @@ mod block_tracker {
         }
     }
 
-    type Tracker = Mutex<HashMap<TrackedBlock, Option<std::backtrace::Backtrace>>>;
-
-    static BLOCK_TRACKER: OnceLock<Tracker> = OnceLock::new();
-
-    pub(super) fn tracker() -> &'static Tracker {
-        BLOCK_TRACKER.get_or_init(|| {
-            // SAFETY: registers a static callback once per backend; Postgres keeps it for the
-            // life of the process.
-            unsafe {
-                pg_sys::RegisterXactCallback(Some(reset_at_transaction_end), std::ptr::null_mut())
-            };
-            Default::default()
-        })
-    }
-
-    /// Postgres releases every buffer pin and lock when a transaction ends. Clearing here also
-    /// drops entries that never got a `Buffer`: `pinned_buffer` and `get_buffer_for_cleanup` track
-    /// before they pin or lock, and an ERROR in that call leaves the entry behind.
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn reset_at_transaction_end(
-        event: pg_sys::XactEvent::Type,
-        _arg: *mut std::ffi::c_void,
-    ) {
-        use pg_sys::XactEvent::*;
-        if matches!(
-            event,
-            XACT_EVENT_COMMIT
-                | XACT_EVENT_PARALLEL_COMMIT
-                | XACT_EVENT_ABORT
-                | XACT_EVENT_PARALLEL_ABORT
-                | XACT_EVENT_PREPARE
-        ) && let Some(map) = BLOCK_TRACKER.get()
-        {
-            map.lock().clear();
-        }
-    }
+    pub(super) static BLOCK_TRACKER: OnceLock<
+        Mutex<HashMap<TrackedBlock, Option<std::backtrace::Backtrace>>>,
+    > = OnceLock::new();
 
     macro_rules! track {
-        ($style:ident, $blockno:expr) => {
+        // `{{ }}` makes the body a block: without it the tracker's lock guard would stay held
+        // until the end of the caller's scope.
+        ($style:ident, $blockno:expr) => {{
             use std::collections::hash_map::Entry;
 
             let blockno = block_tracker::TrackedBlock::$style($blockno);
             assert!(!matches!(blockno, block_tracker::TrackedBlock::Drop(_)), "invalid block style: Drop not allowed");
 
-            let mut lock = block_tracker::tracker().lock();
+            let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
+            let mut lock = map.lock();
             match lock.entry(blockno) {
                 Entry::Occupied(existing) => {
                     // having an existing block is okay if the new block follows Postgres' rules for acquiring and releasing buffers
@@ -187,14 +157,15 @@ mod block_tracker {
                     slot.insert(Some(std::backtrace::Backtrace::force_capture()));
                 }
             }
-        };
+        }};
     }
 
     macro_rules! forget {
-        ($blockno:expr) => {
-            let mut lock = block_tracker::tracker().lock();
+        ($blockno:expr) => {{
+            let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
+            let mut lock = map.lock();
             lock.remove(&block_tracker::TrackedBlock::Drop($blockno));
-        };
+        }};
     }
 
     pub(super) use forget;
@@ -257,6 +228,22 @@ impl Deref for Buffer {
     }
 }
 
+/// Forgets a block tracked before `LockBufferForCleanup` if that call errors out: pgrx runs `Drop`
+/// handlers when a function it wraps raises an ERROR.
+struct InFlightCleanupGuard {
+    #[cfg_attr(not(feature = "block_tracker"), allow(dead_code))]
+    blockno: pg_sys::BlockNumber,
+    active: bool,
+}
+
+impl Drop for InFlightCleanupGuard {
+    fn drop(&mut self) {
+        if self.active {
+            block_tracker::forget!(self.blockno);
+        }
+    }
+}
+
 impl Buffer {
     fn new(pg_buffer: pg_sys::Buffer) -> Self {
         // The unguarded extern, not `pg_sys::IsTransactionState()`: this assert
@@ -268,11 +255,6 @@ impl Buffer {
             "buffer cannot be allocated outside of a transaction"
         );
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
-        Self::pinned(pg_buffer)
-    }
-
-    /// Wraps a buffer this backend has already pinned, without `new`'s checks.
-    fn pinned(pg_buffer: pg_sys::Buffer) -> Self {
         Self {
             pg_buffer,
             #[cfg(feature = "block_tracker")]
@@ -885,7 +867,7 @@ impl BufferManager {
         BufferMut {
             style: XlogFlag::NewBuffer.into_style(self.rbufacc.rel()),
             dirty: false,
-            inner: Buffer::pinned(pg_buffer),
+            inner: Buffer::new(pg_buffer),
         }
     }
 
@@ -920,7 +902,7 @@ impl BufferManager {
                 // so we avoid the diff calculation by using NewBuffer
                 style: XlogFlag::NewBuffer.into_style(&rel),
                 dirty: false,
-                inner: Buffer::pinned(pg_buffer),
+                inner: Buffer::new(pg_buffer),
             }
         });
 
@@ -950,7 +932,7 @@ impl BufferManager {
                         BufferMut {
                             style: XlogFlag::NewBuffer.into_style(&rel),
                             dirty: false,
-                            inner: Buffer::pinned(pg_buffer),
+                            inner: Buffer::new(pg_buffer),
                         }
                     },
                 ));
@@ -963,8 +945,9 @@ impl BufferManager {
     }
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
+        let pg_buffer = self.rbufacc.get_buffer(blockno, None);
         block_tracker::track!(Pinned, blockno);
-        PinnedBuffer::new(self.rbufacc.get_buffer(blockno, None))
+        PinnedBuffer::new(pg_buffer)
     }
 
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {
@@ -1092,7 +1075,16 @@ impl BufferManager {
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             block_tracker::track!(Cleanup, blockno);
+            let mut guard = InFlightCleanupGuard {
+                blockno,
+                active: true,
+            };
+
             pg_sys::LockBufferForCleanup(pg_buffer);
+
+            // Hand over tracking responsibility to BufferMut's Drop
+            guard.active = false;
+
             BufferMut {
                 style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),
                 dirty: false,
@@ -1139,7 +1131,7 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     let mut buffer = BufferMut {
         style: XlogFlag::NewBuffer.into_style(rel),
         dirty: false,
-        inner: Buffer::pinned(pg_buffer),
+        inner: Buffer::new(pg_buffer),
     };
     let mut page = buffer.init_page();
     let special = page.special_mut::<BM25PageSpecialData>();

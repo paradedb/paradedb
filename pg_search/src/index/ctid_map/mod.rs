@@ -16,25 +16,26 @@
 //! [3, 5), while block 12 gives [5, 5): it has no documents. Consecutive dirty blocks need
 //! only the two outer boundaries. All-visible blocks need no boundary reads.
 //!
-//! Boundaries are a standard Tantivy numeric column, written in bounded ColumnarWriter
-//! batches after sorting or merging. Each batch is addressed through the `.ctid_map`
-//! composite directory and opened lazily with ColumnarReader. Each batch has a closing
-//! boundary so lookups never need to open another batch to resolve a trailing null.
+//! Boundaries are one nullable Tantivy column in `.ctid_map`. Restartable iterators scan
+//! and deduplicate the final CTIDs without buffering the column. BlockwiseLinearV2
+//! compresses values in 512-value blocks and reads them lazily; the nullable index is
+//! loaded on the first boundary lookup. A final boundary marks the end of the documents.
 
+use std::iter;
 use std::ops::Range;
 
 use anyhow::{Context, bail};
 use pgrx::pg_sys::{BlockNumber, InvalidBlockNumber};
 use tantivy::DocId;
-use tantivy::columnar::column_index::Set;
+use tantivy::columnar::column_index::{SerializableColumnIndex, SerializableOptionalIndex, Set};
 use tantivy::columnar::column_values::CodecType;
 use tantivy::columnar::{
-    Cardinality, Column, ColumnIndex, ColumnType, ColumnarReader, ColumnarWriter, DynamicColumn,
+    Cardinality, Column, ColumnIndex, ColumnarReader, DynamicColumn, Iterable, Version,
+    open_column_u64, serialize_column_mappable_to_u64,
 };
 use tantivy::directory::error::OpenReadError;
-use tantivy::directory::{CompositeFile, CompositeWrite};
+use tantivy::directory::{CompositeFile, CompositeWrite, FileSlice};
 use tantivy::index::{Segment, SegmentComponent, SegmentReader};
-use tantivy::schema::Field;
 
 use crate::api::CTID_FIELD_NAME;
 use crate::index::reader::index::SearchIndexReader;
@@ -42,12 +43,17 @@ use crate::index::reader::index::SearchIndexReader;
 mod plugin;
 pub(crate) use plugin::register;
 
-// Column name shared by the boundary writer and reader.
-const BLOCK_BOUNDARIES: &str = "block_boundaries";
-// Maximum boundaries per column chunk, bounding writer memory.
-const CHUNK_SIZE: usize = 32768;
-// Let Tantivy choose between bitpacking and blockwise linear compression.
-const CODECS: &[CodecType] = &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2];
+struct Replayable<I>(I);
+
+impl<T, I> Iterable<T> for Replayable<I>
+where
+    I: Iterator<Item = T> + Clone,
+{
+    /// Restarts the scan for Tantivy's statistics and serialization passes.
+    fn boxed_iter(&self) -> Box<dyn Iterator<Item = T> + '_> {
+        Box::new(self.0.clone())
+    }
+}
 
 /// Builds the boundary column from the final live CTIDs at flush or merge.
 pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Result<()> {
@@ -77,52 +83,60 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Resu
         return Ok(());
     }
     let descending = column.values.get_val(0) > column.values.get_val(docs - 1);
-    let values: Box<dyn Iterator<Item = u64> + '_> = if descending {
-        Box::new((0..docs).rev().map(|doc| column.values.get_val(doc)))
-    } else {
-        column.values.iter()
-    };
-    let mut values = values.peekable();
-    let first_block = u32::try_from(values.peek().unwrap() >> 16)
-        .context("heap block number exceeds BlockNumber")?;
+    let first_block =
+        u32::try_from(column.values.get_val(if descending { docs - 1 } else { 0 }) >> 16)
+            .context("heap block number exceeds BlockNumber")?;
     let last_block =
         u32::try_from(column.values.get_val(if descending { 0 } else { docs - 1 }) >> 16)
             .context("heap block number exceeds BlockNumber")?;
-    let count = (u64::from(last_block) - u64::from(first_block) + 2) as usize;
-    let mut processed = 0u32;
-    let mut previous = None;
-    for start in (0..count).step_by(CHUNK_SIZE) {
-        pgrx::check_for_interrupts!();
-        let len = (count - start).min(CHUNK_SIZE);
-        let rows = len + usize::from(start + len < count);
-        let mut writer = ColumnarWriter::default();
-        writer.record_column_type(BLOCK_BOUNDARIES, ColumnType::U64, false);
-        for row in 0..rows {
-            let block = u64::from(first_block) + (start + row) as u64;
-            while let Some(&value) = values.peek() {
-                if value >> 16 >= block {
-                    break;
-                }
-                if previous.is_some_and(|last| value < last) {
-                    bail!("invalid heap-block boundaries");
-                }
-                previous = values.next();
-                processed += 1;
-            }
-            if row == rows - 1 || values.peek().is_some_and(|value| value >> 16 == block) {
-                writer.record_numerical(row as u32, BLOCK_BOUNDARIES, u64::from(processed));
-            }
-        }
-        writer.serialize(
-            rows as u32,
-            None,
-            CODECS,
-            out.for_field_with_idx(field, start / CHUNK_SIZE),
-        )?;
-    }
-    if processed != docs {
+    if first_block > last_block || last_block == InvalidBlockNumber {
         bail!("invalid heap-block boundaries");
     }
+    // Tantivy column row IDs cannot represent the entire BlockNumber address space.
+    let Ok(count) = u32::try_from(u64::from(last_block) - u64::from(first_block) + 2) else {
+        return Ok(());
+    };
+    let column = &column;
+    let boundaries = || {
+        let mut previous = None;
+        (0..docs)
+            .filter_map(move |doc| {
+                if doc.is_multiple_of(8192) {
+                    pgrx::check_for_interrupts!();
+                }
+                let source_doc = if descending { docs - doc - 1 } else { doc };
+                let block = (column.values.get_val(source_doc) >> 16) as BlockNumber;
+                let boundary = (previous != Some(block)).then_some((block, doc));
+                previous = Some(block);
+                boundary
+            })
+            .chain(iter::once((last_block + 1, docs)))
+    };
+    let mut previous = None;
+    let mut present = 0;
+    for (block, _) in boundaries() {
+        if previous.is_some_and(|last| block <= last) {
+            bail!("invalid heap-block boundaries");
+        }
+        previous = Some(block);
+        present += 1;
+    }
+    let index = if present == count {
+        SerializableColumnIndex::Full
+    } else {
+        SerializableColumnIndex::Optional(SerializableOptionalIndex {
+            non_null_row_ids: Box::new(Replayable(
+                boundaries().map(|(block, _)| block - first_block),
+            )),
+            num_rows: count,
+        })
+    };
+    serialize_column_mappable_to_u64(
+        index,
+        &Replayable(boundaries().map(|(_, doc)| u64::from(doc))),
+        &[CodecType::BlockwiseLinearV2],
+        out.for_field(field),
+    )?;
     Ok(())
 }
 
@@ -130,9 +144,8 @@ pub(crate) struct BlockToDocIdMap {
     first_block: BlockNumber,
     last_block: BlockNumber,
     num_docs: u32,
-    file: CompositeFile,
-    field: Field,
-    values: Option<(usize, Column<u64>)>,
+    file: FileSlice,
+    values: Option<Column<u64>>,
 }
 
 impl BlockToDocIdMap {
@@ -145,9 +158,9 @@ impl BlockToDocIdMap {
         };
         let file = CompositeFile::open(&slice)?;
         let field = segment.schema().get_field(CTID_FIELD_NAME)?;
-        if file.open_read_with_idx(field, 0).is_none() {
+        let Some(file) = file.open_read(field) else {
             return Ok(None);
-        }
+        };
         let Some(blocks) = SearchIndexReader::block_bounds(segment)? else {
             return Ok(None);
         };
@@ -162,7 +175,6 @@ impl BlockToDocIdMap {
             last_block,
             num_docs,
             file,
-            field,
             values: None,
         }))
     }
@@ -201,66 +213,40 @@ impl BlockToDocIdMap {
     }
 
     /// Given sorted block numbers, returns the starting doc ID of each block.
-    fn boundaries(&mut self, mut blocks: &[BlockNumber]) -> anyhow::Result<Vec<DocId>> {
-        let mut output = Vec::with_capacity(blocks.len());
+    fn boundaries(&mut self, blocks: &[BlockNumber]) -> anyhow::Result<Vec<DocId>> {
         debug_assert!(blocks.is_sorted());
-        while let Some(&block) = blocks.first() {
-            let index = block
-                .checked_sub(self.first_block)
-                .context("block precedes the segment block range")?
-                as usize;
-            let count = (u64::from(self.last_block) - u64::from(self.first_block) + 2) as usize;
-            if index >= count {
+        if blocks.is_empty() {
+            return Ok(Vec::new());
+        }
+        if self.values.is_none() {
+            let values = open_column_u64(self.file.clone(), Version::V2)?;
+            let count = u64::from(self.last_block) - u64::from(self.first_block) + 2;
+            if values.get_cardinality() == Cardinality::Multivalued
+                || u64::from(values.num_docs()) != count
+                || !values.index.has_value(values.num_docs() - 1)
+                || values.max_value() > u64::from(self.num_docs)
+            {
                 bail!("invalid heap-block boundaries");
             }
-            let chunk = index / CHUNK_SIZE;
-            if self
-                .values
-                .as_ref()
-                .is_none_or(|(current, _)| *current != chunk)
-            {
-                let file = self
-                    .file
-                    .open_read_with_idx(self.field, chunk)
-                    .context("missing heap-block boundary chunk")?;
-                let reader = ColumnarReader::open(file)?;
-                let handles = reader.read_columns(BLOCK_BOUNDARIES)?;
-                let [handle] = handles.as_slice() else {
-                    bail!("invalid heap-block boundaries");
-                };
-                let DynamicColumn::U64(values) = handle.open()? else {
-                    bail!("invalid heap-block boundaries");
-                };
-                let len = (count - chunk * CHUNK_SIZE).min(CHUNK_SIZE);
-                let rows_with_boundary = len + usize::from((chunk + 1) * CHUNK_SIZE < count);
-                let rows = values.num_docs() as usize;
-                if values.get_cardinality() == Cardinality::Multivalued
-                    || rows != rows_with_boundary
-                    || !values.index.has_value(rows as u32 - 1)
-                    || values.max_value() > u64::from(self.num_docs)
-                {
+            self.values = Some(values);
+        }
+        let values = self.values.as_ref().unwrap();
+        blocks
+            .iter()
+            .map(|&block| {
+                let row = block
+                    .checked_sub(self.first_block)
+                    .context("block precedes the segment block range")?;
+                if row >= values.num_docs() {
                     bail!("invalid heap-block boundaries");
                 }
-                self.values = Some((chunk, values));
-            }
-            let (_, values) = self.values.as_ref().unwrap();
-            let chunk_start = self.first_block + (chunk * CHUNK_SIZE) as BlockNumber;
-            let len =
-                blocks.partition_point(|&block| block - chunk_start < CHUNK_SIZE as BlockNumber);
-            if blocks[len - 1] - chunk_start >= values.num_docs() {
-                bail!("invalid heap-block boundaries");
-            }
-            output.extend(blocks[..len].iter().map(|&block| {
-                let row = block - chunk_start;
                 let rank = match &values.index {
                     ColumnIndex::Optional(index) => index.rank(row),
                     _ => row,
                 };
-                values.values.get_val(rank) as DocId
-            }));
-            blocks = &blocks[len..];
-        }
-        Ok(output)
+                Ok(values.values.get_val(rank) as DocId)
+            })
+            .collect()
     }
 }
 
@@ -270,6 +256,7 @@ mod tests {
     use std::slice;
 
     use pgrx::pg_test;
+    use tantivy::columnar::{ColumnType, ColumnarWriter};
     use tantivy::directory::{RamDirectory, TerminatingWrite};
     use tantivy::index::{IndexSortByField, Order};
     use tantivy::schema::{FAST, Schema};
@@ -279,17 +266,24 @@ mod tests {
 
     #[pg_test]
     fn nullable_ctid_map_boundaries() {
-        let chunk = CHUNK_SIZE as BlockNumber;
+        let block_size = 65_536;
         for blocks in [
             vec![10, 10, 10],
             vec![10, 10, 11, 11, 12],
+            (10..1035).collect(),
             vec![10, 10, 11, 11, 11, 15, 15],
-            vec![10, 10 + chunk - 1, 10 + chunk, 10 + chunk * 3 + 2],
-            vec![10, 10 + chunk - 2],
-            (10..10 + chunk + 4)
+            vec![
+                10,
+                10 + block_size - 1,
+                10 + block_size,
+                10 + block_size * 3 + 2,
+            ],
+            vec![10, 10 + block_size - 2],
+            (10..10 + block_size + 4)
                 .filter(|block| block % 101 != 0)
                 .collect(),
             vec![InvalidBlockNumber - 2, InvalidBlockNumber - 1],
+            vec![0, InvalidBlockNumber - 1],
         ] {
             for descending in [false, true] {
                 let mut schema = Schema::builder();
@@ -323,24 +317,31 @@ mod tests {
                 }
                 let mut fast = segment.open_write(SegmentComponent::FastFields).unwrap();
                 writer
-                    .serialize(blocks.len() as DocId, None, CODECS, &mut fast)
+                    .serialize(
+                        blocks.len() as DocId,
+                        None,
+                        &[CodecType::BlockwiseLinearV2],
+                        &mut fast,
+                    )
                     .unwrap();
                 fast.terminate().unwrap();
                 let first_block = blocks[0];
                 let last_block = *blocks.last().unwrap();
-                let count = (last_block - first_block) as usize + 2;
                 let mut output =
                     CompositeWrite::wrap(segment.open_write(plugin::component()).unwrap());
                 write(&segment, &mut output).unwrap();
                 output.close().unwrap();
                 let file =
                     CompositeFile::open(&segment.open_read(plugin::component()).unwrap()).unwrap();
+                if u64::from(last_block) - u64::from(first_block) + 2 > u64::from(u32::MAX) {
+                    assert!(file.open_read(field).is_none());
+                    continue;
+                }
                 let mut map = BlockToDocIdMap {
                     first_block,
                     last_block,
                     num_docs: blocks.len() as DocId,
-                    file,
-                    field,
+                    file: file.open_read(field).unwrap(),
                     values: None,
                 };
                 let requested: Vec<_> = (first_block..=last_block + 1).collect();
@@ -349,7 +350,7 @@ mod tests {
                     .map(|block| blocks.partition_point(|present| present < block) as DocId)
                     .collect();
                 assert_eq!(map.boundaries(&requested).unwrap(), expected);
-                // Exercise cache reuse and queries that start in a different chunk.
+                // Exercise cache reuse and lookups in reverse order.
                 for &block in requested.iter().rev() {
                     let start = blocks.partition_point(|&present| present < block) as DocId;
                     assert_eq!(map.boundaries(&[block]).unwrap(), [start]);
@@ -360,23 +361,22 @@ mod tests {
                         .as_slice(),
                     slice::from_ref(&(0..blocks.len() as DocId))
                 );
-                for chunk in 0..count.div_ceil(CHUNK_SIZE) {
-                    let reader =
-                        ColumnarReader::open(map.file.open_read_with_idx(field, chunk).unwrap())
-                            .unwrap();
-                    let column = reader.read_columns(BLOCK_BOUNDARIES).unwrap()[0]
-                        .open()
-                        .unwrap();
-                    let DynamicColumn::U64(column) = column else {
-                        panic!("expected u64 boundaries")
-                    };
-                    for row in 0..column.num_docs() - 1 {
-                        let block = first_block + (chunk * CHUNK_SIZE) as BlockNumber + row;
-                        assert_eq!(
-                            column.index.has_value(row),
-                            blocks.binary_search(&block).is_ok()
-                        );
+                let column = map.values.as_ref().unwrap();
+                let distinct = blocks.windows(2).filter(|pair| pair[0] != pair[1]).count() + 1;
+                assert_eq!(
+                    column.get_cardinality(),
+                    if distinct == (last_block - first_block + 1) as usize {
+                        Cardinality::Full
+                    } else {
+                        Cardinality::Optional
                     }
+                );
+                for row in 0..column.num_docs() - 1 {
+                    let block = first_block + row;
+                    assert_eq!(
+                        column.index.has_value(row),
+                        blocks.binary_search(&block).is_ok()
+                    );
                 }
             }
         }

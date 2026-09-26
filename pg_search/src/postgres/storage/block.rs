@@ -758,6 +758,11 @@ impl SegmentMetaEntry {
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
+        size += content
+            .ctid_map
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
         size
     }
 

@@ -80,7 +80,7 @@ impl Collector for CountAllCollector {
         segment: &SegmentReader,
     ) -> tantivy::Result<<Self::Child as SegmentCollector>::Fruit> {
         pgrx::check_for_interrupts!();
-        if VisibilityChecker::for_segment(&self.checker, segment)?.is_none() {
+        if VisibilityChecker::for_segment_arc(&self.checker, ord)?.is_none() {
             let mut result = IntermediateAggregationResults::default();
             result.push(
                 "0".to_string(),

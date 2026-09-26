@@ -28,6 +28,7 @@ use tantivy::{
     directory::RamDirectory,
 };
 
+use crate::index::ctid_map;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
@@ -303,6 +304,7 @@ impl SerialIndexWriter {
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = crate::index::open_index(directory)?;
         stats::register(&mut index);
+        ctid_map::register(&mut index);
         if has_vector_field {
             set_ivf_clusterer(&mut index, index_relation.options());
         }
@@ -528,6 +530,7 @@ impl SearchIndexMerger {
         let schema = indexrel.schema()?;
         let mut index = crate::index::open_index(directory.clone())?;
         stats::register(&mut index);
+        ctid_map::register(&mut index);
         if schema.has_vector_field() {
             set_ivf_clusterer(&mut index, indexrel.options());
         }

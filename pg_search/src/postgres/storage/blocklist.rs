@@ -370,144 +370,189 @@ pub mod reader {
     use bitpacking::{BitPacker, BitPacker1x, BitPacker4x, BitPacker8x};
     use pgrx::pg_sys;
 
-    #[derive(Default, Debug)]
+    #[derive(Debug)]
     pub struct BlockList {
         blocks: Vec<pg_sys::BlockNumber>,
+        next_blockno: pg_sys::BlockNumber,
     }
 
     impl BlockList {
-        pub fn new(bman: &BufferManager, starting_block: pg_sys::BlockNumber) -> Self {
-            if starting_block == pg_sys::InvalidBlockNumber {
-                return Self::default();
+        pub fn new(starting_block: pg_sys::BlockNumber) -> Self {
+            Self {
+                blocks: Vec::new(),
+                next_blockno: starting_block,
             }
+        }
 
-            let mut blocks = Vec::new();
-            let mut blockno = starting_block;
+        fn read_next_page(&mut self, bman: &BufferManager) {
+            let block = bman.get_buffer(self.next_blockno);
+            let page = block.page();
+
+            let mut offset = 0;
+            let slice = page.as_slice();
+
             loop {
-                let block = bman.get_buffer(blockno);
-                let page = block.page();
+                let tag = ChunkStyleTag::from(slice[offset]);
+                offset += 1;
 
-                let mut offset = 0;
-                let slice = page.as_slice();
-
-                loop {
-                    let tag = ChunkStyleTag::from(slice[offset]);
-                    offset += 1;
-
-                    match tag {
-                        tag @ ChunkStyleTag::Sorted1x
-                        | tag @ ChunkStyleTag::Sorted4x
-                        | tag @ ChunkStyleTag::Sorted8x
-                        | tag @ ChunkStyleTag::StrictlySorted1x
-                        | tag @ ChunkStyleTag::StrictlySorted4x
-                        | tag @ ChunkStyleTag::StrictlySorted8x => {
-                            let num_bits = slice[offset];
-                            offset += 1;
-                            let initial = u32::from_le_bytes(
-                                slice[offset..offset + size_of::<pg_sys::BlockNumber>()]
-                                    .try_into()
-                                    .unwrap(),
-                            );
-                            offset += size_of::<pg_sys::BlockNumber>();
-                            let end = blocks.len();
-                            match tag {
-                                ChunkStyleTag::Sorted1x => {
-                                    blocks.extend_from_slice(&[0; BitPacker1x::BLOCK_LEN]);
-                                    offset += BitPacker1x::new().decompress_sorted(
-                                        initial,
-                                        &slice[offset..],
-                                        &mut blocks[end..],
-                                        num_bits,
-                                    );
-                                }
-                                ChunkStyleTag::Sorted4x => {
-                                    blocks.extend_from_slice(&[0; BitPacker4x::BLOCK_LEN]);
-                                    offset += BitPacker4x::new().decompress_sorted(
-                                        initial,
-                                        &slice[offset..],
-                                        &mut blocks[end..],
-                                        num_bits,
-                                    );
-                                }
-                                ChunkStyleTag::Sorted8x => {
-                                    blocks.extend_from_slice(&[0; BitPacker8x::BLOCK_LEN]);
-                                    offset += BitPacker8x::new().decompress_sorted(
-                                        initial,
-                                        &slice[offset..],
-                                        &mut blocks[end..],
-                                        num_bits,
-                                    );
-                                }
-                                ChunkStyleTag::StrictlySorted1x => {
-                                    blocks.extend_from_slice(&[0; BitPacker1x::BLOCK_LEN]);
-                                    offset += BitPacker1x::new().decompress_strictly_sorted(
-                                        (initial != 0).then_some(initial),
-                                        &slice[offset..],
-                                        &mut blocks[end..],
-                                        num_bits,
-                                    );
-                                }
-                                ChunkStyleTag::StrictlySorted4x => {
-                                    blocks.extend_from_slice(&[0; BitPacker4x::BLOCK_LEN]);
-                                    offset += BitPacker4x::new().decompress_strictly_sorted(
-                                        (initial != 0).then_some(initial),
-                                        &slice[offset..],
-                                        &mut blocks[end..],
-                                        num_bits,
-                                    );
-                                }
-                                ChunkStyleTag::StrictlySorted8x => {
-                                    blocks.extend_from_slice(&[0; BitPacker8x::BLOCK_LEN]);
-                                    offset += BitPacker8x::new().decompress_strictly_sorted(
-                                        (initial != 0).then_some(initial),
-                                        &slice[offset..],
-                                        &mut blocks[end..],
-                                        num_bits,
-                                    );
-                                }
-                                _ => unreachable!(),
-                            }
-                        }
-                        ChunkStyleTag::Uncompressed => {
-                            let len = slice[offset] as usize;
-                            offset += 1;
-                            let mut tmp = [0u8; size_of::<pg_sys::BlockNumber>()];
-                            for _ in 0..len {
-                                tmp.copy_from_slice(
-                                    &slice[offset..offset + size_of::<pg_sys::BlockNumber>()],
+                match tag {
+                    tag @ ChunkStyleTag::Sorted1x
+                    | tag @ ChunkStyleTag::Sorted4x
+                    | tag @ ChunkStyleTag::Sorted8x
+                    | tag @ ChunkStyleTag::StrictlySorted1x
+                    | tag @ ChunkStyleTag::StrictlySorted4x
+                    | tag @ ChunkStyleTag::StrictlySorted8x => {
+                        let num_bits = slice[offset];
+                        offset += 1;
+                        let initial = u32::from_le_bytes(
+                            slice[offset..offset + size_of::<pg_sys::BlockNumber>()]
+                                .try_into()
+                                .unwrap(),
+                        );
+                        offset += size_of::<pg_sys::BlockNumber>();
+                        let end = self.blocks.len();
+                        match tag {
+                            ChunkStyleTag::Sorted1x => {
+                                self.blocks.extend_from_slice(&[0; BitPacker1x::BLOCK_LEN]);
+                                offset += BitPacker1x::new().decompress_sorted(
+                                    initial,
+                                    &slice[offset..],
+                                    &mut self.blocks[end..],
+                                    num_bits,
                                 );
-                                offset += size_of::<pg_sys::BlockNumber>();
-                                let value = u32::from_le_bytes(tmp);
-                                blocks.push(value);
                             }
+                            ChunkStyleTag::Sorted4x => {
+                                self.blocks.extend_from_slice(&[0; BitPacker4x::BLOCK_LEN]);
+                                offset += BitPacker4x::new().decompress_sorted(
+                                    initial,
+                                    &slice[offset..],
+                                    &mut self.blocks[end..],
+                                    num_bits,
+                                );
+                            }
+                            ChunkStyleTag::Sorted8x => {
+                                self.blocks.extend_from_slice(&[0; BitPacker8x::BLOCK_LEN]);
+                                offset += BitPacker8x::new().decompress_sorted(
+                                    initial,
+                                    &slice[offset..],
+                                    &mut self.blocks[end..],
+                                    num_bits,
+                                );
+                            }
+                            ChunkStyleTag::StrictlySorted1x => {
+                                self.blocks.extend_from_slice(&[0; BitPacker1x::BLOCK_LEN]);
+                                offset += BitPacker1x::new().decompress_strictly_sorted(
+                                    (initial != 0).then_some(initial),
+                                    &slice[offset..],
+                                    &mut self.blocks[end..],
+                                    num_bits,
+                                );
+                            }
+                            ChunkStyleTag::StrictlySorted4x => {
+                                self.blocks.extend_from_slice(&[0; BitPacker4x::BLOCK_LEN]);
+                                offset += BitPacker4x::new().decompress_strictly_sorted(
+                                    (initial != 0).then_some(initial),
+                                    &slice[offset..],
+                                    &mut self.blocks[end..],
+                                    num_bits,
+                                );
+                            }
+                            ChunkStyleTag::StrictlySorted8x => {
+                                self.blocks.extend_from_slice(&[0; BitPacker8x::BLOCK_LEN]);
+                                offset += BitPacker8x::new().decompress_strictly_sorted(
+                                    (initial != 0).then_some(initial),
+                                    &slice[offset..],
+                                    &mut self.blocks[end..],
+                                    num_bits,
+                                );
+                            }
+                            _ => unreachable!(),
                         }
                     }
-
-                    if offset >= slice.len() {
-                        break;
+                    ChunkStyleTag::Uncompressed => {
+                        let len = slice[offset] as usize;
+                        offset += 1;
+                        let mut tmp = [0u8; size_of::<pg_sys::BlockNumber>()];
+                        for _ in 0..len {
+                            tmp.copy_from_slice(
+                                &slice[offset..offset + size_of::<pg_sys::BlockNumber>()],
+                            );
+                            offset += size_of::<pg_sys::BlockNumber>();
+                            let value = u32::from_le_bytes(tmp);
+                            self.blocks.push(value);
+                        }
                     }
                 }
 
-                blockno = page.special::<BM25PageSpecialData>().next_blockno;
-                if blockno == pg_sys::InvalidBlockNumber {
+                if offset >= slice.len() {
                     break;
                 }
             }
 
-            Self { blocks }
+            self.next_blockno = page.special::<BM25PageSpecialData>().next_blockno;
         }
 
-        pub fn get(&self, i: usize) -> Option<pg_sys::BlockNumber> {
-            self.blocks.get(i).cloned()
+        pub fn get(&mut self, bman: &BufferManager, i: usize) -> Option<pg_sys::BlockNumber> {
+            while self.blocks.len() <= i && self.next_blockno != pg_sys::InvalidBlockNumber {
+                self.read_next_page(bman);
+            }
+            self.blocks.get(i).copied()
+        }
+
+        pub fn into_blocks(
+            mut self,
+            bman: &BufferManager,
+        ) -> std::vec::IntoIter<pg_sys::BlockNumber> {
+            while self.next_blockno != pg_sys::InvalidBlockNumber {
+                self.read_next_page(bman);
+            }
+            self.blocks.into_iter()
         }
     }
 
-    impl IntoIterator for BlockList {
-        type Item = pg_sys::BlockNumber;
-        type IntoIter = std::vec::IntoIter<pg_sys::BlockNumber>;
+    #[cfg(any(test, feature = "pg_test"))]
+    #[pgrx::pg_schema]
+    mod tests {
+        use super::*;
+        use crate::postgres::rel::PgSearchRelation;
+        use crate::postgres::storage::blocklist::builder;
+        use pgrx::prelude::*;
 
-        fn into_iter(self) -> Self::IntoIter {
-            self.blocks.into_iter()
+        #[pg_test]
+        fn test_blocklist_lazy_pages() {
+            Spi::run("CREATE TABLE t (id SERIAL, data TEXT)").unwrap();
+            Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+            let oid = Spi::get_one::<pg_sys::Oid>("SELECT 't_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+            let indexrel = PgSearchRelation::open(oid);
+            let mut bman = BufferManager::new(&indexrel);
+            let blocks: Vec<u32> = (1u32..10_074)
+                .map(|i| i.wrapping_mul(2_654_435_761))
+                .collect();
+            let mut builder = builder::BlockList::default();
+            for &block in &blocks {
+                builder.push(block);
+            }
+            let start = builder.finish(&mut bman).unwrap();
+
+            let mut reader = BlockList::new(start);
+            assert_eq!(reader.get(&bman, 0), Some(blocks[0]));
+            assert!(reader.blocks.len() < blocks.len());
+            assert_ne!(reader.next_blockno, pg_sys::InvalidBlockNumber);
+            assert_eq!(reader.into_blocks(&bman).collect::<Vec<_>>(), blocks);
+
+            let mut reader = BlockList::new(start);
+            for i in [0, 32, 1024, 5000, 4096, blocks.len() - 1, 1] {
+                assert_eq!(reader.get(&bman, i), Some(blocks[i]));
+            }
+            assert_eq!(reader.get(&bman, blocks.len()), None);
+            assert_eq!(reader.get(&bman, usize::MAX), None);
+            assert_eq!(reader.into_blocks(&bman).collect::<Vec<_>>(), blocks);
+            assert_eq!(
+                BlockList::new(pg_sys::InvalidBlockNumber).get(&bman, 0),
+                None
+            );
         }
     }
 }

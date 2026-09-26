@@ -23,7 +23,7 @@ use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    FileEntry, MVCCEntry, STATS_EXT, SegmentMetaEntry, SegmentMetaEntryContent,
+    CTID_MAP_EXT, FileEntry, MVCCEntry, STATS_EXT, SegmentMetaEntry, SegmentMetaEntryContent,
     SegmentMetaEntryImmutable, SegmentMetaEntryMutable, bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
@@ -514,9 +514,11 @@ impl MVCCDirectory {
                 directory,
                 ..
             } => {
-                // A mutable segment is indexed without the stats plugin, so it never has
-                // `.stats`. Answer here rather than materialize the whole segment for a probe.
-                if path.extension().and_then(|ext| ext.to_str()) == Some(STATS_EXT) {
+                // Mutable segments have neither plugin component; avoid materializing them for a probe.
+                if matches!(
+                    path.extension().and_then(|ext| ext.to_str()),
+                    Some(STATS_EXT | CTID_MAP_EXT)
+                ) {
                     return Err(TantivyError::OpenDirectoryError(
                         OpenDirectoryError::DoesNotExist(path.to_path_buf()),
                     ));
@@ -662,7 +664,7 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(
+                            SegmentComponentReader::new_uncommitted(
                                 &self.indexrel,
                                 file_entry,
                                 path.extension()

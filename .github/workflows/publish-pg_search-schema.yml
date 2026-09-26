@@ -76,7 +76,9 @@ jobs:
           extra_packages: libopenblas-dev lld
 
       - name: Install pgrx
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        env:
+          STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version "${STEP_PGRX_VERSION}" --debug
 
       - name: Initialize pgrx Environment
         run: cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
@@ -86,11 +88,13 @@ jobs:
 
       - name: Determine Version
         id: version
+        env:
+          INPUTS_VERSION: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          if [ -n "${INPUTS_VERSION}" ]; then
+            echo "version=${INPUTS_VERSION}" >> $GITHUB_OUTPUT
           else
-            echo "version=$(echo ${{ github.ref_name }} | sed 's/^v//')" >> $GITHUB_OUTPUT
+            echo "version=$(echo ${GITHUB_REF_NAME} | sed 's/^v//')" >> $GITHUB_OUTPUT
           fi
 
       - name: Install Cosign
@@ -106,7 +110,8 @@ jobs:
       - name: Upload Schema to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload v${{ steps.version.outputs.version }} pg_search.schema.sql pg_search.schema.sql.cosign.bundle --clobber
+          STEP_VERSION_VERSION: ${{ steps.version.outputs.version }}
+        run: gh release upload "v${STEP_VERSION_VERSION}" pg_search.schema.sql pg_search.schema.sql.cosign.bundle --clobber
 
       - name: Notify Slack on Failure
         if: failure()

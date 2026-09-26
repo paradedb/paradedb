@@ -88,6 +88,9 @@ pub fn aggregation_results_iter(
             .is_some_and(|fetch| fetch as u64 <= bucket_limit as u64);
 
     let mut bitmap_exec = state.custom_state_mut().bitmap_exec.take();
+    let mut visibility_stats = std::mem::take(&mut state.custom_state_mut().visibility_stats);
+    let collect_visibility_stats =
+        unsafe { !planstate.is_null() && !(*planstate).instrument.is_null() };
     let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
@@ -98,10 +101,12 @@ pub fn aggregation_results_iter(
         expr_context,
         planstate,
         bitmap_exec.as_mut(),
+        collect_visibility_stats.then_some(&mut visibility_stats),
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
     state.custom_state_mut().bitmap_exec = bitmap_exec;
+    state.custom_state_mut().visibility_stats = visibility_stats;
 
     // Tantivy caps a terms aggregation at `size` and folds the dropped groups into
     // `sum_other_doc_count` rather than erroring, which would silently return an

@@ -41,6 +41,7 @@ pub(crate) const VECTOR_VEC_EXT: &str = "vec";
 pub(crate) const VECTOR_CENTROIDS_EXT: &str = "centroids";
 /// Extension of the per-segment statistics component, see `crate::index::stats`.
 pub(crate) const STATS_EXT: &str = "stats";
+pub(crate) const CTID_MAP_EXT: &str = "ctid_map";
 
 // ---------------------------------------------------------
 // BM25 page special data
@@ -290,6 +291,7 @@ pub struct SegmentMetaEntryImmutable {
     pub vec: Option<FileEntry>,
     pub centroids: Option<FileEntry>,
     pub stats: Option<FileEntry>,
+    pub ctid_map: Option<FileEntry>,
     pub posting_norms: Option<FileEntry>,
 }
 
@@ -383,6 +385,11 @@ impl SegmentMetaEntryImmutable {
                 self.stats
                     .iter()
                     .map(|fe| (fe, SegmentComponent::Custom(STATS_EXT.to_string()))),
+            )
+            .chain(
+                self.ctid_map
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::Custom(CTID_MAP_EXT.to_string()))),
             )
             .chain(
                 self.posting_norms
@@ -758,6 +765,11 @@ impl SegmentMetaEntry {
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
         size += content
+            .ctid_map
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += content
             .posting_norms
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
@@ -856,7 +868,7 @@ impl From<PgItem> for SegmentMetaEntry {
                         .expect("expected to deserialize valid SegmentMetaEntryContent");
 
                 // Segments written before vector support lack the trailing vector file entries,
-                // and segments written before the stats component lack that one. bincode has no
+                // and older segments can lack stats, CTID map, or posting norm entries. bincode has no
                 // field framing, so decode each trailing group only when bytes remain.
                 let mut offset = v1_len;
                 let (vec, centroids): (Option<FileEntry>, Option<FileEntry>) = if content_bytes
@@ -884,14 +896,23 @@ impl From<PgItem> for SegmentMetaEntry {
                 } else {
                     None
                 };
+                let ctid_map: Option<FileEntry> = if content_bytes.len() > offset {
+                    let (entry, len) = bincode::serde::decode_from_slice(
+                        &content_bytes[offset..],
+                        bincode::config::legacy(),
+                    )
+                    .expect("invalid SegmentMetaEntry CTID map file entry");
+                    offset += len;
+                    entry
+                } else {
+                    None
+                };
                 let posting_norms: Option<FileEntry> = if content_bytes.len() > offset {
                     bincode::serde::decode_from_slice(
                         &content_bytes[offset..],
                         bincode::config::legacy(),
                     )
-                    .expect(
-                        "expected to deserialize valid SegmentMetaEntry posting norm file entry",
-                    )
+                    .expect("invalid SegmentMetaEntry posting norm file entry")
                     .0
                 } else {
                     None
@@ -909,6 +930,7 @@ impl From<PgItem> for SegmentMetaEntry {
                     vec,
                     centroids,
                     stats,
+                    ctid_map,
                     posting_norms,
                 })
             }
@@ -1034,6 +1056,7 @@ mod tests {
         vec: Option<FileEntry>,
         centroids: Option<FileEntry>,
         stats: Option<FileEntry>,
+        ctid_map: Option<FileEntry>,
         posting_norms: Option<FileEntry>,
     ) -> SegmentMetaEntry {
         SegmentMetaEntry::new_immutable(
@@ -1048,6 +1071,7 @@ mod tests {
                 vec,
                 centroids,
                 stats,
+                ctid_map,
                 posting_norms,
                 ..Default::default()
             },
@@ -1073,9 +1097,9 @@ mod tests {
                 total_bytes: 100 * block as usize,
             })
         };
-        let full = entry_with(file(8), file(10), file(9), file(11));
+        let full = entry_with(file(8), file(10), file(9), file(11), file(12));
         assert_eq!(decoded(encoded(full)), full);
-        assert_eq!(full.byte_size(), 3900);
+        assert_eq!(full.byte_size(), 5100);
         let norm_path = SegmentMetaEntryImmutable::path(
             &full.segment_id().uuid_string(),
             SegmentComponent::PostingNorms,
@@ -1085,24 +1109,28 @@ mod tests {
         };
         assert_eq!(
             content.file_entry(&full.segment_id().uuid_string(), &norm_path),
-            file(11)
+            file(12)
         );
         assert!(full.get_component_paths().any(|path| path == norm_path));
 
-        let stats_era = entry_with(file(8), file(10), file(9), None);
-        let bytes = encoded(stats_era);
-        assert_eq!(decoded(&bytes[..bytes.len() - 1]), stats_era);
+        let ctid_map_era = entry_with(file(8), file(10), file(9), file(11), None);
+        let bytes = encoded(ctid_map_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 1]), ctid_map_era);
 
-        // The vector generation stopped before the stats marker.
-        let vector_era = entry_with(file(8), file(10), None, None);
+        let stats_era = entry_with(file(8), file(10), file(9), None, None);
+        let bytes = encoded(stats_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 2]), stats_era);
+
+        // The vector generation stopped before the stats, CTID map, and posting norm markers.
+        let vector_era = entry_with(file(8), file(10), None, None, None);
         let bytes = encoded(vector_era);
         assert_eq!(decoded(bytes), vector_era);
-        assert_eq!(decoded(&bytes[..bytes.len() - 2]), vector_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 3]), vector_era);
 
         // The first generation stopped before the vector markers too: one `None` byte each for
-        // `vec`, `centroids`, `stats`, and `posting_norms`.
-        let first = entry_with(None, None, None, None);
+        // `vec`, `centroids`, `stats`, `ctid_map`, and `posting_norms`.
+        let first = entry_with(None, None, None, None, None);
         let bytes = encoded(first);
-        assert_eq!(decoded(&bytes[..bytes.len() - 4]), first);
+        assert_eq!(decoded(&bytes[..bytes.len() - 5]), first);
     }
 }

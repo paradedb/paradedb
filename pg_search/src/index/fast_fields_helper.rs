@@ -42,7 +42,7 @@ use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, DocId, Searcher};
+use tantivy::{DocAddress, DocId, IndexSortByField, Searcher, SegmentReader};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -134,8 +134,25 @@ impl FFHelper {
         &self.inner().searcher
     }
 
+    /// Reads the sort direction from the existing index settings.
+    pub(crate) fn sort_order(&self) -> Option<&IndexSortByField> {
+        self.searcher().index().settings().sort_by_field.as_ref()
+    }
+
     fn caches(&self) -> &[SegmentCache] {
         &self.inner().segment_caches
+    }
+
+    /// Returns the pinned reader only when the segment has immutable document IDs.
+    pub(crate) fn immutable_segment_reader(
+        &self,
+        segment_ord: SegmentOrdinal,
+    ) -> Option<&SegmentReader> {
+        matches!(
+            self.inner().segment_view.entries()[segment_ord as usize].docs,
+            SegmentViewDocs::Immutable { .. }
+        )
+        .then(|| self.searcher().segment_reader(segment_ord))
     }
 
     fn fast_fields(&self, segment_ord: SegmentOrdinal) -> &FastFieldReaders {

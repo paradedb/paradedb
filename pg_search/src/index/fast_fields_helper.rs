@@ -610,10 +610,10 @@ impl WhichFastField {
     /// either. Declaring that lets `Filter::is_scalar()` deduce `max_rows == Some(1)`
     /// on a scalar equality filter, which it cannot do for a nullable key.
     pub fn is_nullable(&self) -> bool {
-        !matches!(
-            self,
-            WhichFastField::Ctid | WhichFastField::TableOid | WhichFastField::DeferredCtid(_)
-        )
+        // `DeferredCtid` is deliberately absent. Under deferred visibility that column
+        // flows through JoinScan, where an unmatched outer-join row carries a NULL for
+        // the whole non-matching side, ctid included.
+        !matches!(self, WhichFastField::Ctid | WhichFastField::TableOid)
     }
 }
 

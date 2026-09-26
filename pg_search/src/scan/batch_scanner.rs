@@ -493,6 +493,12 @@ impl Scanner {
                 if ids.is_empty() {
                     break;
                 }
+                // Filters over columns that cannot be fetched before visibility
+                // checks (e.g. a semi-join on `ctid`) are left to the parent
+                // operator, which still enforces the full predicate.
+                if !pre_filter.columns_fetchable(&self.which_fast_fields) {
+                    continue;
+                }
                 for &ff_index in &pre_filter.required_columns {
                     ensure_column_fetched(
                         &mut memoized_columns,

@@ -104,7 +104,7 @@ use datafusion::physical_plan::joins::HashTableLookupExpr;
 use tantivy::{Score, SegmentOrdinal};
 
 use crate::api::HashSet;
-use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL, WhichFastField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::value_to_term;
 use crate::scan::deferred_encode::is_deferred_field;
@@ -131,6 +131,25 @@ pub struct PreFilters<'a> {
 }
 
 impl PreFilter {
+    /// Reports whether every column this filter needs can be materialized
+    /// before visibility checks run. Pseudo-columns like `ctid` are only
+    /// resolved after pre-filtering (see `ensure_column_fetched`), so a filter
+    /// over one of them must be left to the parent operator, which still
+    /// enforces the full predicate.
+    pub fn columns_fetchable(&self, which_fast_fields: &[WhichFastField]) -> bool {
+        self.required_columns.iter().all(|&idx| {
+            matches!(
+                which_fast_fields.get(idx),
+                Some(
+                    WhichFastField::Named(..)
+                        | WhichFastField::Deferred(..)
+                        | WhichFastField::Array(..)
+                        | WhichFastField::Score
+                )
+            )
+        })
+    }
+
     /// Evaluate the pre-filter against a batch of memoized fast-field columns.
     /// Returns a boolean mask of rows that pass the filter.
     pub fn apply_arrow(
@@ -1164,5 +1183,47 @@ mod tests {
             try_extract_score_threshold(&lit(true), Some(SCORE_IDX)),
             None
         );
+    }
+
+    #[test]
+    fn columns_fetchable_rejects_ctid_family() {
+        use super::PreFilter;
+        use crate::index::fast_fields_helper::WhichFastField;
+
+        fn filter(required_columns: Vec<usize>) -> PreFilter {
+            PreFilter {
+                expr: lit(true),
+                required_columns,
+            }
+        }
+
+        // Score is populated before pre-filtering, so it stays eligible.
+        let wff = vec![WhichFastField::Score];
+        assert!(filter(vec![0]).columns_fetchable(&wff));
+
+        // `ctid` and the other pseudo-columns resolve only after pre-filtering
+        // (see `ensure_column_fetched`), so filters over them must be left to
+        // the parent operator. This is the #6399 shape: an aggregate semi-join
+        // on `ctid` whose probe side carries `dynamic_filters=1`.
+        for wff in [
+            vec![WhichFastField::Ctid],
+            vec![WhichFastField::TableOid],
+            vec![WhichFastField::Junk("id".to_string())],
+            vec![WhichFastField::DeferredCtid("ctid_0".to_string())],
+            vec![WhichFastField::MatchTag("__users_tag_0".to_string())],
+        ] {
+            assert!(!filter(vec![0]).columns_fetchable(&wff));
+        }
+
+        // Mixed filters are rejected when any required column is unfetchable.
+        let wff = vec![WhichFastField::Score, WhichFastField::Ctid];
+        assert!(!filter(vec![0, 1]).columns_fetchable(&wff));
+
+        // Out-of-bounds indices are rejected rather than panicking.
+        let wff = vec![WhichFastField::Score];
+        assert!(!filter(vec![7]).columns_fetchable(&wff));
+
+        // Filters requiring nothing are trivially eligible.
+        assert!(filter(vec![]).columns_fetchable(&wff));
     }
 }

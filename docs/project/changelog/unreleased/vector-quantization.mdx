@@ -1,10 +1,15 @@
 ---
 header: features
+title: Quantized Vector Search
 ---
 
-**After upgrading, `REINDEX` every ParadeDB index that contains a vector field; installing the new shared library and running `ALTER EXTENSION` alone is not sufficient.**
+<Warning>
+  After upgrading, `REINDEX` every ParadeDB index that contains a vector field;
+  installing the new shared library and running `ALTER EXTENSION` alone is not
+  sufficient.
+</Warning>
 
-Quantized vector search. Vector fields in a ParadeDB index now store compact codes alongside full-precision vectors by default. Queries filter candidates through the codes and rerank the survivors exactly, so results match an unquantized scan at the same probe setting:
+Vector fields in a ParadeDB index now store compact codes alongside full-precision vectors by default. Queries filter candidates through the codes and rerank the survivors exactly, so results match an unquantized scan at the same probe setting:
 
 ```sql
 CREATE INDEX ON items USING paradedb (id, embedding)

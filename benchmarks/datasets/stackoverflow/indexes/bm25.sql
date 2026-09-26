@@ -3,8 +3,8 @@
 CREATE INDEX stackoverflow_posts_idx ON stackoverflow_posts
 USING bm25 (
     id,
-    (title::pdb.unicode_words('columnar=true')),
-    (body::pdb.unicode_words('columnar=true')),
+    (title::pdb.unicode_words('columnar=true', 'pnorms=true')),
+    (body::pdb.unicode_words('columnar=true', 'pnorms=true')),
     (tags::pdb.literal_normalized),
     post_type_id,
     score,
@@ -26,7 +26,7 @@ USING bm25 (
 CREATE INDEX badges_idx ON badges
 USING bm25 (
     id,
-    (name::pdb.unicode_words('columnar=true')),
+    (name::pdb.unicode_words('columnar=true', 'pnorms=true')),
     date,
     user_id,
     class,
@@ -40,7 +40,7 @@ USING bm25 (
     id,
     post_id,
     score,
-    (text::pdb.unicode_words('columnar=true')),
+    (text::pdb.unicode_words('columnar=true', 'pnorms=true')),
     creation_date,
     (user_display_name::pdb.literal)
 ) WITH (
@@ -50,8 +50,8 @@ USING bm25 (
 CREATE INDEX users_idx ON users
 USING bm25 (
     id,
-    (about_me::pdb.unicode_words('columnar=true')),
-    (display_name::pdb.unicode_words('columnar=true')),
+    (about_me::pdb.unicode_words('columnar=true', 'pnorms=true')),
+    (display_name::pdb.unicode_words('columnar=true', 'pnorms=true')),
     reputation
 ) WITH (
     partition_by = 'id'

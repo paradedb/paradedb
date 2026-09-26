@@ -110,14 +110,16 @@ impl ProximityWeight {
             );
 
             let mut doc_ids = Vec::new();
-            let mut fieldnorms = Vec::new();
+            let mut fieldnorms = None;
             let mut positions = Vec::new();
             let mut offsets = Vec::new();
             while scorer.doc() != TERMINATED {
                 offsets.push(positions.len() as u32);
                 doc_ids.push(scorer.doc());
-                if self.weight_opt.is_some() {
-                    fieldnorms.push(scorer.fieldnorm_id());
+                if self.weight_opt.is_some()
+                    && let Some(norm) = scorer.fieldnorm()
+                {
+                    fieldnorms.get_or_insert_with(Vec::new).push(norm);
                 }
 
                 for (l, r) in scorer.prox_iter() {
@@ -153,10 +155,7 @@ impl ProximityWeight {
                 position_offsets: offsets.into_boxed_slice(),
                 positions: positions.into_boxed_slice(),
                 cursor: 0,
-                fieldnorms: self
-                    .weight_opt
-                    .as_ref()
-                    .map(|_| fieldnorms.into_boxed_slice()),
+                fieldnorms: fieldnorms.map(Vec::into_boxed_slice),
             };
 
             Ok(vec![Box::new(loaded_postings)])

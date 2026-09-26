@@ -22,8 +22,9 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
-    convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
-    scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
+    BoundSide, convert_value_for_field, convert_value_for_range_field, literal_is_on_grid,
+    map_bound, numeric_bound_to_bytes, scale_numeric_bound, string_to_f64, string_to_i64,
+    string_to_json_numeric, string_to_u64,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
@@ -884,6 +885,16 @@ fn term(
     let field_type = search_field.field_entry().field_type();
     let search_field_type = search_field.field_type();
 
+    // A Numeric64 field stores values on a fixed-point grid. PostgreSQL does not apply the
+    // column typmod to a comparison operand, so a literal that falls between two grid points
+    // is not equal to any value the field can hold, and the term matches nothing. Scaling it
+    // here would round it onto a neighbour and match that neighbour's rows instead.
+    if let SearchFieldType::Numeric64(_, scale) = search_field_type
+        && !literal_is_on_grid(value, scale)?
+    {
+        return Ok(Box::new(EmptyQuery));
+    }
+
     // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
     let value =
         convert_value_for_field(value.clone(), &search_field_type, index_created_by_version)?;
@@ -1570,8 +1581,8 @@ pub(crate) fn canonicalize_range_bounds_for_field(
     let bounds = match search_field_type {
         SearchFieldType::Numeric64(_, scale) => {
             // Scale bounds for I64 fixed-point storage
-            let lower = scale_numeric_bound(lower_bound, scale)?;
-            let upper = scale_numeric_bound(upper_bound, scale)?;
+            let lower = scale_numeric_bound(lower_bound, scale, BoundSide::Lower)?;
+            let upper = scale_numeric_bound(upper_bound, scale, BoundSide::Upper)?;
             (lower, upper)
         }
         SearchFieldType::NumericBytes(..) => {

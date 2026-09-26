@@ -1,0 +1,47 @@
+---
+title: Faster BM25 Queries
+description: Speed up queries that return the most relevant results
+canonical: https://www.paradedb.com/docs/reference/indexing/faster-bm25-queries
+---
+
+<Note>This feature is available in versions `0.26.0` and above.</Note>
+
+Top K queries ordered by
+[BM25 score](/reference/full-text/score) can be sped up by setting `pnorms=true`
+when creating your index, at the cost of a larger index and longer builds.
+
+## Enable the Optimization
+
+Set `pnorms=true` on the [tokenizer](/reference/tokenizers/overview) cast for each
+text field used in BM25 scoring. The option defaults to `false`. This example
+enables it for `description`:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (description::pdb.unicode_words('pnorms=true')), category)
+WITH (key_field = 'id');
+```
+
+Queries automatically use the setting from the index:
+
+```sql
+SELECT id, description, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY pdb.score(id) DESC
+LIMIT 5;
+```
+
+This option is only supported for text fields. Existing indexes must be
+[rebuilt](/operate/index-maintenance/reindexing) with `pnorms=true` to enable it.
+
+## Performance Tradeoff
+
+BM25 scoring uses the length of each text field to help determine relevance.
+Setting `pnorms=true` stores an extra, denser copy of this information where the scoring
+process can read it more efficiently. This can make queries faster without
+changing scores or relevance ranking.
+
+The extra data increases index size and the work required to build and merge
+index segments. Enable `pnorms` on fields where faster BM25 top K queries
+justify those costs.

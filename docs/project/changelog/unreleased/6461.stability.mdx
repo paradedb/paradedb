@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed a search operator in the `SELECT` list, such as `title ||| 'alpha'`, being charged `paradedb.per_tuple_cost`. The inflated cost pushed small queries past the JIT thresholds and made them much slower (#6406).

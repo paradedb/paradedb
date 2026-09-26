@@ -67,6 +67,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloca"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5a7d05ea6aea7e9e64d25b9156ba2fee3fdd659e34e41063cd2fc7cd020d7f4"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -80,6 +89,12 @@ checksum = "819e7219dbd41043ac279b19830f2efc897156490d7fd6ea916720117ee66311"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "anes"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "anstream"
@@ -1211,7 +1226,7 @@ dependencies = [
 [[package]]
 name = "cascade"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "fht",
  "grid-plane",
@@ -1326,6 +1341,33 @@ checksum = "a6139a8597ed92cf816dfb33f5dd6cf0bb93a6adc938f11039f371bc5bcd26c3"
 dependencies = [
  "chrono",
  "phf 0.12.1",
+]
+
+[[package]]
+name = "ciborium"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42e69ffd6f0917f5c029256a24d0161db17cea3997d185db0d35926308770f0e"
+dependencies = [
+ "ciborium-io",
+ "ciborium-ll",
+ "serde",
+]
+
+[[package]]
+name = "ciborium-io"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05afea1e0a06c9be33d539b876f1ce3692f4afea2cb41f740e7743225ed1c757"
+
+[[package]]
+name = "ciborium-ll"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
+dependencies = [
+ "ciborium-io",
+ "half 2.7.1",
 ]
 
 [[package]]
@@ -1623,6 +1665,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "criterion"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "950046b2aa2492f9a536f5f4f9a3de7b9e2476e575e05bd6c333371add4d98f3"
+dependencies = [
+ "alloca",
+ "anes",
+ "cast",
+ "ciborium",
+ "clap",
+ "criterion-plot",
+ "itertools 0.13.0",
+ "num-traits",
+ "oorandom",
+ "page_size",
+ "regex",
+ "serde",
+ "serde_json",
+ "tinytemplate",
+ "walkdir",
+]
+
+[[package]]
+name = "criterion-plot"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8d80a2f4f5b554395e47b5d8305bc3d27813bacb73493eb1001e8f76dae29ea"
+dependencies = [
+ "cast",
+ "itertools 0.13.0",
 ]
 
 [[package]]
@@ -3051,7 +3126,7 @@ dependencies = [
 [[package]]
 name = "fht"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
@@ -3438,7 +3513,7 @@ dependencies = [
 [[package]]
 name = "grid-plane"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "quant-model",
 ]
@@ -4877,6 +4952,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "269bca4c2591a28585d6bf10d9ed0332b7d76900a1b02bec41bdc3a2cdcda107"
 
 [[package]]
+name = "oorandom"
+version = "11.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
+
+[[package]]
 name = "opencc-jieba-rs"
 version = "0.8.0"
 source = "git+https://github.com/paradedb/opencc-jieba-rs?branch=main#1bee2628bcae67a955caa5e91b740d170f5615d0"
@@ -4956,7 +5037,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -4968,6 +5049,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 dependencies = [
  "supports-color",
+]
+
+[[package]]
+name = "page_size"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
@@ -5098,6 +5189,7 @@ dependencies = [
  "parking_lot",
  "paste",
  "pgrx",
+ "pgrx-bench",
  "pgrx-tests",
  "postcard",
  "proptest 1.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5145,6 +5237,19 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "uuid",
+]
+
+[[package]]
+name = "pgrx-bench"
+version = "0.19.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33563f6c3387d4d1d084063104a509320664fec4b674efd10a22092e54d59423"
+dependencies = [
+ "criterion",
+ "oorandom",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -5848,7 +5953,7 @@ dependencies = [
 [[package]]
 name = "quant-model"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
@@ -6600,7 +6705,7 @@ checksum = "6057adedbec913419c92996f395ba69931acbd50b7d56955394cd3f7bedbfa45"
 [[package]]
 name = "sign-plane"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "quant-model",
 ]
@@ -7146,7 +7251,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tantivy"
 version = "0.27.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -7206,7 +7311,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "bitpacking",
 ]
@@ -7214,7 +7319,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -7229,7 +7334,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.11.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -7262,7 +7367,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -7274,7 +7379,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -7287,7 +7392,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -7324,7 +7429,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fcf0bca31de904307f646c2e1ba7a1821ba6c0ed#fcf0bca31de904307f646c2e1ba7a1821ba6c0ed"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.u32-columnar#08a324b96fcb2215dc760f3390b6dcbcd0968879"
 dependencies = [
  "serde",
 ]
@@ -7506,6 +7611,16 @@ dependencies = [
  "displaydoc",
  "serde_core",
  "zerovec",
+]
+
+[[package]]
+name = "tinytemplate"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be4d6b5f19ff7664e8c98d03e2139cb510db9b0a60b55f8e8709b689d939b6bc"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -26,7 +26,7 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-use crate::index::fast_fields_helper::{FFHelper, FFType};
+use crate::index::fast_fields_helper::{FFHelper, TidReader};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::{VisibilityChecker, VisibilityStats};
 use crate::postgres::rel::PgSearchRelation;
@@ -89,13 +89,16 @@ impl AggregationExec for Aggregations {
                 if let Some(stats) = &cardinality_stats {
                     stats.lock().record_segment(segment_reader, false);
                 }
-                let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+                let tid_ff =
+                    TidReader::open(segment_reader).expect("tid columns should be present");
                 let vischeck = vischeck.get().clone();
+                // TODO: Migrate from as_u64 point lookup to as_u64s batching
+                #[allow(deprecated)]
                 Some(Box::new(move |doc| {
-                    let Some(ctid) = ctid_ff.as_u64(doc) else {
+                    let Some(tid) = tid_ff.as_u64(doc) else {
                         return false;
                     };
-                    vischeck.lock().check_one(ctid)
+                    vischeck.lock().check_one(tid)
                 }))
             });
             params = params.with_doc_visibility_factory(factory);

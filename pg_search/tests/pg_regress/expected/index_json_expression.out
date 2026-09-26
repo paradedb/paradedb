@@ -12,12 +12,13 @@ CALL paradedb.create_paradedb_test_table(
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, ((metadata->>'color')::pdb.ngram(2, 3)));
 SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
-   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
-----------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
- ctid     | U64        | f      | t       | t    | f          |             |                                            |          | 
- id       | I64        | f      | t       | t    | f          |             |                                            |          | 
- metadata | Str        | f      | t       | f    | t          |             | ngram_mingram:2_maxgram:3_prefixonly:false | position | 
-(3 rows)
+    name    | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
+------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
+ id         | I64        | f      | t       | t    | f          |             |                                            |          | 
+ metadata   | Str        | f      | t       | f    | t          |             | ngram_mingram:2_maxgram:3_prefixonly:false | position | 
+ tid_block  | U64        | f      | f       | t    | f          |             |                                            |          | 
+ tid_offset | U64        | f      | f       | t    | f          |             |                                            |          | 
+(4 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' ||| 'white';

@@ -24,7 +24,7 @@ use crate::api::HashMap;
 use crate::api::version::Version;
 use crate::gucs::enable_visibility_map_shortcuts;
 use crate::index::ctid_map::BlockToDocIdMap;
-use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::{FFHelper, TidReader};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::rel::PgSearchRelation;
@@ -129,16 +129,19 @@ impl VisibilityStats {
 /// the old tuple is marked dead and a new tuple is created at a new ctid, but the
 /// index still has the old ctid until VACUUM runs.
 ///
-/// The visibility checker supports two operational modes:
-/// 1. Fast-path visibility confirmation ([`VisibilityChecker::check_segment_docs`]):
+/// The visibility checker supports three operational modes:
+/// 1. Mask-only visibility checking ([`VisibilityChecker::check_segment_docs_mask`]):
+///    Checks the PostgreSQL visibility map first and returns a boolean mask. For split columns,
+///    never reads or decodes `tid_offset` for docs on all-visible blocks.
+/// 2. Fast-path visibility confirmation ([`VisibilityChecker::check_segment_docs`]):
 ///    Checks the PostgreSQL visibility map first. On all-visible blocks, visibility is
 ///    guaranteed for all active snapshots, so heap page access is bypassed entirely.
-///    The returned CTID is the raw index CTID, which may be an index root pointing to
+///    The returned CTID for an all-visible block is the raw index CTID, which may be an index root pointing to
 ///    a HOT redirect (`LP_REDIRECT`). This is safe and optimal for execution plan nodes
 ///    like `VisibilityFilterExec` and `BatchScanner` whose downstream tuple fetcher
 ///    (e.g. `JoinScanState::build_result_tuple` or `BaseScan`) uses `table_index_fetch_tuple`
 ///    to resolve the HOT redirect to the physical tuple at final output time.
-/// 2. Full physical HOT resolution ([`VisibilityChecker::resolve_segment_docs`]):
+/// 3. Full physical HOT resolution ([`VisibilityChecker::resolve_segment_docs`]):
 ///    Forces a heap check for every tuple, bypassing the visibility map all-visible check,
 ///    and resolves the CTID to the exact current physical heap location of the tuple visible
 ///    under this snapshot. This is required only when the caller cannot resolve HOT chains
@@ -154,6 +157,7 @@ pub struct VisibilityChecker {
 
     vm_block_no: Option<BlockNumber>,
     vmbuff: pg_sys::Buffer,
+    vm_page_ptr: *const u8,
     // tracks our previous block visibility so we can elide checking again
     blockvis: (BlockNumber, bool),
 
@@ -176,6 +180,7 @@ pub struct VisibilityChecker {
     // TODO: Make this non-optional in the future once all call sites provide an FFHelper.
     ffhelper: Option<Arc<FFHelper>>,
     raw_ctids_scratch: Vec<Option<u64>>,
+    split_ctids_scratch: Vec<Option<u64>>,
     segment_visibility: Option<(SegmentId, bool)>,
     dirty_blocks: HashMap<SegmentId, Arc<[Range<BlockNumber>]>>,
     segment_checks: HashMap<SegmentOrdinal, Option<Arc<[Range<DocId>]>>>,
@@ -219,6 +224,7 @@ impl VisibilityChecker {
                 bman: BufferManager::new(heaprel),
                 vm_block_no: None,
                 vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
+                vm_page_ptr: std::ptr::null(),
                 blockvis: (pg_sys::InvalidBlockNumber, false),
                 nblocks,
                 cached_heap_block: pg_sys::InvalidBlockNumber,
@@ -228,6 +234,7 @@ impl VisibilityChecker {
                 check_visibility: true,
                 ffhelper: None,
                 raw_ctids_scratch: Vec::new(),
+                split_ctids_scratch: Vec::new(),
                 segment_visibility: None,
                 dirty_blocks: HashMap::default(),
                 segment_checks: HashMap::default(),
@@ -350,7 +357,7 @@ impl VisibilityChecker {
         }
     }
 
-    /// Returns true if the block is all visible.
+    #[inline]
     pub fn is_block_all_visible(&mut self, blockno: BlockNumber) -> bool {
         if blockno == self.blockvis.0 {
             return self.blockvis.1;
@@ -359,31 +366,44 @@ impl VisibilityChecker {
 
         let vm_block_no = blockno / util::HEAPBLOCKS_PER_PAGE;
         unsafe {
-            let status = if Some(vm_block_no) == self.vm_block_no
-                && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
+            let is_all_visible = if Some(vm_block_no) == self.vm_block_no
+                && !self.vm_page_ptr.is_null()
             {
                 debug_assert_eq!(
                     pg_sys::BufferGetBlockNumber(self.vmbuff),
                     vm_block_no,
                     "pinned vmbuff does not cover the expected VM mapBlock"
                 );
-                // Fast path: we already hold a pinned, valid `vmbuff` for exactly this
-                // mapBlock, so the C function is guaranteed to take its bit-math branch
-                // and will NOT call `vm_readbuf`. That makes it safe to skip the pgrx
-                // `pg_guard` wrapper and avoid its per-call overhead.
-                // See `raw::visibilitymap_get_status` for the safety contract.
-                util::visibilitymap_get_status(self.heaprel.as_ptr(), blockno, &mut self.vmbuff)
+                // Fast path: bit test directly on the pinned VM page in Rust memory.
+                // Avoids FFI function call overhead completely.
+                let map_byte =
+                    ((blockno % util::HEAPBLOCKS_PER_PAGE) / util::HEAPBLOCKS_PER_BYTE) as usize;
+                let map_offset = (blockno % util::HEAPBLOCKS_PER_BYTE) * pg_sys::BITS_PER_HEAPBLOCK;
+                let byte = *self.vm_page_ptr.add(map_byte);
+                ((byte >> map_offset) & (pg_sys::VISIBILITYMAP_ALL_VISIBLE as u8)) != 0
             } else {
                 // Slow path: either we have no pinned VM page yet, or `blockno` crossed a
                 // VM-page boundary. The C function may release the old buffer and call
                 // `vm_readbuf` (which can `ereport`), so we MUST go through the guarded
                 // wrapper. This also (re)pins `vmbuff` to the correct mapBlock so the
                 // fast path can be taken on subsequent calls.
-                pg_sys::visibilitymap_get_status(self.heaprel.as_ptr(), blockno, &mut self.vmbuff)
+                let status = pg_sys::visibilitymap_get_status(
+                    self.heaprel.as_ptr(),
+                    blockno,
+                    &mut self.vmbuff,
+                );
+                if self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                    self.vm_block_no = Some(vm_block_no);
+                    let page = pg_sys::BufferGetPage(self.vmbuff);
+                    self.vm_page_ptr = (page as *const u8).add(util::PAGE_HEADER_OFFSET);
+                } else {
+                    self.vm_block_no = None;
+                    self.vm_page_ptr = std::ptr::null();
+                }
+                (status & (pg_sys::VISIBILITYMAP_ALL_VISIBLE as u8)) != 0
             };
 
-            self.vm_block_no = Some(vm_block_no);
-            self.blockvis.1 = status != 0;
+            self.blockvis.1 = is_all_visible;
         }
         self.blockvis.1
     }
@@ -605,7 +625,9 @@ impl VisibilityChecker {
                 {
                     return Ok(None);
                 }
-                let ffhelper = self.ffhelper.clone().expect("FFHelper must be configured");
+                let Some(ffhelper) = self.ffhelper.clone() else {
+                    return Ok(None);
+                };
                 let Some(segment) = ffhelper.immutable_segment_reader(segment_ord) else {
                     return Ok(None);
                 };
@@ -644,13 +666,78 @@ impl VisibilityChecker {
             })()
             .expect("failed to read heap-block visibility metadata")
             .map(Arc::from);
+
             self.segment_checks.insert(segment_ord, ranges);
         }
         self.segment_checks[&segment_ord].clone()
     }
 
-    /// Checks visibility without fetching CTIDs for documents outside unresolved ranges.
-    pub(crate) fn check_segment_docs_mask(
+    /// Returns true if all documents in the segment are guaranteed all-visible under this snapshot.
+    pub fn is_segment_all_visible_ord(&mut self, segment_ord: SegmentOrdinal) -> bool {
+        if !self.check_visibility {
+            return true;
+        }
+        self.doc_id_ranges_needing_visibility_checks(segment_ord)
+            .is_some_and(|ranges| ranges.is_empty())
+    }
+
+    /// Checks if a single document is on an all-visible block.
+    ///
+    /// For segments with heap-block presence, uses the cached non-all-visible document ranges
+    /// without reading any fast field columns or block numbers.
+    /// Falls back to checking the block visibility map directly without decoding offsets.
+    pub fn is_doc_all_visible(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> bool {
+        if !self.check_visibility {
+            return true;
+        }
+        if let Some(ranges) = self.doc_id_ranges_needing_visibility_checks(segment_ord) {
+            if ranges.is_empty() {
+                return true;
+            }
+            let idx = ranges.partition_point(|range| range.end <= doc_id);
+            if idx < ranges.len() && ranges[idx].start <= doc_id {
+                return false;
+            }
+            return true;
+        }
+
+        // Fallback when proof ranges are not available (e.g. mutable segments, no .stats, non-MVCC snapshot):
+        let blockno = self.block_of_doc(segment_ord, doc_id);
+        let Some(blockno) = blockno else {
+            return false;
+        };
+        if blockno >= self.nblocks {
+            return false;
+        }
+        self.is_block_all_visible(blockno)
+    }
+
+    /// Returns the block number for a document within a segment without reading or decoding offsets.
+    pub fn block_of_doc(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+        doc_id: DocId,
+    ) -> Option<BlockNumber> {
+        let ffhelper = self.ffhelper.as_ref()?;
+        let reader = ffhelper.ctid(segment_ord);
+        match reader {
+            TidReader::Split { block, .. } => block.first(doc_id).map(|b| b as BlockNumber),
+            TidReader::Legacy(col) => col.first(doc_id).map(|c| (c >> 16) as BlockNumber),
+        }
+    }
+
+    /// Checks visibility of documents within a segment and populates a boolean visibility mask.
+    ///
+    /// # Preconditions
+    ///
+    /// `doc_ids` must be sorted in ascending order:
+    /// `doc_ids.windows(2).all(|w| w[0] <= w[1])`.
+    ///
+    /// For all-visible blocks, visibility is confirmed via the visibility map fast-path without
+    /// reading heap buffers. For split columns with heap-block presence, this never reads or decodes
+    /// `tid_offset` for docs on all-visible blocks, and resolves block numbers for invisible docs
+    /// directly from presence ranges without reading `tid_block`.
+    pub fn check_segment_docs_mask(
         &mut self,
         segment_ord: SegmentOrdinal,
         doc_ids: &[DocId],
@@ -671,6 +758,7 @@ impl VisibilityChecker {
             .clone()
             .expect("FFHelper must be configured to check segment doc visibility");
         let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
+        let mut split_scratch = std::mem::take(&mut self.split_ctids_scratch);
         let mut ctids = Vec::new();
         let mut check = |start: usize, end: usize| {
             if start == end {
@@ -678,9 +766,11 @@ impl VisibilityChecker {
             }
             raw_ctids.resize(end - start, None);
             ctids.resize(end - start, None);
-            ffhelper
-                .ctid(segment_ord)
-                .as_u64s(&doc_ids[start..end], &mut raw_ctids);
+            ffhelper.ctid(segment_ord).as_u64s(
+                &doc_ids[start..end],
+                &mut raw_ctids,
+                &mut split_scratch,
+            );
             self.check_raw_ctids_impl(&raw_ctids, &mut ctids, false);
             for (visible, ctid) in mask[start..end].iter_mut().zip(&ctids) {
                 *visible = ctid.is_some();
@@ -711,6 +801,7 @@ impl VisibilityChecker {
             check(0, doc_ids.len());
         }
         self.raw_ctids_scratch = raw_ctids;
+        self.split_ctids_scratch = split_scratch;
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from
@@ -773,7 +864,11 @@ impl VisibilityChecker {
 
         let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
         raw_ctids.resize(doc_ids.len(), None);
-        ffhelper.ctid(segment_ord).as_u64s(doc_ids, &mut raw_ctids);
+        let mut split_scratch = std::mem::take(&mut self.split_ctids_scratch);
+        ffhelper
+            .ctid(segment_ord)
+            .as_u64s(doc_ids, &mut raw_ctids, &mut split_scratch);
+        self.split_ctids_scratch = split_scratch;
 
         if !self.check_visibility {
             results.copy_from_slice(&raw_ctids);
@@ -872,7 +967,7 @@ impl VisibilityChecker {
             self.invisible_tuple_count += 1;
             return None;
         }
-        if !resolve_hot && self.is_block_all_visible(blockno) {
+        if locked_buffer.is_none() && !resolve_hot && self.is_block_all_visible(blockno) {
             return Some(ctid);
         }
         self.heap_tuple_check_count += 1;
@@ -1434,21 +1529,21 @@ impl<'a> HeapDocFetcher<'a> {
 /// See `heap::VisibilityChecker::is_block_all_visible` for an example of a caller that
 /// speculatively checks the C function's fast-path precondition before bypassing the wrapper.
 mod util {
-    use pgrx::pg_sys::{self, BlockNumber, Buffer, Relation};
+    use pgrx::pg_sys;
 
     /// Mirrors `#define HEAPBLOCKS_PER_BYTE` from `src/backend/access/heap/visibilitymap.c`:
     /// `BITS_PER_BYTE / BITS_PER_HEAPBLOCK`. Number of heap blocks represented in one byte.
     pub const HEAPBLOCKS_PER_BYTE: u32 = 8 / pg_sys::BITS_PER_HEAPBLOCK;
 
+    /// Offset of usable bitmap data on a VM page, past the standard page header.
+    /// SizeOfPageHeaderData == offsetof(PageHeaderData, pd_linp); see pgrx `SizeOfPageHeaderData`.
+    pub const PAGE_HEADER_OFFSET: usize =
+        unsafe { pg_sys::MAXALIGN(std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp)) };
+
     /// Number of usable bitmap bytes on a VM page, mirroring `#define MAPSIZE` from
     /// `src/backend/access/heap/visibilitymap.c`: `BLCKSZ - MAXALIGN(SizeOfPageHeaderData)`.
     /// The page header is NOT available for the bitmap, so this is smaller than `BLCKSZ`.
-    const MAPSIZE: u32 = {
-        // SizeOfPageHeaderData == offsetof(PageHeaderData, pd_linp); see pgrx `SizeOfPageHeaderData`.
-        let header =
-            unsafe { pg_sys::MAXALIGN(std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp)) };
-        pg_sys::BLCKSZ - header as u32
-    };
+    const MAPSIZE: u32 = pg_sys::BLCKSZ - PAGE_HEADER_OFFSET as u32;
 
     /// Mirrors `#define HEAPBLOCKS_PER_PAGE` from `src/backend/access/heap/visibilitymap.c`:
     /// `MAPSIZE * HEAPBLOCKS_PER_BYTE`. Number of heap blocks covered by one VM page
@@ -1460,18 +1555,6 @@ mod util {
     /// every page boundary, and the unguarded fast path forces a `vm_readbuf` (a safety-contract
     /// violation that also thrashes the VM cache).
     pub const HEAPBLOCKS_PER_PAGE: u32 = MAPSIZE * HEAPBLOCKS_PER_BYTE;
-
-    unsafe extern "C" {
-        /// Raw binding to Postgres `visibilitymap_get_status`. Safe to call without the
-        /// pgrx wrapper ONLY when the caller has confirmed `*buf` is valid and already
-        /// holds the correct mapBlock for `heapBlk` — i.e. the C function will take its
-        /// fast bit-math branch and will not invoke `vm_readbuf`.
-        pub fn visibilitymap_get_status(
-            rel: Relation,
-            heapBlk: BlockNumber,
-            buf: *mut Buffer,
-        ) -> u8;
-    }
 }
 
 /// Streams ctids in the order given and prefetches their heap blocks `distance` blocks ahead,

@@ -1460,11 +1460,30 @@ impl CustomScan for BaseScan {
             }
         }
         if explainer.is_costs() {
-            explainer.add_unsigned_integer(
-                "Segment Count",
-                state.custom_state().segment_count as u64,
-                None,
-            );
+            if explainer.is_analyze()
+                && let Some(reader) = state.custom_state().search_reader.as_ref()
+            {
+                explainer.add_unsigned_integer(
+                    "Segment Count",
+                    reader.searcher().segment_readers().len() as u64,
+                    None,
+                );
+
+                // NOTE: A LIMIT can leave potentially matching segments unvisited;
+                // those are not counted as pruned.
+                // After rescans, this describes only the final reader.
+                explainer.add_unsigned_integer(
+                    "Segments Pruned",
+                    reader.segment_pruning_estimate().pruned_segments as u64,
+                    None,
+                );
+            } else {
+                explainer.add_unsigned_integer(
+                    "Segment Count",
+                    state.custom_state().segment_count as u64,
+                    None,
+                );
+            }
         }
 
         if explainer.is_verbose()

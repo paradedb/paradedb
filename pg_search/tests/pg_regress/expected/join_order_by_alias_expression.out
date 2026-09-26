@@ -40,8 +40,8 @@ JOIN tech_installs ti ON cccf.company_id = ti.company_id
 WHERE technology_name ||| 'java'
 ORDER BY lower(company_name) ASC, cccf.contact_id
 LIMIT 10;
-                                                                                                                             QUERY PLAN                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: cccf INNER ti
    Join Cond: cccf.company_id = ti.company_id
@@ -54,9 +54,9 @@ LIMIT 10;
      :       VisibilityFilterExec: tables=[cccf, ti], pruned=[ti]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@0)], projection=[ctid_0@0, company_id@1, company_name_words@2, company_name@3, contact_id@4, ctid_1@6]
      :           CooperativeExec
-     :             PgSearchScan: table=cccf, segments=1, fetch=[company_name_words, company_name], dynamic_filters=1, query="all"
+     :             PgSearchScan: table=cccf, segments=1, pruned=0, fetch=[company_name_words, company_name], dynamic_filters=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=ti, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"technology_name","value":"java","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=ti, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"technology_name","value":"java","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT cccf.*

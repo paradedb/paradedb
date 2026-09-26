@@ -43,9 +43,9 @@ WHERE o.super_organisation_name IS NULL;
      :           TantivyFetchExec: fetch=[country]
      :             HashJoinExec: mode=CollectLeft, join_type=Right, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@3, super_organisation_name@1]
      :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, eager=[super_organisation_name], visibility=eager, query="all"
+     :                 PgSearchScan: table=o, segments=1, pruned=0, eager=[super_organisation_name], visibility=eager, query="all"
      :               CooperativeExec
-     :                 PgSearchScan: table=r, segments=1, visibility=eager, query="all"
+     :                 PgSearchScan: table=r, segments=1, pruned=0, visibility=eager, query="all"
 (17 rows)
 
 SELECT pdb.agg('{"terms": {"field": "country"}}')
@@ -75,8 +75,8 @@ SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
 JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
 WHERE o.super_organisation_name IS NULL;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: researchers_idx (r), organisations_idx (o)
@@ -89,9 +89,9 @@ WHERE o.super_organisation_name IS NULL;
      :         TantivyFetchExec: fetch=[country]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@2]
      :             CooperativeExec
-     :               PgSearchScan: table=o, segments=1, visibility=eager, query={"boolean":{"must":["all"],"must_not":[{"exists":{"field":"super_organisation_name"}}]}}
+     :               PgSearchScan: table=o, segments=1, pruned=0, visibility=eager, query={"boolean":{"must":["all"],"must_not":[{"exists":{"field":"super_organisation_name"}}]}}
      :             CooperativeExec
-     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :               PgSearchScan: table=r, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (15 rows)
 
 SELECT pdb.agg('{"terms": {"field": "country"}}')
@@ -109,8 +109,8 @@ SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
 LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
 WHERE (o.super_organisation_name ||| 'OrgA') OR (o.super_organisation_name IS NULL);
-                                                                                                                                                  QUERY PLAN                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                       QUERY PLAN                                                                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: researchers_idx (r), organisations_idx (o)
@@ -125,9 +125,9 @@ WHERE (o.super_organisation_name ||| 'OrgA') OR (o.super_organisation_name IS NU
      :           TantivyFetchExec: fetch=[country]
      :             HashJoinExec: mode=CollectLeft, join_type=Right, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@4, super_organisation_name@1, __o_1_tag_0@2]
      :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, eager=[super_organisation_name], visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"super_organisation_name","value":"OrgA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                 PgSearchScan: table=o, segments=1, pruned=0, eager=[super_organisation_name], visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"super_organisation_name","value":"OrgA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :               CooperativeExec
-     :                 PgSearchScan: table=r, segments=1, visibility=eager, query="all"
+     :                 PgSearchScan: table=r, segments=1, pruned=0, visibility=eager, query="all"
 (17 rows)
 
 SELECT pdb.agg('{"terms": {"field": "country"}}')

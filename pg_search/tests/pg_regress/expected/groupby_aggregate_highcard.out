@@ -21,8 +21,8 @@ SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating;
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -33,7 +33,7 @@ ORDER BY rating;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
            :   CooperativeExec
-           :     PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+           :     PgSearchScan: table=products, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":"all"}}
 (11 rows)
 
 -- Limit + offset exceeds max_term_agg_buckets
@@ -43,8 +43,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 6;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: rating
@@ -57,7 +57,7 @@ LIMIT 5 OFFSET 6;
                  : SortExec: TopK(fetch=11), expr=[rating@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
                  :     CooperativeExec
-                 :       PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+                 :       PgSearchScan: table=products, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
 (13 rows)
 
 -- Ordering on a non grouping column
@@ -67,8 +67,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
-                                                       QUERY PLAN                                                       
-------------------------------------------------------------------------------------------------------------------------
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: rating, id
@@ -80,7 +80,7 @@ LIMIT 5 OFFSET 5;
                DataFusion Physical Plan: 
                  : AggregateExec: mode=Single, gby=[rating@0 as rating, id@1 as id], aggr=[count(1) as agg_0]
                  :   CooperativeExec
-                 :     PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+                 :     PgSearchScan: table=products, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":"all"}}
 (12 rows)
 
 -- This should be pushed down
@@ -127,8 +127,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
-                                                        QUERY PLAN                                                        
---------------------------------------------------------------------------------------------------------------------------
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (count(*))
@@ -141,7 +141,7 @@ LIMIT 5;
                  : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
                  :     CooperativeExec
-                 :       PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+                 :       PgSearchScan: table=products, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":"all"}}
 (13 rows)
 
 SELECT rating, COUNT(*) FROM products

@@ -76,8 +76,8 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (cccf SEMI ce) ANTI cne
    Join Cond: cne.company_id = cccf.company_id, ce.company_id = cccf.company_id
@@ -89,12 +89,12 @@ LIMIT 25;
      :     VisibilityFilterExec: tables=[cccf]
      :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
      :         CooperativeExec
-     :           PgSearchScan: table=cne, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=cne, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
      :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
      :           CooperativeExec
-     :             PgSearchScan: table=ce, segments=1, visibility=eager, query="all"
+     :             PgSearchScan: table=ce, segments=1, pruned=0, visibility=eager, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=cccf, segments=1, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
+     :             PgSearchScan: table=cccf, segments=1, pruned=0, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
 (17 rows)
 
 -- Result rows in parallel mode (verifies correctness, not just plan shape).
@@ -156,8 +156,8 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (cccf SEMI ce) ANTI cne
    Join Cond: cne.company_id = cccf.company_id, ce.company_id = cccf.company_id
@@ -169,12 +169,12 @@ LIMIT 25;
      :     VisibilityFilterExec: tables=[cccf]
      :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
      :         CooperativeExec
-     :           PgSearchScan: table=cne, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=cne, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
      :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
      :           CooperativeExec
-     :             PgSearchScan: table=ce, segments=1, visibility=eager, query="all"
+     :             PgSearchScan: table=ce, segments=1, pruned=0, visibility=eager, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=cccf, segments=1, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
+     :             PgSearchScan: table=cccf, segments=1, pruned=0, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
 (17 rows)
 
 -- Native PG (JoinScan disabled) rows on the same data, parallel mode.

@@ -45,8 +45,8 @@ JOIN customers c ON o.customer_code = c.customer_code
 WHERE o.description ||| 'wireless'
 ORDER BY o.id
 LIMIT 10;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: o.id, o.description, c.name
    Relation Tree: o INNER c
@@ -59,9 +59,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[o, c]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(customer_code@1, customer_code@1)], projection=[ctid_0@0, id@2, ctid_1@3]
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT o.id, o.description, c.name AS customer_name
@@ -119,8 +119,8 @@ JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehous
 WHERE i.product_name ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.product_name, w.name
    Relation Tree: i INNER w
@@ -133,9 +133,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, w]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(region_id@1, region_id@1), (warehouse_code@2, warehouse_code@2)], projection=[ctid_0@0, id@3, ctid_1@4]
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"product_name","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"product_name","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=w, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=w, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
@@ -189,8 +189,8 @@ JOIN item_types t ON i.type_id = t.type_id
 WHERE i.details ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, t.type_name
    Relation Tree: i INNER t
@@ -203,9 +203,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, t]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(type_id@1, type_id@1)], projection=[ctid_0@0, id@2, ctid_1@3]
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"details","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"details","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT i.id, i.name, t.type_name
@@ -270,8 +270,8 @@ JOIN authors a ON d.author_code = a.author_code
 WHERE d.content ||| 'search'
 ORDER BY d.id
 LIMIT 10;
-                                                                                                                        QUERY PLAN                                                                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.title, a.name, d.id
    Relation Tree: d INNER a
@@ -284,9 +284,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[d, a]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(author_code@1, author_code@1)], projection=[ctid_0@0, id@2, ctid_1@3]
      :         CooperativeExec
-     :           PgSearchScan: table=d, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=d, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=a, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=a, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT d.title, a.name
@@ -339,8 +339,8 @@ JOIN categories_with_nulls c ON i.category_id = c.id
 WHERE (i.content ||| 'item' OR i.content ||| 'laptop' OR i.content ||| 'novel')
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.name, c.name, i.id
    Relation Tree: i INNER c
@@ -353,9 +353,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, c]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, query="all"
+     :           PgSearchScan: table=c, segments=1, pruned=0, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"content","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"content","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"content","value":"novel","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"content","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"content","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"content","value":"novel","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (15 rows)
 
 -- Should return only rows with non-NULL category_id that match the search
@@ -413,8 +413,8 @@ JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
 WHERE od.description ||| 'wireless'
 ORDER BY od.order_id, od.line_num
 LIMIT 10;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: od.product_name, oi.quantity, oi.notes, od.order_id, od.line_num
    Relation Tree: od INNER oi
@@ -427,9 +427,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[od, oi]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(order_id@1, order_id@1), (line_num@2, line_num@2)], projection=[ctid_0@0, order_id@1, line_num@2, ctid_1@3]
      :         CooperativeExec
-     :           PgSearchScan: table=od, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=od, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=oi, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=oi, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT od.product_name, oi.quantity, oi.notes
@@ -483,8 +483,8 @@ JOIN uuid_customers c ON o.customer_id = c.id
 WHERE o.description ||| 'wireless'
 ORDER BY o.id
 LIMIT 10;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: o.description, c.name, o.id
    Relation Tree: o INNER c
@@ -497,9 +497,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[o, c]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(customer_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3]
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT o.description, c.name
@@ -552,8 +552,8 @@ JOIN numeric_accounts a ON t.account_num = a.account_num
 WHERE t.description ||| 'wire'
 ORDER BY t.id
 LIMIT 10;
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t.description, a.holder_name, t.amount, t.id
    Relation Tree: t INNER a
@@ -566,9 +566,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[t, a]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(account_num@1, account_num@1)], projection=[ctid_0@0, id@2, ctid_1@3]
      :         CooperativeExec
-     :           PgSearchScan: table=t, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wire","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wire","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=a, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=a, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 -- =============================================================================

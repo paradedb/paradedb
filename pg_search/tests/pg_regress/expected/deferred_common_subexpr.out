@@ -42,8 +42,8 @@ WHERE (u.name @@@ 'bob' AND u.name IS NOT NULL)
   AND (p.name = 'bob' AND ((o.color = 'blue' AND o.name = 'bob') OR (o.name IS NULL OR o.color = 'blue')))
 GROUP BY p.quantity
 ORDER BY p.quantity;
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.quantity, (sum(p.age)), (count(*)), (pdb.agg('{"sum": {"field": "p.price"}}'::jsonb))
    Sort Key: p.quantity
@@ -63,11 +63,11 @@ ORDER BY p.quantity;
            :           HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@2, id@0)]
            :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, id@2)], projection=[quantity@1, age@2, id@3, price@4]
            :               CooperativeExec
-           :                 PgSearchScan: table=u, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}},{"exists":{"field":"name"}}]}}
+           :                 PgSearchScan: table=u, segments=1, pruned=0, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}},{"exists":{"field":"name"}}]}}
            :               CooperativeExec
-           :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(name = 'bob'::text)"}]}}
+           :                 PgSearchScan: table=p, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(name = 'bob'::text)"}]}}
            :             CooperativeExec
-           :               PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :               PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (24 rows)
 
 SELECT p.quantity, SUM(p.age), COUNT(*), pdb.agg('{"sum":{"field":"p.price"}}')

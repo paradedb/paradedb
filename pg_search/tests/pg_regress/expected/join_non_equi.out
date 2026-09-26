@@ -55,8 +55,8 @@ JOIN nonequi_offers o ON i.price <= o.max_price
 WHERE i.description ||| 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
    Relation Tree: i INNER o
@@ -69,9 +69,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, o]
      :       NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@1
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"ergonomic","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, query={"with_index":{"query":{"match":{"field":"description","value":"ergonomic","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, query="all"
+     :           PgSearchScan: table=o, segments=1, pruned=0, query="all"
 (15 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
@@ -98,8 +98,8 @@ JOIN nonequi_offers o ON i.rating >= o.min_rating
 WHERE (o.description ||| 'exclusive' OR o.description ||| 'value')
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.rating, o.min_rating, o.id
    Relation Tree: i INNER o
@@ -112,9 +112,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, o]
      :       NestedLoopJoinExec: join_type=Inner, filter=rating@0 >= min_rating@1, projection=[ctid_0@3, rating@4, id@5, ctid_1@0, min_rating@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"exclusive","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"value","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=o, segments=1, pruned=0, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"exclusive","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"value","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query="all"
+     :           PgSearchScan: table=i, segments=1, pruned=0, query="all"
 (15 rows)
 
 SELECT i.id, i.name, o.promo_name, i.rating, o.min_rating
@@ -141,8 +141,8 @@ JOIN nonequi_offers o ON i.price >= o.min_price AND i.price <= o.max_price
 WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.description ||| 'headset')
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price, o.id
    Relation Tree: i INNER o
@@ -155,9 +155,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, o]
      :       NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, query="all"
+     :           PgSearchScan: table=o, segments=1, pruned=0, query="all"
 (15 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price
@@ -184,8 +184,8 @@ JOIN nonequi_offers o ON i.category <> o.target_category
 WHERE i.description ||| 'wireless' AND o.description ||| 'budget'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.category, o.target_category, o.id
    Relation Tree: i INNER o
@@ -198,9 +198,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, o]
      :       NestedLoopJoinExec: join_type=Inner, filter=category@0 != target_category@1
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"budget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=o, segments=1, pruned=0, query={"with_index":{"query":{"match":{"field":"description","value":"budget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT i.id, i.name, o.promo_name, i.category, o.target_category
@@ -225,8 +225,8 @@ JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_pri
 WHERE (i.description ||| 'cable' OR i.description ||| 'riser' OR i.description ||| 'mat')
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
    Relation Tree: i INNER o
@@ -240,9 +240,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, o]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@1, target_category@1)], filter=price@0 <= max_price@1, projection=[ctid_0@0, price@2, id@3, ctid_1@4, max_price@6, id@7]
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"riser","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mat","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"riser","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mat","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, query="all"
 (16 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
@@ -267,8 +267,8 @@ JOIN nonequi_offers o ON i.category = o.target_category
 WHERE (i.description ||| 'electronics' OR i.description ||| 'keyboard' OR i.description ||| 'headset')
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, i.rating, o.id
    Relation Tree: i INNER o
@@ -282,9 +282,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, o]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@1, target_category@1)], filter=price@0 >= min_price@2 AND rating@1 >= min_rating@3, projection=[ctid_0@0, price@2, rating@3, id@4, ctid_1@5, id@9]
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, query="all"
 (16 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, i.rating
@@ -315,8 +315,8 @@ LEFT JOIN nonequi_offers o ON i.price > o.max_price AND o.min_rating >= 4
 WHERE (i.description ||| 'keyboard' OR i.description ||| 'cable' OR i.description ||| 'headset')
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
    Relation Tree: i LEFT o
@@ -329,9 +329,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=Right, filter=price@0 > max_price@1, projection=[ctid_0@3, price@4, id@5, ctid_1@0, max_price@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, visibility=eager, query={"range":{"field":"min_rating","lower_bound":{"included":4},"upper_bound":null}}
+     :           PgSearchScan: table=o, segments=1, pruned=0, visibility=eager, query={"range":{"field":"min_rating","lower_bound":{"included":4},"upper_bound":null}}
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (15 rows)
 
 SELECT i.id, i.name, i.price, o.promo_name, o.max_price
@@ -355,8 +355,8 @@ LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min
 WHERE (i.description ||| 'cable' OR i.description ||| 'mat' OR i.description ||| 'mouse')
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.id
    Relation Tree: i LEFT o
@@ -370,9 +370,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i]
      :       HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@1, target_category@1)], filter=price@0 < min_price@1, projection=[ctid_0@0, price@2, id@3, ctid_1@4, min_price@6, id@7]
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mat","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mat","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :           PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price
@@ -396,8 +396,8 @@ RIGHT JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.m
 WHERE (o.description ||| 'exclusive' OR o.description ||| 'budget')
 ORDER BY o.id, i.id NULLS LAST
 LIMIT 10;
-                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, o.max_price, o.id
    Relation Tree: o LEFT i
@@ -411,9 +411,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[o]
      :       HashJoinExec: mode=CollectLeft, join_type=Left, on=[(target_category@1, category@1)], filter=price@1 <= max_price@0, projection=[ctid_0@0, max_price@2, id@3, ctid_1@4, id@7]
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"exclusive","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"budget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=o, segments=1, pruned=0, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"exclusive","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"budget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :           PgSearchScan: table=i, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT i.id, i.name, o.promo_name, o.max_price
@@ -445,8 +445,8 @@ WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.descriptio
   )
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, i.price
    Relation Tree: i SEMI o
@@ -460,9 +460,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@1, target_category@0)], filter=min_price@1 > price@0, projection=[ctid_0@0, price@2, id@3]
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :           PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT i.id, i.name, i.price
@@ -490,8 +490,8 @@ WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.descriptio
   )
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, i.price
    Relation Tree: i ANTI o
@@ -505,9 +505,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(category@1, target_category@0)], filter=min_price@1 > price@0, projection=[ctid_0@0, price@2, id@3]
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headset","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :           PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT i.id, i.name, i.price
@@ -551,9 +551,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[i, o]
      :       NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@2 AND (__i_0_tag_0@1 OR __o_1_tag_0@3), projection=[ctid_0@4, id@6, ctid_1@0, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"description","value":"clearance","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=o, segments=1, pruned=0, tag_0={"with_index":{"query":{"match":{"field":"description","value":"clearance","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=i, segments=1, tag_0={"with_index":{"query":{"match":{"field":"description","value":"gaming","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=i, segments=1, pruned=0, tag_0={"with_index":{"query":{"match":{"field":"description","value":"gaming","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT i.id, i.name, o.promo_name

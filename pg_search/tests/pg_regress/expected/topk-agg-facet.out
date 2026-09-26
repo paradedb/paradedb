@@ -1662,8 +1662,8 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
-                                                                                                                                       QUERY PLAN                                                                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (avg(price)), (count(*) OVER w1)
    ->  Sort
@@ -1685,7 +1685,7 @@ LIMIT 3;
                        :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[avg(products_0.price) as agg_0]
                        :         TantivyFetchExec: fetch=[category]
                        :           CooperativeExec
-                       :             PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                       :             PgSearchScan: table=products, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 
@@ -1726,8 +1726,8 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description ||| 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.rating, pc.description, (pdb.window_agg('count(*) OVER ()'::text))
    Relation Tree: p INNER pc
@@ -1741,9 +1741,9 @@ LIMIT 3;
      :       VisibilityFilterExec: tables=[p, pc]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@1)], projection=[ctid_0@2, rating@4, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=pc, segments=1, query="all"
+     :             PgSearchScan: table=pc, segments=1, pruned=0, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=p, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT
@@ -1816,9 +1816,9 @@ LIMIT 3;
      :       VisibilityFilterExec: tables=[p, r]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=p, segments=1, pruned=0, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=r, segments=1, pruned=0, dynamic_filters=1, query="all"
 (16 rows)
 
 SELECT
@@ -1873,9 +1873,9 @@ LIMIT 3;
      :       VisibilityFilterExec: tables=[p, r]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=p, segments=1, pruned=0, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=r, segments=1, pruned=0, dynamic_filters=1, query="all"
 (16 rows)
 
 SELECT
@@ -2049,8 +2049,8 @@ GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
-                                                                                                                                           QUERY PLAN                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.category, pc.description, (avg(p.price)), (count(*) OVER w1)
    ->  Sort
@@ -2070,9 +2070,9 @@ LIMIT 2;
                        :   AggregateExec: mode=Single, gby=[category@0 as category, description@2 as description], aggr=[avg(p_0.price) as agg_0]
                        :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@0)], projection=[category@2, price@3, description@0]
                        :       CooperativeExec
-                       :         PgSearchScan: table=pc, segments=1, eager=[description], visibility=eager, query="all"
+                       :         PgSearchScan: table=pc, segments=1, pruned=0, eager=[description], visibility=eager, query="all"
                        :       CooperativeExec
-                       :         PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                       :         PgSearchScan: table=p, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 

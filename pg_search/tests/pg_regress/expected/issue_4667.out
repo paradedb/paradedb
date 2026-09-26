@@ -43,8 +43,8 @@ AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
 WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the scan (table: p)
-                                                                                                                                                  QUERY PLAN                                                                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                       QUERY PLAN                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
    ->  Sort
@@ -69,9 +69,9 @@ WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pus
                              :     FilterExec: mark@6 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2, full_name@3, linkedin_followers@4, seniority_slug@5]
                              :       HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(id@0, company_id@1)]
                              :         CooperativeExec
-                             :           PgSearchScan: table=c, segments=1, visibility=eager, query="all"
+                             :           PgSearchScan: table=c, segments=1, pruned=0, visibility=eager, query="all"
                              :         CooperativeExec
-                             :           PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                             :           PgSearchScan: table=p, segments=1, pruned=0, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
 (27 rows)
 
 SELECT DISTINCT

@@ -392,7 +392,7 @@ LIMIT 5;
      :     ┌───── Stage 1 ── tasks=1, partitions=2
      :     │ RepartitionExec: partitioning=Range([category_id@1 ASC], [(6)], 2), input_partitions=1
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=c, segments=1, query="all"
+     :     │     t0: PgSearchScan: table=c, segments=1, pruned=0, query="all"
      :     └──────────────────────────────────────────────────
 (26 rows)
 
@@ -444,8 +444,8 @@ JOIN mpp_rp_topics t ON p.post_id = t.topic_id
 WHERE p.title @@@ 'post'
 ORDER BY p.post_id, t.topic_id
 LIMIT 5;
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.title, t.topic_name, p.post_id, t.topic_id
    Relation Tree: p INNER t
@@ -468,16 +468,16 @@ LIMIT 5;
      :     ┌───── Stage 1 ── tasks=3, partitions=9
      :     │ RepartitionExec: partitioning=Hash([topic_id@1], 9), input_partitions=1
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=t, segments=3, dynamic_filters=1, query="all"
-     :     │     t1: PgSearchScan: table=t, segments=3, dynamic_filters=1, query="all"
-     :     │     t2: PgSearchScan: table=t, segments=3, dynamic_filters=1, query="all"
+     :     │     t0: PgSearchScan: table=t, segments=3, pruned=0, dynamic_filters=1, query="all"
+     :     │     t1: PgSearchScan: table=t, segments=3, pruned=0, dynamic_filters=1, query="all"
+     :     │     t2: PgSearchScan: table=t, segments=3, pruned=0, dynamic_filters=1, query="all"
      :     └──────────────────────────────────────────────────
      :     ┌───── Stage 2 ── tasks=3, partitions=9
      :     │ RepartitionExec: partitioning=Hash([post_id@1], 9), input_partitions=1
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=p, segments=3, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
-     :     │     t1: PgSearchScan: table=p, segments=3, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
-     :     │     t2: PgSearchScan: table=p, segments=3, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
+     :     │     t0: PgSearchScan: table=p, segments=3, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
+     :     │     t1: PgSearchScan: table=p, segments=3, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
+     :     │     t2: PgSearchScan: table=p, segments=3, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
 (33 rows)
 
@@ -584,7 +584,7 @@ LIMIT 5;
      :     ┌───── Stage 1 ── tasks=1, partitions=3
      :     │ RepartitionExec: partitioning=Range([customer_id@1 ASC], [(19), (32)], 3, max 8), input_partitions=1
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=c, segments=1, query="all"
+     :     │     t0: PgSearchScan: table=c, segments=1, pruned=0, query="all"
      :     └──────────────────────────────────────────────────
 (27 rows)
 

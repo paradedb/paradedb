@@ -40,11 +40,11 @@ LIMIT 10;
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(color@4, color@1)], filter=id@2 = 3 AND __orders_2_tag_0@3 OR __users_0_tag_0@1 AND id@0 = 3
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, name@1)], projection=[ctid_0@0, name@1, id@2, __users_0_tag_0@3, color@4, ctid_1@6]
      :           CooperativeExec
-     :             PgSearchScan: table=users, segments=1, tag_0={"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=users, segments=1, pruned=0, tag_0={"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=products, segments=1, pruned=0, dynamic_filters=1, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=orders, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=orders, segments=1, pruned=0, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"color","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 SELECT users.name, users.color, users.age

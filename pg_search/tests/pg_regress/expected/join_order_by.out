@@ -33,8 +33,8 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.val, t2.val, t1.id
    Relation Tree: t1 INNER t2
@@ -47,9 +47,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[t1, t2]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=t1, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=t2, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT t1.val, t2.val
@@ -85,8 +85,8 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 OFFSET 5 LIMIT 10;
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.val, t2.val, t1.id
    Relation Tree: t1 INNER t2
@@ -101,9 +101,9 @@ OFFSET 5 LIMIT 10;
      :       VisibilityFilterExec: tables=[t1, t2]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=t1, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=t2, segments=1, pruned=0, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT t1.val, t2.val
@@ -172,8 +172,8 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5 OFFSET 10;
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.val, t2.val, t1.id
    Relation Tree: t1 INNER t2
@@ -188,9 +188,9 @@ LIMIT 5 OFFSET 10;
      :       VisibilityFilterExec: tables=[t1, t2]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=t1, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=t2, segments=1, pruned=0, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT t1.val, t2.val
@@ -223,8 +223,8 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5 OFFSET 10;
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.val, t2.val, t1.id
    Relation Tree: t1 INNER t2
@@ -239,9 +239,9 @@ LIMIT 5 OFFSET 10;
      :       VisibilityFilterExec: tables=[t1, t2]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=t1, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=t2, segments=1, pruned=0, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT t1.val, t2.val
@@ -390,8 +390,8 @@ JOIN multi_seg_2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.val, t2.val, t1.id
    Relation Tree: t1 INNER t2
@@ -404,9 +404,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[t1, t2]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=t1, segments=2, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=t2, segments=2, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT t1.val, t2.val
@@ -462,8 +462,8 @@ JOIN recursive_smj_3 t3 ON t1.id = t3.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.val, t2.val, t3.val, t1.id
    Relation Tree: (t1 INNER t2) INNER t3
@@ -477,11 +477,11 @@ LIMIT 10;
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@3]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=t1, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=t2, segments=1, pruned=0, dynamic_filters=1, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=t3, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=t3, segments=1, pruned=0, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT t1.val, t2.val, t3.val
@@ -532,8 +532,8 @@ JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
-                                                                                                                             QUERY PLAN                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.val, t2.val
    Relation Tree: t1 INNER t2
@@ -547,9 +547,9 @@ LIMIT 10;
      :       VisibilityFilterExec: tables=[t1, t2]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, val@2, ctid_1@3]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             PgSearchScan: table=t1, segments=2, pruned=0, fetch=[val], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=t2, segments=2, pruned=0, dynamic_filters=1, query="all"
 (16 rows)
 
 -- Cap the scanner batch size so Top K can tighten its threshold between batches.
@@ -576,9 +576,9 @@ LIMIT 10;
      :       VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=20.00 K, output_bytes=504.5 KB, output_batches=3]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, val@2, ctid_1@3], metrics=[output_rows=20.00 K, output_bytes=576.0 KB, output_batches=3, build_mem_used=546.9 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=468.8 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
+     :             PgSearchScan: table=t1, segments=2, pruned=0, fetch=[val], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=468.8 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=20.00 K]
+     :             PgSearchScan: table=t2, segments=2, pruned=0, dynamic_filters=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=20.00 K]
 (15 rows)
 
 -- Verify results
@@ -644,8 +644,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.id, t1.val
    Relation Tree: t1 INNER t2
@@ -659,9 +659,9 @@ LIMIT 25;
      :       VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, val@2, ctid_1@4]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+     :             PgSearchScan: table=t1, segments=2, pruned=0, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=t2, segments=2, pruned=0, dynamic_filters=1, query="all"
 (16 rows)
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
@@ -671,8 +671,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
-                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)
    Relation Tree: t1 INNER t2
    Join Cond: t1.id = t2.t1_id
@@ -685,9 +685,9 @@ LIMIT 25;
      :       VisibilityFilterExec: tables=[t1, t2], pruned=[t2], metrics=[output_rows=20.00 K, output_bytes=541.2 KB, output_batches=3]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, val@2, ctid_1@4], metrics=[output_rows=20.00 K, output_bytes=769.0 KB, output_batches=3, build_mem_used=547.1 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=20.00 K, output_bytes=469.0 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
+     :             PgSearchScan: table=t1, segments=2, pruned=0, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=20.00 K, output_bytes=469.0 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=20.00 K]
+     :             PgSearchScan: table=t2, segments=2, pruned=0, dynamic_filters=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=20.00 K]
 (15 rows)
 
 SELECT t1.id, t1.val
@@ -738,8 +738,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.val ASC NULLS LAST
 LIMIT 10;
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.id, t1.val
    Relation Tree: t1 INNER t2
@@ -753,9 +753,9 @@ LIMIT 10;
      :       VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, val@2, ctid_1@4]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+     :             PgSearchScan: table=t1, segments=2, pruned=0, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
      :           CooperativeExec
-     :             PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=t2, segments=2, pruned=0, dynamic_filters=1, query="all"
 (16 rows)
 
 SELECT t1.id, t1.val
@@ -839,8 +839,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.id DESC
 LIMIT 15;
-                                                                                                                                                                    QUERY PLAN                                                                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.id, t1.val
    Relation Tree: t1 INNER t2
@@ -853,9 +853,9 @@ LIMIT 15;
      :     VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, ctid_1@3]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+     :           PgSearchScan: table=t1, segments=2, pruned=0, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=t2, segments=2, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT t1.id, t1.val

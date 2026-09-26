@@ -38,8 +38,8 @@ FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -53,9 +53,9 @@ ORDER BY p.category;
            :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0]
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, fetch=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+           :           PgSearchScan: table=p, segments=1, pruned=0, fetch=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            :         CooperativeExec
-           :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :           PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT p.category, COUNT(*)
@@ -119,8 +119,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
 WHERE p.title ||| 'post';
-                                                                                                                                   QUERY PLAN                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                        QUERY PLAN                                                                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: alm_posts_idx (p), alm_views_idx (v)
@@ -135,9 +135,9 @@ WHERE p.title ||| 'post';
      :             AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (author@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@1]
      :                 CooperativeExec
-     :                   PgSearchScan: table=p, segments=1, fetch=[author], visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                   PgSearchScan: table=p, segments=1, pruned=0, fetch=[author], visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :                 CooperativeExec
-     :                   PgSearchScan: table=v, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :                   PgSearchScan: table=v, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, 0 as __grouping_id, __pdb_m0@2 as __pdb_m0]
      :         AggregateExec: mode=Single, gby=[author@1 as __pdb_k0, p_0_labels@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
      :           UnnestExec
@@ -145,9 +145,9 @@ WHERE p.title ||| 'post';
      :               ProjectionExec: expr=[labels@0 as p_0_labels, author@1 as author]
      :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[labels@1, author@2]
      :                   CooperativeExec
-     :                     PgSearchScan: table=p, segments=1, fetch=[author], visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                     PgSearchScan: table=p, segments=1, pruned=0, fetch=[author], visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :                   CooperativeExec
-     :                     PgSearchScan: table=v, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :                     PgSearchScan: table=v, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (27 rows)
 
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')

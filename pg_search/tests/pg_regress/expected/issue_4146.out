@@ -400,8 +400,8 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.title, d.parents
    Relation Tree: (d INNER f) INNER p
@@ -415,12 +415,12 @@ LIMIT 50;
      :     VisibilityFilterExec: tables=[d, f, p], pruned=[f, p]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@0, id@4)], projection=[ctid_0@2, id@3, title@4, parents@5, ctid_1@7, ctid_2@1]
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null}}
+     :           PgSearchScan: table=p, segments=1, pruned=0, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null}}
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, title@2, parents@3, id@4, ctid_1@6]
      :           CooperativeExec
-     :             PgSearchScan: table=d, segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
+     :             PgSearchScan: table=d, segments=1, pruned=0, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
+     :             PgSearchScan: table=f, segments=1, pruned=0, dynamic_filters=2, query="all"
 (19 rows)
 
 SELECT DISTINCT

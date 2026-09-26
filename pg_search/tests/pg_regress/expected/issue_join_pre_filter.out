@@ -36,8 +36,8 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
-                                                                                                                              QUERY PLAN                                                                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                   QUERY PLAN                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER u
    Join Cond: p.owner_user_id = u.id
@@ -49,9 +49,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[p, u], pruned=[u]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@0)], projection=[pdb.score()@0, ctid_0@1, ctid_1@4]
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=p, segments=2, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=u, segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
+     :           PgSearchScan: table=u, segments=2, pruned=0, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
 (14 rows)
 
 -- Reproduce the bug

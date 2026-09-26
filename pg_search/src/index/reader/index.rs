@@ -87,6 +87,9 @@ pub struct DocsEstimate {
 pub(crate) struct SegmentPruningEstimate {
     pub(crate) candidate_segments: usize,
     pub(crate) candidate_docs: u64,
+    /// Non-empty segments the query's statistics proved cannot match. Empty segments are
+    /// skipped regardless of the query, so they are not counted here.
+    pub(crate) pruned_segments: usize,
 }
 
 fn scale_largest_segment_estimate(value: u64, segment_doc_proportion: f64) -> u64 {
@@ -1039,16 +1042,17 @@ impl SearchIndexReader {
     /// Counts exactly the segments a search of this reader would open.
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
         *self.pruning_estimate.get_or_init(|| {
+            let nonempty_segments = self
+                .searcher
+                .segment_readers()
+                .iter()
+                .filter(|r| r.num_docs() > 0)
+                .count();
             if self.pruning_query.is_none() {
-                let candidate_segments = self
-                    .searcher
-                    .segment_readers()
-                    .iter()
-                    .filter(|r| r.num_docs() > 0)
-                    .count();
                 SegmentPruningEstimate {
-                    candidate_segments,
+                    candidate_segments: nonempty_segments,
                     candidate_docs: self.total_docs,
+                    pruned_segments: 0,
                 }
             } else {
                 let (candidate_segments, candidate_docs) = self
@@ -1059,6 +1063,7 @@ impl SearchIndexReader {
                 SegmentPruningEstimate {
                     candidate_segments,
                     candidate_docs,
+                    pruned_segments: nonempty_segments - candidate_segments,
                 }
             }
         })

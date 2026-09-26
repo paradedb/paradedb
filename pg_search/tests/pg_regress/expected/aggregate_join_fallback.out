@@ -47,8 +47,8 @@ FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop';
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: (count(*))
    Backend: DataFusion
@@ -59,11 +59,11 @@ WHERE p.description ||| 'laptop';
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[]
      :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[id@0]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         PgSearchScan: table=p, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       CooperativeExec
-     :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :         PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :       PgSearchScan: table=r, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (15 rows)
 
 SELECT COUNT(*)
@@ -116,8 +116,8 @@ JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category;
-                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating)), (min(r.rating)), (max(r.rating))
    Backend: DataFusion
@@ -129,11 +129,11 @@ GROUP BY p.category;
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, rating@2]
      :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0, id@1]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :         PgSearchScan: table=p, segments=1, pruned=0, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :       CooperativeExec
-     :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :         PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :       PgSearchScan: table=r, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating), MIN(r.rating), MAX(r.rating)
@@ -186,8 +186,8 @@ LEFT JOIN fb_tags t ON p.id = t.product_id
 LEFT JOIN fb_reviews r ON p.id = r.product_id
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category;
-                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
@@ -198,11 +198,11 @@ GROUP BY p.category;
      :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, product_id@1)], projection=[category@0, rating@2]
      :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, product_id@0)], projection=[category@0, id@1]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :         PgSearchScan: table=p, segments=1, pruned=0, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :       CooperativeExec
-     :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :         PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :       PgSearchScan: table=r, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (15 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating)
@@ -227,8 +227,8 @@ SELECT COUNT(*)
 FROM fb_products p
 CROSS JOIN fb_tags t
 WHERE p.description ||| 'laptop';
-                                                                                                                        QUERY PLAN                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: fb_products_idx (p), fb_tags_idx (t)
@@ -237,9 +237,9 @@ WHERE p.description ||| 'laptop';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
      :   CrossJoinExec
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       PgSearchScan: table=p, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=1, visibility=eager, query="all"
+     :       PgSearchScan: table=t, segments=1, pruned=0, visibility=eager, query="all"
 (11 rows)
 
 SELECT COUNT(*)
@@ -261,8 +261,8 @@ JOIN fb_tags t ON p.id = t.product_id
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 HAVING COUNT(*) > 0;
-                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (count(*))
    Backend: DataFusion
@@ -274,9 +274,9 @@ HAVING COUNT(*) > 0;
      :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
      :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0]
      :       CooperativeExec
-     :         PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :         PgSearchScan: table=p, segments=1, pruned=0, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :       CooperativeExec
-     :         PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :         PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (14 rows)
 
 SELECT p.category, COUNT(*)
@@ -363,8 +363,8 @@ JOIN fb_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY 1;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, ((((sum(p.price)))::text || p.category))
    Sort Key: p.category
@@ -378,9 +378,9 @@ ORDER BY 1;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[sum(p_0.price) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], projection=[category@0, price@1]
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=1, pruned=0, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :       PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT p.category, SUM(p.price)::text || p.category
@@ -406,8 +406,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
   AND p.price > t.product_id
 GROUP BY p.category
 ORDER BY 1;
-                                                                                                                        QUERY PLAN                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, ((((sum(p.price)))::text || p.category))
    Sort Key: p.category
@@ -423,9 +423,9 @@ ORDER BY 1;
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], filter=price@0 > pdb_eval_expr_funcexpr_087a5553(product_id@1), projection=[category@0, price@1]
            :     FilterExec: price@1 > pdb_eval_expr_funcexpr_087a5553(id@2)
            :       CooperativeExec
-           :         PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=p, segments=1, pruned=0, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :       PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (18 rows)
 
 SELECT p.category, SUM(p.price)::text || p.category
@@ -454,8 +454,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 HAVING SUM(r.rating) FILTER (WHERE t.tag_name = 'tech') > 4
 ORDER BY 1;
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*))
    Sort Key: p.category
@@ -473,11 +473,11 @@ ORDER BY 1;
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], filter=price@0 > pdb_eval_expr_funcexpr_2bc2e063(product_id@1), projection=[category@0, id@1, tag_name@3]
            :         FilterExec: price@2 > pdb_eval_expr_funcexpr_2bc2e063(id@1)
            :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=p, segments=1, pruned=0, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: table=t, segments=1, eager=[tag_name], dynamic_filters=1, visibility=eager, query="all"
+           :           PgSearchScan: table=t, segments=1, pruned=0, eager=[tag_name], dynamic_filters=1, visibility=eager, query="all"
            :       CooperativeExec
-           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :         PgSearchScan: table=r, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (22 rows)
 
 SELECT p.category, COUNT(*)
@@ -520,8 +520,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY 1 DESC
 LIMIT 3;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (count(*)), p.category
    ->  Sort
@@ -539,11 +539,11 @@ LIMIT 3;
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0), (product_id@2, product_id@0)], projection=[category@0]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)]
                  :         CooperativeExec
-                 :           PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: table=p, segments=1, pruned=0, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+                 :           PgSearchScan: table=t, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
                  :       CooperativeExec
-                 :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+                 :         PgSearchScan: table=r, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query="all"
 (22 rows)
 
 SELECT COUNT(*)

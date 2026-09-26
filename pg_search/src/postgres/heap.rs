@@ -39,8 +39,6 @@ use tantivy::index::SegmentId;
 use tantivy::{DocId, Order, SegmentOrdinal, TantivyDocument};
 use tantivy_common::TinySet;
 
-use util::HEAPBLOCKS_PER_PAGE as HEAPBLOCKS_PER_VM_PAGE;
-
 // Prefer per-match CTID checks at this heap-block span per live document.
 const BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY: u64 = 256;
 
@@ -432,10 +430,6 @@ impl VisibilityChecker {
                 break 'proof false;
             };
             let (first, last) = (*blocks.start(), *blocks.end());
-            let vm_pages = last / HEAPBLOCKS_PER_VM_PAGE - first / HEAPBLOCKS_PER_VM_PAGE + 1;
-            if vm_pages > 64 {
-                break 'proof false;
-            }
             // Read CTID bounds before fresh VM bits; FFHelper retains the VACUUM cleanup pin.
             if first > last || last == pg_sys::InvalidBlockNumber {
                 break 'proof false;

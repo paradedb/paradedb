@@ -612,9 +612,7 @@ impl WhichFastField {
     pub fn is_nullable(&self) -> bool {
         !matches!(
             self,
-            WhichFastField::Ctid
-                | WhichFastField::TableOid
-                | WhichFastField::DeferredCtid(_)
+            WhichFastField::Ctid | WhichFastField::TableOid | WhichFastField::DeferredCtid(_)
         )
     }
 }

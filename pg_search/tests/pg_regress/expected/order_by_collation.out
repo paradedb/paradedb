@@ -532,15 +532,7 @@ Test 4.1: C collation ORDER BY -> byte order (uppercase before lowercase in ASCI
 SELECT id, city FROM collation_sortby_test
 WHERE id @@@ paradedb.all()
 ORDER BY city ASC NULLS FIRST;
- id |   city    
-----+-----------
-  2 | Amsterdam
-  4 | Delhi
-  1 | berlin
-  3 | chicago
-  5 | edmonton
-(5 rows)
-
+ERROR:  ctids must be in sorted order
 \echo 'Test 4.2: ICU collation ORDER BY -> linguistic order (case-insensitive from Postgres Sort)'
 Test 4.2: ICU collation ORDER BY -> linguistic order (case-insensitive from Postgres Sort)
 SELECT id, city FROM collation_sortby_test

@@ -908,15 +908,17 @@ impl From<PgItem> for SegmentMetaEntry {
                     None
                 };
                 let posting_norms: Option<FileEntry> = if content_bytes.len() > offset {
-                    bincode::serde::decode_from_slice(
+                    let (entry, len) = bincode::serde::decode_from_slice(
                         &content_bytes[offset..],
                         bincode::config::legacy(),
                     )
-                    .expect("invalid SegmentMetaEntry posting norm file entry")
-                    .0
+                    .expect("invalid SegmentMetaEntry posting norm file entry");
+                    offset += len;
+                    entry
                 } else {
                     None
                 };
+                debug_assert_eq!(offset, content_bytes.len());
 
                 SegmentMetaEntryContent::Immutable(SegmentMetaEntryImmutable {
                     postings: v1.postings,

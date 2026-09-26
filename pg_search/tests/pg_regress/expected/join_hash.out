@@ -46,9 +46,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=1.00 K, output_bytes=79.6 KB, output_batches=1]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2], metrics=[output_rows=1.00 K, output_bytes=192.0 KB, output_batches=1, build_mem_used=19.5 KB, array_map_created_count=1, build_input_batches=1, build_input_rows=1.00 K, input_batches=1, input_rows=1.00 K, avg_fanout=100% (1.00 K/1.00 K), probe_hit_rate=100% (1.00 K/1.00 K)]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=1, rows_pruned=0, rows_scanned=1.00 K]
+     :           PgSearchScan: table=t1, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=1, rows_pruned=0, rows_scanned=1.00 K]
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=1, rows_pruned=0, rows_scanned=1.00 K]
+     :           PgSearchScan: table=t2, segments=1, pruned=0, dynamic_filters=1, query="all", metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=1, rows_pruned=0, rows_scanned=1.00 K]
 (14 rows)
 
 SELECT t1.val, t2.val
@@ -125,9 +125,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=2.00 K, output_bytes=95.2 KB, output_batches=1]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2], metrics=[output_rows=2.00 K, output_bytes=192.0 KB, output_batches=1, build_mem_used=29.3 KB, array_map_created_count=1, build_input_batches=1, build_input_rows=1.50 K, input_batches=1, input_rows=2.00 K, avg_fanout=100% (2.00 K/2.00 K), probe_hit_rate=100% (2.00 K/2.00 K)]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
+     :           PgSearchScan: table=t1, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, rows_pruned=0, rows_scanned=2.00 K]
+     :           PgSearchScan: table=t2, segments=1, pruned=0, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, rows_pruned=0, rows_scanned=2.00 K]
 (14 rows)
 
 SELECT t1.val, t2.val
@@ -173,9 +173,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=2.00 K, output_bytes=95.2 KB, output_batches=1]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2], metrics=[output_rows=2.00 K, output_bytes=192.0 KB, output_batches=1, build_mem_used=29.3 KB, array_map_created_count=1, build_input_batches=1, build_input_rows=1.50 K, input_batches=1, input_rows=2.00 K, avg_fanout=100% (2.00 K/2.00 K), probe_hit_rate=100% (2.00 K/2.00 K)]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
+     :           PgSearchScan: table=t1, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=2.00 K]
+     :           PgSearchScan: table=t2, segments=1, pruned=0, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=2.00 K]
 (14 rows)
 
 SELECT t1.val, t2.val
@@ -226,9 +226,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=2.00 K, output_bytes=95.2 KB, output_batches=1]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2], metrics=[output_rows=2.00 K, output_bytes=192.0 KB, output_batches=1, build_mem_used=29.3 KB, array_map_created_count=1, build_input_batches=1, build_input_rows=1.50 K, input_batches=1, input_rows=2.00 K, avg_fanout=100% (2.00 K/2.00 K), probe_hit_rate=100% (2.00 K/2.00 K)]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
+     :           PgSearchScan: table=t1, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, rows_pruned=0, rows_scanned=2.00 K]
+     :           PgSearchScan: table=t2, segments=1, pruned=0, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, rows_pruned=0, rows_scanned=2.00 K]
 (14 rows)
 
 RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;

@@ -65,8 +65,8 @@ FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
 WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
 ORDER BY p.category DESC NULLS FIRST, p.name ASC
 LIMIT 5;
-                                                                                QUERY PLAN                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.category, p.name
    Relation Tree: p INNER c
@@ -80,9 +80,9 @@ LIMIT 5;
      :       VisibilityFilterExec: tables=[p, c], pruned=[c]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@0)], projection=[ctid_0@0, id@1, category@2, name@3, ctid_1@5]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, fetch=[category, name], dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
+     :             PgSearchScan: table=p, segments=1, pruned=0, fetch=[category, name], dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":"all"}}
 (16 rows)
 
 -- Same rows as the reference result above.
@@ -124,8 +124,8 @@ FROM issue_5567_parent p JOIN issue_5567_child c ON c.parent_id = p.id
 WHERE p.id @@@ paradedb.term('kind', 'manga') AND c.id @@@ paradedb.all()
 ORDER BY p.kind ASC, p.category ASC NULLS FIRST, p.name ASC
 LIMIT 5;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.kind, p.category, p.name
    Relation Tree: p INNER c
@@ -139,9 +139,9 @@ LIMIT 5;
      :       VisibilityFilterExec: tables=[p, c], pruned=[c]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@0)], projection=[ctid_0@0, id@1, kind@2, category@3, name@4, ctid_1@6]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, fetch=[kind, category, name], dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
+     :             PgSearchScan: table=p, segments=1, pruned=0, fetch=[kind, category, name], dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"kind","value":"manga"}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+     :             PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":"all"}}
 (16 rows)
 
 SELECT p.id, p.kind, p.category, p.name

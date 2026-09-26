@@ -162,10 +162,11 @@ pub struct PgSearchScanPlan {
     /// Stored separately so `partition_statistics` is deterministic, even after
     /// the state has been consumed.
     planner_estimated_rows: u64,
-    /// Number of segments this plan may process after applying its static execution-time proof.
-    /// Kept around for EXPLAIN after the state is consumed. The reader still retains the full
-    /// manifest/DSM view; this is an estimate and never a segment-identity authority.
-    segment_count: usize,
+    /// Segments in the reader's view, and how many of them its static execution-time proof
+    /// pruned. Kept around for EXPLAIN after the state is consumed; these are counts and never a
+    /// segment-identity authority.
+    total_segments: usize,
+    pruned_segments: usize,
     /// Number of partitions in the scan before task specialization. A specialized variant's
     /// `output_partitioning` is always one, so this count is serialized separately and used to
     /// rebuild the original range boundaries when the variant is decoded on its worker.
@@ -215,7 +216,8 @@ impl Clone for PgSearchScanPlan {
         Self {
             state: Mutex::new(new_state),
             planner_estimated_rows: self.planner_estimated_rows,
-            segment_count: self.segment_count,
+            total_segments: self.total_segments,
+            pruned_segments: self.pruned_segments,
             global_partition_count: self.global_partition_count,
             properties: Arc::clone(&self.properties),
             resolved_query: self.resolved_query.clone(),
@@ -301,10 +303,12 @@ impl PgSearchScanPlan {
             .as_ref()
             .map(|s| s.planner_estimated_rows)
             .unwrap_or(0);
-        let segment_count = state
+        let pruning = state.as_ref().map(|s| s.reader.segment_pruning_estimate());
+        let segment_count = pruning.map_or(0, |p| p.candidate_segments);
+        let pruned_segments = pruning.map_or(0, |p| p.pruned_segments);
+        let total_segments = state
             .as_ref()
-            .map(|s| s.reader.segment_pruning_estimate().candidate_segments)
-            .unwrap_or(0);
+            .map_or(0, |s| s.reader.searcher().segment_readers().len());
 
         if range_split_points.is_none() {
             // A partition count exceeding the segment count indicates a bug in
@@ -343,7 +347,8 @@ impl PgSearchScanPlan {
         Self {
             state: Mutex::new(exec_state),
             planner_estimated_rows,
-            segment_count,
+            total_segments,
+            pruned_segments,
             global_partition_count: partition_count,
             properties,
             resolved_query,
@@ -447,7 +452,8 @@ impl PgSearchScanPlan {
         Arc::new(Self {
             state: Mutex::new(state),
             planner_estimated_rows: self.planner_estimated_rows,
-            segment_count: self.segment_count,
+            total_segments: self.total_segments,
+            pruned_segments: self.pruned_segments,
             global_partition_count,
             properties,
             resolved_query: self.resolved_query.clone(),
@@ -1018,8 +1024,8 @@ impl DisplayAs for PgSearchScanPlan {
         } else {
             write!(
                 f,
-                "PgSearchScan: table={}, segments={}",
-                self.table_alias, self.segment_count
+                "PgSearchScan: table={}, segments={}, pruned={}",
+                self.table_alias, self.total_segments, self.pruned_segments
             )?;
         }
         if let Some(range_split_points) = &self.range_split_points {

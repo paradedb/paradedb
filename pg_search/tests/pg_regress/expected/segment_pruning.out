@@ -32,7 +32,43 @@ FROM paradedb.index_info('segment_pruning_items_idx');
  t                 | t
 (1 row)
 
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT id
+FROM segment_pruning_items
+WHERE body @@@ 'common';
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on segment_pruning_items  (cost=10.00..10.01 rows=1 width=8) (actual rows=64.00 loops=1)
+   Table: segment_pruning_items
+   Index: segment_pruning_items_idx
+   Segment Count: 4
+   Segments Pruned: 0
+   Heap Fetches: 0
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"common","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
 -- A narrow range intersects one segment; a gap between segment bounds intersects none.
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT id
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND price BETWEEN 104 AND 106;
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on segment_pruning_items  (cost=10.00..10.01 rows=1 width=8) (actual rows=3.00 loops=1)
+   Table: segment_pruning_items
+   Index: segment_pruning_items_idx
+   Segment Count: 4
+   Segments Pruned: 3
+   Heap Fetches: 0
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"price","lower_bound":{"included":104},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":106}}}]}}
+(10 rows)
+
 SELECT array_agg(id ORDER BY id) AS one_segment
 FROM segment_pruning_items
 WHERE id @@@ pdb.all() AND price BETWEEN 104 AND 106;
@@ -42,6 +78,24 @@ WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To
  {104,105,106}
 (1 row)
 
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT id
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND price = 150;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on segment_pruning_items  (cost=10.00..10.01 rows=1 width=8) (actual rows=0.00 loops=1)
+   Table: segment_pruning_items
+   Index: segment_pruning_items_idx
+   Segment Count: 4
+   Segments Pruned: 4
+   Heap Fetches: 0
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"price","value":150}}]}}
+(10 rows)
+
 SELECT count(*) AS gap_count
 FROM segment_pruning_items
 WHERE id @@@ pdb.all() AND price = 150;
@@ -50,6 +104,52 @@ WHERE id @@@ pdb.all() AND price = 150;
          0
 (1 row)
 
+-- The join scan's PgSearchScan reports the same pruning as the Base Scan above.
+CREATE TABLE segment_pruning_labels (id bigint PRIMARY KEY, label text NOT NULL);
+INSERT INTO segment_pruning_labels
+SELECT g, 'label ' || g FROM generate_series(101, 116) g;
+CREATE INDEX segment_pruning_labels_idx ON segment_pruning_labels
+USING paradedb (id, label);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, l.label
+FROM segment_pruning_items i
+JOIN segment_pruning_labels l ON i.id = l.id
+WHERE i.id @@@ pdb.all() AND i.price BETWEEN 104 AND 106
+ORDER BY i.id
+LIMIT 5;
+                                                                                                                                                        QUERY PLAN                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: i.id, l.label
+   Relation Tree: i INNER l
+   Join Cond: i.id = l.id
+   Limit: 5
+   Order By: i.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, l]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=i, segments=4, pruned=3, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"price","lower_bound":{"included":104},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":106}}}]}}
+     :         CooperativeExec
+     :           PgSearchScan: table=l, segments=1, pruned=0, dynamic_filters=1, query="all"
+(15 rows)
+
+SELECT i.id, l.label
+FROM segment_pruning_items i
+JOIN segment_pruning_labels l ON i.id = l.id
+WHERE i.id @@@ pdb.all() AND i.price BETWEEN 104 AND 106
+ORDER BY i.id
+LIMIT 5;
+ id  |   label   
+-----+-----------
+ 104 | label 104
+ 105 | label 105
+ 106 | label 106
+(3 rows)
+
+DROP TABLE segment_pruning_labels;
 -- NULL prevents a matches-all guarantee but must not change SQL semantics.
 SELECT array_agg(id ORDER BY id) AS nullable_range
 FROM segment_pruning_items
@@ -122,6 +222,26 @@ WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To
  {104,105,106}
 (1 row)
 
+PREPARE segment_pruning_explain(bigint) AS
+SELECT id
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND price = $1;
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+EXECUTE segment_pruning_explain(150);
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on segment_pruning_items  (cost=10.00..10.01 rows=1 width=8) (actual rows=0.00 loops=1)
+   Table: segment_pruning_items
+   Index: segment_pruning_items_idx
+   Segment Count: 4
+   Segments Pruned: 4
+   Heap Fetches: 0
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('price'::paradedb.fieldname, '='::text, $1)"}}}]}}
+(10 rows)
+
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO segment_pruning_items
 SELECT g, 'late common ' || g, g, g FROM generate_series(401, 404) g;
@@ -131,6 +251,22 @@ EXECUTE segment_pruning_range(401, 404);
 -------------------
  {401,402,403,404}
 (1 row)
+
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+EXECUTE segment_pruning_explain(150);
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on segment_pruning_items  (cost=10.00..10.01 rows=1 width=8) (actual rows=0.00 loops=1)
+   Table: segment_pruning_items
+   Index: segment_pruning_items_idx
+   Segment Count: 5
+   Segments Pruned: 5
+   Heap Fetches: 0
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('price'::paradedb.fieldname, '='::text, $1)"}}}]}}
+(10 rows)
 
 -- A segment without persisted stats must fail open, and later UPDATE/DELETE generations must be
 -- resolved by each execution rather than by the generic plan's original manifest.
@@ -185,6 +321,7 @@ ORDER BY wanted.lo;
 
 RESET paradedb.planner_warnings;
 DEALLOCATE segment_pruning_range;
+DEALLOCATE segment_pruning_explain;
 RESET plan_cache_mode;
 RESET enable_indexscan;
 RESET max_parallel_workers_per_gather;

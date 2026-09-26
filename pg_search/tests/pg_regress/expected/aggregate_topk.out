@@ -24,8 +24,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -44,7 +44,7 @@ LIMIT 3;
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         TantivyFetchExec: fetch=[category]
                  :           CooperativeExec
-                 :             PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+                 :             PgSearchScan: table=mock_items, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":"all"}}
 (19 rows)
 
 SELECT category, COUNT(*)
@@ -72,8 +72,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (sum(rating))
    ->  Sort
@@ -92,7 +92,7 @@ LIMIT 3;
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[sum(mock_items_0.rating) as agg_0]
                  :         TantivyFetchExec: fetch=[category]
                  :           CooperativeExec
-                 :             PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+                 :             PgSearchScan: table=mock_items, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":"all"}}
 (19 rows)
 
 SELECT category, SUM(rating)
@@ -118,8 +118,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -138,7 +138,7 @@ LIMIT 2;
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         TantivyFetchExec: fetch=[category]
                  :           CooperativeExec
-                 :             PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+                 :             PgSearchScan: table=mock_items, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":"all"}}
 (19 rows)
 
 SELECT category, COUNT(*)
@@ -242,7 +242,7 @@ LIMIT 3;
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(mock_items_0.rating) as agg_1, min(mock_items_0.rating) as agg_2, max(mock_items_0.rating) as agg_3]
                  :         TantivyFetchExec: fetch=[category]
                  :           CooperativeExec
-                 :             PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+                 :             PgSearchScan: table=mock_items, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":"all"}}
 (19 rows)
 
 SELECT category, COUNT(*), SUM(rating), MIN(rating), MAX(rating)
@@ -268,8 +268,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -288,7 +288,7 @@ LIMIT 1;
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         TantivyFetchExec: fetch=[category]
                  :           CooperativeExec
-                 :             PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+                 :             PgSearchScan: table=mock_items, segments=1, pruned=0, visibility=eager, query={"with_index":{"query":"all"}}
 (19 rows)
 
 SELECT category, COUNT(*)

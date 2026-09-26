@@ -46,8 +46,8 @@ WHERE id IN (
 AND category ### 'target_category'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                         QUERY PLAN                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
    Relation Tree: table_a SEMI table_b
@@ -60,9 +60,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[table_a]
      :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
      :         CooperativeExec
-     :           PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
+     :           PgSearchScan: table=table_b, segments=1, pruned=0, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
      :         CooperativeExec
-     :           PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
+     :           PgSearchScan: table=table_a, segments=1, pruned=0, dynamic_filters=2, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
 (15 rows)
 
 -- =====================================================================
@@ -111,8 +111,8 @@ WHERE NOT EXISTS (
 AND table_a.category ### 'target_category'
 ORDER BY table_a.id ASC
 LIMIT 10;
-                                                                                         QUERY PLAN                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
    Relation Tree: table_a ANTI table_b
@@ -125,9 +125,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[table_a]
      :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
      :         CooperativeExec
-     :           PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
+     :           PgSearchScan: table=table_b, segments=1, pruned=0, visibility=eager, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=table_a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
+     :           PgSearchScan: table=table_a, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
 (15 rows)
 
 -- =====================================================================
@@ -228,8 +228,8 @@ WHERE (id, category) IN (
 AND id @@@ pdb.all()
 ORDER BY id ASC
 LIMIT 10;
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
    Relation Tree: table_a SEMI table_b
@@ -242,9 +242,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[table_a]
      :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1), (category@1, category@2)]
      :         CooperativeExec
-     :           PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
+     :           PgSearchScan: table=table_b, segments=1, pruned=0, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
      :         CooperativeExec
-     :           PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :           PgSearchScan: table=table_a, segments=1, pruned=0, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (15 rows)
 
 SELECT id, category
@@ -285,8 +285,8 @@ WHERE id IN (
 AND category ### 'target_category'
 ORDER BY category ASC, id ASC
 LIMIT 10;
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
    Relation Tree: table_a SEMI table_b
@@ -301,9 +301,9 @@ LIMIT 10;
      :         VisibilityFilterExec: tables=[table_a]
      :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
      :             CooperativeExec
-     :               PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
+     :               PgSearchScan: table=table_b, segments=1, pruned=0, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
      :             CooperativeExec
-     :               PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
+     :               PgSearchScan: table=table_a, segments=1, pruned=0, dynamic_filters=2, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
 (17 rows)
 
 SELECT *
@@ -345,8 +345,8 @@ WHERE id IN (
 AND id @@@ pdb.all() AND id = 1
 ORDER BY id ASC
 LIMIT 10;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
    Relation Tree: table_a SEMI table_b
@@ -358,9 +358,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[table_a]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=table_a, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"id","value":1}}]}}
+     :           PgSearchScan: table=table_a, segments=1, pruned=0, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"id","value":1}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=table_b, segments=1, dynamic_filters=1, visibility=eager, query={"term":{"field":"a_id","value":1}}
+     :           PgSearchScan: table=table_b, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"term":{"field":"a_id","value":1}}
 (14 rows)
 
 SELECT id, category

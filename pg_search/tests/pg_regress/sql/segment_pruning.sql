@@ -33,14 +33,53 @@ SELECT count(*) = 4 AS has_four_segments,
        sum(num_docs) = 64 AS has_all_docs
 FROM paradedb.index_info('segment_pruning_items_idx');
 
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT id
+FROM segment_pruning_items
+WHERE body @@@ 'common';
+
 -- A narrow range intersects one segment; a gap between segment bounds intersects none.
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT id
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND price BETWEEN 104 AND 106;
+
 SELECT array_agg(id ORDER BY id) AS one_segment
 FROM segment_pruning_items
 WHERE id @@@ pdb.all() AND price BETWEEN 104 AND 106;
 
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT id
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND price = 150;
+
 SELECT count(*) AS gap_count
 FROM segment_pruning_items
 WHERE id @@@ pdb.all() AND price = 150;
+
+-- The join scan's PgSearchScan reports the same pruning as the Base Scan above.
+CREATE TABLE segment_pruning_labels (id bigint PRIMARY KEY, label text NOT NULL);
+INSERT INTO segment_pruning_labels
+SELECT g, 'label ' || g FROM generate_series(101, 116) g;
+CREATE INDEX segment_pruning_labels_idx ON segment_pruning_labels
+USING paradedb (id, label);
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, l.label
+FROM segment_pruning_items i
+JOIN segment_pruning_labels l ON i.id = l.id
+WHERE i.id @@@ pdb.all() AND i.price BETWEEN 104 AND 106
+ORDER BY i.id
+LIMIT 5;
+
+SELECT i.id, l.label
+FROM segment_pruning_items i
+JOIN segment_pruning_labels l ON i.id = l.id
+WHERE i.id @@@ pdb.all() AND i.price BETWEEN 104 AND 106
+ORDER BY i.id
+LIMIT 5;
+
+DROP TABLE segment_pruning_labels;
 
 -- NULL prevents a matches-all guarantee but must not change SQL semantics.
 SELECT array_agg(id ORDER BY id) AS nullable_range
@@ -87,12 +126,23 @@ WHERE id @@@ pdb.all() AND price BETWEEN $1 AND $2;
 
 EXECUTE segment_pruning_range(104, 106);
 
+PREPARE segment_pruning_explain(bigint) AS
+SELECT id
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND price = $1;
+
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+EXECUTE segment_pruning_explain(150);
+
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO segment_pruning_items
 SELECT g, 'late common ' || g, g, g FROM generate_series(401, 404) g;
 RESET paradedb.global_mutable_segment_rows;
 
 EXECUTE segment_pruning_range(401, 404);
+
+EXPLAIN (ANALYZE, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+EXECUTE segment_pruning_explain(150);
 
 -- A segment without persisted stats must fail open, and later UPDATE/DELETE generations must be
 -- resolved by each execution rather than by the generic plan's original manifest.
@@ -124,6 +174,7 @@ ORDER BY wanted.lo;
 RESET paradedb.planner_warnings;
 
 DEALLOCATE segment_pruning_range;
+DEALLOCATE segment_pruning_explain;
 
 RESET plan_cache_mode;
 RESET enable_indexscan;

@@ -79,8 +79,8 @@ JOIN hot_orders o ON o.user_id = u.id
 WHERE u.name @@@ 'bob'
 ORDER BY u.id, o.id
 LIMIT 10;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: u.id, u.name, u.rating, o.note, o.id
    Relation Tree: u INNER o
@@ -93,9 +93,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[u, o]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@1)]
      :         CooperativeExec
-     :           PgSearchScan: table=u, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=u, segments=1, pruned=0, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT u.id, u.name, u.rating, o.note
@@ -120,8 +120,8 @@ JOIN hot_orders o ON o.user_id = u.id
 WHERE u.name @@@ 'bob OR alice'
 ORDER BY u.name, u.id, o.id
 LIMIT 4;
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: u.id, u.name, u.rating, o.note, o.id
    Relation Tree: u INNER o
@@ -135,9 +135,9 @@ LIMIT 4;
      :       VisibilityFilterExec: tables=[u, o]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@1)]
      :           CooperativeExec
-     :             PgSearchScan: table=u, segments=1, fetch=[name], query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob OR alice","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=u, segments=1, pruned=0, fetch=[name], query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob OR alice","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, query="all"
 (16 rows)
 
 SELECT u.id, u.name, u.rating, o.note
@@ -162,8 +162,8 @@ LEFT JOIN hot_users u ON o.user_id = u.id
 WHERE o.note @@@ 'order'
 ORDER BY o.id
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: o.id, o.note, u.id, u.name, u.rating
    Relation Tree: o LEFT u
@@ -176,9 +176,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[o]
      :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, user_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
      :         CooperativeExec
-     :           PgSearchScan: table=u, segments=1, visibility=eager, query="all"
+     :           PgSearchScan: table=u, segments=1, pruned=0, visibility=eager, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"order","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=o, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"order","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT o.id, o.note, u.id, u.name, u.rating

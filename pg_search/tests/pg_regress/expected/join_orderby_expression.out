@@ -55,8 +55,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name
    Relation Tree: c SEMI fr
@@ -69,9 +69,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT c.id, c.name
@@ -103,8 +103,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id + 0))
    Relation Tree: c SEMI fr
@@ -117,9 +117,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT c.id, c.name
@@ -186,8 +186,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id - 0))
    Relation Tree: c SEMI fr
@@ -200,9 +200,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT c.id, c.name
@@ -234,8 +234,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id * 1))
    Relation Tree: c SEMI fr
@@ -248,9 +248,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT c.id, c.name
@@ -282,8 +282,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id / 1))
    Relation Tree: c SEMI fr
@@ -296,9 +296,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT c.id, c.name
@@ -330,8 +330,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY (c.id + 0)::int4 DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id + 0))
    Relation Tree: c SEMI fr
@@ -344,9 +344,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT c.id, c.name
@@ -379,8 +379,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY c.big_id + 0::bigint DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.big_id + '0'::bigint))
    Relation Tree: c SEMI fr
@@ -393,9 +393,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 -- int8: big_id * 1::bigint
@@ -410,8 +410,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY c.big_id * 1::bigint DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.big_id * '1'::bigint))
    Relation Tree: c SEMI fr
@@ -424,9 +424,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 -- const-on-left: 0 + id (commutative, should unwrap)
@@ -441,8 +441,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY 0 + c.id DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((0 + c.id))
    Relation Tree: c SEMI fr
@@ -455,9 +455,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 -- const-on-left: 1 * id (commutative, should unwrap)
@@ -472,8 +472,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY 1 * c.id DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((1 * c.id))
    Relation Tree: c SEMI fr
@@ -486,9 +486,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 -- =============================================================================
@@ -730,8 +730,8 @@ WHERE c.id IN (
 AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id + 0))
    Relation Tree: c SEMI fr
@@ -744,9 +744,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
+     :           PgSearchScan: table=fr, segments=1, pruned=0, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
 (15 rows)
 
 SELECT c.id, c.name

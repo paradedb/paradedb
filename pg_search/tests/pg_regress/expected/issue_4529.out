@@ -43,8 +43,8 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
@@ -57,9 +57,9 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[p, s], pruned=[p]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@0, id@1)], projection=[ctid_1@2, name@4, ctid_0@1]
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
+     :           PgSearchScan: table=p, segments=1, pruned=0, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=s, segments=1, pruned=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT DISTINCT s.name

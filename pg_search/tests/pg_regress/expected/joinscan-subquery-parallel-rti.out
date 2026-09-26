@@ -94,8 +94,8 @@ WHERE i.overview ||| 'software'
   )
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id
    Relation Tree: (i ANTI e) SEMI p
@@ -121,22 +121,22 @@ LIMIT 10;
      :     │     CoalescePartitionsExec
      :     │       [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      :     │     DistributedLeafExec:
-     :     │       t0: PgSearchScan: table=e, segments=2, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+     :     │       t0: PgSearchScan: table=e, segments=2, pruned=0, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
      :     └──────────────────────────────────────────────────
      :       ┌───── Stage 1 ── tasks=4, partitions=4
      :       │ DistributedLeafExec:
-     :       │   t0: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :       │   t1: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :       │   t2: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :       │   t3: PgSearchScan: table=i, segments=10, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       │   t0: PgSearchScan: table=i, segments=10, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       │   t1: PgSearchScan: table=i, segments=10, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       │   t2: PgSearchScan: table=i, segments=10, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       │   t3: PgSearchScan: table=i, segments=10, pruned=0, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"overview","value":"software","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       └──────────────────────────────────────────────────
      :     ┌───── Stage 3 ── tasks=4, partitions=16
      :     │ RepartitionExec: partitioning=Hash([company_id@0], 16), input_partitions=1
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-     :     │     t1: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-     :     │     t2: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
-     :     │     t3: PgSearchScan: table=p, segments=30, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t0: PgSearchScan: table=p, segments=30, pruned=0, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t1: PgSearchScan: table=p, segments=30, pruned=0, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t2: PgSearchScan: table=p, segments=30, pruned=0, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t3: PgSearchScan: table=p, segments=30, pruned=0, dynamic_filters=1, visibility=eager, query="all"
      :     └──────────────────────────────────────────────────
 (42 rows)
 

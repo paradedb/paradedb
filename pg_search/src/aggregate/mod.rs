@@ -15,15 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod count_all_collector;
 pub mod exec;
 
 use std::error::Error;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
+use crate::aggregate::count_all_collector::CountAllCollector;
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
-use crate::aggregate::mvcc_collector::{CountAllCollector, MVCCFilterCollector};
+use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
@@ -1107,80 +1109,9 @@ pub mod mvcc_collector {
 
     use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
 
-    use super::interrupt_collector::InterruptableCollector;
-    use tantivy::aggregation::DistributedAggregationCollector;
-    use tantivy::aggregation::intermediate_agg_result::{
-        IntermediateAggregationResult, IntermediateAggregationResults, IntermediateBucketResult,
-    };
-    use tantivy::query::Weight;
-
-    /// Only for a bare COUNT(*) whose query matches every document.
-    pub struct CountAllCollector {
-        inner: InterruptableCollector<MVCCFilterCollector<DistributedAggregationCollector>>,
-        checker: Arc<Mutex<VisibilityChecker>>,
-    }
-
-    impl CountAllCollector {
-        pub fn new(inner: DistributedAggregationCollector, checker: VisibilityChecker) -> Self {
-            let inner = MVCCFilterCollector::new(inner, checker);
-            Self {
-                checker: inner.lock.clone(),
-                inner: InterruptableCollector::new(inner),
-            }
-        }
-    }
-
-    unsafe impl Send for CountAllCollector {}
-    unsafe impl Sync for CountAllCollector {}
-
-    impl Collector for CountAllCollector {
-        type Fruit = IntermediateAggregationResults;
-        type Child = <InterruptableCollector<MVCCFilterCollector<DistributedAggregationCollector>> as Collector>::Child;
-
-        fn for_segment(
-            &self,
-            ord: SegmentOrdinal,
-            segment: &SegmentReader,
-        ) -> tantivy::Result<Self::Child> {
-            self.inner.for_segment(ord, segment)
-        }
-
-        fn requires_scoring(&self) -> bool {
-            false
-        }
-
-        fn merge_fruits(
-            &self,
-            fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
-        ) -> tantivy::Result<Self::Fruit> {
-            self.inner.merge_fruits(fruits)
-        }
-
-        fn collect_segment(
-            &self,
-            weight: &dyn Weight,
-            ord: SegmentOrdinal,
-            segment: &SegmentReader,
-        ) -> tantivy::Result<<Self::Child as SegmentCollector>::Fruit> {
-            pgrx::check_for_interrupts!();
-            if VisibilityChecker::for_segment(&self.checker, segment)?.is_none() {
-                let mut result = IntermediateAggregationResults::default();
-                result.push(
-                    "0".to_string(),
-                    IntermediateAggregationResult::Bucket(IntermediateBucketResult::Filter {
-                        doc_count: u64::from(segment.num_docs()),
-                        sub_aggregations: IntermediateAggregationResults::default(),
-                    }),
-                )?;
-                return Ok(Ok(result));
-            }
-            self.inner.collect_segment(weight, ord, segment)
-        }
-    }
-
     pub struct MVCCFilterCollector<C: Collector> {
         inner: C,
-        lock: Arc<Mutex<VisibilityChecker>>,
+        pub(super) lock: Arc<Mutex<VisibilityChecker>>,
     }
 
     unsafe impl<C: Collector> Send for MVCCFilterCollector<C> {}

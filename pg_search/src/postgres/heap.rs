@@ -221,6 +221,13 @@ struct MaskCheckScratch {
     raw_blocks: Vec<u32>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DocBlockStatus {
+    AllVisible,
+    Invisible,
+    Dirty(BlockNumber),
+}
+
 // TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
 impl Clone for VisibilityChecker {
     fn clone(&self) -> Self {
@@ -739,35 +746,75 @@ impl VisibilityChecker {
             .is_some_and(|ranges| ranges.is_empty())
     }
 
+    fn doc_block_status(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> DocBlockStatus {
+        if !self.check_visibility {
+            return DocBlockStatus::AllVisible;
+        }
+        if let Some(ranges) = self.doc_id_ranges_needing_visibility_checks(segment_ord) {
+            if ranges.is_empty() {
+                return DocBlockStatus::AllVisible;
+            }
+            let idx = ranges.partition_point(|entry| entry.range.end <= doc_id);
+            if idx < ranges.len() && ranges[idx].range.start <= doc_id {
+                let blockno = ranges[idx].block;
+                if blockno >= self.nblocks {
+                    self.invisible_tuple_count += 1;
+                    return DocBlockStatus::Invisible;
+                }
+                return DocBlockStatus::Dirty(blockno);
+            }
+            return DocBlockStatus::AllVisible;
+        }
+
+        // Fallback when proof ranges are not available (e.g. mutable segments, no .stats, non-MVCC snapshot):
+        let Some(blockno) = self.block_of_doc(segment_ord, doc_id) else {
+            return DocBlockStatus::Invisible;
+        };
+        if blockno >= self.nblocks {
+            self.invisible_tuple_count += 1;
+            return DocBlockStatus::Invisible;
+        }
+        if self.is_block_all_visible(blockno) {
+            return DocBlockStatus::AllVisible;
+        }
+        DocBlockStatus::Dirty(blockno)
+    }
+
     /// Checks if a single document is on an all-visible block.
     ///
     /// For segments with heap-block presence, uses the cached non-all-visible document ranges
     /// without reading any fast field columns or block numbers.
     /// Falls back to checking the block visibility map directly without decoding offsets.
     pub fn is_doc_all_visible(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> bool {
-        if !self.check_visibility {
-            return true;
-        }
-        if let Some(ranges) = self.doc_id_ranges_needing_visibility_checks(segment_ord) {
-            if ranges.is_empty() {
-                return true;
-            }
-            let idx = ranges.partition_point(|entry| entry.range.end <= doc_id);
-            if idx < ranges.len() && ranges[idx].range.start <= doc_id {
-                return false;
-            }
-            return true;
-        }
+        matches!(
+            self.doc_block_status(segment_ord, doc_id),
+            DocBlockStatus::AllVisible
+        )
+    }
 
-        // Fallback when proof ranges are not available (e.g. mutable segments, no .stats, non-MVCC snapshot):
-        let blockno = self.block_of_doc(segment_ord, doc_id);
-        let Some(blockno) = blockno else {
+    /// Checks if a single document is visible under this checker's snapshot.
+    ///
+    /// First checks if the document is in an all-visible block (using proof ranges or the
+    /// visibility map) without reading `tid_offset` or touching shared buffers.
+    /// If the document falls on a dirty block, resolves its offset from the fast field
+    /// (reusing the already determined block number without re-reading `tid_block`)
+    /// and checks the heap tuple.
+    pub fn check_doc(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> bool {
+        let blockno = match self.doc_block_status(segment_ord, doc_id) {
+            DocBlockStatus::AllVisible => return true,
+            DocBlockStatus::Invisible => return false,
+            DocBlockStatus::Dirty(blockno) => blockno,
+        };
+
+        let Some(ctid) = self
+            .ffhelper
+            .as_ref()
+            .and_then(|ff| ff.ctid(segment_ord).ctid_with_block(doc_id, blockno))
+        else {
             return false;
         };
-        if blockno >= self.nblocks {
-            return false;
-        }
-        self.is_block_all_visible(blockno)
+
+        self.resolve_visible(ctid, None, false).is_some()
     }
 
     /// Returns the block number for a document within a segment without reading or decoding offsets.

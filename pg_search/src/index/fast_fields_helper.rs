@@ -110,6 +110,22 @@ impl TidReader {
         }
     }
 
+    /// Resolves the tuple identifier for `doc` when its `blockno` is already known,
+    /// avoiding re-reading or decoding the `tid_block` columnar fast field.
+    #[inline(always)]
+    pub fn ctid_with_block(&self, doc: DocId, blockno: pgrx::pg_sys::BlockNumber) -> Option<u64> {
+        match self {
+            Self::Split { offset, .. } => {
+                let o = offset.first(doc)?;
+                Some(crate::postgres::utils::tid_from_components(
+                    blockno,
+                    o as TidOffset,
+                ))
+            }
+            Self::Legacy(col) => col.first(doc),
+        }
+    }
+
     pub fn as_u64s(
         &self,
         docs: &[DocId],

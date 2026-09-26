@@ -56,6 +56,11 @@ SELECT issue_6406_total_cost($q$
     SELECT id FROM issue_6406 WHERE content @@@ 'alpha'
 $q$) >= current_setting('paradedb.per_tuple_cost')::FLOAT8 AS qual_penalized;
 
+-- Also when the target list projects the same search expression.
+SELECT issue_6406_total_cost($q$
+    SELECT id, content @@@ 'alpha' FROM issue_6406 WHERE content @@@ 'alpha'
+$q$) >= current_setting('paradedb.per_tuple_cost')::FLOAT8 AS qual_penalized;
+
 RESET paradedb.enable_custom_scan;
 RESET enable_indexscan;
 RESET enable_bitmapscan;

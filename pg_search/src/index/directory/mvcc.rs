@@ -34,6 +34,7 @@ use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Debug, Display};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
@@ -45,7 +46,7 @@ use tantivy::directory::error::{
 };
 use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
-    WatchCallback, WatchHandle,
+    TempFilePtr, WatchCallback, WatchHandle,
 };
 use tantivy::index::{SegmentComponent, SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
@@ -54,6 +55,74 @@ use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 /// We want to write more at a time so we can allocate chunks of blocks all at once,
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
+
+/// PostgreSQL-owned spill file for Tantivy merge-local temporary payloads.
+///
+/// `BufFileCreateTemp(false)` registers the file with PostgreSQL's resource
+/// owner and temporary-file accounting, so it is removed on normal close,
+/// transaction abort, backend exit, or process failure. It never enters the
+/// immutable segment-component map.
+struct PgTempFile {
+    file: *mut pg_sys::BufFile,
+}
+
+impl PgTempFile {
+    fn create() -> Self {
+        let file = unsafe { pg_sys::BufFileCreateTemp(false) };
+        assert!(!file.is_null(), "BufFileCreateTemp returned null");
+        Self { file }
+    }
+}
+
+impl Read for PgTempFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        Ok(unsafe { pg_sys::BufFileRead(self.file, buf.as_mut_ptr().cast(), buf.len()) })
+    }
+}
+
+impl Write for PgTempFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        unsafe {
+            #[cfg(feature = "pg15")]
+            pg_sys::BufFileWrite(self.file, buf.as_ptr() as *mut std::ffi::c_void, buf.len());
+            #[cfg(not(feature = "pg15"))]
+            pg_sys::BufFileWrite(self.file, buf.as_ptr().cast(), buf.len());
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // BufFileSeek flushes pending writes before the read phase. There is
+        // no independent BufFile flush API.
+        Ok(())
+    }
+}
+
+impl Seek for PgTempFile {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        if position != SeekFrom::Start(0) {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "PostgreSQL quantization spill files support rewind only",
+            ));
+        }
+        let result = unsafe {
+            pg_sys::BufFileSeek(self.file, 0, 0, 0 /* SEEK_SET */)
+        };
+        if result != 0 {
+            return Err(io::Error::other(format!(
+                "BufFileSeek rewind failed with status {result}"
+            )));
+        }
+        Ok(0)
+    }
+}
+
+impl Drop for PgTempFile {
+    fn drop(&mut self) {
+        unsafe { pg_sys::BufFileClose(self.file) }
+    }
+}
 
 /// The `(max_doc, num_deleted_docs)` pair of a mutable segment's meta entry as one reader
 /// loaded it. A mutable segment is materialized from the heap on open, from the prefix of its
@@ -593,7 +662,7 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(
+                            SegmentComponentReader::new_uncommitted(
                                 &self.indexrel,
                                 file_entry,
                                 path.extension()
@@ -625,6 +694,10 @@ impl Directory for MVCCDirectory {
             (writer.file_entry(), writer.total_bytes()),
         );
         Ok(Box::new(writer))
+    }
+
+    fn open_temp_file(&self) -> io::Result<TempFilePtr> {
+        Ok(Box::new(PgTempFile::create()))
     }
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
@@ -1053,6 +1126,7 @@ pub fn index_memory_segment(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use tantivy::postings::Postings;
 
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::rel::PgSearchRelation;
@@ -1064,7 +1138,11 @@ mod tests {
     unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        Spi::run(
+            "CREATE INDEX t_idx ON t USING paradedb \
+             (id, data, (data::pdb.simple('alias=with_pnorms', 'pnorms=true')))",
+        )
+        .unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -1077,13 +1155,33 @@ mod tests {
         let SegmentMetaEntryContent::Immutable(entry) = entry.content else {
             todo!("test_list_meta_entries");
         };
-        assert!(entry.field_norms.is_none());
+        assert!(entry.field_norms.is_some());
         assert!(entry.posting_norms.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());
         assert!(entry.positions.is_some());
         assert!(entry.terms.is_some());
         assert!(entry.delete.is_none());
+
+        let reader = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).unwrap();
+        for segment in reader.segment_readers() {
+            let schema = segment.schema();
+            let plain = schema.get_field("data").unwrap();
+            let enabled = schema.get_field("with_pnorms").unwrap();
+            for (field, pnorms) in [(plain, false), (enabled, true)] {
+                let postings = segment
+                    .inverted_index(field)
+                    .unwrap()
+                    .read_postings(
+                        &tantivy::Term::from_field_text(field, "test"),
+                        tantivy::schema::IndexRecordOption::WithFreqs,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(postings.fieldnorm_id().is_some(), pnorms);
+            }
+            assert!(segment.get_fieldnorms_reader(enabled).is_ok());
+        }
     }
 
     /// A reader replaying a [`SegmentView`] must expose the view's ordinal order and, for a

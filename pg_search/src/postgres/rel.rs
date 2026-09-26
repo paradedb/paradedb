@@ -17,13 +17,14 @@
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, HashSet};
-use crate::index::{index_settings, setup_tokenizers};
+use crate::index::directory::utils::load_index_settings;
+use crate::index::setup_tokenizers;
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
-use crate::vector::clusterer::set_ivf_clusterer;
+use crate::vector::clusterer::{set_ivf_clusterer, set_ivf_router};
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
 use std::cell::RefCell;
@@ -507,9 +508,12 @@ impl PgSearchRelation {
     pub(crate) fn create_in_memory_index(&self, directory: RamDirectory) -> anyhow::Result<Index> {
         let schema = self.schema()?;
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
-        let settings = index_settings(self.options(), &tantivy_schema);
+        let settings = load_index_settings(self)?.ok_or_else(|| {
+            anyhow::anyhow!("index settings were not persisted before in-memory segment creation")
+        })?;
         // Throwaway materializations do not need the stats plugin.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
+        set_ivf_router(&mut index)?;
         if schema.has_vector_field() {
             set_ivf_clusterer(&mut index, self.options());
         }

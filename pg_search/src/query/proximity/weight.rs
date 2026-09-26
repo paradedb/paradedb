@@ -198,6 +198,7 @@ impl ProximityWeight {
                             &term_infos,
                             segment_reader,
                             &inverted_index,
+                            self.weight_opt.is_some(),
                         )?;
                         postings.push(Box::new(union))
                     }

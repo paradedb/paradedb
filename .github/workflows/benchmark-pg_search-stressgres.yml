@@ -53,7 +53,7 @@ jobs:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
-      - image=ubuntu24-full-arm64
+      - image=ubuntu26-full-arm64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
       # using EBS would cause
@@ -68,25 +68,28 @@ jobs:
         if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-stressgres')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
+          gh pr edit "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --remove-label benchmarks \
             --remove-label benchmark-stressgres || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
+        env:
+          INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
           # If a specific commit was provided via workflow_dispatch, use that.
           # For pull_request events, benchmark the PR merge commit (github.sha),
           # which exists in the base repo even for forks.
           # Otherwise, default to main.
-          if [ -n "${{ inputs.commit }}" ]; then
-            echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from workflow_dispatch input: ${{ inputs.commit }}"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from pull_request event: ${{ github.sha }}"
+          if [ -n "${INPUTS_COMMIT}" ]; then
+            echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from workflow_dispatch input: ${INPUTS_COMMIT}"
+          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from pull_request event: ${GITHUB_SHA}"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
             echo "Determined ref as default: main"
@@ -190,7 +193,9 @@ jobs:
               : ref;
 
       - name: Running for ${{ steps.pr_label.outputs.result }}
-        run: echo ${{ steps.pr_label.outputs.result }}
+        env:
+          STEP_PR_LABEL_RESULT: ${{ steps.pr_label.outputs.result }}
+        run: echo "${STEP_PR_LABEL_RESULT}"
 
       - name: Set Up pg_search Build Environment
         uses: ./.github/actions/setup-pg-search-build-environment

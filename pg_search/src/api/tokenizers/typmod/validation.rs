@@ -269,6 +269,7 @@ impl TypmodSchema {
                 rule!("ascii_folding", ValueConstraint::Boolean),
                 rule!("trim", ValueConstraint::Boolean),
                 rule!("fieldnorms", ValueConstraint::Boolean),
+                rule!("pnorms", ValueConstraint::Boolean),
                 rule!(
                     "normalizer",
                     ValueConstraint::StringChoice(vec!["raw", "lowercase"])

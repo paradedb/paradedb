@@ -334,8 +334,9 @@ impl SegmentMetaEntryImmutable {
     }
 
     pub fn file_entry(&self, uuid: &str, path: &Path) -> Option<FileEntry> {
+        let requested = SegmentComponent::try_from(path.extension()?.to_str()?).ok()?;
         for (file_entry, component) in self.file_entries() {
-            if path == Self::path(uuid, component) {
+            if component == requested && path == Self::path(uuid, component) {
                 return Some(*file_entry);
             }
         }
@@ -386,7 +387,7 @@ impl SegmentMetaEntryImmutable {
             .chain(
                 self.posting_norms
                     .iter()
-                    .map(|fe| (fe, SegmentComponent::Custom("pnorm".into()))),
+                    .map(|fe| (fe, SegmentComponent::PostingNorms)),
             )
     }
 }
@@ -1077,7 +1078,7 @@ mod tests {
         assert_eq!(full.byte_size(), 3900);
         let norm_path = SegmentMetaEntryImmutable::path(
             &full.segment_id().uuid_string(),
-            SegmentComponent::Custom("pnorm".into()),
+            SegmentComponent::PostingNorms,
         );
         let SegmentMetaEntryContent::Immutable(content) = full.content else {
             panic!("expected immutable segment");

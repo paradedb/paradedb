@@ -45,3 +45,23 @@ CREATE INDEX search_idx ON mock_items
 USING paradedb (id, (description::pdb.ngram(3,3)))
 WITH (key_field='id');
 ```
+
+## Posting Norms
+
+For text fields used in top-k BM25 queries, set `pnorms=true` on the tokenizer
+cast to store field-length norms alongside postings:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (description::pdb.simple('pnorms=true')))
+WITH (key_field='id');
+```
+
+This option defaults to `false` and applies only to the selected field. It can
+reduce scattered reads during scoring, at the cost of additional index storage
+and longer index builds and merges. Document-addressed field norms are retained.
+
+Posting norms require an indexed text field with `fieldnorms=true`. Literal
+tokenizers default to `fieldnorms=false`, so they require both options explicitly.
+JSON and JSONB fields do not support posting norms; extract a text value first
+if needed. Existing indexes retain their configuration.

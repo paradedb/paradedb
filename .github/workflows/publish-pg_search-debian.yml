@@ -54,8 +54,8 @@ jobs:
           - name: Debian 12 (Bookworm)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: debian:12-slim
             pg_version: 15
             arch: amd64
@@ -63,15 +63,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: debian:12-slim
             pg_version: 15
             arch: arm64
           - name: Debian 12 (Bookworm)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: debian:12-slim
             pg_version: 16
             arch: amd64
@@ -79,15 +79,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: debian:12-slim
             pg_version: 16
             arch: arm64
           - name: Debian 12 (Bookworm)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: debian:12-slim
             pg_version: 17
             arch: amd64
@@ -95,15 +95,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: debian:12-slim
             pg_version: 17
             arch: arm64
           - name: Debian 12 (Bookworm)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: debian:12-slim
             pg_version: 18
             arch: amd64
@@ -111,7 +111,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: debian:12-slim
             pg_version: 18
             arch: arm64
@@ -119,8 +119,8 @@ jobs:
           - name: Debian 13 (Trixie)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: debian:13-slim
             pg_version: 15
             arch: amd64
@@ -128,15 +128,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: debian:13-slim
             pg_version: 15
             arch: arm64
           - name: Debian 13 (Trixie)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: debian:13-slim
             pg_version: 16
             arch: amd64
@@ -144,15 +144,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: debian:13-slim
             pg_version: 16
             arch: arm64
           - name: Debian 13 (Trixie)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: debian:13-slim
             pg_version: 17
             arch: amd64
@@ -160,15 +160,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: debian:13-slim
             pg_version: 17
             arch: arm64
           - name: Debian 13 (Trixie)
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: debian:13-slim
             pg_version: 18
             arch: amd64
@@ -176,7 +176,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: debian:13-slim
             pg_version: 18
             arch: arm64
@@ -233,9 +233,11 @@ jobs:
       - name: Retrieve OS & GitHub Tag Versions
         if: steps.guard.outputs.build == 'true'
         id: version
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          if [ -z "${INPUTS_VERSION}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
               VERSION=${GITHUB_REF#refs/tags/v}
             else
@@ -243,7 +245,7 @@ jobs:
               VERSION="0.0.0"
             fi
           else
-            VERSION=${{ github.event.inputs.version }}
+            VERSION="${INPUTS_VERSION}"
           fi
           echo "GitHub Tag Version: $VERSION"
 
@@ -281,7 +283,9 @@ jobs:
 
       - name: Install pgrx
         if: ${{ steps.guard.outputs.build == 'true' && steps.cache-pgrx.outputs.cache-hit != 'true' }}
-        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        env:
+          STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
+        run: cargo install --locked cargo-pgrx --version "${STEP_PGRX_VERSION}" --debug
 
       - name: Initialize pgrx Environment
         if: steps.guard.outputs.build == 'true'
@@ -299,11 +303,14 @@ jobs:
 
       - name: Create .deb Package
         if: steps.guard.outputs.build == 'true'
+        env:
+          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          STEP_VERSION_OS_VERSION: ${{ steps.version.outputs.os_version }}
         run: |
           # Create installable package
           mkdir archive
           cp `find target/release -type f -name "pg_search*"` archive
-          package_dir=pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
+          package_dir="pg_search-${STEP_VERSION_TAG_VERSION}-""${STEP_VERSION_OS_VERSION}"-${{ matrix.arch }}-pg${{ matrix.pg_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
@@ -315,7 +322,7 @@ jobs:
           # Create control file (package name cannot have underscore)
           mkdir -p ${package_dir}/DEBIAN
           touch ${package_dir}/DEBIAN/control
-          deb_version=${{ steps.version.outputs.tag_version }}
+          deb_version="${STEP_VERSION_TAG_VERSION}"
           CONTROL_FILE="${package_dir}/DEBIAN/control"
           echo 'Package: postgresql-${{ matrix.pg_version }}-pg-search' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
@@ -373,10 +380,11 @@ jobs:
         id: upload_url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }})
+            "/repos/${GITHUB_REPOSITORY}/releases/tags/v""${STEP_VERSION_TAG_VERSION}")
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
@@ -436,8 +444,9 @@ jobs:
       - name: Dispatch ParadeDB Docker Publish on This Release Ref
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          STEP_VERSION_VERSION: ${{ steps.version.outputs.version }}
         run: |
           gh workflow run publish-paradedb-docker.yml \
-            --repo "${{ github.repository }}" \
-            --ref "${{ github.ref_name }}" \
-            -f version="${{ steps.version.outputs.version }}"
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF_NAME}" \
+            -f version="${STEP_VERSION_VERSION}"

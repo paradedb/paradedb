@@ -1,0 +1,6 @@
+---
+header: performance
+---
+
+Added the opt-in `pnorms=true` tokenizer option for text fields to reduce scattered
+field-length reads during BM25 scoring, at the cost of additional index storage.

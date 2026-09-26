@@ -668,7 +668,7 @@ SELECT COUNT(*) FROM agg_join_products WHERE description ||| 'laptop';
    Index: agg_join_products_idx
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) FROM agg_join_products WHERE description ||| 'laptop';
@@ -1376,6 +1376,20 @@ ORDER BY p.category;
  Electronics | tech, computer, tech, gaming
  Sports      | fitness, running
  Toys        | tech, kids
+(3 rows)
+
+-- Test 14.3b: STRING_AGG with NULL delimiter concatenates without separator
+SELECT p.category, STRING_AGG(t.tag_name, NULL)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
+GROUP BY p.category
+ORDER BY p.category;
+  category   |       string_agg       
+-------------+------------------------
+ Electronics | techcomputertechgaming
+ Sports      | fitnessrunning
+ Toys        | techkids
 (3 rows)
 
 -- Test 14.4: BOOL_AND/OR parity — DataFusion vs Postgres native

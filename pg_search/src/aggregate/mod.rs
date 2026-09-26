@@ -26,6 +26,7 @@ use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
@@ -39,7 +40,7 @@ use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
-use crate::postgres::heap::VisibilityStats;
+use crate::postgres::heap::{VisibilityChecker, VisibilityStats};
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -514,13 +515,43 @@ pub fn execute_aggregate(
             query.needs_tokenizer(),
         )?;
 
-        // Fast path: a bare doc count without MVCC filtering is answerable by
-        // `Weight::count` — a stored-doc_freq metadata read for term queries
-        // on delete-free segments, a scoreless docset drain otherwise —
-        // skipping the aggregation framework's per-doc column iteration.
-        if !solve_mvcc
-            && matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count())
-        {
+        let bare_doc_count =
+            matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count());
+        let visible_count = if solve_mvcc && bare_doc_count && query.is_match_all() {
+            let heaprel = index
+                .heap_relation()
+                .expect("index should belong to a heap relation");
+            let stats = visibility_stats
+                .is_some()
+                .then(|| Arc::new(Mutex::new(VisibilityStats::default())));
+            let checker = Arc::new(Mutex::new(
+                VisibilityChecker::with_rel_and_snap(&heaprel, pg_sys::GetActiveSnapshot())
+                    .with_ffhelper(Arc::new(FFHelper::for_ctid(&reader)))
+                    .with_visibility_stats(stats.clone()),
+            ));
+            let count = 'count: {
+                let mut count = 0u64;
+                for segment in reader.segment_readers() {
+                    check_for_interrupts!();
+                    if VisibilityChecker::for_segment(&checker, segment)?.is_some() {
+                        break 'count None;
+                    }
+                    // num_docs excludes Tantivy deletions; the proof above handles PostgreSQL MVCC.
+                    count += u64::from(segment.num_docs());
+                }
+                Some(count)
+            };
+            if count.is_some()
+                && let (Some(output), Some(stats)) = (visibility_stats.as_deref_mut(), stats)
+            {
+                output.merge(std::mem::take(&mut *stats.lock()));
+            }
+            count
+        } else {
+            None
+        };
+
+        if bare_doc_count && (!solve_mvcc || visible_count.is_some()) {
             // Serial execution: the scorers claim private cursors.
             if let Some(bitmap_exec) = bitmap_exec.as_deref_mut()
                 && let Some(cell) = query.bitmap_cell()
@@ -529,7 +560,10 @@ pub fn execute_aggregate(
             {
                 cell.fill(source);
             }
-            let count = reader.count_matched_docs()?;
+            let count = match visible_count {
+                Some(count) => count,
+                None => reader.count_matched_docs()?,
+            };
             let mut results = AggregationResults::default();
             // Key "0" matches `CollectAggregations::collect`'s enumeration of
             // the single aggregate.

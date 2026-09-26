@@ -143,6 +143,8 @@ async fn visibility_map_shortcuts(database: Db) {
             } else if phase == 2 {
                 "VACUUM (INDEX_CLEANUP ON, ANALYZE) visibility_blocks".execute(&mut conn);
             }
+            let expected_count: (i64,) =
+                "SELECT count(*) FROM visibility_blocks".fetch_one(&mut conn);
             let expected_aggregate: (i64, Option<i64>) =
                 "SELECT count(*), sum(value) FROM visibility_blocks WHERE title = 'database'"
                     .fetch_one(&mut conn);
@@ -152,6 +154,10 @@ async fn visibility_map_shortcuts(database: Db) {
 
             for enabled in [true, false] {
                 format!("SET paradedb.enable_visibility_map_shortcuts = {enabled}").execute(&mut conn);
+                let count: (i64,) =
+                    "SELECT count(*) FROM visibility_blocks WHERE id @@@ pdb.all()"
+                        .fetch_one(&mut conn);
+                prop_assert_eq!(count, expected_count, "phase {}, shortcuts {}", phase, enabled);
                 let query = "SELECT count(*), sum(value) FROM visibility_blocks WHERE title === 'database'";
                 let (plan,): (serde_json::Value,) =
                     format!("EXPLAIN (FORMAT JSON) {query}").fetch_one(&mut conn);

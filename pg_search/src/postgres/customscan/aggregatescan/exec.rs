@@ -88,6 +88,9 @@ pub fn aggregation_results_iter(
             .is_some_and(|fetch| fetch as u64 <= bucket_limit as u64);
 
     let mut bitmap_exec = state.custom_state_mut().bitmap_exec.take();
+    let mut visibility_stats = std::mem::take(&mut state.custom_state_mut().visibility_stats);
+    let collect_visibility_stats =
+        unsafe { !planstate.is_null() && !(*planstate).instrument.is_null() };
     let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
@@ -98,10 +101,12 @@ pub fn aggregation_results_iter(
         expr_context,
         planstate,
         bitmap_exec.as_mut(),
+        collect_visibility_stats.then_some(&mut visibility_stats),
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
     state.custom_state_mut().bitmap_exec = bitmap_exec;
+    state.custom_state_mut().visibility_stats = visibility_stats;
 
     // Tantivy caps a terms aggregation at `size` and folds the dropped groups into
     // `sum_other_doc_count` rather than erroring, which would silently return an
@@ -208,6 +213,22 @@ impl From<MetricResult> for AggregateResult {
                 AggregateResult::Json(json_value)
             }
         }
+    }
+}
+
+fn metric_or_filter_to_aggregate_result(
+    result: &TantivyAggregationResult,
+) -> Option<AggregateResult> {
+    match result {
+        TantivyAggregationResult::MetricResult(metric) => Some(MetricResult(metric.clone()).into()),
+        TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket))
+            if filter_bucket.sub_aggregations.0.is_empty() =>
+        {
+            Some(AggregateResult::Metric(TantivySingleMetricResult {
+                value: Some(filter_bucket.doc_count as f64),
+            }))
+        }
+        _ => None,
     }
 }
 
@@ -477,17 +498,12 @@ impl AggregationResults {
             entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
 
             for (_name, result) in entries {
-                match result {
-                    TantivyAggregationResult::MetricResult(metric) => {
-                        row.aggregates
-                            .push(Some(MetricResult(metric.clone()).into()));
-                    }
-                    other => {
-                        let json_value = serde_json::to_value(other).unwrap_or_else(|e| {
-                            pgrx::error!("Failed to serialize aggregate: {}", e)
-                        });
-                        row.aggregates.push(Some(AggregateResult::Json(json_value)));
-                    }
+                if let Some(agg_res) = metric_or_filter_to_aggregate_result(result) {
+                    row.aggregates.push(Some(agg_res));
+                } else {
+                    let json_value = serde_json::to_value(result)
+                        .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregate: {}", e));
+                    row.aggregates.push(Some(AggregateResult::Json(json_value)));
                 }
             }
         }
@@ -521,12 +537,18 @@ impl AggregationResults {
                 TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket))
                     if !is_custom =>
                 {
-                    // Standard filter aggregate (not custom)
-                    let mut sub_rows = Vec::new();
-                    let sub = AggregationResults(filter_bucket.sub_aggregations.0);
-                    sub.flatten_ungrouped(&mut sub_rows, agg_types);
-                    for sub_row in sub_rows {
-                        aggregates.extend(sub_row.aggregates);
+                    if filter_bucket.sub_aggregations.0.is_empty() {
+                        aggregates.push(Some(AggregateResult::Metric(TantivySingleMetricResult {
+                            value: Some(filter_bucket.doc_count as f64),
+                        })));
+                    } else {
+                        // Standard filter aggregate (not custom)
+                        let mut sub_rows = Vec::new();
+                        let sub = AggregationResults(filter_bucket.sub_aggregations.0);
+                        sub.flatten_ungrouped(&mut sub_rows, agg_types);
+                        for sub_row in sub_rows {
+                            aggregates.extend(sub_row.aggregates);
+                        }
                     }
                 }
                 // For all other results (custom aggregates and other bucket types), serialize as JSON
@@ -641,17 +663,13 @@ impl AggregationResults {
 
                     if matched {
                         for res in current.values() {
-                            match res {
-                                TantivyAggregationResult::MetricResult(metric) => {
-                                    found_metrics.push(Some(MetricResult(metric.clone()).into()));
-                                }
-                                other => {
-                                    let json_value =
-                                        serde_json::to_value(other).unwrap_or_else(|e| {
-                                            pgrx::error!("Failed to serialize aggregate: {}", e)
-                                        });
-                                    found_metrics.push(Some(AggregateResult::Json(json_value)));
-                                }
+                            if let Some(agg_res) = metric_or_filter_to_aggregate_result(res) {
+                                found_metrics.push(Some(agg_res));
+                            } else {
+                                let json_value = serde_json::to_value(res).unwrap_or_else(|e| {
+                                    pgrx::error!("Failed to serialize aggregate: {}", e)
+                                });
+                                found_metrics.push(Some(AggregateResult::Json(json_value)));
                             }
                         }
                     }

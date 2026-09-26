@@ -191,9 +191,7 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
         explain.contains("Custom Scan (ParadeDB Join Scan)"),
         "{explain}"
     );
-    // The VisibilityFilterExec is absorbed into SegmentedTopKExec, which now owns MVCC
-    // visibility checking, so it no longer appears as a separate node in the plan.
-    assert!(!explain.contains("VisibilityFilterExec"), "{explain}");
+    assert!(explain.contains("VisibilityFilterExec"), "{explain}");
     assert!(explain.contains("TantivyDecodeExec"), "{explain}");
     assert!(explain.contains("SegmentedTopKExec"), "{explain}");
 
@@ -273,9 +271,7 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
         explain.contains("Custom Scan (ParadeDB Join Scan)"),
         "{explain}"
     );
-    // The VisibilityFilterExec is absorbed into SegmentedTopKExec, which now owns MVCC
-    // visibility checking, so it no longer appears as a separate node in the plan.
-    assert!(!explain.contains("VisibilityFilterExec"), "{explain}");
+    assert!(explain.contains("VisibilityFilterExec"), "{explain}");
     assert!(explain.contains("TantivyDecodeExec"), "{explain}");
     assert!(explain.contains("SegmentedTopKExec"), "{explain}");
     // Regression guard: both sort keys must appear at distinct physical indices.

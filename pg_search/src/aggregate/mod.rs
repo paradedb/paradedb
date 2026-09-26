@@ -19,6 +19,7 @@ pub mod exec;
 
 use std::error::Error;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
@@ -38,6 +39,7 @@ use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
+use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -47,6 +49,7 @@ use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 use crate::query::tid_bitmap_stream::{BitmapCell, BitmapCursorSource};
 use crate::schema::SearchIndexSchema;
 
+use parking_lot::Mutex;
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::Aggregations;
@@ -92,6 +95,7 @@ struct Config {
     indexrelid: pg_sys::Oid,
     total_segments: usize,
     solve_mvcc: bool,
+    collect_visibility_stats: bool,
 
     memory_limit: u64,
     bucket_limit: u32,
@@ -145,6 +149,7 @@ impl ParallelAggregation {
         query: &SearchQueryInput,
         aggregation: &AggregateRequest,
         solve_mvcc: bool,
+        collect_visibility_stats: bool,
         memory_limit: u64,
         bucket_limit: u32,
         segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
@@ -161,6 +166,7 @@ impl ParallelAggregation {
                 indexrelid,
                 total_segments: segment_ids.len(),
                 solve_mvcc,
+                collect_visibility_stats,
                 memory_limit,
                 bucket_limit,
             },
@@ -223,6 +229,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
         solve_mvcc: bool,
+        collect_visibility_stats: bool,
         memory_limit: u64,
         bucket_limit: u32,
         state: &'a mut State,
@@ -233,6 +240,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 indexrelid,
                 total_segments: segment_ids.len(),
                 solve_mvcc,
+                collect_visibility_stats,
                 memory_limit,
                 bucket_limit,
             },
@@ -281,7 +289,8 @@ impl<'a> ParallelAggregationWorker<'a> {
         worker_style: QueryWorkerStyle,
         expr_context: Option<*mut pg_sys::ExprContext>,
         planstate: Option<*mut pg_sys::PlanState>,
-    ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
+        existing_reader: Option<&SearchIndexReader>,
+    ) -> anyhow::Result<Option<(IntermediateAggregationResults, VisibilityStats)>> {
         let segment_ids = self.checkout_segments(worker_style.worker_number());
         if segment_ids.is_empty() {
             return Ok(None);
@@ -299,17 +308,23 @@ impl<'a> ParallelAggregationWorker<'a> {
             standalone_context.as_ptr()
         };
 
-        let reader = SearchIndexReader::open_with_context(
-            &indexrel,
-            self.query.clone(),
-            false,
-            MvccSatisfies::ParallelWorker(SegmentView::from_unordered_ids(
-                segment_ids.iter().copied(),
-            )),
-            NonNull::new(context_ptr),
-            planstate.and_then(NonNull::new),
-            self.query.needs_tokenizer(),
-        )?;
+        let opened_reader;
+        let reader = if let Some(reader) = existing_reader {
+            reader
+        } else {
+            opened_reader = SearchIndexReader::open_with_context(
+                &indexrel,
+                self.query.clone(),
+                false,
+                MvccSatisfies::ParallelWorker(SegmentView::from_unordered_ids(
+                    segment_ids.iter().copied(),
+                )),
+                NonNull::new(context_ptr),
+                planstate.and_then(NonNull::new),
+                self.query.needs_tokenizer(),
+            )?;
+            &opened_reader
+        };
 
         let use_min_sentinel_fields = match self.aggregation.as_ref() {
             Some(AggregateRequest::Sql(clause)) => clause.use_min_sentinel_fields(),
@@ -331,8 +346,17 @@ impl<'a> ParallelAggregationWorker<'a> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should belong to a heap relation");
-        let (base_collector, vischeck) =
-            aggregations.plan(&reader, &heaprel, self.config.solve_mvcc, limits);
+        let visibility_stats = self
+            .config
+            .collect_visibility_stats
+            .then(|| Arc::new(Mutex::new(VisibilityStats::default())));
+        let (base_collector, vischeck) = aggregations.plan(
+            reader,
+            &heaprel,
+            self.config.solve_mvcc,
+            limits,
+            visibility_stats.clone(),
+        );
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
@@ -346,7 +370,10 @@ impl<'a> ParallelAggregationWorker<'a> {
             unsafe { pg_sys::ParallelWorkerNumber },
             start.elapsed()
         );
-        Ok(Some(intermediate_results))
+        let stats = visibility_stats
+            .map(|stats| std::mem::take(&mut *stats.lock()))
+            .unwrap_or_default();
+        Ok(Some((intermediate_results, stats)))
     }
 }
 
@@ -408,8 +435,12 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             std::thread::yield_now();
         }
 
-        let result =
-            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number), None, None);
+        let result = self.execute_aggregate(
+            QueryWorkerStyle::ParallelWorker(worker_number),
+            None,
+            None,
+            None,
+        );
         if !self.attached_area.is_null() {
             unsafe { pg_sys::dsa_detach(self.attached_area) };
             self.attached_area = std::ptr::null_mut();
@@ -434,6 +465,7 @@ pub fn execute_aggregate(
     expr_context: *mut pg_sys::ExprContext,
     planstate: *mut pg_sys::PlanState,
     mut bitmap_exec: Option<&mut BitmapExec>,
+    mut visibility_stats: Option<&mut VisibilityStats>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     // Resolve `visibility` to a single decision for this execution before anything
     // branches on it. `threshold` estimates the query's matching row count here
@@ -545,6 +577,7 @@ pub fn execute_aggregate(
             &query,
             &agg_req,
             solve_mvcc,
+            visibility_stats.is_some(),
             memory_limit,
             bucket_limit,
             segment_ids,
@@ -596,19 +629,28 @@ pub fn execute_aggregate(
                 if let Some(source) = leader_bitmap_source.clone() {
                     worker.attach_bitmap_source(source);
                 }
-                if let Some(result) = worker.execute_aggregate(
+                if let Some((result, stats)) = worker.execute_aggregate(
                     QueryWorkerStyle::ParallelLeader,
                     Some(expr_context),
                     Some(planstate),
+                    None,
                 )? {
+                    if let Some(output) = visibility_stats.as_deref_mut() {
+                        output.merge(stats);
+                    }
                     agg_results.push(Ok(result));
                 }
             }
 
             // wait for workers to finish, collecting their intermediate aggregate results
             for (_worker_number, message) in process {
-                let worker_results =
-                    postcard::from_bytes::<IntermediateAggregationResults>(&message)?;
+                let (worker_results, stats) = postcard::from_bytes::<(
+                    IntermediateAggregationResults,
+                    VisibilityStats,
+                )>(&message)?;
+                if let Some(output) = visibility_stats.as_deref_mut() {
+                    output.merge(stats);
+                }
 
                 agg_results.push(Ok(worker_results));
             }
@@ -652,16 +694,21 @@ pub fn execute_aggregate(
                 ambulkdelete_epoch,
                 index.oid(),
                 solve_mvcc,
+                visibility_stats.is_some(),
                 memory_limit as _,
                 bucket_limit as _,
                 &mut state,
             );
 
-            if let Some(agg_results) = worker.execute_aggregate(
+            if let Some((agg_results, stats)) = worker.execute_aggregate(
                 QueryWorkerStyle::NonParallel,
                 Some(expr_context),
                 Some(planstate),
+                Some(&reader),
             )? {
+                if let Some(output) = visibility_stats {
+                    output.merge(stats);
+                }
                 Ok(agg_results.into_final_result(
                     {
                         let mut aggregations: Aggregations = agg_req.try_into()?;
@@ -1047,8 +1094,6 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::api::CTID_FIELD_NAME;
-    use crate::index::fast_fields_helper::FFType;
     use crate::postgres::heap::VisibilityChecker;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
@@ -1073,22 +1118,24 @@ pub mod mvcc_collector {
         ) -> tantivy::Result<Self::Child> {
             let inner = self.inner.for_segment(segment_local_id, segment)?;
             let requires_scoring = self.inner.requires_scoring();
+            let lock = VisibilityChecker::for_segment(&self.lock, segment)?;
+            // All-visible segments forward documents directly and need no batch buffers.
+            let capacity = if lock.is_some() { BATCH_SIZE } else { 0 };
 
             Ok(MVCCFilterSegmentCollector {
                 inner,
-                lock: self.lock.clone(),
-                ctid_ff: FFType::new(segment.fast_fields(), CTID_FIELD_NAME),
-                doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                lock,
+                segment_ord: segment_local_id,
+                doc_buffer: Vec::with_capacity(capacity),
                 score_buffer: if requires_scoring {
-                    Vec::with_capacity(BATCH_SIZE)
+                    Vec::with_capacity(capacity)
                 } else {
                     Vec::new()
                 },
-                ctids_buffer: Vec::with_capacity(BATCH_SIZE),
-                visibility_buffer: Vec::with_capacity(BATCH_SIZE),
-                filtered_doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                visibility_buffer: Vec::with_capacity(capacity),
+                filtered_doc_buffer: Vec::with_capacity(capacity),
                 filtered_score_buffer: if requires_scoring {
-                    Vec::with_capacity(BATCH_SIZE)
+                    Vec::with_capacity(capacity)
                 } else {
                     Vec::new()
                 },
@@ -1120,16 +1167,15 @@ pub mod mvcc_collector {
 
     pub struct MVCCFilterSegmentCollector<SC: SegmentCollector> {
         inner: SC,
-        lock: Arc<Mutex<VisibilityChecker>>,
-        ctid_ff: FFType,
+        lock: Option<Arc<Mutex<VisibilityChecker>>>,
+        segment_ord: SegmentOrdinal,
 
         // Incoming buffers
         doc_buffer: Vec<DocId>,
         score_buffer: Vec<Score>,
 
-        // Processing buffers
-        ctids_buffer: Vec<Option<u64>>,
-        visibility_buffer: Vec<Option<u64>>,
+        // Entry i records whether doc_buffer[i] is visible to the query snapshot.
+        visibility_buffer: Vec<bool>,
 
         // Outgoing buffers
         filtered_doc_buffer: Vec<DocId>,
@@ -1146,15 +1192,18 @@ pub mod mvcc_collector {
                 return;
             }
 
-            // Get the ctids for these docs.
-            self.ctids_buffer.resize(self.doc_buffer.len(), None);
-            self.ctid_ff
-                .as_u64s(&self.doc_buffer, &mut self.ctids_buffer);
-
-            // Determine which ctids are visible.
-            let mut vischeck = self.lock.lock();
-            self.visibility_buffer.resize(self.doc_buffer.len(), None);
-            vischeck.check_batch(&self.ctids_buffer, &mut self.visibility_buffer);
+            // Determine which docs are visible.
+            let mut vischeck = self
+                .lock
+                .as_ref()
+                .expect("buffered docs need visibility checks")
+                .lock();
+            self.visibility_buffer.resize(self.doc_buffer.len(), false);
+            vischeck.check_segment_docs_mask(
+                self.segment_ord,
+                &self.doc_buffer,
+                &mut self.visibility_buffer,
+            );
             drop(vischeck);
 
             // Filter visible docs.
@@ -1163,8 +1212,8 @@ pub mod mvcc_collector {
                 self.filtered_score_buffer.clear();
             }
 
-            for (i, visible_ctid) in self.visibility_buffer.iter().enumerate() {
-                if visible_ctid.is_some() {
+            for (i, &visible) in self.visibility_buffer.iter().enumerate() {
+                if visible {
                     self.filtered_doc_buffer.push(self.doc_buffer[i]);
                     if self.requires_scoring {
                         self.filtered_score_buffer.push(self.score_buffer[i]);
@@ -1196,6 +1245,10 @@ pub mod mvcc_collector {
         type Fruit = SC::Fruit;
 
         fn collect(&mut self, doc: DocId, score: Score) {
+            if self.lock.is_none() {
+                self.inner.collect(doc, score);
+                return;
+            }
             self.doc_buffer.push(doc);
             if self.requires_scoring {
                 self.score_buffer.push(score);
@@ -1207,6 +1260,10 @@ pub mod mvcc_collector {
         }
 
         fn collect_block(&mut self, docs: &[DocId]) {
+            if self.lock.is_none() {
+                self.inner.collect_block(docs);
+                return;
+            }
             self.doc_buffer.extend_from_slice(docs);
             if self.requires_scoring {
                 // collect_block does not provide scores, but we must maintain score_buffer alignment.

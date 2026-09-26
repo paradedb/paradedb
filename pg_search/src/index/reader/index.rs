@@ -18,24 +18,27 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
+use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::{FFType, resolve_ctid};
+use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
-use crate::index::stats::PartitionSegments;
+use crate::index::stats::{EmpiricalStats, PartitionSegments, SegmentStats};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::buffer::PinnedBuffer;
@@ -48,7 +51,8 @@ use crate::query::segment_pruning::SegmentPruner;
 use crate::scan::info::RowEstimate;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use pgrx::pg_sys::BlockNumber;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::collector::sort_key::{
@@ -56,6 +60,7 @@ use tantivy::collector::sort_key::{
     SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
+use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
@@ -118,77 +123,37 @@ type TopKWithAggregate<T> = (
     Option<IntermediateAggregationResults>,
 );
 
-/// A known-size iterator of results for Top K.
-pub struct TopKSearchResults {
-    results_original_len: usize,
-    results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
-    aggregation_results: Option<IntermediateAggregationResults>,
-}
-
-/// Docs (+ optional aggregations) from a TopK search, plus opaque per-segment
-/// JSON info harvested from the collector Fruit (e.g. vector probe stats).
+/// Top-k results, aggregations, and per-segment metrics.
 pub struct TopKSearch {
-    pub results: TopKSearchResults,
+    /// Search results.
+    pub results: Vec<(SearchIndexScore, DocAddress)>,
+    /// Optional aggregations.
+    pub aggregation_results: Option<IntermediateAggregationResults>,
+    /// Per-segment collector metrics.
     pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
 }
 
 impl TopKSearch {
-    fn from_results(results: TopKSearchResults) -> Self {
-        Self {
-            results,
-            segment_info: BTreeMap::new(),
-        }
-    }
-
-    fn with_segment_info(
-        results: TopKSearchResults,
-        segment_info: BTreeMap<SegmentId, serde_json::Value>,
-    ) -> Self {
-        Self {
-            results,
-            segment_info,
-        }
-    }
-}
-
-impl From<TopKSearchResults> for TopKSearch {
-    fn from(results: TopKSearchResults) -> Self {
-        Self::from_results(results)
-    }
-}
-
-fn probe_stats_to_segment_info(
-    segment_ids: &[SegmentId],
-    stats: &[ProbeStats],
-) -> BTreeMap<SegmentId, serde_json::Value> {
-    assert_eq!(
-        segment_ids.len(),
-        stats.len(),
-        "vector Fruit must yield one ProbeStats per collected segment"
-    );
-    segment_ids
-        .iter()
-        .zip(stats.iter())
-        .map(|(id, s)| {
-            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
-            (*id, value)
-        })
-        .collect()
-}
-
-impl TopKSearchResults {
-    pub fn empty() -> Self {
-        Self::new(vec![], None)
-    }
-
-    fn new(
+    pub fn new(
         results: Vec<(SearchIndexScore, DocAddress)>,
         aggregation_results: Option<IntermediateAggregationResults>,
     ) -> Self {
         Self {
-            results_original_len: results.len(),
-            results: results.into_iter(),
+            results,
             aggregation_results,
+            segment_info: BTreeMap::new(),
+        }
+    }
+
+    pub fn with_segment_info(
+        results: Vec<(SearchIndexScore, DocAddress)>,
+        aggregation_results: Option<IntermediateAggregationResults>,
+        segment_info: BTreeMap<SegmentId, serde_json::Value>,
+    ) -> Self {
+        Self {
+            results,
+            aggregation_results,
+            segment_info,
         }
     }
 
@@ -222,14 +187,25 @@ impl TopKSearchResults {
             aggregation_results,
         )
     }
+}
 
-    pub fn original_len(&self) -> usize {
-        self.results_original_len
-    }
-
-    pub fn take_aggregation_results(&mut self) -> Option<IntermediateAggregationResults> {
-        self.aggregation_results.take()
-    }
+fn probe_stats_to_segment_info(
+    segment_ids: &[SegmentId],
+    stats: &[ProbeStats],
+) -> BTreeMap<SegmentId, serde_json::Value> {
+    assert_eq!(
+        segment_ids.len(),
+        stats.len(),
+        "vector Fruit must yield one ProbeStats per collected segment"
+    );
+    segment_ids
+        .iter()
+        .zip(stats.iter())
+        .map(|(id, s)| {
+            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
+            (*id, value)
+        })
+        .collect()
 }
 
 /// A set of search results across multiple segments.
@@ -251,15 +227,6 @@ struct AscendingScore {
 impl PartialOrd for AscendingScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.score.partial_cmp(&other.score).map(|o| o.reverse())
-    }
-}
-
-impl Iterator for TopKSearchResults {
-    type Item = (SearchIndexScore, DocAddress);
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.results.next()
     }
 }
 
@@ -382,6 +349,8 @@ pub struct SearchIndexReader {
     total_segment_count: usize,
     total_docs: u64,
     index_created_by_version: Option<Version>,
+    /// Query-level reader initialization time.
+    scan_init_ns: u64,
     /// The directory `underlying_index` opened over; kept to capture this reader's
     /// [`SegmentView`].
     directory: MVCCDirectory,
@@ -431,6 +400,7 @@ impl Clone for SearchIndexReader {
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
             index_created_by_version: self.index_created_by_version,
+            scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
@@ -586,6 +556,38 @@ struct IndexComponents {
 }
 
 impl SearchIndexReader {
+    /// Returns the minimum and maximum heap block numbers represented in the segment.
+    pub(crate) fn block_bounds(
+        segment: &SegmentReader,
+    ) -> Result<Option<RangeInclusive<BlockNumber>>> {
+        let field = segment.schema().get_field(CTID_FIELD_NAME)?;
+        let stats = SegmentStats::of_reader(segment)?;
+        let empirical = stats
+            .map(|stats| stats.empirical(field))
+            .transpose()?
+            .flatten();
+        let (min, max) = if let Some(EmpiricalStats {
+            min: PdbOwnedValue::U64(min),
+            max: PdbOwnedValue::U64(max),
+            nullable: false,
+        }) = empirical
+        {
+            (min, max)
+        } else {
+            let ctids = segment.fast_fields().u64(CTID_FIELD_NAME)?;
+            if ctids.get_cardinality() != Cardinality::Full || ctids.num_docs() != segment.max_doc()
+            {
+                return Ok(None);
+            }
+            (ctids.min_value(), ctids.max_value())
+        };
+        let first =
+            BlockNumber::try_from(min >> 16).context("heap block number exceeds BlockNumber")?;
+        let last =
+            BlockNumber::try_from(max >> 16).context("heap block number exceeds BlockNumber")?;
+        Ok(Some(first..=last))
+    }
+
     fn open_index_components(
         index_relation: &PgSearchRelation,
         mvcc_style: MvccSatisfies,
@@ -663,20 +665,25 @@ impl SearchIndexReader {
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
+        let scan_init_start = Instant::now();
+        let scan_init_io = io_stats::begin_scan_init();
         // Derive the tokenizer need from the query as well as the caller's flag: a caller
         // passing `false` alongside a query that tokenizes must not silently parse wrong.
         let needs_tokenizer_manager =
             needs_tokenizer_manager || search_query_input.needs_tokenizer();
         let components =
             Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
-        Self::from_components(
+        let mut reader = Self::from_components(
             index_relation,
             components,
             search_query_input,
             need_scores,
             expr_context,
             planstate,
-        )
+        )?;
+        drop(scan_init_io);
+        reader.scan_init_ns = scan_init_start.elapsed().as_nanos() as u64;
+        Ok(reader)
     }
 
     /// Build a reader over `manifest`'s already-open components: same searcher, same frozen
@@ -693,20 +700,25 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
+        let scan_init_start = Instant::now();
+        let scan_init_io = io_stats::begin_scan_init();
         if needs_tokenizer_manager || search_query_input.needs_tokenizer() {
             crate::index::search::register_tokenizers(
                 index_relation,
                 &manifest.components().index,
             )?;
         }
-        Self::from_components(
+        let mut reader = Self::from_components(
             index_relation,
             manifest.components().clone(),
             search_query_input,
             need_scores,
             expr_context,
             None,
-        )
+        )?;
+        drop(scan_init_io);
+        reader.scan_init_ns = scan_init_start.elapsed().as_nanos() as u64;
+        Ok(reader)
     }
 
     /// The shared tail of [`Self::open_with_context`] and [`Self::from_manifest`].
@@ -787,6 +799,7 @@ impl SearchIndexReader {
             total_segment_count,
             total_docs,
             index_created_by_version,
+            scan_init_ns: 0,
             directory,
             _cleanup_lock: cleanup_lock,
             pruning_estimate: OnceLock::new(),
@@ -801,6 +814,14 @@ impl SearchIndexReader {
             .collect()
     }
 
+    pub(crate) fn scan_init_ns(&self) -> u64 {
+        self.scan_init_ns
+    }
+
+    pub(crate) fn add_scan_init_ns(&mut self, elapsed_ns: u64) {
+        self.scan_init_ns = self.scan_init_ns.saturating_add(elapsed_ns);
+    }
+
     /// This reader's segment view, for other readers to replay through
     /// [`MvccSatisfies::ParallelWorker`].
     pub fn segment_view(&self) -> SegmentView {
@@ -811,6 +832,10 @@ impl SearchIndexReader {
     /// [`SegmentPins`].
     pub fn segment_pins(&self) -> SegmentPins {
         self.directory.segment_pins()
+    }
+
+    pub(crate) fn cleanup_pin(&self) -> Arc<PinnedBuffer> {
+        self._cleanup_lock.clone()
     }
 
     pub fn need_scores(&self) -> bool {
@@ -888,17 +913,7 @@ impl SearchIndexReader {
 
     pub fn weight(&self) -> Box<dyn Weight> {
         self.query
-            .weight(if self.need_scores {
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: &self.searcher,
-                    statistics_provider: &self.searcher,
-                }
-            } else {
-                tantivy::query::EnableScoring::Disabled {
-                    schema: self.schema.tantivy_schema(),
-                    searcher_opt: Some(&self.searcher),
-                }
-            })
+            .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("weight should be constructable")
     }
 
@@ -961,8 +976,11 @@ impl SearchIndexReader {
     pub fn collect_ctidset(&self, visibility: &mut VisibilityChecker) -> KeySet {
         const VISIBILITY_BATCH_SIZE: usize = 1024;
 
+        visibility.set_ffhelper(Arc::new(FFHelper::for_ctid(self)));
+
         let mut search_results = self.search();
-        let mut ctid_cache: Option<(SegmentOrdinal, FFType)> = None;
+        let mut doc_ids = Vec::with_capacity(VISIBILITY_BATCH_SIZE);
+        let mut resolved = Vec::with_capacity(VISIBILITY_BATCH_SIZE);
         let mut visible_ctids = Vec::new().into_iter();
 
         KeySet::build_from(std::iter::from_fn(move || {
@@ -974,21 +992,29 @@ impl SearchIndexReader {
                     );
                 }
 
-                let ctids: Vec<_> = search_results
-                    .by_ref()
-                    .take(VISIBILITY_BATCH_SIZE)
-                    .map(|(_, doc_address)| {
-                        Some(resolve_ctid(&mut ctid_cache, self.searcher(), doc_address))
-                    })
-                    .collect();
-                if ctids.is_empty() {
-                    return None;
+                let seg = search_results.current_segment()?;
+                let seg_ord = seg.segment_ord();
+
+                doc_ids.clear();
+                while doc_ids.len() < VISIBILITY_BATCH_SIZE {
+                    if let Some((_, doc_addr)) = seg.next() {
+                        doc_ids.push(doc_addr.doc_id);
+                    } else {
+                        break;
+                    }
                 }
 
-                let mut resolved = vec![None; ctids.len()];
-                visibility.resolve_batch(&ctids, &mut resolved);
+                if doc_ids.is_empty() {
+                    search_results.current_segment_pop();
+                    continue;
+                }
+
+                resolved.clear();
+                resolved.resize(doc_ids.len(), None);
+                visibility.resolve_segment_docs(seg_ord, &doc_ids, &mut resolved);
                 visible_ctids = resolved
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .flatten()
                     .collect::<Vec<_>>()
                     .into_iter();
@@ -1282,9 +1308,9 @@ impl SearchIndexReader {
         segment_ids: impl Iterator<Item = SegmentId>,
         n: usize,
         offset: usize,
-    ) -> TopKSearchResults {
+    ) -> TopKSearch {
         // Do an un-ordered search.
-        TopKSearchResults::new(
+        TopKSearch::new(
             self.search_segments(segment_ids)
                 .skip(offset)
                 .take(n)
@@ -1317,8 +1343,7 @@ impl SearchIndexReader {
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     ///
     /// Fruit-side metrics (e.g. vector probe stats) are returned as opaque
-    /// per-segment JSON in [`TopKSearch::segment_info`], not bolted onto
-    /// [`TopKSearchResults`].
+    /// per-segment JSON in [`TopKSearch::segment_info`].
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -1354,7 +1379,7 @@ impl SearchIndexReader {
                                 ),
                             )));
                         }
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                        TopKSearch::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (computer, order),
                             erased_features,
@@ -1362,7 +1387,6 @@ impl SearchIndexReader {
                             offset,
                             aux_collector,
                         ))
-                        .into()
                     }};
                 }
 
@@ -1373,20 +1397,19 @@ impl SearchIndexReader {
                 // `SearchField::is_sortable`). `SortByRange` compares the bound sub-columns the
                 // way Postgres' `range_cmp` does.
                 if matches!(field.field_type(), SearchFieldType::Range(_)) {
-                    return TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                    return TopKSearch::new_for_discarded_field(self.top_in_segments(
                         segment_ids,
                         (SortByRange::for_field(sort_field), order),
                         erased_features,
                         n,
                         offset,
                         aux_collector,
-                    ))
-                    .into();
+                    ));
                 }
 
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => {
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                        TopKSearch::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
@@ -1394,7 +1417,6 @@ impl SearchIndexReader {
                             offset,
                             aux_collector,
                         ))
-                        .into()
                     }
                     tantivy::schema::Type::U64 => sort_fast_value!(u64),
                     tantivy::schema::Type::I64 => sort_fast_value!(i64),
@@ -1402,7 +1424,7 @@ impl SearchIndexReader {
                     tantivy::schema::Type::Bool => sort_fast_value!(bool),
                     tantivy::schema::Type::Date => sort_fast_value!(DateTime),
                     tantivy::schema::Type::Bytes => {
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                        TopKSearch::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
@@ -1410,7 +1432,6 @@ impl SearchIndexReader {
                             offset,
                             aux_collector,
                         ))
-                        .into()
                     }
                     tantivy::schema::Type::Facet => {
                         unimplemented!("Cannot sort by facet field")
@@ -1447,25 +1468,22 @@ impl SearchIndexReader {
                     offset,
                     aux_collector,
                 );
-                TopKSearchResults::new_for_score(
+                TopKSearch::new_for_score(
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
                 )
-                .into()
             }
             OrderByInfo {
                 feature: OrderByFeature::Score { .. },
                 direction,
-            } => self
-                .top_by_score_in_segments(
-                    segment_ids,
-                    *direction,
-                    n,
-                    offset,
-                    aux_collector,
-                    parallel_state_holding_shared_threshold,
-                )
-                .into(),
+            } => self.top_by_score_in_segments(
+                segment_ids,
+                *direction,
+                n,
+                offset,
+                aux_collector,
+                parallel_state_holding_shared_threshold,
+            ),
             OrderByInfo {
                 feature: OrderByFeature::NullTest { .. },
                 ..
@@ -1495,18 +1513,18 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
-                // Testing knob: push the GUC's work-model open cost into
-                // tantivy so this search's probe budget reflects it.
                 tantivy::vector::set_fixed_probe_cost_rows(
                     crate::gucs::vector_fixed_probe_cost_rows(),
                 );
+                let max_scan_levels = crate::gucs::vector_max_scan_levels();
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
-                    });
+                    })
+                    .with_max_scan_levels(max_scan_levels);
 
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();
@@ -1561,11 +1579,26 @@ impl SearchIndexReader {
                 };
                 let segment_ids = collected_ids.into_inner();
                 let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                if let Some(first_segment) = segment_ids.first()
+                    && let Some(serde_json::Value::Object(stats)) =
+                        segment_info.get_mut(first_segment)
+                {
+                    let segment_scan_init = stats
+                        .get("scan_init_ns")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    stats.insert(
+                        "scan_init_ns".to_string(),
+                        segment_scan_init.saturating_add(self.scan_init_ns).into(),
+                    );
+                }
                 io_stats::attach(&mut segment_info);
-                TopKSearch::with_segment_info(
-                    TopKSearchResults::new_for_score(fruit.results, aggregation_results),
-                    segment_info,
-                )
+                let scored_results: Vec<(SearchIndexScore, DocAddress)> = fruit
+                    .results
+                    .into_iter()
+                    .map(|(score, doc_address)| (SearchIndexScore { bm25: score }, doc_address))
+                    .collect();
+                TopKSearch::with_segment_info(scored_results, aggregation_results, segment_info)
             }
         }
     }
@@ -1749,7 +1782,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
-    ) -> TopKSearchResults {
+    ) -> TopKSearch {
         // NOTE: which `sortdir` arm uses the Block-WAND pruning collector below
         // (only Desc, via `order_by::<Score>`) defines
         // `orderby_uses_score_desc_topk_collector` -- the plan-time gate that costs
@@ -1770,7 +1803,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
 
-                TopKSearchResults::new_for_score(
+                TopKSearch::new_for_score(
                     top_docs
                         .into_iter()
                         .map(|(score, doc_address)| (score.score, doc_address)),
@@ -1795,7 +1828,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
 
-                TopKSearchResults::new_for_score(top_docs, aggregation_results)
+                TopKSearch::new_for_score(top_docs, aggregation_results)
             }
         }
     }
@@ -2143,7 +2176,6 @@ impl SearchIndexReader {
                     feature: OrderByFeature::VectorDistance { .. },
                     ..
                 } => {
-                    // Vector distance cannot be a secondary sort key
                     unimplemented!("Vector distance ORDER BY can only be the primary sort key")
                 }
             }
@@ -2244,6 +2276,7 @@ impl SearchIndexManifest {
 pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {
     if need_scores {
         EnableScoring::enabled_from_searcher(searcher)
+            .with_disjunction_pruning(crate::gucs::disjunction_pruning())
     } else {
         EnableScoring::disabled_from_searcher(searcher)
     }
@@ -2306,7 +2339,6 @@ mod tests {
     use super::*;
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
     use crate::index::stats::SegmentStats;
-    use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::scan::range_partitioning::RangePartitioning;
     use pgrx::prelude::*;
     use std::ops::Bound;
@@ -2315,6 +2347,34 @@ mod tests {
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
     };
+
+    #[pg_test]
+    fn collect_ctidset_rebinds_visibility_to_each_reader() {
+        let (index_rel, heap_oid) = segmented_index_fixture("ctidset_reader_reuse", 2, false);
+        let heap_rel = PgSearchRelation::open(heap_oid);
+        unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        let mut visibility =
+            VisibilityChecker::with_rel_and_snap(&heap_rel, unsafe { pg_sys::GetActiveSnapshot() });
+        let largest = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::LargestSegment,
+        )
+        .unwrap();
+        let KeySet::InMemory(largest_ctids) = largest.collect_ctidset(&mut visibility) else {
+            panic!("expected an in-memory CTID set");
+        };
+        assert_eq!(largest_ctids.len(), 10);
+
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let KeySet::InMemory(all_ctids) = reader.collect_ctidset(&mut visibility) else {
+            panic!("expected an in-memory CTID set");
+        };
+        assert_eq!(all_ctids.len(), 20);
+        assert!(largest_ctids.is_subset(&all_ctids));
+        unsafe { pg_sys::PopActiveSnapshot() };
+    }
 
     #[pg_test]
     fn segment_pruning_preserves_unsigned_terms_encoded_as_signed_values() {
@@ -3016,7 +3076,11 @@ mod tests {
                         None,
                         None,
                     );
-                    let docs = top.results.map(|(_, doc)| doc).collect::<Vec<_>>();
+                    let docs = top
+                        .results
+                        .into_iter()
+                        .map(|(_, doc)| doc)
+                        .collect::<Vec<_>>();
                     assert_eq!(docs.len(), expected_rows);
                     for doc in &docs {
                         let id = reader
@@ -3232,7 +3296,7 @@ mod tests {
                         30,
                         0,
                     );
-                    assert_eq!(top.count(), *expected);
+                    assert_eq!(top.results.len(), *expected);
                     if partitioned && *relevant {
                         assert_eq!(STATS_OPENS.load(Relaxed), 2);
                         assert!(EMPIRICAL_READS.load(Relaxed) > 0);

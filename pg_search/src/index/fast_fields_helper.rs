@@ -19,12 +19,15 @@ use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
 use crate::api::CTID_FIELD_NAME;
+use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::schema::{SearchFieldType, is_columnar_json_path};
+use tantivy::index::SegmentId;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
@@ -39,7 +42,7 @@ use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, DocId, Searcher};
+use tantivy::{DocAddress, DocId, IndexSortByField, Searcher, SegmentReader};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -76,6 +79,8 @@ struct FFInner {
     // the segment from the heap. The Searcher also keeps the reader's `MVCCDirectory` and its
     // segment pins alive. Initialize on the backend thread only.
     searcher: Searcher,
+    segment_view: SegmentView,
+    _cleanup_pin: Arc<PinnedBuffer>,
     columns: Vec<WhichFastField>,
     segment_caches: Vec<SegmentCache>,
 }
@@ -91,9 +96,20 @@ impl FFHelper {
         Self::default()
     }
 
+    /// Constructs an [`FFHelper`] that only provides `ctid` lookups.
+    ///
+    /// NOTE: Use of this constructor should be very rare. In most cases a scan loads more than one
+    /// column, so the scan should use a multi-column reader constructed with [`Self::with_fields`]
+    /// to share segment caches and reader state across all projected columns including `ctid`.
+    pub fn for_ctid(reader: &SearchIndexReader) -> Self {
+        Self::with_fields(reader, &[])
+    }
+
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
         Self(Some(FFInner {
             searcher: reader.searcher().clone(),
+            segment_view: reader.segment_view(),
+            _cleanup_pin: reader.cleanup_pin(),
             segment_caches: Self::segment_caches(reader.segment_readers().len(), fields.len()),
             columns: fields.to_vec(),
         }))
@@ -118,12 +134,39 @@ impl FFHelper {
         &self.inner().searcher
     }
 
+    /// Reads the sort direction from the existing index settings.
+    pub(crate) fn sort_order(&self) -> Option<&IndexSortByField> {
+        self.searcher().index().settings().sort_by_field.as_ref()
+    }
+
     fn caches(&self) -> &[SegmentCache] {
         &self.inner().segment_caches
     }
 
+    /// Returns the pinned reader only when the segment has immutable document IDs.
+    pub(crate) fn immutable_segment_reader(
+        &self,
+        segment_ord: SegmentOrdinal,
+    ) -> Option<&SegmentReader> {
+        matches!(
+            self.inner().segment_view.entries()[segment_ord as usize].docs,
+            SegmentViewDocs::Immutable { .. }
+        )
+        .then(|| self.searcher().segment_reader(segment_ord))
+    }
+
     fn fast_fields(&self, segment_ord: SegmentOrdinal) -> &FastFieldReaders {
         self.searcher().segment_reader(segment_ord).fast_fields()
+    }
+
+    pub(crate) fn is_immutable_segment(&self, id: SegmentId) -> bool {
+        let view = &self.inner().segment_view;
+        view.ordinal_of(&id).is_some_and(|ordinal| {
+            matches!(
+                view.entries()[ordinal].docs,
+                SegmentViewDocs::Immutable { .. }
+            )
+        })
     }
 
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {

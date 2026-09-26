@@ -2410,8 +2410,8 @@ impl JoinScan {
         for col_info in &output_columns {
             let plan_position = match col_info {
                 privdat::OutputColumnInfo::Var { plan_position, .. } => *plan_position,
-                privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
-                privdat::OutputColumnInfo::Pruned
+                privdat::OutputColumnInfo::Score { .. }
+                | privdat::OutputColumnInfo::Pruned
                 | privdat::OutputColumnInfo::Unnested { .. }
                 | privdat::OutputColumnInfo::WindowAgg { .. }
                 | privdat::OutputColumnInfo::Expression => {

@@ -30,10 +30,10 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - spot=false
-      - family=m7g+m8g
+      - family=m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=16
       - ram=64
-      - image=ubuntu24-full-arm64
+      - image=ubuntu26-full-arm64
       - extras=s3-cache
     if: github.ref == 'refs/heads/main'
 
@@ -58,33 +58,12 @@ jobs:
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 
-      - name: Build pg_search from Source
-        id: build
-        uses: paradedb/actions/build-pg_search-source@v14
-        with:
-          pg-version: "18"
-          profile: release
-          cache-prefix-key: "v1-cloud-rust-cache"
-          cache-save: true
+      - name: Set Up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-      - name: Assemble Source Image
+      - name: Resolve Image Tag
         id: image
-        env:
-          ARTIFACTS: ${{ steps.build.outputs.artifacts-dir }}
-        run: |
-          source_sha="$(git rev-parse HEAD)"
-          version="$(sed -nE "s/^default_version[[:space:]]*=[[:space:]]*'([^']+)'[[:space:]]*$/\1/p" "$ARTIFACTS/usr/share/postgresql/18/extension/pg_search.control")"
-          [[ "$version" =~ ^[a-zA-Z0-9._-]{1,64}$ ]]
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "extension_version=$version" >> "$GITHUB_OUTPUT"
-          cp -R "$ARTIFACTS" "$RUNNER_TEMP/source-image/artifacts"
-          docker build --pull --platform linux/arm64 \
-            --file "$RUNNER_TEMP/source-image/Dockerfile" \
-            --build-arg "BASE_IMAGE=$GITHUB_REPOSITORY:latest-pg18" \
-            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
-            --label "org.opencontainers.image.revision=$source_sha" \
-            --label "com.paradedb.extension-version=$version" \
-            --tag paradedb-cloud-test "$RUNNER_TEMP/source-image"
+        run: echo "tag=$GITHUB_REPOSITORY:18-$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -92,39 +71,36 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      - name: Publish Cloud Test Image
+      - name: Build and Publish Cloud Test Image
         id: published-image
-        env:
-          SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
-        run: |
-          image="$GITHUB_REPOSITORY:18-$SOURCE_SHA"
-          docker tag paradedb-cloud-test "$image"
-          docker push "$image"
-          digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
-          [[ "$digest" == *@sha256:* ]]
-          echo "ref=$image@${digest#*@}" >> "$GITHUB_OUTPUT"
-          echo "tag=$image" >> "$GITHUB_OUTPUT"
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ runner.temp }}/source-image/Dockerfile
+          platforms: linux/arm64
+          build-args: BASE_IMAGE=${{ github.repository }}:latest-pg18
+          pull: true
+          push: true
+          tags: ${{ steps.image.outputs.tag }}
+          cache-from: type=gha,scope=cloud-source-pg18-arm64
+          cache-to: type=gha,mode=max,scope=cloud-source-pg18-arm64
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign Cloud Test Image
         env:
-          IMAGE: ${{ steps.published-image.outputs.ref }}
+          IMAGE: ${{ steps.image.outputs.tag }}@${{ steps.published-image.outputs.digest }}
         run: cosign sign --yes "$IMAGE"
 
       - name: Summarize Cloud Test Image
         env:
-          IMAGE: ${{ steps.published-image.outputs.ref }}
-          TAG: ${{ steps.published-image.outputs.tag }}
-          SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
-          EXTENSION_VERSION: ${{ steps.image.outputs.extension_version }}
+          IMAGE: ${{ steps.image.outputs.tag }}@${{ steps.published-image.outputs.digest }}
+          TAG: ${{ steps.image.outputs.tag }}
         run: |
           {
-            echo "Source: $GITHUB_REPOSITORY @ $SOURCE_SHA"
             echo "Tag: $TAG"
             echo "Image reference: $IMAGE"
-            echo "pg_search version: $EXTENSION_VERSION"
             echo "Platform: PostgreSQL 18, linux/arm64"
             echo 'Use the digest-pinned image reference in the staging console under the paradedb organization.'
           } >> "$GITHUB_STEP_SUMMARY"

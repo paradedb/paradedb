@@ -42,4 +42,6 @@ runs:
 
     - name: Initialize pgrx Environment
       shell: bash
-      run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+      env:
+        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+      run: cargo pgrx init "--pg${INPUTS_PG_VERSION}=/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config"

@@ -52,7 +52,8 @@ unsafe extern "C-unwind" {
     pub fn IsTransactionState() -> bool;
 }
 
-/// Implements Drop that skips cleanup during panic unwinding.
+/// Implements Drop that skips cleanup during panic unwinding, or with `exit_only`, during process
+/// exit.
 ///
 /// Because panics are used to propagate PostgreSQL errors via pgrx, it is almost never
 /// safe to interact with PostgreSQL APIs during Drop - doing so can cause a double-panic
@@ -60,6 +61,34 @@ unsafe extern "C-unwind" {
 ///
 /// PostgreSQL's transaction abort mechanism will clean up resources (buffers, relations, etc.)
 /// when the transaction is aborted due to the error.
+///
+/// The `exit_only` form skips cleanup during `proc_exit` instead, for values that a FATAL can
+/// leave mid-use (see `DropUnlessExiting`). A FATAL doesn't unwind, so `panicking()` doesn't catch
+/// it:
+///
+/// 1. A FATAL (e.g. from `pg_terminate_backend`) is raised at a `CHECK_FOR_INTERRUPTS()`, which
+///    can be deep inside a Rust call. Postgres calls `proc_exit` right there instead of unwinding,
+///    so that call never returns and `panicking()` is false.
+/// 2. `proc_exit` aborts the transaction, which frees the query's memory. pgrx's callback on that
+///    memory drops our values, including ones the interrupted call was still using.
+/// 3. A value left mid-use panics when dropped. For example, a `OnceLock` whose `get_or_init` was
+///    reading an index page when the FATAL arrived (waiting in `WaitIO` for another backend's read
+///    of that page, which checks for interrupts) is still initializing, and dropping it panics with
+///    "invalid Once state". Postgres runs the drop through a C callback, and a Rust panic can't
+///    pass through C code, so pgrx catches it at the callback and raises it as a Postgres ERROR.
+/// 4. Postgres turns an ERROR raised during `proc_exit` into a FATAL, which calls `proc_exit`
+///    again. That nested exit skips the rest of the first abort, so the process exits still
+///    holding its buffer pins and locks.
+///
+/// Skipping the drop during `proc_exit` lets the abort finish and release them. The `exit_only`
+/// form still runs its body while an ERROR unwinds: the body frees a Rust value instead of calling
+/// into Postgres, which is safe then, and skipping it would leak the value in a backend that keeps
+/// running.
+///
+/// The default form doesn't skip during `proc_exit`, and doesn't need to: its destructors call into
+/// Postgres only while the transaction or parallel mode is live, which `AbortTransaction` ends
+/// before it frees memory, or are held only by function locals, which a FATAL never drops, or
+/// free only process-local state.
 ///
 /// # Example
 /// ```ignore
@@ -83,6 +112,73 @@ macro_rules! impl_safe_drop {
             }
         }
     };
+    (exit_only, <$($generic:ident),*> $ty:ty, |$self:ident| $body:block) => {
+        impl<$($generic),*> Drop for $ty {
+            fn drop(&mut $self) {
+                if $crate::postgres::utils::proc_exit_in_progress() {
+                    return;
+                }
+                $body
+            }
+        }
+    };
+}
+
+/// Owns a value whose `Drop` is skipped once `proc_exit` is in progress, via `impl_safe_drop!`.
+///
+/// Wraps the scan states that pgrx drops when Postgres frees a query's memory: each custom scan's
+/// state (`CustomScanStateWrapper`) and the index AM's (`scan.rs`'s `ScanOpaque`). A FATAL can stop
+/// any call into them, and they own values whose `Drop` fails when left mid-use (step 3 in
+/// `impl_safe_drop!`'s docs):
+/// - std's `OnceLock` while `get_or_init` is running: "internal error: entered unreachable code:
+///   invalid Once state". The scan states hold many, in our readers (`FFHelper`, `LinkedBytesList`,
+///   `DeferredScorer`) and in tantivy's `SegmentReader`, which we can't wrap one by one.
+/// - tokio's `Runtime` while `block_on` holds its core: "Oh no! We never placed the Core back,
+///   this is a bug!"
+/// - the columnar scan's DataFusion stream while it is being polled: dropping it frees memory it
+///   doesn't own, and the backend dies on a signal.
+///
+/// Skipping the whole state loses nothing at exit: Postgres still frees its memory, and the abort
+/// releases the buffer pins, locks, snapshots and temp files it holds.
+pub(crate) struct DropUnlessExiting<T>(std::mem::ManuallyDrop<T>);
+
+impl<T> DropUnlessExiting<T> {
+    /// Takes ownership of `value`, which is dropped with the wrapper unless `proc_exit` has
+    /// started.
+    pub(crate) fn new(value: T) -> Self {
+        Self(std::mem::ManuallyDrop::new(value))
+    }
+}
+
+impl<T> std::ops::Deref for DropUnlessExiting<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for DropUnlessExiting<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+crate::impl_safe_drop!(exit_only, <T> DropUnlessExiting<T>, |self| {
+    // SAFETY: the value is dropped exactly once, here.
+    unsafe { std::mem::ManuallyDrop::drop(&mut self.0) }
+});
+
+/// Whether this backend is running `proc_exit`, where a FATAL may have left Rust state mid-use.
+#[cfg(not(test))]
+pub(crate) fn proc_exit_in_progress() -> bool {
+    // SAFETY: plain read of a backend-local flag on the backend thread.
+    unsafe { pgrx::pg_sys::proc_exit_inprogress }
+}
+
+/// The lib-test binary doesn't link the PG globals, and no test runs `proc_exit`.
+#[cfg(test)]
+pub(crate) fn proc_exit_in_progress() -> bool {
+    false
 }
 
 /// RAII guard for PostgreSQL standalone expression context

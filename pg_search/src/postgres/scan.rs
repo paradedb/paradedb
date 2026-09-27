@@ -22,11 +22,16 @@ use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::index_only::IndexOnlyScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::DropUnlessExiting;
 use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
+
+/// What `IndexScanDesc::opaque` points to; every cast of `opaque` must name this type. Wrapped so
+/// its `Drop` is skipped during `proc_exit`; see [`DropUnlessExiting`].
+type ScanOpaque = DropUnlessExiting<Option<Bm25ScanState>>;
 
 pub struct Bm25ScanState {
     reader: SearchIndexReader,
@@ -252,7 +257,7 @@ pub extern "C-unwind" fn amrescan(
     };
 
     scan.opaque = PgMemoryContexts::CurrentMemoryContext
-        .leak_and_drop_on_delete(Some(scan_state))
+        .leak_and_drop_on_delete::<ScanOpaque>(DropUnlessExiting::new(Some(scan_state)))
         .cast();
 }
 
@@ -268,7 +273,7 @@ pub extern "C-unwind" fn amendscan(scan: pg_sys::IndexScanDesc) {
         if (*scan).opaque.is_null() {
             return;
         }
-        let scan_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
+        let scan_state = (*(*scan).opaque.cast::<ScanOpaque>()).take();
         (*scan).opaque = std::ptr::null_mut();
         if let Some(mut state) = scan_state
             && let Some(index_only) = state.index_only.take()
@@ -286,7 +291,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
     let state = {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `Bm25ScanState` above in
         // amrescan, which is always called prior to this function
-        (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
+        (*(*scan).opaque.cast::<ScanOpaque>())
             .as_mut()
             .expect("opaque should be a Bm25ScanState")
     };
@@ -341,7 +346,7 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
     let state = {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `Bm25ScanState` above in
         // amrescan, which is always called prior to this function
-        (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
+        (*(*scan).opaque.cast::<ScanOpaque>())
             .as_mut()
             .expect("opaque should be a Bm25ScanState")
     };

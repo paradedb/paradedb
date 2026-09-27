@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! PostgreSQL shared-memory ring-buffer cache for read-time-indexed mutable segments.
+//! PostgreSQL shared-memory cache for read-time-indexed mutable segments.
 //!
 //! Mutable segments avoid indexing work on write by appending `ctid` records to an in-database log.
 //! However, read queries accessing a mutable segment must materialize and index it into a Tantivy
@@ -27,8 +27,8 @@
 //! In read-heavy workloads, subsequent queries also suffered redundant re-indexing of identical segment
 //! contents (issue #5356).
 //!
-//! This module provides a shared-memory ring-buffer cache that allows read-time indexed mutable segments
-//! to be shared across queries and parallel workers.
+//! This module provides a shared-memory cache that allows read-time indexed mutable segments to be shared
+//! across queries and parallel workers.
 //!
 //! # Design
 //!
@@ -57,36 +57,59 @@
 //! dies or aborts, waiting workers detect that the builder PID is no longer alive ([`is_pid_alive`]),
 //! reset the in-flight entry, and allow another worker to retry.
 //!
-//! ### Bip-Buffer Allocation & Eviction
+//! ### Implicit Binary Tree Slab Allocation
 //!
-//! Tantivy requires component files to be contiguous in memory, so allocations cannot straddle the arena's
-//! boundary. The allocator uses a bip-buffer strategy: allocations proceed linearly until the end of the
-//! buffer, then wrap around to offset 0.
+//! Tantivy requires component files to be contiguous in memory, so allocations cannot straddle non-contiguous
+//! chunks. Memory in the shared data arena is managed by [`SlabPool`], an implicit binary tree slab allocator:
 //!
-//! Eviction advances `tail_offset` past completed entries in arena order, skipping across inactive gaps,
-//! but is blocked if an entry at the tail has `active_readers > 0`. When the slot table is full, any
-//! [`SlotState::Superseded`] entry whose active readers count has reached zero can be immediately reclaimed.
-//! If shared memory is exhausted by active readers, workers gracefully fall back to local unshared indexing
-//! (`RamDirectory`) with a `pgrx::warning`.
+//! - Slabs are power-of-two multiples of a base slab size (typically 256KB), scaling up to the entire cache
+//!   capacity (e.g. 64MB or 1GB).
+//! - The tree is maintained entirely in a flat array in shared memory without pointers or linked lists.
+//! - Slabs automatically coalesce with adjacent buddies in $O(\log N)$ steps upon deallocation.
 //!
-//! When a newer bound for a segment is cached, earlier bounds transition to [`SlotState::Superseded`]:
-//! they are hidden from new lookups, but existing readers continue reading until their active reader count
-//! reaches zero and their arena span is reclaimed.
+//! ### Eager Reclamation & Table Isolation (Eliminating the Noisy Neighbor)
+//!
+//! In a global FIFO ring buffer, high write churn on one relation continually advances a shared tail,
+//! evicting hot segments belonging to unrelated read-heavy relations.
+//!
+//! The slab pool eliminates this noisy-neighbor problem via eager out-of-order reclamation:
+//! - When a newer bound for a segment is cached, earlier bounds transition to [`SlotState::Superseded`].
+//! - Any superseded slot whose active reader count has dropped to zero is immediately freed back to the
+//!   [`SlabPool`], recycling the memory block for the next write commit.
+//! - When in-flight queries reading a superseded bound finish, [`ActiveReaderGuard::drop`] immediately
+//!   returns the slab to the pool.
+//! - High write churn on one table continuously recycles its own slabs and never touches or evicts
+//!   unrelated tables.
+//!
+//! ### Clock Sweep Cache Eviction
+//!
+//! When all slabs of a requested order are in use by active segments, the allocator performs a Clock sweep
+//! with a saturated `usage_count` (0..=5):
+//! - Every cache hit on a [`SlotState::Ready`] segment increments its `usage_count` up to 5.
+//! - During memory pressure, a shared clock hand scans the slot table:
+//!   - Slots with `usage_count > 0` have their count decremented and are skipped, protecting frequently
+//!     queried tables.
+//!   - Slots with `usage_count == 0` and zero active readers are evicted, freeing their slab.
+//! - If all memory is pinned by active readers, workers gracefully fall back to local unshared indexing
+//!   (`RamDirectory`) with a `pgrx::warning`.
 //!
 //! ### Invalidation Lifecycle
 //!
 //! - Segment merges: When background merge workers consolidate mutable segments into immutable segments
-//!   (`pg_search/src/postgres/merge.rs`), [`invalidate_segment`] marks matching slots as superseded.
+//!   (`pg_search/src/postgres/merge.rs`), [`invalidate_segment`] eagerly frees matching slots if they have
+//!   zero active readers, or marks them as superseded.
 //! - Relation lifecycle: `build_empty` (`pg_search/src/postgres/build.rs`) and `object_access_hook`
 //!   (`OAT_DROP` on `pg_class`) call [`invalidate_index`] to evict all cached slots for dropped, reindexed,
 //!   or truncated relations.
 
 pub mod directory;
 pub mod pack;
+pub mod slab_pool;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 
 pub use directory::SharedMemoryDirectory;
+pub use slab_pool::{ArenaSpan, SlabPool};
 
 use pgrx::pg_sys;
 use std::cell::UnsafeCell;
@@ -114,6 +137,12 @@ static mut PREV_SHMEM_STARTUP_HOOK: pg_sys::shmem_startup_hook_type = None;
 static mut PREV_OBJECT_ACCESS_HOOK: pg_sys::object_access_hook_type = None;
 
 /// Unique identifier for a materialized mutable segment bound in shared memory.
+///
+/// Keys are matched on `database_oid`, `index_oid`, and `segment_id` (a 16-byte Tantivy UUID),
+/// paired with a specific [`MutableSegmentBound`] `(max_doc, num_deleted_docs)`.
+///
+/// While exact equality `==` checks for an identical snapshot prefix, [`Self::matches_segment`]
+/// checks if two keys represent the same underlying mutable segment across different bounds.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 #[repr(C)]
 pub struct MutableCacheKey {
@@ -161,6 +190,13 @@ impl MutableCacheKey {
 }
 
 /// Entry tracking an in-flight segment build across concurrent backends.
+///
+/// When multiple concurrent queries or parallel workers require the same mutable segment, exactly
+/// one backend claims an in-flight build slot, indexes the segment in private backend memory, and
+/// copies it into shared memory. Concurrent workers wait on a shared [`ConditionVariable`].
+///
+/// If a builder backend aborts, crashes, or is killed before completing, waiting workers detect that
+/// [`is_pid_alive`] is false, reset the entry, and allow another worker to retry.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct InflightBuild {
@@ -193,17 +229,17 @@ impl InflightBuild {
     }
 }
 
-/// Byte range within the shared memory data arena.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-#[repr(C)]
-pub struct ArenaSpan {
-    /// Byte offset from the start of the data arena.
-    pub offset: u32,
-    /// Length of the allocated region in bytes.
-    pub len: u32,
-}
-
 /// Lifecycle state of a cache slot.
+///
+/// # State Transitions
+///
+/// - `Empty` -> `Ready`: When a builder backend successfully indexes a segment and installs it into
+///   an allocated slab.
+/// - `Ready` -> `Superseded`: When a newer bound for the same segment is cached, or when the segment
+///   or relation is invalidated, while active readers are still accessing this slot.
+/// - `Ready` -> `Empty`: When invalidated or evicted by a clock sweep with zero active readers.
+/// - `Superseded` -> `Empty`: When the last active reader drops its [`ActiveReaderGuard`], or when a
+///   clock sweep sweeps past with zero active readers, immediately returning the slab to the [`SlabPool`].
 #[repr(u32)]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum SlotState {
@@ -212,20 +248,21 @@ pub enum SlotState {
     /// Segment is fully packed and ready for concurrent reads.
     Ready = 1,
     /// Segment was invalidated or superseded by a newer bound. Active readers may continue;
-    /// reclaimed in ring-buffer order when tail advances past its allocation, or immediately
-    /// if the slot table is full and active readers count reaches zero.
+    /// reclaimed eagerly when active readers count reaches zero.
     Superseded = 2,
 }
 
 /// Metadata entry tracking a cached segment in shared memory.
 #[repr(C)]
 pub struct CacheSlot {
-    /// Key identifying the segment bound.
+    /// Key identifying the database, index, segment UUID, and snapshot bound.
     pub key: MutableCacheKey,
-    /// Location of the packed segment data in the arena.
+    /// Location and power-of-two order of the packed segment data in the arena.
     pub span: ArenaSpan,
     /// Count of active readers currently holding slices in this slot.
     pub active_readers: AtomicU32,
+    /// Saturated usage count for clock-sweep cache eviction (0..=5). Incremented on read cache hits.
+    pub usage_count: AtomicU32,
     /// Current lifecycle state.
     pub state: SlotState,
 }
@@ -243,14 +280,25 @@ impl CacheSlot {
                     num_deleted_docs: 0,
                 },
             },
-            span: ArenaSpan { offset: 0, len: 0 },
+            span: ArenaSpan {
+                offset: 0,
+                len: 0,
+                order: 0,
+            },
             active_readers: AtomicU32::new(0),
+            usage_count: AtomicU32::new(0),
             state: SlotState::Empty,
         }
     }
 }
 
 /// RAII guard that decrements a slot's `active_readers` count on drop.
+///
+/// Holds an active reference to a cached segment slot. When dropped:
+/// - Decrements the slot's `active_readers` refcount atomically.
+/// - If the slot is in [`SlotState::Superseded`] and this drop transitions `active_readers` to zero,
+///   triggers eager out-of-order deallocation via [`MutableCacheHeader::reclaim_superseded_slot`],
+///   immediately returning the memory slab to the [`SlabPool`].
 pub struct ActiveReaderGuard {
     slot_index: usize,
 }
@@ -260,28 +308,32 @@ impl Drop for ActiveReaderGuard {
         if let Some(cache) = load_cache() {
             let slots = unsafe { cache.slots() };
             if self.slot_index < slots.len() {
-                slots[self.slot_index]
+                let prev = slots[self.slot_index]
                     .active_readers
                     .fetch_sub(1, Ordering::Release);
+                if prev == 1 && slots[self.slot_index].state == SlotState::Superseded {
+                    cache.reclaim_superseded_slot(self.slot_index);
+                }
             }
         }
     }
 }
 
-/// Ring-buffer head and tail allocation offsets.
-#[derive(Copy, Clone, Debug, Default)]
-#[repr(C)]
-pub struct AllocatorState {
-    /// Offset where the next segment will be allocated.
-    pub head_offset: u32,
-    /// Offset of the oldest entry eligible for eviction.
-    pub tail_offset: u32,
-}
-
 /// Shared memory header located at the base of the cache allocation.
+///
+/// Sits at byte offset 0 of the shared-memory region requested via `RequestAddinShmemSpace`.
+/// Directly following this header struct is the contiguous data arena of size `arena_capacity`.
+///
+/// Contains:
+/// - A named `LWLock` protecting the slot table and the [`SlabPool`] allocator.
+/// - A [`ConditionVariable`] to wake workers waiting on in-flight builds.
+/// - The [`SlabPool`] implicit binary tree buddy allocator.
+/// - Fixed-size arrays for `slots` ([`MAX_SLOTS`]) and `inflight_builds` ([`MAX_INFLIGHT_BUILDS`]).
+/// - An atomic `clock_hand` for clock-sweep cache eviction.
+/// - An atomic `generation` counter incremented on slot invalidation or deallocation.
 #[repr(C)]
 pub struct MutableCacheHeader {
-    /// LWLock protecting the slot table and allocator state.
+    /// LWLock protecting the slot table and slab pool.
     pub lock: LWLock,
     /// Condition variable to signal completion of in-flight builds.
     pub cv: ConditionVariable,
@@ -289,7 +341,9 @@ pub struct MutableCacheHeader {
     pub arena_capacity: u32,
     /// Invalidation generation counter.
     pub generation: AtomicU64,
-    allocator: UnsafeCell<AllocatorState>,
+    /// Clock hand for eviction sweep across slots.
+    pub clock_hand: AtomicU32,
+    slab_pool: UnsafeCell<SlabPool>,
     inflight_builds: UnsafeCell<[InflightBuild; MAX_INFLIGHT_BUILDS]>,
     slots: UnsafeCell<[CacheSlot; MAX_SLOTS]>,
 }
@@ -298,12 +352,19 @@ unsafe impl Send for MutableCacheHeader {}
 unsafe impl Sync for MutableCacheHeader {}
 
 impl MutableCacheHeader {
+    /// Initialize the shared-memory header in-place.
+    ///
+    /// # Safety
+    ///
+    /// Must be called once during PostgreSQL shared-memory startup while holding exclusive access
+    /// to the newly zeroed shared-memory chunk.
     pub unsafe fn init_raw(ptr: *mut Self, lock: LWLock, arena_capacity: u32) {
         std::ptr::addr_of_mut!((*ptr).lock).write(lock);
         std::ptr::addr_of_mut!((*ptr).arena_capacity).write(arena_capacity);
         (*ptr).cv.init();
         (*ptr).generation.store(0, Ordering::Relaxed);
-        *(*ptr).allocator.get() = AllocatorState::default();
+        (*ptr).clock_hand.store(0, Ordering::Relaxed);
+        (*(*ptr).slab_pool.get()).init(arena_capacity as usize);
         for build in &mut *(*ptr).inflight_builds.get() {
             *build = InflightBuild::empty();
         }
@@ -335,185 +396,170 @@ impl MutableCacheHeader {
     }
 
     #[allow(clippy::mut_from_ref)]
-    pub unsafe fn allocator_mut(&self, _guard: &LWLockExclusiveGuard<'_>) -> &mut AllocatorState {
-        &mut *self.allocator.get()
+    pub unsafe fn slab_pool_mut(&self, _guard: &LWLockExclusiveGuard<'_>) -> &mut SlabPool {
+        &mut *self.slab_pool.get()
     }
 
+    /// Returns the contiguous shared-memory data arena as an immutable byte slice.
+    ///
+    /// Slices from offset `std::mem::size_of::<Self>()` with length `arena_capacity`.
     pub fn arena_slice(&self) -> &[u8] {
         let ptr = unsafe { (self as *const Self as *const u8).add(std::mem::size_of::<Self>()) };
         unsafe { std::slice::from_raw_parts(ptr, self.arena_capacity as usize) }
     }
 
+    /// Returns the contiguous shared-memory data arena as a mutable byte slice.
+    ///
+    /// The caller must hold an exclusive guard on `self.lock`.
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn arena_slice_mut(&self, _guard: &LWLockExclusiveGuard<'_>) -> &mut [u8] {
         let ptr = (self as *const Self as *mut u8).add(std::mem::size_of::<Self>());
         std::slice::from_raw_parts_mut(ptr, self.arena_capacity as usize)
     }
 
-    /// Try to allocate `needed_bytes` in the ring buffer.
-    /// Returns `Some(ArenaSpan)` on success, or `None` if the arena is full of in-use data.
+    /// Try to allocate `needed_bytes` in the slab pool.
+    ///
+    /// First attempts a fast-path buddy allocation via [`SlabPool::allocate`].
+    /// If no free slab of sufficient order is available, initiates a clock sweep
+    /// ([`Self::evict_with_clock_sweep`]) over the slot table to evict superseded or cold entries,
+    /// coalescing buddy slabs until a suitable slab is freed.
     pub fn allocate(
         &self,
         needed_bytes: usize,
         guard: &LWLockExclusiveGuard<'_>,
     ) -> Option<ArenaSpan> {
+        let slab_pool = unsafe { self.slab_pool_mut(guard) };
+        if let Some(span) = slab_pool.allocate(needed_bytes) {
+            return Some(span);
+        }
+
         let slots = unsafe { self.slots_mut(guard) };
-        let allocator = unsafe { self.allocator_mut(guard) };
-        self.allocate_raw(needed_bytes, slots, allocator)
+        let slab_pool = unsafe { self.slab_pool_mut(guard) };
+        self.evict_with_clock_sweep(needed_bytes, slots, slab_pool)
     }
 
-    /// Allocate `needed_bytes` (aligned to 8 bytes) in the ring buffer arena.
+    /// Evict cached slots using a clock sweep with `usage_count` until a slab for `needed_bytes`
+    /// can be allocated.
     ///
-    /// Implements a bip-buffer allocation strategy with active-reader eviction protection:
-    /// - If enough linear room exists between `head_offset` and the arena capacity, allocates linearly.
-    /// - If linear space is exhausted, wraps around to offset 0, evicting slots at `tail_offset`
-    ///   whose `active_readers == 0`.
-    /// - If eviction is blocked because slots at `tail_offset` are actively being read by queries,
-    ///   returns `None`.
-    pub fn allocate_raw(
+    /// Advances `clock_hand` through the slot table up to `MAX_SLOTS * 6` times:
+    /// - [`SlotState::Superseded`] slots with zero active readers are immediately freed back to the slab pool.
+    /// - [`SlotState::Ready`] slots with active readers (`active_readers > 0`) are skipped to protect in-flight queries.
+    /// - [`SlotState::Ready`] slots with zero active readers:
+    ///   - If `usage_count > 0`, decrements `usage_count` by 1 (second chance) and skips.
+    ///   - If `usage_count == 0`, evicts the slot, frees its slab to the pool, and resets the slot to [`SlotState::Empty`].
+    /// - After every slab freed, retries [`SlabPool::allocate`]. Returns `Some(span)` as soon as an allocation succeeds.
+    fn evict_with_clock_sweep(
         &self,
         needed_bytes: usize,
         slots: &mut [CacheSlot],
-        allocator: &mut AllocatorState,
+        slab_pool: &mut SlabPool,
     ) -> Option<ArenaSpan> {
-        let needed = (needed_bytes + 7) & !7;
-        let capacity = self.arena_capacity as usize;
-        if needed > capacity {
-            return None;
-        }
+        let max_steps = MAX_SLOTS * 6;
+        for _ in 0..max_steps {
+            let idx = (self.clock_hand.fetch_add(1, Ordering::Relaxed) as usize) % MAX_SLOTS;
+            let slot = &mut slots[idx];
 
-        let is_empty = slots.iter().all(|s| s.state == SlotState::Empty);
-        if is_empty {
-            allocator.head_offset = needed as u32;
-            allocator.tail_offset = 0;
-            return Some(ArenaSpan {
-                offset: 0,
-                len: needed as u32,
-            });
-        }
-
-        let head = allocator.head_offset as usize;
-        let mut tail = allocator.tail_offset as usize;
-
-        // State 2: Wrapped region (head < tail)
-        if head < tail {
-            // Check if it fits in free space [head..tail]
-            if head + needed <= tail {
-                let offset = head as u32;
-                allocator.head_offset = (head + needed) as u32;
-                return Some(ArenaSpan {
-                    offset,
-                    len: needed as u32,
-                });
-            }
-
-            // Does not fit in [head..tail]: advance tail towards capacity
-            while head + needed > tail {
-                if !Self::try_advance_tail(slots, &mut tail, &self.generation) {
-                    let has_active_ahead = slots
-                        .iter()
-                        .any(|s| s.state != SlotState::Empty && (s.span.offset as usize) >= tail);
-                    if has_active_ahead {
-                        allocator.tail_offset = tail as u32;
-                        return None;
+            match slot.state {
+                SlotState::Empty => continue,
+                SlotState::Superseded => {
+                    if slot.active_readers.load(Ordering::Acquire) == 0 {
+                        slab_pool.free(slot.span.offset, slot.span.order);
+                        *slot = CacheSlot::empty();
+                        self.generation.fetch_add(1, Ordering::Release);
+                        if let Some(span) = slab_pool.allocate(needed_bytes) {
+                            return Some(span);
+                        }
                     }
-                    // Region [tail..capacity] is completely drained.
-                    // Transition to linear state: tail moves to oldest active slot in [0..head].
-                    tail = slots
-                        .iter()
-                        .filter(|s| s.state != SlotState::Empty)
-                        .map(|s| s.span.offset as usize)
-                        .min()
-                        .unwrap_or(0);
-                    allocator.tail_offset = tail as u32;
-                    break;
+                }
+                SlotState::Ready => {
+                    if slot.active_readers.load(Ordering::Acquire) > 0 {
+                        continue;
+                    }
+                    let usage = slot.usage_count.load(Ordering::Relaxed);
+                    if usage > 0 {
+                        slot.usage_count.store(usage - 1, Ordering::Relaxed);
+                    } else {
+                        slab_pool.free(slot.span.offset, slot.span.order);
+                        *slot = CacheSlot::empty();
+                        self.generation.fetch_add(1, Ordering::Release);
+                        if let Some(span) = slab_pool.allocate(needed_bytes) {
+                            return Some(span);
+                        }
+                    }
                 }
             }
-
-            if head < tail && head + needed <= tail {
-                let offset = head as u32;
-                allocator.head_offset = (head + needed) as u32;
-                allocator.tail_offset = tail as u32;
-                return Some(ArenaSpan {
-                    offset,
-                    len: needed as u32,
-                });
-            }
         }
-
-        // State 1: Linear region (head >= tail)
-        if head + needed <= capacity {
-            let offset = head as u32;
-            allocator.head_offset = (head + needed) as u32;
-            allocator.tail_offset = tail as u32;
-            return Some(ArenaSpan {
-                offset,
-                len: needed as u32,
-            });
-        }
-
-        // Not enough linear space before capacity: wrap around to 0
-        while tail <= needed && !slots.iter().all(|s| s.state == SlotState::Empty) {
-            if !Self::try_advance_tail(slots, &mut tail, &self.generation) {
-                allocator.tail_offset = tail as u32;
-                return None;
-            }
-        }
-
-        if tail > needed || slots.iter().all(|s| s.state == SlotState::Empty) {
-            allocator.head_offset = needed as u32;
-            allocator.tail_offset = tail as u32;
-            return Some(ArenaSpan {
-                offset: 0,
-                len: needed as u32,
-            });
-        }
-
-        allocator.tail_offset = tail as u32;
         None
     }
 
-    /// Try to advance `tail` past the oldest active entry at or above `*tail`.
+    /// Evict a slot using clock sweep when all [`MAX_SLOTS`] entries in the slot table are occupied.
     ///
-    /// Finds the active slot with the smallest `span.offset >= *tail`.
-    /// - If found and `active_readers == 0`: evicts slot to `Empty`, advances `*tail`,
-    ///   increments `generation`, and returns `true`.
-    /// - If found and `active_readers > 0`: returns `false` (eviction blocked).
-    /// - If no active slot exists with `span.offset >= *tail`: returns `false`.
-    fn try_advance_tail(slots: &mut [CacheSlot], tail: &mut usize, generation: &AtomicU64) -> bool {
-        let current_tail = *tail as u32;
-        let mut min_offset = u32::MAX;
-        let mut found_idx = None;
+    /// Returns the index of a freed or available slot, or `None` if all slots are pinned by active readers.
+    pub fn evict_slot_for_claim(
+        &self,
+        slots: &mut [CacheSlot],
+        slab_pool: &mut SlabPool,
+    ) -> Option<usize> {
+        let max_steps = MAX_SLOTS * 6;
+        for _ in 0..max_steps {
+            let idx = (self.clock_hand.fetch_add(1, Ordering::Relaxed) as usize) % MAX_SLOTS;
+            let slot = &mut slots[idx];
 
-        for (idx, slot) in slots.iter().enumerate() {
-            if slot.state != SlotState::Empty
-                && slot.span.offset >= current_tail
-                && slot.span.offset < min_offset
-            {
-                min_offset = slot.span.offset;
-                found_idx = Some(idx);
+            match slot.state {
+                SlotState::Empty => return Some(idx),
+                SlotState::Superseded => {
+                    if slot.active_readers.load(Ordering::Acquire) == 0 {
+                        slab_pool.free(slot.span.offset, slot.span.order);
+                        *slot = CacheSlot::empty();
+                        self.generation.fetch_add(1, Ordering::Release);
+                        return Some(idx);
+                    }
+                }
+                SlotState::Ready => {
+                    if slot.active_readers.load(Ordering::Acquire) > 0 {
+                        continue;
+                    }
+                    let usage = slot.usage_count.load(Ordering::Relaxed);
+                    if usage > 0 {
+                        slot.usage_count.store(usage - 1, Ordering::Relaxed);
+                    } else {
+                        slab_pool.free(slot.span.offset, slot.span.order);
+                        *slot = CacheSlot::empty();
+                        self.generation.fetch_add(1, Ordering::Release);
+                        return Some(idx);
+                    }
+                }
             }
         }
-
-        let Some(idx) = found_idx else {
-            return false;
-        };
-
-        let slot = &mut slots[idx];
-        if slot.active_readers.load(Ordering::Acquire) > 0 {
-            return false;
-        }
-
-        *tail = (slot.span.offset + slot.span.len) as usize;
-        *slot = CacheSlot::empty();
-        generation.fetch_add(1, Ordering::Release);
-        true
+        None
     }
 
-    /// Transition all cache slots for `segment_id` to [`SlotState::Superseded`].
+    /// Reclaim a superseded slot whose active readers have drained to zero.
     ///
-    /// Called when a mutable segment is merged into an immutable segment. Existing readers
-    /// may complete their reads; new lookups will bypass these slots.
+    /// Called eagerly from [`ActiveReaderGuard::drop`] when the final reader exits, ensuring write churn
+    /// immediately recycles older bounds without waiting for cache eviction.
+    pub fn reclaim_superseded_slot(&self, slot_index: usize) {
+        let guard = self.lock.acquire_exclusive();
+        let slots = unsafe { self.slots_mut(&guard) };
+        if slot_index < slots.len() {
+            let slot = &mut slots[slot_index];
+            if slot.state == SlotState::Superseded
+                && slot.active_readers.load(Ordering::Acquire) == 0
+            {
+                let span = slot.span;
+                *slot = CacheSlot::empty();
+                let slab_pool = unsafe { self.slab_pool_mut(&guard) };
+                slab_pool.free(span.offset, span.order);
+                self.generation.fetch_add(1, Ordering::Release);
+            }
+        }
+    }
+
+    /// Transition all cache slots for `segment_id` across all bounds to [`SlotState::Superseded`].
+    ///
+    /// Called when a mutable segment is merged into an immutable segment (`crate::postgres::merge`).
+    /// If a matching slot has zero active readers, its slab is eagerly freed back to the [`SlabPool`].
+    /// Any in-flight builds for this segment are cancelled, and waiting workers are awakened via `cv.broadcast()`.
     pub fn invalidate_segment(
         &self,
         database_oid: pg_sys::Oid,
@@ -522,13 +568,19 @@ impl MutableCacheHeader {
     ) {
         let guard = self.lock.acquire_exclusive();
         let slots = unsafe { self.slots_mut(&guard) };
+        let slab_pool = unsafe { self.slab_pool_mut(&guard) };
         for slot in slots {
             if slot.state != SlotState::Empty
                 && slot.key.database_oid == database_oid
                 && slot.key.index_oid == index_oid
                 && slot.key.segment_id == *segment_id
             {
-                slot.state = SlotState::Superseded;
+                if slot.active_readers.load(Ordering::Acquire) == 0 {
+                    slab_pool.free(slot.span.offset, slot.span.order);
+                    *slot = CacheSlot::empty();
+                } else {
+                    slot.state = SlotState::Superseded;
+                }
             }
         }
         let inflights = unsafe { self.inflight_builds_mut(&guard) };
@@ -551,16 +603,24 @@ impl MutableCacheHeader {
 
     /// Transition all cache slots for `index_oid` to [`SlotState::Superseded`].
     ///
-    /// Called on `CREATE INDEX`, `REINDEX`, `TRUNCATE`, or table/index drop.
+    /// Called on relation drop, truncate, or reindex. If a matching slot has zero active readers,
+    /// its slab is eagerly freed back to the [`SlabPool`]. Any in-flight builds for this relation
+    /// are cancelled, and waiting workers are awakened via `cv.broadcast()`.
     pub fn invalidate_index(&self, database_oid: pg_sys::Oid, index_oid: pg_sys::Oid) {
         let guard = self.lock.acquire_exclusive();
         let slots = unsafe { self.slots_mut(&guard) };
+        let slab_pool = unsafe { self.slab_pool_mut(&guard) };
         for slot in slots {
             if slot.state != SlotState::Empty
                 && slot.key.database_oid == database_oid
                 && slot.key.index_oid == index_oid
             {
-                slot.state = SlotState::Superseded;
+                if slot.active_readers.load(Ordering::Acquire) == 0 {
+                    slab_pool.free(slot.span.offset, slot.span.order);
+                    *slot = CacheSlot::empty();
+                } else {
+                    slot.state = SlotState::Superseded;
+                }
             }
         }
         let inflights = unsafe { self.inflight_builds_mut(&guard) };
@@ -622,10 +682,23 @@ impl Drop for InflightBuildGuard {
     }
 }
 
-/// Get a cached directory for `key`, or build it using `build_fn`.
+/// Retrieve a cached directory for `key`, or build and install it using `build_fn`.
 ///
-/// Coordinates with concurrent backends so that only one worker builds the segment while
-/// others block on `ConditionVariable`.
+/// # Concurrency & Lifecycle
+///
+/// 1. **Cache Hit**: Checks `slots` for an existing [`SlotState::Ready`] entry matching `key`.
+///    If found, increments `active_readers` and the saturated `usage_count` (0..=5), returning a zero-copy
+///    [`SharedMemoryDirectory`] pointing directly to the contiguous slab in shared memory.
+/// 2. **In-Flight Coordination**: If another worker is already building the segment, waits on
+///    [`ConditionVariable`]. If the builder process crashed or was killed (`!is_pid_alive`), resets the
+///    in-flight entry and allows another worker to take over.
+/// 3. **Segment Building & Packing**: Exactly one worker builds the segment in private backend memory
+///    via `build_fn`, packs all component files into a single contiguous buffer with a TOC ([`pack::pack_segment`]),
+///    and allocates a power-of-two slab from [`SlabPool`].
+/// 4. **Eager Supersession**: Older bounds for the same segment UUID are transitioned to [`SlotState::Superseded`].
+///    If an older bound has zero active readers, its slab is immediately freed back to the [`SlabPool`].
+/// 5. **Unshared Fallback**: If the shared arena or slot table is full and cannot be evicted (e.g., all memory
+///    is pinned by active readers), logs a warning and returns backend-private `RamDirectory` without failing the query.
 pub fn get_or_build(
     key: &MutableCacheKey,
     build_fn: impl FnOnce() -> anyhow::Result<RamDirectory>,
@@ -647,6 +720,11 @@ pub fn get_or_build(
         for (idx, slot) in slots.iter().enumerate() {
             if slot.state == SlotState::Ready && slot.key == *key {
                 slot.active_readers.fetch_add(1, Ordering::AcqRel);
+                let _ = slot
+                    .usage_count
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |u| {
+                        Some((u + 1).min(5))
+                    });
                 let reader_guard = Arc::new(ActiveReaderGuard { slot_index: idx });
                 let slice_ptr =
                     unsafe { (cache.arena_slice().as_ptr()).add(slot.span.offset as usize) };
@@ -766,53 +844,8 @@ pub fn get_or_build(
         let mut claim_slot_idx = slots.iter().position(|s| s.state == SlotState::Empty);
 
         if claim_slot_idx.is_none() {
-            // Reclaim any Superseded slot whose active readers have finished
-            for (idx, slot) in slots.iter_mut().enumerate() {
-                if slot.state == SlotState::Superseded
-                    && slot.active_readers.load(Ordering::Acquire) == 0
-                {
-                    *slot = CacheSlot::empty();
-                    claim_slot_idx = Some(idx);
-                    break;
-                }
-            }
-        }
-
-        if claim_slot_idx.is_none() {
-            // Evict oldest active slot via try_advance_tail
-            let allocator = unsafe { cache.allocator_mut(&guard) };
-            let mut tail = allocator.tail_offset as usize;
-            while slots.iter().all(|s| s.state != SlotState::Empty) {
-                if !MutableCacheHeader::try_advance_tail(slots, &mut tail, &cache.generation) {
-                    let has_active_ahead = slots
-                        .iter()
-                        .any(|s| s.state != SlotState::Empty && (s.span.offset as usize) >= tail);
-                    if has_active_ahead {
-                        break;
-                    }
-                    let min_tail = slots
-                        .iter()
-                        .filter(|s| s.state != SlotState::Empty)
-                        .map(|s| s.span.offset as usize)
-                        .min();
-                    match min_tail {
-                        Some(new_tail) => {
-                            tail = new_tail;
-                            allocator.tail_offset = tail as u32;
-                            if !MutableCacheHeader::try_advance_tail(
-                                slots,
-                                &mut tail,
-                                &cache.generation,
-                            ) {
-                                break;
-                            }
-                        }
-                        None => break,
-                    }
-                }
-                allocator.tail_offset = tail as u32;
-            }
-            claim_slot_idx = slots.iter().position(|s| s.state == SlotState::Empty);
+            let slab_pool = unsafe { cache.slab_pool_mut(&guard) };
+            claim_slot_idx = cache.evict_slot_for_claim(slots, slab_pool);
         }
 
         let Some(slot_idx) = claim_slot_idx else {
@@ -820,6 +853,8 @@ pub fn get_or_build(
                 "pg_search: mutable segment cache slot table full, falling back to local indexing"
             );
             build_guard.completed = true;
+            let slab_pool = unsafe { cache.slab_pool_mut(&guard) };
+            slab_pool.free(span.offset, span.order);
             let inflights = unsafe { cache.inflight_builds_mut(&guard) };
             inflights[build_idx] = InflightBuild::empty();
             cache.cv.broadcast();
@@ -843,14 +878,21 @@ pub fn get_or_build(
         slots[slot_idx].span = span;
         slots[slot_idx].state = SlotState::Ready;
         slots[slot_idx].active_readers.store(1, Ordering::Release);
+        slots[slot_idx].usage_count.store(1, Ordering::Release);
 
-        // Supersede any older bound for this same segment
+        // Supersede any older bound for this same segment and eagerly reclaim if no active readers
+        let slab_pool = unsafe { cache.slab_pool_mut(&guard) };
         for (i, other_slot) in slots.iter_mut().enumerate() {
             if i != slot_idx
                 && other_slot.state == SlotState::Ready
                 && other_slot.key.matches_segment(key)
             {
-                other_slot.state = SlotState::Superseded;
+                if other_slot.active_readers.load(Ordering::Acquire) == 0 {
+                    slab_pool.free(other_slot.span.offset, other_slot.span.order);
+                    *other_slot = CacheSlot::empty();
+                } else {
+                    other_slot.state = SlotState::Superseded;
+                }
             }
         }
 

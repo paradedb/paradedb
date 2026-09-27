@@ -17,7 +17,7 @@
 
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
-use crate::index::reader::index::SearchIndexManifest;
+use crate::index::reader::index::{SearchIndexManifest, SegmentCounts};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
@@ -132,6 +132,8 @@ pub struct WrappedAggregateProjection {
 #[derive(Default)]
 pub struct AggregateScanState {
     pub visibility_stats: VisibilityStats,
+    /// The Tantivy backend reader's segment counts, for EXPLAIN ANALYZE; `None` until it runs.
+    pub segment_counts: Option<SegmentCounts>,
     pub state: ExecutionState,
     pub indexrelid: pg_sys::Oid,
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,

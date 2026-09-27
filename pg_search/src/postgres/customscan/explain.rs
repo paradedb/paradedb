@@ -21,6 +21,7 @@
 //! ensuring deterministic output for regression tests by removing variabilities
 //! like OIDs and internal pointers.
 
+use crate::index::reader::index::SegmentCounts;
 use crate::query::estimate_tree::QueryWithEstimates;
 use serde::Serialize;
 
@@ -314,6 +315,26 @@ pub fn format_for_explain_with_estimates(estimate_tree: &QueryWithEstimates) -> 
     cleanup_json_for_explain(&mut json_value);
     inject_estimates_into_json(&mut json_value, estimate_tree);
     serde_json::to_string(&json_value).unwrap_or_else(|_| "Error".to_string())
+}
+
+/// Every scan's text EXPLAIN form: just the segments searched when nothing was pruned,
+/// otherwise the full breakdown.
+impl std::fmt::Display for SegmentCounts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            partial,
+            included,
+            pruned,
+        } = self;
+        if *pruned == 0 {
+            write!(f, "{}", partial + included)
+        } else {
+            write!(
+                f,
+                "{{partial={partial}, included={included}, pruned={pruned}}}"
+            )
+        }
+    }
 }
 
 #[cfg(test)]

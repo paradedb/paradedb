@@ -1,0 +1,5 @@
+---
+header: other
+---
+
+`EXPLAIN` now reports segment pruning the same way for every ParadeDB scan: `segments=N` (or `Segments: N`) when no segment was pruned, otherwise `{partial=…, included=…, pruned=…}`. Under `EXPLAIN ANALYZE`, the Base Scan's `Segment Count` is replaced by `Segments`, which machine-readable formats report as `Partial`, `Included`, and `Pruned` numbers.

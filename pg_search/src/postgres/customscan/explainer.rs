@@ -20,6 +20,7 @@ use std::ptr::NonNull;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 
+use crate::index::reader::index::SegmentCounts;
 use crate::postgres::customscan::explain;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::query::SearchQueryInput;
@@ -160,6 +161,22 @@ impl Explainer {
     pub fn add_bool(&mut self, key: &str, value: bool) {
         unsafe {
             pg_sys::ExplainPropertyBool(key.as_pg_cstr(), value, self.state.as_ptr());
+        }
+    }
+
+    /// Prints the segments a scan searched and pruned: in text, the same form `PgSearchScan`
+    /// uses; in machine-readable formats, always all three numbers.
+    pub(crate) fn add_segment_counts(&mut self, counts: &SegmentCounts) {
+        let is_text =
+            unsafe { (*self.state.as_ptr()).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT };
+        if is_text {
+            self.add_text("Segments", counts.to_string());
+        } else {
+            self.add_group("Segments", |explainer| {
+                explainer.add_unsigned_integer("Partial", counts.partial as u64, None);
+                explainer.add_unsigned_integer("Included", counts.included as u64, None);
+                explainer.add_unsigned_integer("Pruned", counts.pruned as u64, None);
+            });
         }
     }
 }

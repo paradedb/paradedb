@@ -867,6 +867,11 @@ impl CustomScan for AggregateScan {
         }
 
         explainer.add_text("Index", state.custom_state().indexrel().name());
+        if explainer.is_costs()
+            && let Some(segment_counts) = &state.custom_state().segment_counts
+        {
+            explainer.add_segment_counts(segment_counts);
+        }
         explainer.add_query(state.custom_state().aggregate_clause.query());
         state
             .custom_state()

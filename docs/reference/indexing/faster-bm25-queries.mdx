@@ -39,9 +39,10 @@ This option is only supported for text fields. Existing indexes must be
 
 BM25 scoring uses the length of each text field to help determine relevance.
 Setting `pnorms=true` stores an extra, denser copy of this information where the scoring
-process can read it more efficiently. This can make queries faster without
-changing scores or relevance ranking.
+process can read it more efficiently. Depending on the data and query, this can
+make queries several times faster without changing scores or relevance ranking.
 
-The extra data increases index size and the work required to build and merge
-index segments. Enable `pnorms` on fields where faster BM25 top K queries
-justify those costs.
+For each field with `pnorms` enabled, the extra storage is roughly one byte per
+distinct term in each document, plus metadata. The extra data also increases
+the work required to build and merge index segments. Enable `pnorms` on fields
+where faster BM25 top K queries justify those costs.

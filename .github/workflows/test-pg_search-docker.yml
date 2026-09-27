@@ -501,9 +501,11 @@ jobs:
       - name: Resolve pg_search .deb Checksum
         id: checksum
         if: steps.release_gate.outputs.skip != 'true'
+        env:
+          STEP_RELEASE_GATE_VERSION: ${{ steps.release_gate.outputs.version }}
         run: |
-          asset="postgresql-${{ env.PG_VERSION }}-pg-search_${{ steps.release_gate.outputs.version }}-1PARADEDB-trixie_${{ matrix.arch }}.deb"
-          url="https://github.com/paradedb/paradedb/releases/download/v${{ steps.release_gate.outputs.version }}/${asset}"
+          asset="postgresql-${{ env.PG_VERSION }}-pg-search_${STEP_RELEASE_GATE_VERSION}-1PARADEDB-trixie_${{ matrix.arch }}.deb"
+          url="https://github.com/paradedb/paradedb/releases/download/v${STEP_RELEASE_GATE_VERSION}/${asset}"
           echo "Fetching ${asset}"
           curl -fsSL -o /tmp/pg_search.deb "$url"
           echo "sha256=$(sha256sum /tmp/pg_search.deb | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
@@ -515,14 +517,17 @@ jobs:
       # each other in the BuildKit gha/S3 cache.
       - name: Build and Verify the Extension Image
         if: steps.release_gate.outputs.skip != 'true'
+        env:
+          STEP_RELEASE_GATE_VERSION: ${{ steps.release_gate.outputs.version }}
+          STEP_CHECKSUM_SHA256: ${{ steps.checksum.outputs.sha256 }}
         run: |
           docker buildx build \
             --platform ${{ matrix.platform }} \
             --file docker/Dockerfile.extension \
             --build-arg BASE=ghcr.io/cloudnative-pg/postgresql:${{ env.PG_VERSION }}-minimal-trixie \
             --build-arg PG_VERSION_MAJOR=${{ env.PG_VERSION }} \
-            --build-arg PG_SEARCH_VERSION=${{ steps.release_gate.outputs.version }} \
-            --build-arg ${{ matrix.deb_sha_arg }}=${{ steps.checksum.outputs.sha256 }} \
+            --build-arg PG_SEARCH_VERSION="${STEP_RELEASE_GATE_VERSION}" \
+            --build-arg ${{ matrix.deb_sha_arg }}="${STEP_CHECKSUM_SHA256}" \
             --cache-from type=gha,scope=paradedb-extension-${{ matrix.arch }} \
             --cache-to type=gha,mode=max,scope=paradedb-extension-${{ matrix.arch }} \
             --output type=local,dest=/tmp/extension-payload \

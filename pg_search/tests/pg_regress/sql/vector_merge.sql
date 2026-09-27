@@ -5,8 +5,7 @@
 -- became a merge SOURCE. pgrx regress builds are debug builds, so this test
 -- exercises those asserts for real.
 --
--- cluster_replication is accepted for compatibility but assignment is
--- primary-only: every vector lands in exactly one cell, so per-cluster
+-- Assignment is primary-only: every vector lands in exactly one cell, so per-cluster
 -- memberships sum to the distinct-doc count.
 --
 -- client_min_messages: the IVF merge emits a paradedb::ivf_build timings
@@ -33,7 +32,6 @@ CREATE TABLE remerge (
 CREATE INDEX remerge_idx ON remerge
     USING paradedb (id, vec vector_l2_ops)
     WITH (
-        cluster_replication = 3,
         target_segment_count = 1,
         mutable_segment_rows = 0,
         layer_sizes = '600kb',
@@ -58,7 +56,7 @@ WHERE v.vector_format = 'ivf';
 
 -- ...and the per-cluster sizes are memberships, which under primary-only
 -- assignment total exactly the distinct-doc count.
-SELECT sum(vector_total_memberships) = sum(vector_num_vectors)
+SELECT sum(vector_total_rows) = sum(vector_num_vectors)
          AS cluster_sizes_are_memberships
 FROM paradedb.vector_info('remerge_idx', 'vec')
 WHERE vector_format = 'ivf';

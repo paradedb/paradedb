@@ -12,7 +12,7 @@ workspace = true
 crate-type = ["cdylib"]
 
 [features]
-default = ["pg18"]
+default = ["pg18", "io_stats"]
 pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
@@ -55,6 +55,7 @@ serde_json = { version = "1.0.149", features = [
 ] }
 serde_cbor = "0.11.2"
 tantivy.workspace = true
+tantivy-common.workspace = true
 thiserror = "2.0.18"
 ordered-float = "5.3.0"
 uuid = "1.23.1"

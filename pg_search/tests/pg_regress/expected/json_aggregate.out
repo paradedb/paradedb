@@ -419,7 +419,13 @@ WHERE id @@@ paradedb.boolean(
        "Index": "idx_json_agg",                                                                                                                                                                         +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"exists\":{\"field\":\"metadata.category\"}},{\"term\":{\"field\":\"metadata.category\",\"value\":\"electronics\"}}]}}}}",+
        "  Applies to Aggregates": "COUNT(*)",                                                                                                                                                           +
-       "  Aggregate Definition": "{\"0\":{\"filter\":\"*\"}}"                                                                                                                                           +
+       "  Aggregate Definition": "{\"0\":{\"filter\":\"*\"}}",                                                                                                                                          +
+       "Visibility": {                                                                                                                                                                                  +
+         "Segments Skipped": 0,                                                                                                                                                                         +
+         "Segments Checked": 1,                                                                                                                                                                         +
+         "Blocks Total": 1,                                                                                                                                                                             +
+         "Blocks Requiring Checks": 1                                                                                                                                                                   +
+       }                                                                                                                                                                                                +
      },                                                                                                                                                                                                 +
      "Triggers": [                                                                                                                                                                                      +
      ]                                                                                                                                                                                                  +

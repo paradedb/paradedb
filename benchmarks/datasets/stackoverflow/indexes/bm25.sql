@@ -18,6 +18,8 @@ USING bm25 (
     owner_user_id
 ) WITH (
     -- Join keys: comments.post_id = id, users.id = owner_user_id.
+    -- TODO: Explore removing multi-key partitioning in the future once range-partitioning
+    -- optimizations settle, but retain for now to benchmark 3-table joins.
     partition_by = 'id,owner_user_id'
 );
 
@@ -29,6 +31,8 @@ USING bm25 (
     user_id,
     class,
     tag_based
+) WITH (
+    partition_by = 'user_id'
 );
 
 CREATE INDEX comments_idx ON comments

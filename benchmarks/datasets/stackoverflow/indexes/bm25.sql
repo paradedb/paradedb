@@ -20,7 +20,8 @@ USING bm25 (
     -- Join keys: comments.post_id = id, users.id = owner_user_id.
     -- TODO: Explore removing multi-key partitioning in the future once range-partitioning
     -- optimizations settle, but retain for now to benchmark 3-table joins.
-    partition_by = 'id,owner_user_id'
+    partition_by = 'id,owner_user_id',
+    mutable_segment_rows = 0
 );
 
 CREATE INDEX badges_idx ON badges
@@ -32,7 +33,8 @@ USING bm25 (
     class,
     tag_based
 ) WITH (
-    partition_by = 'user_id'
+    partition_by = 'user_id',
+    mutable_segment_rows = 0
 );
 
 CREATE INDEX comments_idx ON comments
@@ -44,7 +46,8 @@ USING bm25 (
     creation_date,
     (user_display_name::pdb.literal)
 ) WITH (
-    partition_by = 'post_id'
+    partition_by = 'post_id',
+    mutable_segment_rows = 0
 );
 
 CREATE INDEX users_idx ON users
@@ -54,7 +57,8 @@ USING bm25 (
     (display_name::pdb.unicode_words('columnar=true')),
     reputation
 ) WITH (
-    partition_by = 'id'
+    partition_by = 'id',
+    mutable_segment_rows = 0
 );
 
 -- Companion standard Postgres indexes for Top-K join baseline queries executed in the same pass.

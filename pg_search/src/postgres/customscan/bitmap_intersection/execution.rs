@@ -45,8 +45,8 @@ pub struct BitmapExec {
     /// The published claim table, when shared.
     table: pg_sys::dsa_pointer,
     source: Option<Arc<BitmapCursorSource>>,
-    /// Publish arguments cached for rescan republish.
-    publish_args: Option<(u32, Vec<SegmentId>)>,
+    /// Publish arguments (consumers, segments, passes) cached for rescan republish.
+    publish_args: Option<(u32, Vec<SegmentId>, u32)>,
 }
 
 impl BitmapExec {
@@ -187,13 +187,14 @@ impl BitmapExec {
         }
     }
 
-    /// Owner only: build in this scan's own DSA area, prepare one iterator state
-    /// per `(consumer, segment)` stream, and return the handle to publish for
-    /// the other participants.
+    /// Owner only: build in this scan's own DSA area, prepare `passes` iterator
+    /// states per `(consumer, segment)` stream, and return the handle to publish
+    /// for the other participants.
     pub unsafe fn shared_source(
         &mut self,
         consumers: u32,
         segments: &[SegmentId],
+        passes: u32,
     ) -> Option<SharedBitmapHandle> {
         unsafe {
             if self.area.is_null() {
@@ -205,8 +206,8 @@ impl BitmapExec {
             if self.tbm.is_null() {
                 return None;
             }
-            self.table = publish_shared_table(self.tbm, self.area, consumers, segments);
-            self.publish_args = Some((consumers, segments.to_vec()));
+            self.table = publish_shared_table(self.tbm, self.area, consumers, segments, passes);
+            self.publish_args = Some((consumers, segments.to_vec(), passes));
             self.source = Some(Arc::new(BitmapCursorSource::shared(self.area, self.table)));
             Some(SharedBitmapHandle {
                 area: pg_sys::dsa_get_handle(self.area),
@@ -215,11 +216,11 @@ impl BitmapExec {
         }
     }
 
-    /// Republish after a rescan reset, with the same consumers/segments.
+    /// Republish after a rescan reset, with the same consumers/segments/passes.
     pub unsafe fn republish(&mut self) -> Option<SharedBitmapHandle> {
         unsafe {
-            let (consumers, segments) = self.publish_args.clone()?;
-            self.shared_source(consumers, &segments)
+            let (consumers, segments, passes) = self.publish_args.clone()?;
+            self.shared_source(consumers, &segments, passes)
         }
     }
 

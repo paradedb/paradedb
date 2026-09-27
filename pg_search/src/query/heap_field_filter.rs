@@ -402,14 +402,13 @@ impl Weight for HeapFilterWeight {
 
         // Claim this (consumer, segment) stream's cursor. No cell installed means
         // no bitmap was planned (or this is an estimation clone): evaluate filters
-        // directly. An installed-but-unfilled cell is an invariant violation. A
-        // consumed shared stream yields no cursor either, see `BitmapCursorSource::claim`.
+        // directly. An installed-but-unfilled cell is an invariant violation.
         let cursor = match (self.bitmap_consumer_id, &self.bitmap_cell) {
             (Some(consumer_id), Some(cell)) => {
                 let source = cell
                     .get()
                     .unwrap_or_else(|| panic!("bitmap cursor source was never initialized"));
-                unsafe { source.claim(consumer_id, reader.segment_id()) }
+                Some(unsafe { source.claim(consumer_id, reader.segment_id()) })
             }
             _ => None,
         };

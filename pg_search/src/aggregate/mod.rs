@@ -573,7 +573,8 @@ pub fn execute_aggregate(
                 return None;
             }
             let segments: Vec<SegmentId> = segment_ids.iter().map(|(id, _)| *id).collect();
-            let handle = bitmap_exec.shared_source(consumers, &segments)?;
+            // One aggregation pass per stream.
+            let handle = bitmap_exec.shared_source(consumers, &segments, 1)?;
             if let Some(cell) = query.bitmap_cell()
                 && let Some(source) = bitmap_exec.source()
             {

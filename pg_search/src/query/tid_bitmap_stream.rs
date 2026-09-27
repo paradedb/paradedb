@@ -24,7 +24,7 @@
 //!
 //! Serial scans iterate the leader-local TIDBitmap privately (multiple concurrent
 //! private iterators each hold their own position). Parallel scans iterate shared
-//! state: the build owner calls `tbm_prepare_shared_iterate` once per stream and
+//! state: the build owner calls `tbm_prepare_shared_iterate` for every stream and
 //! publishes a claim table in a DSA area; whichever process ends up owning a
 //! segment claims its entry and attaches. A stream has one live cursor at a time:
 //! a claim while the previous cursor is still open means a collector broke the
@@ -32,9 +32,12 @@
 //! stream, because one execution can legitimately build a scorer for the same
 //! segment more than once: TopK queries again with a larger chunk when the first
 //! batch loses rows to visibility, and a window aggregate runs its own search
-//! after the TopK one. A private stream rewinds with a fresh iterator. A shared
-//! iteration state cannot rewind, so a consumed shared stream yields no cursor
-//! and the heap filters run directly.
+//! after the TopK one. Every pass has to probe the same bitmap, since TopK carries
+//! its offset from one query to the next. A private stream rewinds with a fresh
+//! iterator. A shared iteration state cannot rewind, so the owner pre-mints one
+//! state per pass the scan can make (`MAX_SHARED_PASSES` for TopK, one otherwise)
+//! and each claim takes the next; a pass beyond those errors rather than probing
+//! a different candidate set.
 //!
 //! The claim table exists even though the bitmap itself is immutable because of
 //! an asymmetry in PostgreSQL's API: only the TIDBitmap's creating backend can
@@ -140,26 +143,33 @@ pub(crate) struct CursorCounters {
     pub(crate) rejected_docs: AtomicU64,
 }
 
+/// The most iteration states the owner pre-mints per stream. A scan that reads
+/// each stream once mints one. TopK mints this many: at the default
+/// `paradedb.topk_retry_scale_factor` of 2 a chunk doubles on every retry, so it
+/// cannot double more than 17 times before reaching the default
+/// `paradedb.max_topk_chunk_size` of 100000, and the rest cover passes at the cap
+/// and a window aggregate's own search.
+pub(crate) const MAX_SHARED_PASSES: u32 = 32;
+
 /// One `(consumer, segment)` slot in the shared claim table.
 #[repr(C)]
 struct SharedEntry {
     consumer_id: u32,
-    /// One of `UNCLAIMED`, `LIVE` or `CONSUMED`.
-    claimed: AtomicU32,
+    /// Nonzero while a cursor is open on this stream.
+    live: AtomicU32,
+    /// Passes taken so far; each takes the next entry of `iterators`.
+    passes_taken: AtomicU32,
     segment_id: [u8; 16],
-    iterator: pg_sys::dsa_pointer,
+    /// Pre-minted iteration states, `SharedHeader::passes` of them valid.
+    iterators: [pg_sys::dsa_pointer; MAX_SHARED_PASSES as usize],
 }
-
-// `SharedEntry::claimed` states. A consumed stream stays consumed: its shared
-// iteration state holds a position no participant can reset.
-const UNCLAIMED: u32 = 0;
-const LIVE: u32 = 1;
-const CONSUMED: u32 = 2;
 
 /// Header of the claim table allocation; `SharedEntry`s follow contiguously.
 #[repr(C)]
 struct SharedHeader {
     nentries: u64,
+    /// Iteration states minted per stream.
+    passes: u32,
     counters: CursorCounters,
 }
 
@@ -204,13 +214,13 @@ impl BitmapCursorSource {
     /// collector broke the one-scorer-per-stream invariant, and raises an
     /// execution error rather than silently degrading. A claim after the previous
     /// cursor dropped is a new pass over the same bitmap: a private stream opens a
-    /// fresh iterator, and a consumed shared stream returns `None` because its
-    /// iteration state cannot rewind, so the caller runs its filters directly.
+    /// fresh iterator, and a shared stream takes the next pre-minted iteration
+    /// state, erroring once the owner's `passes` are used up.
     pub(crate) unsafe fn claim(
         self: &Arc<Self>,
         consumer_id: u32,
         segment: SegmentId,
-    ) -> Option<BitmapCursor> {
+    ) -> BitmapCursor {
         let cursor = match self.as_ref() {
             Self::Private {
                 tbm,
@@ -228,35 +238,40 @@ impl BitmapCursorSource {
                 unsafe { BitmapCursor::private(*tbm, counters.as_ref() as *const CursorCounters) }
             }
             Self::Shared { area, table } => unsafe {
-                let (entry, counters) = shared_entry(*area, *table, consumer_id, segment)
-                    .unwrap_or_else(|| {
+                let (entry, counters, passes) =
+                    shared_entry(*area, *table, consumer_id, segment).unwrap_or_else(|| {
                         pgrx::error!(
                             "bitmap intersection stream (consumer {consumer_id}, segment {}) missing from the shared table",
                             segment.uuid_string()
                         )
                     });
-                match (*entry).claimed.compare_exchange(
-                    UNCLAIMED,
-                    LIVE,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
-                    Ok(_) => {}
-                    Err(CONSUMED) => return None,
-                    Err(_) => pgrx::error!(
+                if (*entry)
+                    .live
+                    .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                    .is_err()
+                {
+                    pgrx::error!(
                         "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed twice",
                         segment.uuid_string()
-                    ),
+                    );
                 }
-                let iter = pg_sys::tbm_attach_shared_iterate(*area, (*entry).iterator);
+                let pass = (*entry).passes_taken.fetch_add(1, Ordering::AcqRel);
+                if pass >= passes {
+                    pgrx::error!(
+                        "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed for pass {}, but the scan pre-minted {passes} shared iteration states",
+                        segment.uuid_string(),
+                        pass + 1
+                    );
+                }
+                let iter =
+                    pg_sys::tbm_attach_shared_iterate(*area, (*entry).iterators[pass as usize]);
                 BitmapCursor::shared(iter, counters)
             },
         };
-        Some(cursor.claimed_from(self, consumer_id, segment))
+        cursor.claimed_from(self, consumer_id, segment)
     }
 
-    /// Release the stream a dropped cursor held: a private stream can be claimed
-    /// again, a shared one is consumed for good.
+    /// Release the stream a dropped cursor held, so the next pass can claim it.
     fn release(&self, consumer_id: u32, segment: SegmentId) {
         match self {
             Self::Private { claims, .. } => {
@@ -264,8 +279,8 @@ impl BitmapCursorSource {
                 claims.retain(|claim| *claim != (consumer_id, segment));
             }
             Self::Shared { area, table } => unsafe {
-                if let Some((entry, _)) = shared_entry(*area, *table, consumer_id, segment) {
-                    (*entry).claimed.store(CONSUMED, Ordering::Release);
+                if let Some((entry, _, _)) = shared_entry(*area, *table, consumer_id, segment) {
+                    (*entry).live.store(0, Ordering::Release);
                 }
             },
         }
@@ -289,15 +304,20 @@ impl BitmapCursorSource {
     }
 }
 
-/// Build owner only: prepare one shared iteration state per `(consumer, segment)`
-/// stream and publish the claim table into `area`. The TIDBitmap must have been
-/// created over the same `area`.
+/// Build owner only: prepare `passes` shared iteration states per
+/// `(consumer, segment)` stream and publish the claim table into `area`. The
+/// TIDBitmap must have been created over the same `area`.
 pub(crate) unsafe fn publish_shared_table(
     tbm: *mut pg_sys::TIDBitmap,
     area: *mut pg_sys::dsa_area,
     consumers: u32,
     segments: &[SegmentId],
+    passes: u32,
 ) -> pg_sys::dsa_pointer {
+    assert!(
+        (1..=MAX_SHARED_PASSES).contains(&passes),
+        "a shared bitmap stream pre-mints between 1 and {MAX_SHARED_PASSES} passes, not {passes}"
+    );
     unsafe {
         let nentries = consumers as usize * segments.len();
         let size =
@@ -305,6 +325,7 @@ pub(crate) unsafe fn publish_shared_table(
         let table = pg_sys::dsa_allocate_extended(area, size, pg_sys::DSA_ALLOC_ZERO as _);
         let header = pg_sys::dsa_get_address(area, table).cast::<SharedHeader>();
         (*header).nentries = nentries as u64;
+        (*header).passes = passes;
         let entries = header.add(1).cast::<SharedEntry>();
         let mut i = 0;
         for consumer_id in 0..consumers {
@@ -312,7 +333,9 @@ pub(crate) unsafe fn publish_shared_table(
                 let entry = &mut *entries.add(i);
                 entry.consumer_id = consumer_id;
                 entry.segment_id = *segment.uuid_bytes();
-                entry.iterator = pg_sys::tbm_prepare_shared_iterate(tbm);
+                for iterator in &mut entry.iterators[..passes as usize] {
+                    *iterator = pg_sys::tbm_prepare_shared_iterate(tbm);
+                }
                 i += 1;
             }
         }
@@ -320,24 +343,26 @@ pub(crate) unsafe fn publish_shared_table(
     }
 }
 
-/// The claim table entry for `(consumer, segment)`, with the table's counters.
+/// The claim table entry for `(consumer, segment)`, with the table's counters and
+/// the passes minted per stream.
 unsafe fn shared_entry(
     area: *mut pg_sys::dsa_area,
     table: pg_sys::dsa_pointer,
     consumer_id: u32,
     segment: SegmentId,
-) -> Option<(*const SharedEntry, *const CursorCounters)> {
+) -> Option<(*const SharedEntry, *const CursorCounters, u32)> {
     unsafe {
         let header = pg_sys::dsa_get_address(area, table).cast::<SharedHeader>();
         let entries = header.add(1).cast::<SharedEntry>();
         let counters = &(*header).counters as *const CursorCounters;
+        let passes = (*header).passes;
         (0..(*header).nentries as usize)
             .map(|i| entries.add(i) as *const SharedEntry)
             .find(|entry| {
                 (**entry).consumer_id == consumer_id
                     && (**entry).segment_id == *segment.uuid_bytes()
             })
-            .map(|entry| (entry, counters))
+            .map(|entry| (entry, counters, passes))
     }
 }
 
@@ -347,8 +372,12 @@ pub(crate) unsafe fn free_shared_table(area: *mut pg_sys::dsa_area, table: pg_sy
     unsafe {
         let header = pg_sys::dsa_get_address(area, table).cast::<SharedHeader>();
         let entries = header.add(1).cast::<SharedEntry>();
+        let passes = (*header).passes as usize;
         for i in 0..(*header).nentries as usize {
-            pg_sys::tbm_free_shared_area(area, (*entries.add(i)).iterator);
+            let entry = entries.add(i);
+            for pass in 0..passes {
+                pg_sys::tbm_free_shared_area(area, (*entry).iterators[pass]);
+            }
         }
         pg_sys::dsa_free(area, table);
     }

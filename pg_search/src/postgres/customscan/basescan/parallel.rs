@@ -24,8 +24,10 @@ use std::ptr::NonNull;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
+use crate::query::tid_bitmap_stream::MAX_SHARED_PASSES;
 
 use pgrx::pg_sys::{Size, shm_toc};
 
@@ -214,13 +216,20 @@ unsafe fn leader_publish_bitmap(
         .iter()
         .map(|r| r.segment_id())
         .collect();
+    // TopK passes over a stream again, with a larger chunk after visibility losses
+    // or for its window aggregate's own search; every other exec method reads each
+    // stream once.
+    let passes = match state.custom_state().exec_method_type {
+        ExecMethodType::TopK { .. } => MAX_SHARED_PASSES,
+        _ => 1,
+    };
     let handle = unsafe {
         state
             .custom_state_mut()
             .bitmap_exec
             .as_mut()
             .unwrap()
-            .shared_source(consumers, &segments)
+            .shared_source(consumers, &segments, passes)
     };
     pscan_state.publish_bitmap_handle(handle);
     if let Some(cell) = state.custom_state().bitmap_cell.clone()

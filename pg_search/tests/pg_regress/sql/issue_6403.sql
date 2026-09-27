@@ -18,14 +18,27 @@ CREATE TABLE memory_units (
     body text NOT NULL
 ) WITH (autovacuum_enabled = off);
 
+CREATE INDEX idx_mu_bank_fact ON memory_units (bank_id, fact_type);
+-- No mutable segment, so each INSERT below is its own segment: three segments
+-- give the parallel plan two workers on every machine.
+CREATE INDEX idx_mu_search ON memory_units USING bm25 (id, body)
+    WITH (key_field = 'id', mutable_segment_rows = '0');
+
 INSERT INTO memory_units (bank_id, fact_type, body)
 SELECT 'bank' || (i % 4),
        CASE WHEN i % 3 = 0 THEN 'observation' ELSE 'other' END,
        'alpha beta gamma delta ' || i
-FROM generate_series(1, 20000) i;
-
-CREATE INDEX idx_mu_bank_fact ON memory_units (bank_id, fact_type);
-CREATE INDEX idx_mu_search ON memory_units USING bm25 (id, body) WITH (key_field = 'id');
+FROM generate_series(1, 7000) i;
+INSERT INTO memory_units (bank_id, fact_type, body)
+SELECT 'bank' || (i % 4),
+       CASE WHEN i % 3 = 0 THEN 'observation' ELSE 'other' END,
+       'alpha beta gamma delta ' || i
+FROM generate_series(7001, 14000) i;
+INSERT INTO memory_units (bank_id, fact_type, body)
+SELECT 'bank' || (i % 4),
+       CASE WHEN i % 3 = 0 THEN 'observation' ELSE 'other' END,
+       'alpha beta gamma delta ' || i
+FROM generate_series(14001, 20000) i;
 ANALYZE memory_units;
 
 -- bank1 observations are id = 9 mod 12. Keep every 50th and delete the rest
@@ -56,15 +69,33 @@ WHERE bank_id = 'bank1' AND fact_type = 'observation'
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 SET paradedb.enable_bitmap_intersection TO on;
 
--- Parallel: a shared iterator cannot rewind, so a consumed stream yields no
--- cursor and the heap filters run directly. The plan shape depends on segment
--- count, so only the rows are golden.
+-- Parallel: the leader pre-mints one shared iterator state per pass, and a
+-- participant's retry takes the next state for its segment, so every pass probes
+-- the same bitmap and the Top K offset stays valid. Two workers plus the leader
+-- over three segments, so each retry happens in a different process.
+SET max_parallel_workers_per_gather TO 2;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET min_parallel_table_scan_size TO 0;
+SET min_parallel_index_scan_size TO 0;
+SET paradedb.min_rows_per_worker TO 0;
 SET debug_parallel_query TO on;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM memory_units
+WHERE bank_id = 'bank1' AND fact_type = 'observation'
+  AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
+ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 SELECT id FROM memory_units
 WHERE bank_id = 'bank1' AND fact_type = 'observation'
   AND id @@@ paradedb.boolean(should => ARRAY[paradedb.match('body', 'alpha')])
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 RESET debug_parallel_query;
+RESET paradedb.min_rows_per_worker;
+RESET min_parallel_index_scan_size;
+RESET min_parallel_table_scan_size;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+SET max_parallel_workers_per_gather TO 0;
 
 -- Unordered TopK with a window aggregate runs a second, standalone search on
 -- the same source after the first one.

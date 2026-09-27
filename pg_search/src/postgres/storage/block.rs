@@ -244,6 +244,25 @@ pub struct DeleteEntry {
     pub num_deleted_docs: u32,
 }
 
+/// The `(max_doc, num_deleted_docs)` pair bounding a mutable segment's prefix.
+///
+/// A mutable segment is materialized from the heap on open, from the prefix of its
+/// add/remove log bounded by these two counts, so two opens agree on the segment's `DocId`
+/// space only if they use the same pair. Distinct from [`SegmentMetaEntry::mutable_snapshot`],
+/// which returns the ctid set a bound selects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct MutableSegmentBound {
+    pub max_doc: u32,
+    pub num_deleted_docs: u32,
+}
+
+impl MutableSegmentBound {
+    /// Docs the materialized segment exposes: Adds minus Removes.
+    pub fn live_docs(self) -> u32 {
+        self.max_doc - self.num_deleted_docs
+    }
+}
+
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SegmentMetaEntryMutable {
     pub header_block: pg_sys::BlockNumber,
@@ -515,18 +534,35 @@ impl SegmentMetaEntry {
         Ok(())
     }
 
-    /// Rewind a mutable entry to the `(max_doc, num_deleted_docs)` another reader loaded it
-    /// with, so [`Self::mutable_snapshot`] replays that reader's prefix of the add/remove log.
+    /// Return the [`MutableSegmentBound`] if this is a mutable segment, or `None` if immutable.
+    pub fn mutable_bound(&self) -> Option<MutableSegmentBound> {
+        let SegmentMetaEntryContent::Mutable(SegmentMetaEntryMutable {
+            header_block: _,
+            num_deleted_docs,
+            frozen: _,
+        }) = &self.content
+        else {
+            return None;
+        };
+        Some(MutableSegmentBound {
+            max_doc: self.header.max_doc,
+            num_deleted_docs: *num_deleted_docs,
+        })
+    }
+
+    /// Rewind a mutable entry to the given [`MutableSegmentBound`], so [`Self::mutable_snapshot`]
+    /// replays that reader's prefix of the add/remove log.
     /// The log is append-only, so an older pair always names a prefix of what is there now.
-    pub fn rewind_mutable(&mut self, max_doc: u32, num_deleted_docs: u32) -> Result<(), &str> {
+    pub fn rewind_mutable(&mut self, bound: MutableSegmentBound) -> Result<(), &str> {
         let SegmentMetaEntryContent::Mutable(content) = &mut self.content else {
             return Err("Cannot rewind a non-mutable segment");
         };
-        if max_doc > self.header.max_doc || num_deleted_docs > content.num_deleted_docs {
+        if bound.max_doc > self.header.max_doc || bound.num_deleted_docs > content.num_deleted_docs
+        {
             return Err("Cannot rewind a mutable segment forward");
         }
-        self.header.max_doc = max_doc;
-        content.num_deleted_docs = num_deleted_docs;
+        self.header.max_doc = bound.max_doc;
+        content.num_deleted_docs = bound.num_deleted_docs;
         Ok(())
     }
 
@@ -1134,5 +1170,47 @@ mod tests {
         let first = entry_with(None, None, None, None, None);
         let bytes = encoded(first);
         assert_eq!(decoded(&bytes[..bytes.len() - 5]), first);
+    }
+
+    #[pg_test]
+    fn mutable_entry_bound_parity_and_rewind() {
+        let segment_id = SegmentId::generate_random();
+        let mut entry = SegmentMetaEntry::new_mutable(
+            segment_id,
+            100,
+            pg_sys::InvalidTransactionId,
+            SegmentMetaEntryMutable {
+                header_block: 42,
+                num_deleted_docs: 10,
+                frozen: false,
+            },
+        );
+
+        let bound = entry.mutable_bound().expect("must have mutable bound");
+        assert_eq!(
+            bound,
+            MutableSegmentBound {
+                max_doc: 100,
+                num_deleted_docs: 10,
+            }
+        );
+        assert_eq!(bound.live_docs(), 90);
+
+        // Rewind to an earlier bound
+        let earlier = MutableSegmentBound {
+            max_doc: 80,
+            num_deleted_docs: 5,
+        };
+        entry.rewind_mutable(earlier).expect("rewind must succeed");
+        assert_eq!(entry.mutable_bound(), Some(earlier));
+        assert_eq!(entry.max_doc(), 80);
+        assert_eq!(entry.num_deleted_docs(), 5);
+
+        // Rewinding forward must fail
+        let forward = MutableSegmentBound {
+            max_doc: 85,
+            num_deleted_docs: 5,
+        };
+        assert!(entry.rewind_mutable(forward).is_err());
     }
 }

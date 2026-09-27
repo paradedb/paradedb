@@ -402,7 +402,7 @@ pub unsafe fn load_metas(
                 && let Some(bound) = view.mutable_bound(&entry.segment_id())
             {
                 let segment_id = entry.segment_id();
-                if let Err(e) = entry.rewind_mutable(bound.max_doc, bound.num_deleted_docs) {
+                if let Err(e) = entry.rewind_mutable(bound) {
                     panic!("load_metas: cannot replay the parallel view for segment {segment_id}: {e}");
                 }
             }

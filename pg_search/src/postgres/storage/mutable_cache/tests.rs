@@ -26,8 +26,8 @@ use tantivy::index::SegmentId;
 use super::directory::SharedMemoryDirectory;
 use super::pack::{PACKED_MAGIC, pack_segment, unpack_toc};
 use super::{
-    ActiveReaderGuard, AllocatorState, ArenaSpan, CacheSlot, MAX_SLOTS, MutableCacheHeader,
-    MutableCacheKey, SlotState,
+    ActiveReaderGuard, AllocatorState, ArenaSpan, CacheSlot, InflightBuild, MAX_INFLIGHT_BUILDS,
+    MAX_SLOTS, MutableCacheHeader, MutableCacheKey, SlotState,
 };
 use crate::postgres::storage::block::{
     MutableSegmentBound, SegmentMetaEntry, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
@@ -157,275 +157,300 @@ fn test_mutable_cache_key_from_meta() {
     assert!(MutableCacheKey::from_meta(db_oid, index_oid, &immutable_meta).is_none());
 }
 
-#[pgrx::pg_schema]
-mod tests {
-    use super::*;
-    use pgrx::prelude::*;
+unsafe fn test_header(arena_capacity: u32) -> MutableCacheHeader {
+    let mut header: MutableCacheHeader = std::mem::zeroed();
+    header.arena_capacity = arena_capacity;
+    header
+}
 
-    #[pg_test]
-    unsafe fn test_allocator_sequential_and_eviction() {
-        let header = MutableCacheHeader {
-            lock: crate::postgres::locks::LWLock::from_raw(std::ptr::null_mut()),
-            cv: crate::postgres::condition_variable::ConditionVariable::default(),
-            arena_capacity: 1000,
-            generation: AtomicU64::new(0),
-            allocator: std::cell::UnsafeCell::new(AllocatorState::default()),
-            slots: std::cell::UnsafeCell::new([const { CacheSlot::empty() }; MAX_SLOTS]),
-        };
+#[test]
+fn test_allocator_sequential_and_eviction() {
+    let header = unsafe { test_header(1000) };
 
-        let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
-        let mut allocator = AllocatorState::default();
+    let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
+    let mut allocator = AllocatorState::default();
 
-        // 1. Allocate 300 bytes (aligned to 8 => 304)
-        let span1 = header
-            .allocate_raw(300, &mut slots, &mut allocator)
-            .unwrap();
-        assert_eq!(span1.offset, 0);
-        assert_eq!(span1.len, 304);
-        slots[0] = CacheSlot {
-            key: MutableCacheKey::default(),
-            span: span1,
-            builder_pid: 1,
-            state: SlotState::Ready,
-            active_readers: AtomicU32::new(0),
-        };
+    // 1. Allocate 300 bytes (aligned to 8 => 304)
+    let span1 = header
+        .allocate_raw(300, &mut slots, &mut allocator)
+        .unwrap();
+    assert_eq!(span1.offset, 0);
+    assert_eq!(span1.len, 304);
+    slots[0] = CacheSlot {
+        key: MutableCacheKey::default(),
+        span: span1,
+        state: SlotState::Ready,
+        active_readers: AtomicU32::new(0),
+    };
 
-        // 2. Allocate 400 bytes (aligned => 400)
-        let span2 = header
-            .allocate_raw(400, &mut slots, &mut allocator)
-            .unwrap();
-        assert_eq!(span2.offset, 304);
-        assert_eq!(span2.len, 400);
-        slots[1] = CacheSlot {
-            key: MutableCacheKey::default(),
-            span: span2,
-            builder_pid: 1,
-            state: SlotState::Ready,
-            active_readers: AtomicU32::new(0),
-        };
+    // 2. Allocate 400 bytes (aligned => 400)
+    let span2 = header
+        .allocate_raw(400, &mut slots, &mut allocator)
+        .unwrap();
+    assert_eq!(span2.offset, 304);
+    assert_eq!(span2.len, 400);
+    slots[1] = CacheSlot {
+        key: MutableCacheKey::default(),
+        span: span2,
+        state: SlotState::Ready,
+        active_readers: AtomicU32::new(0),
+    };
 
-        // Remaining linear space: 1000 - 704 = 296 bytes.
-        // 3. Request 400 bytes. Cannot fit linearly, must wrap to 0.
-        // Slot 0 (offset 0..304) has active_readers == 0, so it is evictable.
-        // Tail advances past slot 0 to 304, then past slot 1 to 704.
-        let span3 = header
-            .allocate_raw(400, &mut slots, &mut allocator)
-            .unwrap();
-        assert_eq!(span3.offset, 0);
-        assert_eq!(span3.len, 400);
-        assert_eq!(slots[0].state, SlotState::Empty);
-        assert_eq!(slots[1].state, SlotState::Empty);
-    }
+    // Remaining linear space: 1000 - 704 = 296 bytes.
+    // 3. Request 400 bytes. Cannot fit linearly, must wrap to 0.
+    // Slot 0 (offset 0..304) has active_readers == 0, so it is evictable.
+    // Tail advances past slot 0 to 304, then past slot 1 to 704.
+    let span3 = header
+        .allocate_raw(400, &mut slots, &mut allocator)
+        .unwrap();
+    assert_eq!(span3.offset, 0);
+    assert_eq!(span3.len, 400);
+    assert_eq!(slots[0].state, SlotState::Empty);
+    assert_eq!(slots[1].state, SlotState::Empty);
+}
 
-    #[pg_test]
-    unsafe fn test_allocator_active_readers_block_eviction() {
-        let header = MutableCacheHeader {
-            lock: crate::postgres::locks::LWLock::from_raw(std::ptr::null_mut()),
-            cv: crate::postgres::condition_variable::ConditionVariable::default(),
-            arena_capacity: 500,
-            generation: AtomicU64::new(0),
-            allocator: std::cell::UnsafeCell::new(AllocatorState::default()),
-            slots: std::cell::UnsafeCell::new([const { CacheSlot::empty() }; MAX_SLOTS]),
-        };
+#[test]
+fn test_allocator_active_readers_block_eviction() {
+    let header = unsafe { test_header(500) };
 
-        let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
-        let mut allocator = AllocatorState::default();
+    let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
+    let mut allocator = AllocatorState::default();
 
-        // Allocate 200 bytes
-        let span1 = header
-            .allocate_raw(200, &mut slots, &mut allocator)
-            .unwrap();
-        slots[0] = CacheSlot {
-            key: MutableCacheKey::default(),
-            span: span1,
-            builder_pid: 1,
-            state: SlotState::Ready,
-            // Mark as actively being read by 2 queries
-            active_readers: AtomicU32::new(2),
-        };
+    // Allocate 200 bytes
+    let span1 = header
+        .allocate_raw(200, &mut slots, &mut allocator)
+        .unwrap();
+    slots[0] = CacheSlot {
+        key: MutableCacheKey::default(),
+        span: span1,
+        state: SlotState::Ready,
+        // Mark as actively being read by 2 queries
+        active_readers: AtomicU32::new(2),
+    };
 
-        // Allocate another 200 bytes
-        let span2 = header
-            .allocate_raw(200, &mut slots, &mut allocator)
-            .unwrap();
-        slots[1] = CacheSlot {
-            key: MutableCacheKey::default(),
-            span: span2,
-            builder_pid: 1,
-            state: SlotState::Ready,
-            active_readers: AtomicU32::new(0),
-        };
+    // Allocate another 200 bytes
+    let span2 = header
+        .allocate_raw(200, &mut slots, &mut allocator)
+        .unwrap();
+    slots[1] = CacheSlot {
+        key: MutableCacheKey::default(),
+        span: span2,
+        state: SlotState::Ready,
+        active_readers: AtomicU32::new(0),
+    };
 
-        // Now arena has 400 / 500 used.
-        // Request 200 bytes. Needs to wrap around to offset 0, but slot 0 has active readers > 0!
-        let blocked = header.allocate_raw(200, &mut slots, &mut allocator);
-        assert!(
-            blocked.is_none(),
-            "Must reject allocation when eviction is blocked by active readers"
-        );
+    // Now arena has 400 / 500 used.
+    // Request 200 bytes. Needs to wrap around to offset 0, but slot 0 has active readers > 0!
+    let blocked = header.allocate_raw(200, &mut slots, &mut allocator);
+    assert!(
+        blocked.is_none(),
+        "Must reject allocation when eviction is blocked by active readers"
+    );
 
-        // Once active readers finish and drop to 0, eviction can proceed
-        slots[0].active_readers.store(0, Ordering::Release);
-        let allowed = header.allocate_raw(200, &mut slots, &mut allocator);
-        assert!(
-            allowed.is_some(),
-            "Must succeed after active readers finish"
-        );
-        assert_eq!(allowed.unwrap().offset, 0);
-    }
+    // Once active readers finish and drop to 0, eviction can proceed
+    slots[0].active_readers.store(0, Ordering::Release);
+    let allowed = header.allocate_raw(200, &mut slots, &mut allocator);
+    assert!(
+        allowed.is_some(),
+        "Must succeed after active readers finish"
+    );
+    assert_eq!(allowed.unwrap().offset, 0);
+}
 
-    #[pg_test]
-    fn test_slot_invalidation() {
-        let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
-        let seg_a = [1u8; 16];
-        let seg_b = [2u8; 16];
+#[test]
+fn test_slot_invalidation() {
+    let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
+    let seg_a = [1u8; 16];
+    let seg_b = [2u8; 16];
 
-        let key_a1 = MutableCacheKey {
-            database_oid: pg_sys::Oid::from_u32(10),
-            index_oid: pg_sys::Oid::from_u32(100),
-            segment_id: seg_a,
-            bound: MutableSegmentBound {
-                max_doc: 10,
-                num_deleted_docs: 0,
-            },
-        };
-        let key_a2 = MutableCacheKey {
-            database_oid: pg_sys::Oid::from_u32(10),
-            index_oid: pg_sys::Oid::from_u32(100),
-            segment_id: seg_a,
-            bound: MutableSegmentBound {
-                max_doc: 20,
-                num_deleted_docs: 0,
-            },
-        };
-        let key_b = MutableCacheKey {
-            database_oid: pg_sys::Oid::from_u32(10),
-            index_oid: pg_sys::Oid::from_u32(100),
-            segment_id: seg_b,
-            bound: MutableSegmentBound {
-                max_doc: 5,
-                num_deleted_docs: 0,
-            },
-        };
-        let key_other_index = MutableCacheKey {
-            database_oid: pg_sys::Oid::from_u32(10),
-            index_oid: pg_sys::Oid::from_u32(200),
-            segment_id: seg_a,
-            bound: MutableSegmentBound {
-                max_doc: 10,
-                num_deleted_docs: 0,
-            },
-        };
+    let key_a1 = MutableCacheKey {
+        database_oid: pg_sys::Oid::from_u32(10),
+        index_oid: pg_sys::Oid::from_u32(100),
+        segment_id: seg_a,
+        bound: MutableSegmentBound {
+            max_doc: 10,
+            num_deleted_docs: 0,
+        },
+    };
+    let key_a2 = MutableCacheKey {
+        database_oid: pg_sys::Oid::from_u32(10),
+        index_oid: pg_sys::Oid::from_u32(100),
+        segment_id: seg_a,
+        bound: MutableSegmentBound {
+            max_doc: 20,
+            num_deleted_docs: 0,
+        },
+    };
+    let key_b = MutableCacheKey {
+        database_oid: pg_sys::Oid::from_u32(10),
+        index_oid: pg_sys::Oid::from_u32(100),
+        segment_id: seg_b,
+        bound: MutableSegmentBound {
+            max_doc: 5,
+            num_deleted_docs: 0,
+        },
+    };
+    let key_other_index = MutableCacheKey {
+        database_oid: pg_sys::Oid::from_u32(10),
+        index_oid: pg_sys::Oid::from_u32(200),
+        segment_id: seg_a,
+        bound: MutableSegmentBound {
+            max_doc: 10,
+            num_deleted_docs: 0,
+        },
+    };
 
-        slots[0] = CacheSlot {
-            key: key_a1,
-            span: ArenaSpan {
-                offset: 0,
-                len: 100,
-            },
-            builder_pid: 1,
-            state: SlotState::Ready,
-            active_readers: AtomicU32::new(0),
-        };
-        slots[1] = CacheSlot {
-            key: key_a2,
-            span: ArenaSpan {
-                offset: 100,
-                len: 100,
-            },
-            builder_pid: 1,
-            state: SlotState::Ready,
-            active_readers: AtomicU32::new(0),
-        };
-        slots[2] = CacheSlot {
-            key: key_b,
-            span: ArenaSpan {
-                offset: 200,
-                len: 100,
-            },
-            builder_pid: 1,
-            state: SlotState::Ready,
-            active_readers: AtomicU32::new(0),
-        };
-        slots[3] = CacheSlot {
-            key: key_other_index,
-            span: ArenaSpan {
-                offset: 300,
-                len: 100,
-            },
-            builder_pid: 1,
-            state: SlotState::Ready,
-            active_readers: AtomicU32::new(0),
-        };
+    slots[0] = CacheSlot {
+        key: key_a1,
+        span: ArenaSpan {
+            offset: 0,
+            len: 100,
+        },
+        state: SlotState::Ready,
+        active_readers: AtomicU32::new(0),
+    };
+    slots[1] = CacheSlot {
+        key: key_a2,
+        span: ArenaSpan {
+            offset: 100,
+            len: 100,
+        },
+        state: SlotState::Ready,
+        active_readers: AtomicU32::new(0),
+    };
+    slots[2] = CacheSlot {
+        key: key_b,
+        span: ArenaSpan {
+            offset: 200,
+            len: 100,
+        },
+        state: SlotState::Ready,
+        active_readers: AtomicU32::new(0),
+    };
+    slots[3] = CacheSlot {
+        key: key_other_index,
+        span: ArenaSpan {
+            offset: 300,
+            len: 100,
+        },
+        state: SlotState::Ready,
+        active_readers: AtomicU32::new(0),
+    };
 
-        // Invalidate segment A in index 100
-        for slot in &mut slots {
-            if slot.state != SlotState::Empty
-                && slot.key.database_oid == pg_sys::Oid::from_u32(10)
-                && slot.key.index_oid == pg_sys::Oid::from_u32(100)
-                && slot.key.segment_id == seg_a
-            {
-                *slot = CacheSlot::empty();
-            }
+    // Invalidate segment A in index 100
+    for slot in &mut slots {
+        if slot.state != SlotState::Empty
+            && slot.key.database_oid == pg_sys::Oid::from_u32(10)
+            && slot.key.index_oid == pg_sys::Oid::from_u32(100)
+            && slot.key.segment_id == seg_a
+        {
+            *slot = CacheSlot::empty();
         }
+    }
 
-        assert_eq!(slots[0].state, SlotState::Empty);
-        assert_eq!(slots[1].state, SlotState::Empty);
-        assert_eq!(slots[2].state, SlotState::Ready);
-        assert_eq!(slots[3].state, SlotState::Ready);
+    assert_eq!(slots[0].state, SlotState::Empty);
+    assert_eq!(slots[1].state, SlotState::Empty);
+    assert_eq!(slots[2].state, SlotState::Ready);
+    assert_eq!(slots[3].state, SlotState::Ready);
 
-        // Invalidate all of index 100
-        for slot in &mut slots {
-            if slot.state != SlotState::Empty
-                && slot.key.database_oid == pg_sys::Oid::from_u32(10)
-                && slot.key.index_oid == pg_sys::Oid::from_u32(100)
-            {
-                *slot = CacheSlot::empty();
-            }
+    // Invalidate all of index 100
+    for slot in &mut slots {
+        if slot.state != SlotState::Empty
+            && slot.key.database_oid == pg_sys::Oid::from_u32(10)
+            && slot.key.index_oid == pg_sys::Oid::from_u32(100)
+        {
+            *slot = CacheSlot::empty();
         }
-
-        assert_eq!(slots[2].state, SlotState::Empty);
-        assert_eq!(slots[3].state, SlotState::Ready);
     }
 
-    #[pg_test]
-    unsafe fn test_building_slots_not_evicted_by_ring_buffer() {
-        let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
-        let generation = AtomicU64::new(0);
+    assert_eq!(slots[2].state, SlotState::Empty);
+    assert_eq!(slots[3].state, SlotState::Ready);
+}
 
-        // Slot 0 is Ready at offset 0..100
-        slots[0] = CacheSlot {
-            key: MutableCacheKey::default(),
-            span: ArenaSpan {
-                offset: 0,
-                len: 100,
-            },
-            builder_pid: 1,
-            state: SlotState::Ready,
-            active_readers: AtomicU32::new(0),
-        };
+#[test]
+fn test_gap_skipping_advances_tail_across_reclaimed_slots() {
+    let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
+    let generation = AtomicU64::new(0);
 
-        // Slot 1 is Building (has default span: offset = 0, len = 0)
-        slots[1] = CacheSlot {
-            key: MutableCacheKey::default(),
-            span: ArenaSpan::default(),
-            builder_pid: 2,
-            state: SlotState::Building,
-            active_readers: AtomicU32::new(0),
-        };
+    // Slot 0 is Ready at offset 0..100
+    slots[0] = CacheSlot {
+        key: MutableCacheKey::default(),
+        span: ArenaSpan {
+            offset: 0,
+            len: 100,
+        },
+        state: SlotState::Ready,
+        active_readers: AtomicU32::new(0),
+    };
 
-        let mut tail = 0;
-        // Advancing tail from offset 0 must evict slot 0, advancing tail to 100
-        assert!(MutableCacheHeader::try_advance_tail(
-            &mut slots,
-            &mut tail,
-            &generation
-        ));
-        assert_eq!(tail, 100);
-        assert_eq!(slots[0].state, SlotState::Empty);
+    // Slot 1 was reclaimed (gap at 100..250) - state is Empty
+    slots[1] = CacheSlot::empty();
 
-        // Slot 1 (Building) must NOT have been touched or evicted!
-        assert_eq!(slots[1].state, SlotState::Building);
-        assert_eq!(slots[1].builder_pid, 2);
-    }
+    // Slot 2 is Ready at offset 250..400
+    slots[2] = CacheSlot {
+        key: MutableCacheKey::default(),
+        span: ArenaSpan {
+            offset: 250,
+            len: 150,
+        },
+        state: SlotState::Ready,
+        active_readers: AtomicU32::new(0),
+    };
+
+    let mut tail = 0;
+    // First eviction: evicts slot 0, tail advances to 100
+    assert!(MutableCacheHeader::try_advance_tail(
+        &mut slots,
+        &mut tail,
+        &generation
+    ));
+    assert_eq!(tail, 100);
+    assert_eq!(slots[0].state, SlotState::Empty);
+
+    // Second eviction: skips gap [100..250], finds slot 2 at 250, evicts slot 2, tail advances to 400
+    assert!(MutableCacheHeader::try_advance_tail(
+        &mut slots,
+        &mut tail,
+        &generation
+    ));
+    assert_eq!(tail, 400);
+    assert_eq!(slots[2].state, SlotState::Empty);
+
+    // Third eviction: no more active slots at or above 400
+    assert!(!MutableCacheHeader::try_advance_tail(
+        &mut slots,
+        &mut tail,
+        &generation
+    ));
+}
+
+#[test]
+fn test_inflight_build_table() {
+    let mut inflights = [const { InflightBuild::empty() }; MAX_INFLIGHT_BUILDS];
+    assert!(inflights[0].is_empty());
+
+    let key = MutableCacheKey {
+        database_oid: pg_sys::Oid::from_u32(1),
+        index_oid: pg_sys::Oid::from_u32(2),
+        segment_id: [42u8; 16],
+        bound: MutableSegmentBound {
+            max_doc: 100,
+            num_deleted_docs: 0,
+        },
+    };
+
+    // Claim entry
+    inflights[0].key = key;
+    inflights[0].builder_pid = 12345;
+    assert!(!inflights[0].is_empty());
+
+    // Match entry
+    let found = inflights
+        .iter()
+        .any(|b| !b.is_empty() && b.key == key && b.builder_pid == 12345);
+    assert!(found);
+
+    // Clear entry
+    inflights[0] = InflightBuild::empty();
+    assert!(inflights[0].is_empty());
 }

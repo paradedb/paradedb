@@ -374,6 +374,12 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+/// Allows the user to toggle caching read-time indexed mutable segments in shared memory.
+static ENABLE_MUTABLE_SEGMENT_CACHE: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Size of the shared memory ring buffer used to cache read-time indexed mutable segments.
+static MUTABLE_SEGMENT_CACHE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -969,6 +975,36 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_S,
     );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_mutable_segment_cache",
+        c"Enable caching read-time indexed mutable segments in PostgreSQL shared memory",
+        c"When enabled (default), mutable segments indexed during query execution are cached \
+          in PostgreSQL shared memory to avoid redundant re-indexing across queries and parallel workers.",
+        &ENABLE_MUTABLE_SEGMENT_CACHE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mutable_segment_cache_size",
+        c"Shared-memory cache size for read-time indexed mutable segments",
+        c"Sets the shared memory allocated at startup for the mutable segment ring-buffer cache. \
+          Accepts standard Postgres byte units (e.g. '64MB', '128MB'). Default is 64MB.",
+        &MUTABLE_SEGMENT_CACHE_SIZE,
+        1024 * 1024,
+        1024 * 1024 * 1024,
+        GucContext::Postmaster,
+        GucFlags::UNIT_BYTE,
+    );
+}
+
+pub fn enable_mutable_segment_cache() -> bool {
+    ENABLE_MUTABLE_SEGMENT_CACHE.get()
+}
+
+pub fn mutable_segment_cache_size() -> usize {
+    MUTABLE_SEGMENT_CACHE_SIZE.get().max(1024 * 1024) as usize
 }
 
 /// Whether DataFusion queries spill to a `BufFile` temp file on `work_mem` overflow.

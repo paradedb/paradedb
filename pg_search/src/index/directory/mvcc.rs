@@ -135,23 +135,7 @@ impl Drop for PgTempFile {
     }
 }
 
-/// The `(max_doc, num_deleted_docs)` pair of a mutable segment's meta entry as one reader
-/// loaded it. A mutable segment is materialized from the heap on open, from the prefix of its
-/// add/remove log these two counts bound, so two opens agree on the segment's `DocId` space
-/// only if they use the same pair. Distinct from [`SegmentMetaEntry::mutable_snapshot`], which
-/// returns the ctid set a bound selects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MutableSegmentBound {
-    pub max_doc: u32,
-    pub num_deleted_docs: u32,
-}
-
-impl MutableSegmentBound {
-    /// Docs the materialized segment exposes: Adds minus Removes.
-    pub fn live_docs(self) -> u32 {
-        self.max_doc - self.num_deleted_docs
-    }
-}
+pub use crate::postgres::storage::block::MutableSegmentBound;
 
 /// One segment of a [`SegmentView`], in the origin reader's ordinal position.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,9 +337,9 @@ enum LoadedSegmentMetaEntry {
         meta: SegmentMetaEntry,
         tantivy_meta: SegmentMeta,
         entry: SegmentMetaEntryMutable,
-        // Created lazily on first read so that indexing occurs in whichever parallel worker is
-        // responsible for this segment.
-        directory: Arc<OnceLock<RamDirectory>>,
+        // Resolved lazily on first read: loaded from the shared-memory mutable segment cache if
+        // present, or indexed by whichever process touches it first and published to shared memory.
+        directory: Arc<OnceLock<Arc<dyn Directory>>>,
     },
 }
 
@@ -456,13 +440,9 @@ impl MVCCDirectory {
             .iter()
             .filter_map(|(id, lsme)| match lsme {
                 LoadedSegmentMetaEntry::Persisted { .. } => None,
-                LoadedSegmentMetaEntry::Memory { meta, .. } => Some((
-                    *id,
-                    MutableSegmentBound {
-                        max_doc: meta.max_doc(),
-                        num_deleted_docs: meta.num_deleted_docs() as u32,
-                    },
-                )),
+                LoadedSegmentMetaEntry::Memory { meta, .. } => {
+                    meta.mutable_bound().map(|bound| (*id, bound))
+                }
             })
             .collect()
     }
@@ -541,8 +521,8 @@ impl MVCCDirectory {
                         OpenDirectoryError::DoesNotExist(path.to_path_buf()),
                     ));
                 }
-                let file_handle = directory
-                    .get_or_init(|| {
+                let dir = directory.get_or_init(|| {
+                    let build = || {
                         let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
                             let heaprel = self
                                 .indexrel
@@ -559,19 +539,25 @@ impl MVCCDirectory {
                             &meta,
                             heap_fetch_state,
                             expression_state,
-                            &self.mvcc_style,
                         )
+                    };
+                    let key =
+                        crate::postgres::storage::mutable_cache::MutableCacheKey::for_segment(
+                            &self.indexrel,
+                            &meta,
+                        )
+                        .expect(
+                            "LoadedSegmentMetaEntry::Memory should have a mutable SegmentMetaEntry",
+                        );
+                    crate::postgres::storage::mutable_cache::get_or_build(&key, build)
                         .expect("Failed to index mutable segment.")
-                    })
-                    .get_file_handle(path)
-                    .map_err(|err| match err {
-                        OpenReadError::FileDoesNotExist(missing) => {
-                            TantivyError::OpenDirectoryError(OpenDirectoryError::DoesNotExist(
-                                missing,
-                            ))
-                        }
-                        other => other.into(),
-                    })?;
+                });
+                let file_handle = dir.get_file_handle(path).map_err(|err| match err {
+                    OpenReadError::FileDoesNotExist(missing) => {
+                        TantivyError::OpenDirectoryError(OpenDirectoryError::DoesNotExist(missing))
+                    }
+                    other => other.into(),
+                })?;
                 Ok(file_handle)
             }
         }
@@ -1050,7 +1036,6 @@ pub fn index_memory_segment(
     segment: &SegmentMetaEntry,
     heap_fetch_state: &HeapFetchState,
     expression_state: &ExpressionState,
-    mvcc_style: &MvccSatisfies,
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::heap::HeapDocFetcher;
@@ -1115,18 +1100,16 @@ pub fn index_memory_segment(
     let categorized_fields = search_schema.categorized_fields();
     let created_by_version = indexrel.created_by_version();
 
-    // Query-visible materialization (Snapshot / ParallelWorker / LargestSegment) fetches each ctid
-    // with the active MVCC snapshot; maintenance materialization (e.g. Mergeable) must index every
-    // live ctid regardless of any single snapshot. See the `HeapDocFetcher` docs for the full
-    // reasoning. Because query-visible materialization happens lazily inside query planning or
-    // execution, the active snapshot here is the snapshot that defines query-visible heap rows,
-    // so indexing an invisible ctid as empty cannot change a query result or estimate.
-    let query_visible = match mvcc_style {
-        MvccSatisfies::Snapshot
-        | MvccSatisfies::ParallelWorker(_)
-        | MvccSatisfies::LargestSegment => true,
-        MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
-    };
+    // We always use `query_visible = false` (maintenance mode) when materializing mutable
+    // segments. When the shared memory cache is active (or when concurrent queries run),
+    // a cached mutable segment may be queried by transactions whose snapshots are newer than
+    // the transaction that materialized it. If we used `query_visible: true`, rows invisible
+    // to the building snapshot would be indexed as empty documents, causing subsequent
+    // queries with newer snapshots to miss those documents entirely (issue #5356).
+    // In maintenance mode (`query_visible: false`), `HeapDocFetcher` fetches with `SnapshotAny`
+    // and filters dead tuples via `HeapTupleSatisfiesVacuum`, so all live rows are indexed and
+    // MVCC visibility is correctly evaluated per-query on the resulting CTIDs.
+    let query_visible = false;
 
     let mut fetcher = HeapDocFetcher::new(
         heap_fetch_state,

@@ -27,7 +27,6 @@ use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::schema::{SearchFieldType, is_columnar_json_path};
-use tantivy::index::SegmentId;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
@@ -157,16 +156,6 @@ impl FFHelper {
 
     fn fast_fields(&self, segment_ord: SegmentOrdinal) -> &FastFieldReaders {
         self.searcher().segment_reader(segment_ord).fast_fields()
-    }
-
-    pub(crate) fn is_immutable_segment(&self, id: SegmentId) -> bool {
-        let view = &self.inner().segment_view;
-        view.ordinal_of(&id).is_some_and(|ordinal| {
-            matches!(
-                view.entries()[ordinal].docs,
-                SegmentViewDocs::Immutable { .. }
-            )
-        })
     }
 
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {

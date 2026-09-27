@@ -1128,6 +1128,7 @@ pub fn index_memory_segment(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use tantivy::postings::Postings;
 
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::rel::PgSearchRelation;
@@ -1139,7 +1140,11 @@ mod tests {
     unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        Spi::run(
+            "CREATE INDEX t_idx ON t USING paradedb \
+             (id, data, (data::pdb.simple('alias=with_pnorms', 'pnorms=true')))",
+        )
+        .unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -1153,11 +1158,32 @@ mod tests {
             todo!("test_list_meta_entries");
         };
         assert!(entry.field_norms.is_some());
+        assert!(entry.posting_norms.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());
         assert!(entry.positions.is_some());
         assert!(entry.terms.is_some());
         assert!(entry.delete.is_none());
+
+        let reader = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).unwrap();
+        for segment in reader.segment_readers() {
+            let schema = segment.schema();
+            let plain = schema.get_field("data").unwrap();
+            let enabled = schema.get_field("with_pnorms").unwrap();
+            for (field, pnorms) in [(plain, false), (enabled, true)] {
+                let postings = segment
+                    .inverted_index(field)
+                    .unwrap()
+                    .read_postings(
+                        &tantivy::Term::from_field_text(field, "test"),
+                        tantivy::schema::IndexRecordOption::WithFreqs,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(postings.fieldnorm_id().is_some(), pnorms);
+            }
+            assert!(segment.get_fieldnorms_reader(enabled).is_ok());
+        }
     }
 
     /// A reader replaying a [`SegmentView`] must expose the view's ordinal order and, for a

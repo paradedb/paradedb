@@ -521,9 +521,10 @@ impl Scanner {
         // Batch lookup the ctids and visibility check them.
         // When defer_visibility is true, we skip visibility checking entirely —
         // VisibilityFilterExec will handle it in batch after the join.
-        // The `ctids_builder` here is used only for:
-        //   1. Visibility masking (compacting invisible rows out of `ids` and `memoized_columns`).
-        //   2. The `WhichFastField::Ctid` Arrow output column.
+        // When the segment is all-visible (determined via `for_segment`), per-row visibility
+        // checks and compaction are skipped; CTIDs are only fetched from fast fields if
+        // `WhichFastField::Ctid` is explicitly requested.
+        // Otherwise, `check_segment_docs` is run to filter invisible rows and build `ctids_array`.
         let ctids_array: Option<ArrayRef> = if self.defer_visibility {
             // defer_visibility=true always uses DeferredCtid, never WhichFastField::Ctid.
             // A physical Ctid column in this path indicates a planning bug.
@@ -541,27 +542,53 @@ impl Scanner {
                 visibility.set_ffhelper(Arc::clone(ffhelper));
             }
 
-            // Filter out invisible rows and resolve ctids.
-            self.visibility_results.resize(ids.len(), None);
-            visibility.check_segment_docs(segment_ord, &ids, &mut self.visibility_results);
+            let need_ctid = self
+                .which_fast_fields
+                .iter()
+                .any(|f| matches!(f, WhichFastField::Ctid));
 
-            let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
-            let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
-            for maybe_visible_ctid in self.visibility_results.drain(..) {
-                if let Some(visible_ctid) = maybe_visible_ctid {
-                    visibility_mask_builder.append_value(true);
-                    ctids_builder.append_value(visible_ctid);
+            if let Some(checker) = visibility
+                .for_segment(segment_ord)
+                .expect("failed to check segment visibility")
+            {
+                // Filter out invisible rows and resolve ctids.
+                self.visibility_results.resize(ids.len(), None);
+                checker.check_segment_docs(segment_ord, &ids, &mut self.visibility_results);
+
+                let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
+                let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
+                for maybe_visible_ctid in self.visibility_results.drain(..) {
+                    if let Some(visible_ctid) = maybe_visible_ctid {
+                        visibility_mask_builder.append_value(true);
+                        ctids_builder.append_value(visible_ctid);
+                    } else {
+                        visibility_mask_builder.append_value(false);
+                    }
+                }
+                // Then filter the remaining columns using the mask.
+                compact_with_mask(
+                    &mut ids,
+                    &mut memoized_columns,
+                    &visibility_mask_builder.finish(),
+                );
+                Some(Arc::new(ctids_builder.finish()) as ArrayRef)
+            } else {
+                // Segment is all visible: skip visibility checks and compaction.
+                if need_ctid {
+                    let mut ctids_scratch = std::mem::take(&mut self.visibility_results);
+                    ctids_scratch.resize(ids.len(), None);
+                    ffhelper.ctid(segment_ord).as_u64s(&ids, &mut ctids_scratch);
+                    let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
+                    for ctid in ctids_scratch.drain(..) {
+                        ctids_builder
+                            .append_value(ctid.expect("ctid must be present for valid doc"));
+                    }
+                    self.visibility_results = ctids_scratch;
+                    Some(Arc::new(ctids_builder.finish()) as ArrayRef)
                 } else {
-                    visibility_mask_builder.append_value(false);
+                    None
                 }
             }
-            // Then filter the remaining columns using the mask.
-            compact_with_mask(
-                &mut ids,
-                &mut memoized_columns,
-                &visibility_mask_builder.finish(),
-            );
-            Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         };
 
         // Pre-fetch any Named or Array columns that weren't already fetched by pre-filters,

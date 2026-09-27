@@ -51,10 +51,11 @@
 //! ### Concurrency Control
 //!
 //! Slot access is synchronized via a dedicated named `LWLock` tranche (`pg_search_mutable_cache`).
-//! Exactly one worker claims [`SlotState::Building`] to index a given key, while concurrent backends and
-//! parallel workers sleep on a [`ConditionVariable`]. If a builder process dies or aborts, waiting workers
-//! detect that the builder PID is no longer alive ([`is_pid_alive`]), reset the slot to [`SlotState::Empty`],
-//! and allow another worker to retry.
+//! Concurrent segment builds coordinate via a dedicated in-flight build table and [`ConditionVariable`].
+//! Exactly one worker claims an in-flight build entry to index a given key in private backend memory,
+//! while concurrent backends and parallel workers sleep on a [`ConditionVariable`]. If a builder process
+//! dies or aborts, waiting workers detect that the builder PID is no longer alive ([`is_pid_alive`]),
+//! reset the in-flight entry, and allow another worker to retry.
 //!
 //! ### Bip-Buffer Allocation & Eviction
 //!
@@ -62,14 +63,15 @@
 //! boundary. The allocator uses a bip-buffer strategy: allocations proceed linearly until the end of the
 //! buffer, then wrap around to offset 0.
 //!
-//! Eviction advances `tail_offset` past completed entries in arena order, but is blocked if the entry at the tail has
-//! `active_readers > 0`. When the slot table is full, eviction also advances `tail_offset` to reclaim the oldest
-//! allocations in ring-buffer order, keeping allocations contiguous and freeing slots. If shared memory is exhausted
-//! by active readers, workers gracefully fall back to local unshared indexing (`RamDirectory`) with a `pgrx::warning`.
+//! Eviction advances `tail_offset` past completed entries in arena order, skipping across inactive gaps,
+//! but is blocked if an entry at the tail has `active_readers > 0`. When the slot table is full, any
+//! [`SlotState::Superseded`] entry whose active readers count has reached zero can be immediately reclaimed.
+//! If shared memory is exhausted by active readers, workers gracefully fall back to local unshared indexing
+//! (`RamDirectory`) with a `pgrx::warning`.
 //!
 //! When a newer bound for a segment is cached, earlier bounds transition to [`SlotState::Superseded`]:
 //! they are hidden from new lookups, but existing readers continue reading until their active reader count
-//! reaches zero and `tail_offset` reclaims their arena span.
+//! reaches zero and their arena span is reclaimed.
 //!
 //! ### Invalidation Lifecycle
 //!
@@ -102,6 +104,9 @@ use crate::postgres::storage::block::{MutableSegmentBound, SegmentMetaEntry};
 
 /// Maximum number of tracked segment slots in the shared-memory header.
 pub const MAX_SLOTS: usize = 256;
+
+/// Maximum number of concurrent in-flight segment builds tracked in shared memory.
+pub const MAX_INFLIGHT_BUILDS: usize = 16;
 
 static MUTABLE_CACHE: AtomicPtr<MutableCacheHeader> = AtomicPtr::new(std::ptr::null_mut());
 static mut PREV_SHMEM_REQUEST_HOOK: pg_sys::shmem_request_hook_type = None;
@@ -155,6 +160,39 @@ impl MutableCacheKey {
     }
 }
 
+/// Entry tracking an in-flight segment build across concurrent backends.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct InflightBuild {
+    /// Segment key currently being built in private backend memory.
+    pub key: MutableCacheKey,
+    /// PID of the backend process currently building the segment, or 0 if inactive.
+    pub builder_pid: pg_sys::pid_t,
+}
+
+impl InflightBuild {
+    /// Construct an empty in-flight build entry.
+    pub const fn empty() -> Self {
+        Self {
+            key: MutableCacheKey {
+                database_oid: pg_sys::Oid::INVALID,
+                index_oid: pg_sys::Oid::INVALID,
+                segment_id: [0u8; 16],
+                bound: MutableSegmentBound {
+                    max_doc: 0,
+                    num_deleted_docs: 0,
+                },
+            },
+            builder_pid: 0,
+        }
+    }
+
+    /// Returns true if this entry is inactive.
+    pub fn is_empty(&self) -> bool {
+        self.builder_pid == 0
+    }
+}
+
 /// Byte range within the shared memory data arena.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 #[repr(C)]
@@ -171,14 +209,12 @@ pub struct ArenaSpan {
 pub enum SlotState {
     /// Slot is unallocated and available for use.
     Empty = 0,
-    /// A worker process is currently indexing and packing this segment in backend memory.
-    /// Does not hold an arena allocation until indexing succeeds.
-    Building = 1,
     /// Segment is fully packed and ready for concurrent reads.
-    Ready = 2,
+    Ready = 1,
     /// Segment was invalidated or superseded by a newer bound. Active readers may continue;
-    /// reclaimed in ring-buffer order when tail advances past its allocation.
-    Superseded = 3,
+    /// reclaimed in ring-buffer order when tail advances past its allocation, or immediately
+    /// if the slot table is full and active readers count reaches zero.
+    Superseded = 2,
 }
 
 /// Metadata entry tracking a cached segment in shared memory.
@@ -190,8 +226,6 @@ pub struct CacheSlot {
     pub span: ArenaSpan,
     /// Count of active readers currently holding slices in this slot.
     pub active_readers: AtomicU32,
-    /// PID of the process currently building this slot, if state is `Building`.
-    pub builder_pid: pg_sys::pid_t,
     /// Current lifecycle state.
     pub state: SlotState,
 }
@@ -211,7 +245,6 @@ impl CacheSlot {
             },
             span: ArenaSpan { offset: 0, len: 0 },
             active_readers: AtomicU32::new(0),
-            builder_pid: 0,
             state: SlotState::Empty,
         }
     }
@@ -257,6 +290,7 @@ pub struct MutableCacheHeader {
     /// Invalidation generation counter.
     pub generation: AtomicU64,
     allocator: UnsafeCell<AllocatorState>,
+    inflight_builds: UnsafeCell<[InflightBuild; MAX_INFLIGHT_BUILDS]>,
     slots: UnsafeCell<[CacheSlot; MAX_SLOTS]>,
 }
 
@@ -270,9 +304,25 @@ impl MutableCacheHeader {
         (*ptr).cv.init();
         (*ptr).generation.store(0, Ordering::Relaxed);
         *(*ptr).allocator.get() = AllocatorState::default();
+        for build in &mut *(*ptr).inflight_builds.get() {
+            *build = InflightBuild::empty();
+        }
         for slot in &mut *(*ptr).slots.get() {
             *slot = CacheSlot::empty();
         }
+    }
+
+    #[allow(dead_code)]
+    pub unsafe fn inflight_builds(&self) -> &[InflightBuild] {
+        &*self.inflight_builds.get()
+    }
+
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn inflight_builds_mut(
+        &self,
+        _guard: &LWLockExclusiveGuard<'_>,
+    ) -> &mut [InflightBuild] {
+        &mut *self.inflight_builds.get()
     }
 
     pub unsafe fn slots(&self) -> &[CacheSlot] {
@@ -334,16 +384,21 @@ impl MutableCacheHeader {
 
         let is_empty = slots.iter().all(|s| s.state == SlotState::Empty);
         if is_empty {
-            allocator.head_offset = 0;
+            allocator.head_offset = needed as u32;
             allocator.tail_offset = 0;
+            return Some(ArenaSpan {
+                offset: 0,
+                len: needed as u32,
+            });
         }
 
         let head = allocator.head_offset as usize;
         let mut tail = allocator.tail_offset as usize;
 
-        if head >= tail && !is_empty {
-            // Linear region ahead of head
-            if head + needed <= capacity {
+        // State 2: Wrapped region (head < tail)
+        if head < tail {
+            // Check if it fits in free space [head..tail]
+            if head + needed <= tail {
                 let offset = head as u32;
                 allocator.head_offset = (head + needed) as u32;
                 return Some(ArenaSpan {
@@ -352,80 +407,107 @@ impl MutableCacheHeader {
                 });
             }
 
-            // Not enough room before end of buffer: attempt to wrap around to 0
-            while tail <= needed && !slots.iter().all(|s| s.state == SlotState::Empty) {
+            // Does not fit in [head..tail]: advance tail towards capacity
+            while head + needed > tail {
                 if !Self::try_advance_tail(slots, &mut tail, &self.generation) {
-                    return None;
+                    let has_active_ahead = slots
+                        .iter()
+                        .any(|s| s.state != SlotState::Empty && (s.span.offset as usize) >= tail);
+                    if has_active_ahead {
+                        allocator.tail_offset = tail as u32;
+                        return None;
+                    }
+                    // Region [tail..capacity] is completely drained.
+                    // Transition to linear state: tail moves to oldest active slot in [0..head].
+                    tail = slots
+                        .iter()
+                        .filter(|s| s.state != SlotState::Empty)
+                        .map(|s| s.span.offset as usize)
+                        .min()
+                        .unwrap_or(0);
+                    allocator.tail_offset = tail as u32;
+                    break;
                 }
             }
 
-            if tail > needed || slots.iter().all(|s| s.state == SlotState::Empty) {
-                allocator.head_offset = needed as u32;
+            if head < tail && head + needed <= tail {
+                let offset = head as u32;
+                allocator.head_offset = (head + needed) as u32;
                 allocator.tail_offset = tail as u32;
                 return Some(ArenaSpan {
-                    offset: 0,
+                    offset,
                     len: needed as u32,
                 });
             }
-
-            return None;
         }
 
-        // Wrapped region: head < tail
-        while head + needed > tail {
+        // State 1: Linear region (head >= tail)
+        if head + needed <= capacity {
+            let offset = head as u32;
+            allocator.head_offset = (head + needed) as u32;
+            allocator.tail_offset = tail as u32;
+            return Some(ArenaSpan {
+                offset,
+                len: needed as u32,
+            });
+        }
+
+        // Not enough linear space before capacity: wrap around to 0
+        while tail <= needed && !slots.iter().all(|s| s.state == SlotState::Empty) {
             if !Self::try_advance_tail(slots, &mut tail, &self.generation) {
+                allocator.tail_offset = tail as u32;
                 return None;
             }
-            if tail >= capacity {
-                tail = 0;
-            }
         }
 
-        let offset = head as u32;
-        allocator.head_offset = (head + needed) as u32;
+        if tail > needed || slots.iter().all(|s| s.state == SlotState::Empty) {
+            allocator.head_offset = needed as u32;
+            allocator.tail_offset = tail as u32;
+            return Some(ArenaSpan {
+                offset: 0,
+                len: needed as u32,
+            });
+        }
+
         allocator.tail_offset = tail as u32;
-        Some(ArenaSpan {
-            offset,
-            len: needed as u32,
-        })
+        None
     }
 
-    /// Try to advance `tail` past the oldest allocated entry in the arena.
+    /// Try to advance `tail` past the oldest active entry at or above `*tail`.
     ///
-    /// Matches only [`SlotState::Ready`] or [`SlotState::Superseded`] slots whose allocation starts
-    /// at `*tail` (ignoring [`SlotState::Building`] slots which do not hold arena spans yet).
-    /// Returns `false` if eviction is blocked because the entry at the tail has `active_readers > 0`.
-    /// On success, advances `*tail`, resets the evicted slot to [`SlotState::Empty`], increments `generation`,
-    /// and returns `true`. If no active slot starts at `*tail`, wraps `*tail = 0`.
+    /// Finds the active slot with the smallest `span.offset >= *tail`.
+    /// - If found and `active_readers == 0`: evicts slot to `Empty`, advances `*tail`,
+    ///   increments `generation`, and returns `true`.
+    /// - If found and `active_readers > 0`: returns `false` (eviction blocked).
+    /// - If no active slot exists with `span.offset >= *tail`: returns `false`.
     fn try_advance_tail(slots: &mut [CacheSlot], tail: &mut usize, generation: &AtomicU64) -> bool {
         let current_tail = *tail as u32;
+        let mut min_offset = u32::MAX;
         let mut found_idx = None;
 
         for (idx, slot) in slots.iter().enumerate() {
-            if matches!(slot.state, SlotState::Ready | SlotState::Superseded)
-                && slot.span.offset == current_tail
+            if slot.state != SlotState::Empty
+                && slot.span.offset >= current_tail
+                && slot.span.offset < min_offset
             {
+                min_offset = slot.span.offset;
                 found_idx = Some(idx);
-                break;
             }
         }
 
-        if let Some(idx) = found_idx {
-            let slot = &mut slots[idx];
-            if slot.active_readers.load(Ordering::Acquire) > 0 {
-                // In active use by a running query: cannot evict
-                return false;
-            }
+        let Some(idx) = found_idx else {
+            return false;
+        };
 
-            *tail = (slot.span.offset + slot.span.len) as usize;
-            *slot = CacheSlot::empty();
-            generation.fetch_add(1, Ordering::Release);
-            true
-        } else {
-            // Gap / wrap sentinel: advance tail to 0
-            *tail = 0;
-            true
+        let slot = &mut slots[idx];
+        if slot.active_readers.load(Ordering::Acquire) > 0 {
+            return false;
         }
+
+        *tail = (slot.span.offset + slot.span.len) as usize;
+        *slot = CacheSlot::empty();
+        generation.fetch_add(1, Ordering::Release);
+        true
     }
 
     /// Transition all cache slots for `segment_id` to [`SlotState::Superseded`].
@@ -449,6 +531,21 @@ impl MutableCacheHeader {
                 slot.state = SlotState::Superseded;
             }
         }
+        let inflights = unsafe { self.inflight_builds_mut(&guard) };
+        let mut cancelled_any = false;
+        for build in inflights {
+            if !build.is_empty()
+                && build.key.database_oid == database_oid
+                && build.key.index_oid == index_oid
+                && build.key.segment_id == *segment_id
+            {
+                *build = InflightBuild::empty();
+                cancelled_any = true;
+            }
+        }
+        if cancelled_any {
+            self.cv.broadcast();
+        }
         self.generation.fetch_add(1, Ordering::Release);
     }
 
@@ -465,6 +562,20 @@ impl MutableCacheHeader {
             {
                 slot.state = SlotState::Superseded;
             }
+        }
+        let inflights = unsafe { self.inflight_builds_mut(&guard) };
+        let mut cancelled_any = false;
+        for build in inflights {
+            if !build.is_empty()
+                && build.key.database_oid == database_oid
+                && build.key.index_oid == index_oid
+            {
+                *build = InflightBuild::empty();
+                cancelled_any = true;
+            }
+        }
+        if cancelled_any {
+            self.cv.broadcast();
         }
         self.generation.fetch_add(1, Ordering::Release);
     }
@@ -490,7 +601,7 @@ unsafe fn is_pid_alive(pid: pg_sys::pid_t) -> bool {
 }
 
 struct InflightBuildGuard {
-    slot_index: usize,
+    inflight_index: usize,
     completed: bool,
 }
 
@@ -503,13 +614,10 @@ impl Drop for InflightBuildGuard {
             return;
         };
         let guard = cache.lock.acquire_exclusive();
-        let slots = unsafe { cache.slots_mut(&guard) };
-        if self.slot_index < slots.len() {
-            let slot = &mut slots[self.slot_index];
-            if slot.state == SlotState::Building {
-                *slot = CacheSlot::empty();
-                cache.cv.broadcast();
-            }
+        let inflights = unsafe { cache.inflight_builds_mut(&guard) };
+        if self.inflight_index < inflights.len() {
+            inflights[self.inflight_index] = InflightBuild::empty();
+            cache.cv.broadcast();
         }
     }
 }
@@ -557,15 +665,16 @@ pub fn get_or_build(
         }
 
         // 2. Check if another worker is building
+        let inflights = unsafe { cache.inflight_builds_mut(&guard) };
         let mut in_flight_building = false;
-        for slot in slots.iter_mut() {
-            if slot.key == *key && slot.state == SlotState::Building {
-                if unsafe { is_pid_alive(slot.builder_pid) } {
+        for build in inflights.iter_mut() {
+            if !build.is_empty() && build.key == *key {
+                if unsafe { is_pid_alive(build.builder_pid) } {
                     in_flight_building = true;
                     break;
                 } else {
-                    // Builder process crashed: reset slot and allow retry
-                    *slot = CacheSlot::empty();
+                    // Builder process crashed: reset entry and allow retry
+                    *build = InflightBuild::empty();
                     cache.cv.broadcast();
                     break;
                 }
@@ -580,54 +689,34 @@ pub fn get_or_build(
             continue;
         }
 
-        // 3. Find an empty slot to claim build
-        let mut claim_idx = None;
-        for (idx, slot) in slots.iter().enumerate() {
-            if slot.state == SlotState::Empty {
-                claim_idx = Some(idx);
+        // 3. Find an empty inflight slot to claim build
+        let mut claim_build_idx = None;
+        for (idx, build) in inflights.iter().enumerate() {
+            if build.is_empty() {
+                claim_build_idx = Some(idx);
                 break;
             }
         }
 
-        if claim_idx.is_none() {
-            // Slot table full: evict oldest entries from the tail to free a slot
-            let allocator = unsafe { cache.allocator_mut(&guard) };
-            let mut tail = allocator.tail_offset as usize;
-            while slots.iter().all(|s| s.state != SlotState::Empty) {
-                if !MutableCacheHeader::try_advance_tail(slots, &mut tail, &cache.generation) {
-                    break;
-                }
-                allocator.tail_offset = tail as u32;
-            }
-            for (idx, slot) in slots.iter().enumerate() {
-                if slot.state == SlotState::Empty {
-                    claim_idx = Some(idx);
-                    break;
-                }
-            }
-        }
-
-        let Some(slot_idx) = claim_idx else {
+        let Some(build_idx) = claim_build_idx else {
             drop(guard);
             pgrx::warning!(
-                "pg_search: mutable segment cache slot table full, falling back to local indexing"
+                "pg_search: mutable segment cache inflight builds full, falling back to local indexing"
             );
             let ram_dir = build_fn()?;
             return Ok(Arc::new(ram_dir));
         };
 
-        // Claim slot as Building
+        // Claim inflight build
         let my_pid = unsafe { pg_sys::MyProcPid };
-        slots[slot_idx].key = *key;
-        slots[slot_idx].builder_pid = my_pid;
-        slots[slot_idx].state = SlotState::Building;
-        slots[slot_idx].active_readers.store(0, Ordering::Release);
+        inflights[build_idx].key = *key;
+        inflights[build_idx].builder_pid = my_pid;
 
         drop(guard);
 
         // We are now the designated builder
         let mut build_guard = InflightBuildGuard {
-            slot_index: slot_idx,
+            inflight_index: build_idx,
             completed: false,
         };
 
@@ -640,8 +729,8 @@ pub fn get_or_build(
                 pgrx::warning!("pg_search: failed to pack mutable segment: {e}");
                 build_guard.completed = true;
                 let guard = cache.lock.acquire_exclusive();
-                let slots = unsafe { cache.slots_mut(&guard) };
-                slots[slot_idx] = CacheSlot::empty();
+                let inflights = unsafe { cache.inflight_builds_mut(&guard) };
+                inflights[build_idx] = InflightBuild::empty();
                 cache.cv.broadcast();
                 drop(guard);
                 return Ok(Arc::new(ram_dir));
@@ -649,6 +738,15 @@ pub fn get_or_build(
         };
 
         let guard = cache.lock.acquire_exclusive();
+
+        // Verify that our inflight build was not cancelled while indexing
+        let inflights = unsafe { cache.inflight_builds_mut(&guard) };
+        if inflights[build_idx].key != *key || inflights[build_idx].builder_pid != my_pid {
+            build_guard.completed = true;
+            drop(guard);
+            return Ok(Arc::new(ram_dir));
+        }
+
         let span = match cache.allocate(packed_bytes.len(), &guard) {
             Some(span) => span,
             None => {
@@ -656,12 +754,77 @@ pub fn get_or_build(
                     "pg_search: mutable segment cache arena full, falling back to local indexing"
                 );
                 build_guard.completed = true;
-                let slots = unsafe { cache.slots_mut(&guard) };
-                slots[slot_idx] = CacheSlot::empty();
+                inflights[build_idx] = InflightBuild::empty();
                 cache.cv.broadcast();
                 drop(guard);
                 return Ok(Arc::new(ram_dir));
             }
+        };
+
+        // Find a slot in slots for the new Ready segment
+        let slots = unsafe { cache.slots_mut(&guard) };
+        let mut claim_slot_idx = slots.iter().position(|s| s.state == SlotState::Empty);
+
+        if claim_slot_idx.is_none() {
+            // Reclaim any Superseded slot whose active readers have finished
+            for (idx, slot) in slots.iter_mut().enumerate() {
+                if slot.state == SlotState::Superseded
+                    && slot.active_readers.load(Ordering::Acquire) == 0
+                {
+                    *slot = CacheSlot::empty();
+                    claim_slot_idx = Some(idx);
+                    break;
+                }
+            }
+        }
+
+        if claim_slot_idx.is_none() {
+            // Evict oldest active slot via try_advance_tail
+            let allocator = unsafe { cache.allocator_mut(&guard) };
+            let mut tail = allocator.tail_offset as usize;
+            while slots.iter().all(|s| s.state != SlotState::Empty) {
+                if !MutableCacheHeader::try_advance_tail(slots, &mut tail, &cache.generation) {
+                    let has_active_ahead = slots
+                        .iter()
+                        .any(|s| s.state != SlotState::Empty && (s.span.offset as usize) >= tail);
+                    if has_active_ahead {
+                        break;
+                    }
+                    let min_tail = slots
+                        .iter()
+                        .filter(|s| s.state != SlotState::Empty)
+                        .map(|s| s.span.offset as usize)
+                        .min();
+                    match min_tail {
+                        Some(new_tail) => {
+                            tail = new_tail;
+                            allocator.tail_offset = tail as u32;
+                            if !MutableCacheHeader::try_advance_tail(
+                                slots,
+                                &mut tail,
+                                &cache.generation,
+                            ) {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                allocator.tail_offset = tail as u32;
+            }
+            claim_slot_idx = slots.iter().position(|s| s.state == SlotState::Empty);
+        }
+
+        let Some(slot_idx) = claim_slot_idx else {
+            pgrx::warning!(
+                "pg_search: mutable segment cache slot table full, falling back to local indexing"
+            );
+            build_guard.completed = true;
+            let inflights = unsafe { cache.inflight_builds_mut(&guard) };
+            inflights[build_idx] = InflightBuild::empty();
+            cache.cv.broadcast();
+            drop(guard);
+            return Ok(Arc::new(ram_dir));
         };
 
         // Copy packed bytes into arena
@@ -676,6 +839,7 @@ pub fn get_or_build(
 
         // Mark slot Ready
         let slots = unsafe { cache.slots_mut(&guard) };
+        slots[slot_idx].key = *key;
         slots[slot_idx].span = span;
         slots[slot_idx].state = SlotState::Ready;
         slots[slot_idx].active_readers.store(1, Ordering::Release);
@@ -690,6 +854,9 @@ pub fn get_or_build(
             }
         }
 
+        // Release inflight build
+        let inflights = unsafe { cache.inflight_builds_mut(&guard) };
+        inflights[build_idx] = InflightBuild::empty();
         cache.cv.broadcast();
         build_guard.completed = true;
 

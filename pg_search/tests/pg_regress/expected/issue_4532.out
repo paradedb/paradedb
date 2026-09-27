@@ -68,8 +68,8 @@ WHERE p.company_id IN (
 AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p SEMI (c SEMI d)
    Join Cond: p.company_id = c.id, c.id = d.company_id
@@ -79,18 +79,16 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :           VisibilityFilterExec: tables=[c]
-     :             TantivyFetchExec: fetch=[ctid_1]
-     :               HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
-     :                 CooperativeExec
-     :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :                 CooperativeExec
-     :                   PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
-(20 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :         VisibilityFilterExec: tables=[c], pruned=[c]
+     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
+(18 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -133,8 +131,8 @@ AND EXISTS (
 )
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p SEMI (c ANTI d)
    Join Cond: c.id = p.company_id, d.company_id = c.id
@@ -144,18 +142,16 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"boring","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :           VisibilityFilterExec: tables=[c]
-     :             TantivyFetchExec: fetch=[ctid_1]
-     :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
-     :                 CooperativeExec
-     :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Marketing","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :                 CooperativeExec
-     :                   PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(20 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"boring","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :         VisibilityFilterExec: tables=[c], pruned=[c]
+     :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Marketing","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -207,8 +203,8 @@ AND EXISTS (
 )
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p SEMI ((c SEMI d) ANTI d)
    Join Cond: c.id = p.company_id, p.company_id = c.id, d.company_id = c.id, d.company_id = c.id
@@ -218,21 +214,19 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"boring","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :           VisibilityFilterExec: tables=[c]
-     :             TantivyFetchExec: fetch=[ctid_1]
-     :               HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
-     :                 CooperativeExec
-     :                   PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Marketing","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :                 HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
-     :                   CooperativeExec
-     :                     PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :                   CooperativeExec
-     :                     PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
-(23 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"boring","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :         VisibilityFilterExec: tables=[c], pruned=[c]
+     :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Marketing","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
+     :               CooperativeExec
+     :                 PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
+(21 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -277,8 +271,8 @@ WHERE p.company_id IN (
 AND (p.description ||| 'widget' OR p.description ||| 'gadget')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p SEMI c
    Join Cond: p.company_id = c.id
@@ -288,13 +282,12 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, company_id@1)], projection=[ctid_0@0, id@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Acme","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-(15 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, company_id@1)], projection=[ctid_0@0, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Acme","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(14 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -335,8 +328,8 @@ WHERE p.company_id IN (
 AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p SEMI ((c SEMI r) SEMI d)
    Join Cond: p.company_id = c.id, c.id = d.company_id, c.region_id = r.id
@@ -346,22 +339,19 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"boring","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
-     :             ProjectionExec: expr=[id@0 as id]
-     :               VisibilityFilterExec: tables=[c]
-     :                 TantivyFetchExec: fetch=[ctid_1]
-     :                   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, region_id@1)]
-     :                     CooperativeExec
-     :                       PgSearchScan: table=r, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"America","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :                     CooperativeExec
-     :                       PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"boring","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :         VisibilityFilterExec: tables=[c], pruned=[c]
+     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
      :             CooperativeExec
-     :               PgSearchScan: table=d, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(24 rows)
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, region_id@1)], projection=[id@0, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"America","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=c, segments=1, dynamic_filters=3, query="all"
+(21 rows)
 
 SELECT p.id, p.description
 FROM products p

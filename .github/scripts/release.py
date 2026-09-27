@@ -3,11 +3,11 @@
 
 Unified release artifact assembler for ParadeDB:
 - Assembles unreleased SQL migration fragments into pg_search--<prev>--<target>.sql
-- Assembles unreleased changelog fragments into docs/changelog/<version>.mdx
+- Assembles unreleased changelog fragments into docs/project/changelog/<version>.mdx
 - Registers new versions in docs/docs.json and docs/snippets/version.mdx
 """
 
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,fixme
 
 import argparse
 import json
@@ -292,6 +292,26 @@ def assemble_sql_files(
 # ==============================================================================
 
 
+def get_changelog_dirs(repo_root):
+    """Return (changelog_dir, unreleased_dir, page_prefix) based on docs layout.
+
+    The canonical layout since the PR #6339 docs reorg is:
+      docs/project/changelog/
+      with docs.json page paths like 'project/changelog/<version>'
+
+    TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
+    Branch 0.25.x uses the pre-reorg layout:
+      docs/changelog/
+      with docs.json page paths like 'changelog/<version>'
+    """
+    project_changelog = repo_root / "docs" / "project" / "changelog"
+    if project_changelog.exists():
+        return project_changelog, project_changelog / "unreleased", "project/changelog"
+    # Legacy fallback for 0.25.x
+    legacy_changelog = repo_root / "docs" / "changelog"
+    return legacy_changelog, legacy_changelog / "unreleased", "changelog"
+
+
 def load_headers_map(json_path):
     """Load category header mappings from .changelog_headers.json."""
     if not json_path.exists():
@@ -413,9 +433,101 @@ def semver_key(page_str):
     return (0, 0, 0)
 
 
-def insert_changelog_into_pages(docs_data, target_page):
-    """Find the Changelog group, insert target_page if absent, and sort descending."""
-    versions = docs_data.get("navigation", {}).get("versions", [])
+def _find_changelog_pages(versions):
+    """Find and return the Changelog pages list in the Project tab, or None."""
+    for ver_obj in versions:
+        for tab in ver_obj.get("tabs", []):
+            if tab.get("tab") != "Project":
+                continue
+            for page in tab.get("pages", []):
+                if isinstance(page, dict) and page.get("group") == "Changelog":
+                    return page.get("pages", [])
+    return None
+
+
+def _insert_into_version_group(changelog_pages, target_group, target_page):
+    """Insert target_page into existing target_group if present."""
+    for group_obj in changelog_pages:
+        if isinstance(group_obj, dict) and group_obj.get("group") == target_group:
+            group_pages = group_obj.get("pages", [])
+            if target_page not in group_pages:
+                group_pages.append(target_page)
+                group_pages.sort(key=semver_key, reverse=True)
+                return True
+            return False
+    return None
+
+
+def _insert_into_older_groups(older_pages, target_group, target_page):
+    """Search for target_group inside Older group and insert target_page."""
+    for older_group in older_pages:
+        if isinstance(older_group, dict) and older_group.get("group") == target_group:
+            pages = older_group.get("pages", [])
+            if target_page not in pages:
+                pages.append(target_page)
+                pages.sort(key=semver_key, reverse=True)
+                return True
+            return False
+    return None
+
+
+def _promote_new_active_group(changelog_pages, older_pages, target_group, target_page):
+    """Demote existing active minor group to Older and insert new target_group."""
+    for idx, item in enumerate(changelog_pages):
+        if isinstance(item, dict) and item.get("group", "").startswith("v"):
+            prev_group = changelog_pages.pop(idx)
+            prev_group["expanded"] = False
+            older_pages.insert(0, prev_group)
+            new_group = {
+                "group": target_group,
+                "pages": [target_page],
+                "expanded": True,
+            }
+            changelog_pages.insert(idx, new_group)
+            return True
+    return False
+
+
+def _insert_into_tabs(versions, target_page):
+    """Insert target_page into the Project tab's Changelog section in docs.json."""
+    changelog_pages = _find_changelog_pages(versions)
+    if changelog_pages is None:
+        return False
+
+    target_tuple = semver_key(target_page)
+    target_group = f"v{target_tuple[0]}.{target_tuple[1]}"
+
+    res = _insert_into_version_group(changelog_pages, target_group, target_page)
+    if res is not None:
+        return res
+
+    for group_obj in changelog_pages:
+        if isinstance(group_obj, dict) and group_obj.get("group") == "Older":
+            older_pages = group_obj.setdefault("pages", [])
+            older_res = _insert_into_older_groups(
+                older_pages, target_group, target_page
+            )
+            if older_res is not None:
+                return older_res
+            if _promote_new_active_group(
+                changelog_pages, older_pages, target_group, target_page
+            ):
+                return True
+
+    new_group = {
+        "group": target_group,
+        "pages": [target_page],
+        "expanded": True,
+    }
+    changelog_pages.append(new_group)
+    return True
+
+
+def _insert_into_legacy_anchors(versions, target_page):
+    """Legacy accommodation for 0.25.x (remove after 0.25.x is EOL).
+
+    Pre-reorg docs.json on 0.25.x uses navigation.versions[].anchors[]
+    """
     for ver_obj in versions:
         for anchor in ver_obj.get("anchors", []):
             if anchor.get("anchor") != "Changelog":
@@ -430,6 +542,14 @@ def insert_changelog_into_pages(docs_data, target_page):
     return False
 
 
+def insert_changelog_into_pages(docs_data, target_page):
+    """Insert target_page into the appropriate Changelog group in docs.json and sort descending."""
+    versions = docs_data.get("navigation", {}).get("versions", [])
+    if _insert_into_tabs(versions, target_page):
+        return True
+    return _insert_into_legacy_anchors(versions, target_page)
+
+
 def update_navigation_version(docs_data, new_version):
     """Update top-level active version in navigation.versions[0]."""
     versions = docs_data.get("navigation", {}).get("versions", [])
@@ -437,13 +557,19 @@ def update_navigation_version(docs_data, new_version):
         versions[0]["version"] = f"v{new_version}"
 
 
-def update_docs_json(docs_json_path, new_version, is_latest=True):
-    """Insert changelog/<new_version> and optionally update active version in docs/docs.json."""
+def update_docs_json(docs_json_path, new_version, is_latest=True, repo_root=None):
+    """Insert changelog page and optionally update active version in docs/docs.json."""
     try:
         with open(docs_json_path, "r", encoding="utf-8") as f:
             docs_data = json.load(f)
 
-        target_page = f"changelog/{new_version}"
+        if repo_root is not None:
+            _, _, page_prefix = get_changelog_dirs(repo_root)
+        else:
+            root = docs_json_path.parent.parent
+            _, _, page_prefix = get_changelog_dirs(root)
+
+        target_page = f"{page_prefix}/{new_version}"
         updated_page = insert_changelog_into_pages(docs_data, target_page)
         if is_latest:
             update_navigation_version(docs_data, new_version)
@@ -485,10 +611,10 @@ def assemble_changelog_files(
     repo_root, clean_ver, preserve_fragments=False, is_latest=True
 ):
     """Assemble changelog content, write output file, and clean fragments."""
-    unreleased_dir = repo_root / "docs" / "changelog" / "unreleased"
+    changelog_dir, unreleased_dir, _ = get_changelog_dirs(repo_root)
     headers_map = load_headers_map(repo_root / ".changelog_headers.json")
     docs_json = repo_root / "docs" / "docs.json"
-    output_path = repo_root / "docs" / "changelog" / f"{clean_ver}.mdx"
+    output_path = changelog_dir / f"{clean_ver}.mdx"
 
     files, grouped, extras = collect_changelog_fragments(unreleased_dir, headers_map)
     print(f"Assembling changelog for v{clean_ver} from {len(files)} fragment(s)...")
@@ -500,7 +626,7 @@ def assemble_changelog_files(
     print(f"✅ Generated changelog: {output_path}")
 
     if docs_json.exists():
-        update_docs_json(docs_json, clean_ver, is_latest)
+        update_docs_json(docs_json, clean_ver, is_latest, repo_root=repo_root)
 
     if not preserve_fragments:
         if is_latest:
@@ -560,13 +686,13 @@ def check_is_latest(version, is_beta=False):
 
 def get_rendered_changelog_body(repo_root, clean_ver):
     """Retrieve rendered changelog body from existing MDX file or assemble in-memory."""
-    changelog_file = repo_root / "docs" / "changelog" / f"{clean_ver}.mdx"
+    changelog_dir, unreleased_dir, _ = get_changelog_dirs(repo_root)
+    changelog_file = changelog_dir / f"{clean_ver}.mdx"
     if changelog_file.exists():
         with open(changelog_file, "r", encoding="utf-8") as f:
             _, body = parse_frontmatter(f.read())
         return body
 
-    unreleased_dir = repo_root / "docs" / "changelog" / "unreleased"
     headers_map = load_headers_map(repo_root / ".changelog_headers.json")
     _, grouped, extras = collect_changelog_fragments(unreleased_dir, headers_map)
     rendered = render_changelog(clean_ver, headers_map, grouped, extras)
@@ -594,6 +720,9 @@ def generate_approval_body(
         release_type = "Patch release"
         branch_action = "Sync release artifacts to `main`"
 
+    changelog_dir, _, _ = get_changelog_dirs(repo_root)
+    rel_changelog_path = (changelog_dir / f"{clean_ver}.mdx").relative_to(repo_root)
+
     changelog_body = get_rendered_changelog_body(repo_root, clean_ver)
     template = dedent(
         """\
@@ -609,7 +738,7 @@ def generate_approval_body(
         | **Previous Version** | `{prev_ver}` |
         | **Is Latest Release** | {is_latest} |
         | **SQL Upgrade Script** | `pg_search/sql/pg_search--{prev_ver}--{clean_ver}.sql` |
-        | **Changelog Document** | `docs/changelog/{clean_ver}.mdx` |
+        | **Changelog Document** | `{changelog_path}` |
         | **Post-Release Action** | {branch_action} |
 
         ---
@@ -633,6 +762,7 @@ def generate_approval_body(
         branch=branch,
         prev_ver=prev_ver,
         is_latest="true" if is_latest else "false",
+        changelog_path=rel_changelog_path,
         branch_action=branch_action,
         changelog_body=changelog_body,
     ).strip()
@@ -679,7 +809,7 @@ def handle_changelog_command(args, repo_root):
     if args.register_only:
         docs_json = repo_root / "docs" / "docs.json"
         if docs_json.exists():
-            update_docs_json(docs_json, clean_ver, args.is_latest)
+            update_docs_json(docs_json, clean_ver, args.is_latest, repo_root=repo_root)
         if args.is_latest:
             update_version_snippet(repo_root, clean_ver)
         return
@@ -1019,6 +1149,19 @@ def _check_branch_fragment_identity(repo_root, all_fragments):
             capture_output=True,
             check=False,
         )
+        # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
+        # On 0.25.x, changelog fragments are in docs/changelog/unreleased/ but on main
+        # they are in docs/project/changelog/unreleased/.
+        if show_cmd.returncode != 0 and "docs/changelog/unreleased" in str(rel_path):
+            alt_rel_path = str(rel_path).replace(
+                "docs/changelog/unreleased", "docs/project/changelog/unreleased"
+            )
+            show_cmd = subprocess.run(
+                ["git", "show", f"origin/main:{alt_rel_path}"],
+                cwd=repo_root,
+                capture_output=True,
+                check=False,
+            )
         if show_cmd.returncode == 0:
             main_bytes = show_cmd.stdout
             local_bytes = fpath.read_bytes()
@@ -1041,7 +1184,7 @@ def _check_branch_fragment_identity(repo_root, all_fragments):
 def lint_release_branch_fragments(repo_root, base_ref):
     """Lint fragments on PRs targeting a stable release branch (e.g. 0.25.x)."""
     unreleased_sql_dir = repo_root / "pg_search" / "sql" / "unreleased"
-    unreleased_cl_dir = repo_root / "docs" / "changelog" / "unreleased"
+    _, unreleased_cl_dir, _ = get_changelog_dirs(repo_root)
 
     all_fragments = list(unreleased_sql_dir.glob("*.sql")) + list(
         unreleased_cl_dir.glob("*.mdx")

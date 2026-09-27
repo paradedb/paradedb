@@ -19,7 +19,7 @@ SELECT count(*) FROM tbl_inet WHERE ip @@@ pdb.parse_with_field('192.168.0.1');
    Index: idx_inet
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"ip","query_string":"192.168.0.1","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;

@@ -71,10 +71,12 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_LABEL_NAME: ${{ github.event.label.name }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
-            --remove-label "${{ github.event.label.name }}"
+          gh pr edit "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --remove-label "${EVENT_LABEL_NAME}"
 
       - id: compute
         env:
@@ -111,10 +113,10 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m7a+m7i
+      - family=m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=16
       - ram=64
-      - image=ubuntu24-full-x64
+      - image=ubuntu26-full-x64
       - extras=s3-cache
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
     container:
@@ -165,8 +167,10 @@ jobs:
       # Catch a broken .so before shipping to Antithesis.
       # Undefined Rust symbols (_ZN/_R) mean a broken .so; Postgres C symbols stay undefined and are fine.
       - name: Verify pg_search Has No Unresolved Rust Symbols
+        env:
+          STEP_BUILD_ARTIFACTS_DIR: ${{ steps.build.outputs.artifacts-dir }}
         run: |
-          LIB_PATH="${{ steps.build.outputs.artifacts-dir }}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib/pg_search.so"
+          LIB_PATH="${STEP_BUILD_ARTIFACTS_DIR}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib/pg_search.so"
           undefined_rust="$(nm -D -u "$LIB_PATH" | awk '{print $NF}' | grep -E '^_(ZN|R)' || true)"
           if [ -n "$undefined_rust" ]; then
             echo "::error::pg_search.so has unresolved Rust symbols — the build is broken and would fail to load:"
@@ -177,8 +181,10 @@ jobs:
 
       # Fail on a silently-uninstrumented .so (shim symbol + sancov section); before stripping.
       - name: Verify pg_search Is Antithesis-Instrumented
+        env:
+          STEP_BUILD_ARTIFACTS_DIR: ${{ steps.build.outputs.artifacts-dir }}
         run: |
-          LIB_PATH="${{ steps.build.outputs.artifacts-dir }}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib/pg_search.so"
+          LIB_PATH="${STEP_BUILD_ARTIFACTS_DIR}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib/pg_search.so"
           if ! nm "$LIB_PATH" | grep -q "antithesis_load_libvoidstar"; then
             echo "::error::pg_search.so is missing the antithesis_load_libvoidstar shim — the instrumentation runtime was not linked"
             exit 1
@@ -190,19 +196,24 @@ jobs:
           echo "OK: pg_search.so is instrumented (shim linked + sancov section present)"
 
       - name: Split pg_search Debug Symbols
+        env:
+          STEP_BUILD_ARTIFACTS_DIR: ${{ steps.build.outputs.artifacts-dir }}
         run: |
-          LIB_PATH="${{ steps.build.outputs.artifacts-dir }}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib/pg_search.so"
+          LIB_PATH="${STEP_BUILD_ARTIFACTS_DIR}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib/pg_search.so"
           objcopy --only-keep-debug "${LIB_PATH}" "${LIB_PATH}.dbg"
           objcopy --strip-debug "${LIB_PATH}"
           objcopy --add-gnu-debuglink="${LIB_PATH}.dbg" "${LIB_PATH}"
 
       - name: Create .deb Package
+        env:
+          STEP_VERSION_OS_VERSION: ${{ steps.version.outputs.os_version }}
+          STEP_BUILD_ARTIFACTS_DIR: ${{ steps.build.outputs.artifacts-dir }}
         run: |
           # The action stages the install tree in the .deb's layout already
           # (usr/lib + usr/share); the split .so.dbg sits alongside the .so.
-          package_dir=pg_search-antithesis-${{ steps.version.outputs.os_version }}-amd64-pg${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
+          package_dir="pg_search-antithesis-${STEP_VERSION_OS_VERSION}-amd64-pg"${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
           mkdir -p ${package_dir}
-          cp -R "${{ steps.build.outputs.artifacts-dir }}/usr" ${package_dir}/usr
+          cp -R "${STEP_BUILD_ARTIFACTS_DIR}/usr" ${package_dir}/usr
 
           # Create control file (package name cannot have underscore)
           mkdir -p ${package_dir}/DEBIAN
@@ -245,10 +256,10 @@ jobs:
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m7a+m7i
+      - family=m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=16
       - ram=64
-      - image=ubuntu24-full-x64
+      - image=ubuntu26-full-x64
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:

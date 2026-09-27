@@ -496,6 +496,8 @@ impl JoinSourceCandidate {
         )
         .expect("Failed to open index reader for estimation");
 
+        // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
+        // execution may skip some of these segments.
         self.segment_count = Some(reader.total_segment_count());
 
         let estimate = reader.estimate_docs(row_estimate);

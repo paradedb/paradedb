@@ -19,8 +19,9 @@ use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, STATS_EXT, SegmentFileDetails,
-    SegmentMetaEntry, SegmentMetaEntryImmutable, VECTOR_CENTROIDS_EXT, VECTOR_VEC_EXT,
+    CTID_MAP_EXT, DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, STATS_EXT,
+    SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryImmutable, VECTOR_CENTROIDS_EXT,
+    VECTOR_VEC_EXT,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
@@ -160,6 +161,10 @@ pub unsafe fn save_new_metas(
                     stats: files
                         .remove(&SegmentComponent::Custom(STATS_EXT.to_string()))
                         .map(|e| e.0),
+                    ctid_map: files
+                        .remove(&SegmentComponent::Custom(CTID_MAP_EXT.to_string()))
+                        .map(|e| e.0),
+                    posting_norms: files.remove(&SegmentComponent::PostingNorms).map(|e| e.0),
                 },
             );
 
@@ -365,6 +370,14 @@ pub unsafe fn load_metas(
     loop {
         // Find all relevant segments in this list.
         segment_metas.for_each(|bman, mut entry| {
+            if matches!(
+                solve_mvcc,
+                MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment
+            ) && !entry.visible()
+            {
+                return;
+            }
+
             // nobody sees recyclable segments
             let accept = !entry.recyclable(bman) && (
                 // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
@@ -495,9 +508,8 @@ pub unsafe fn load_metas(
             index_settings: metapage.settings()?,
             opstamp: opstamp.unwrap_or(0),
             payload: None,
-            // Every index requires the stats plugin; a segment written before it existed just
-            // has no `.stats` file, which readers treat as unknown.
-            persisted_custom_extensions: vec![STATS_EXT.to_string()],
+            // Older segments can lack these optional components; readers fall back when absent.
+            persisted_custom_extensions: vec![STATS_EXT.to_string(), CTID_MAP_EXT.to_string()],
         },
         pin_cushion,
         total_segments,
@@ -512,4 +524,13 @@ pub fn load_index_schema(indexrel: &PgSearchRelation) -> tantivy::Result<Option<
         return Ok(None);
     }
     Ok(serde_json::from_slice(&schema_bytes)?)
+}
+
+pub fn load_index_settings(indexrel: &PgSearchRelation) -> tantivy::Result<Option<IndexSettings>> {
+    let metapage = MetaPage::open(indexrel);
+    let settings_bytes = unsafe { metapage.settings_bytes().read_all() };
+    if settings_bytes.is_empty() {
+        return Ok(None);
+    }
+    Ok(serde_json::from_slice(&settings_bytes)?)
 }

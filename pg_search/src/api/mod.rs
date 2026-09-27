@@ -25,6 +25,7 @@ pub mod config;
 pub mod operator;
 pub mod tokenize;
 pub mod tokenizers;
+mod vector;
 pub mod version;
 pub mod window_aggregate;
 

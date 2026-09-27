@@ -15,7 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Read-only Tantivy `Directory` backed by contiguous shared memory.
+//! Read-only Tantivy [`Directory`] backed by contiguous PostgreSQL shared memory.
+//!
+//! # Architecture
+//!
+//! Tantivy requires each component file (`.term`, `.idx`, `.fast`, etc.) to be presented as a
+//! [`tantivy::directory::FileSlice`]. By storing the segment packed contiguously with a Table of Contents (TOC)
+//! in a shared-memory slab allocated from [`super::slab_pool::SlabPool`], [`SharedMemoryDirectory`] implements
+//! [`tantivy::Directory`] by creating sub-slices into the shared-memory arena without copying or serialization.
+//!
+//! Slices are wrapped in [`SharedMemorySlice`], which carries an [`Arc<ActiveReaderGuard>`]. As long as any
+//! file slice or directory handle is held by query execution or scoring, the slot's reader refcount remains positive.
+//! When all slices are dropped, [`super::ActiveReaderGuard::drop`] executes, immediately freeing superseded slabs
+//! back to the slab pool.
 
 use stable_deref_trait::StableDeref;
 use std::collections::{HashMap, HashSet};
@@ -33,6 +45,9 @@ use tantivy::directory::{
 use super::ActiveReaderGuard;
 
 /// Zero-copy byte slice pointing into shared memory, guarded by an active-reader refcount.
+///
+/// Implements [`Deref<Target = [u8]>`] and [`StableDeref`], allowing Tantivy's [`OwnedBytes`]
+/// to treat it as an owned buffer with a stable address.
 #[derive(Clone)]
 pub struct SharedMemorySlice {
     ptr: *const u8,
@@ -65,6 +80,9 @@ impl fmt::Debug for SharedMemorySlice {
 }
 
 /// A read-only Tantivy [`Directory`] implementation over a packed segment in shared memory.
+///
+/// Maps file paths to byte ranges in a contiguous shared-memory slab using an in-memory Table of Contents.
+/// Provides zero-copy [`FileSlice`] references directly into PostgreSQL shared memory.
 #[derive(Clone)]
 pub struct SharedMemoryDirectory {
     slice: SharedMemorySlice,

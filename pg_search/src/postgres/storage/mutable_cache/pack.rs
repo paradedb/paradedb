@@ -21,7 +21,7 @@
 //!
 //! An indexed Tantivy segment comprises multiple component files (`.term`, `.idx`, `.pos`,
 //! `.postings`, `.fieldnorm`, `.fast`, `.store`, etc.). To cache a segment in a single contiguous
-//! allocation in the shared-memory ring buffer, all files belonging to the segment are packed
+//! allocation in the shared-memory mutable cache, all files belonging to the segment are packed
 //! into a single byte buffer with an 8-byte aligned Table of Contents (TOC):
 //!
 //! ```text

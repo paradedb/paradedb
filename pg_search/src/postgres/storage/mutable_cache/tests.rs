@@ -18,7 +18,7 @@
 use pgrx::pg_sys;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use tantivy::Directory;
 use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
@@ -26,8 +26,8 @@ use tantivy::index::SegmentId;
 use super::directory::SharedMemoryDirectory;
 use super::pack::{PACKED_MAGIC, pack_segment, unpack_toc};
 use super::{
-    ActiveReaderGuard, AllocatorState, ArenaSpan, CacheSlot, InflightBuild, MAX_INFLIGHT_BUILDS,
-    MAX_SLOTS, MutableCacheHeader, MutableCacheKey, SlotState,
+    ActiveReaderGuard, ArenaSpan, CacheSlot, InflightBuild, MAX_INFLIGHT_BUILDS, MAX_SLOTS,
+    MutableCacheHeader, MutableCacheKey, SlotState,
 };
 use crate::postgres::storage::block::{
     MutableSegmentBound, SegmentMetaEntry, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
@@ -160,101 +160,100 @@ fn test_mutable_cache_key_from_meta() {
 unsafe fn test_header(arena_capacity: u32) -> MutableCacheHeader {
     let mut header: MutableCacheHeader = std::mem::zeroed();
     header.arena_capacity = arena_capacity;
+    (*header.slab_pool.get()).init(arena_capacity as usize);
     header
 }
 
 #[test]
-fn test_allocator_sequential_and_eviction() {
-    let header = unsafe { test_header(1000) };
+fn test_clock_sweep_eviction_and_usage_count() {
+    let header = unsafe { test_header(1024 * 1024) }; // 1MB arena
+    let slots = unsafe { &mut *header.slots.get() };
+    let slab_pool = unsafe { &mut *header.slab_pool.get() };
 
-    let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
-    let mut allocator = AllocatorState::default();
+    // Allocate two 512KB slabs (full capacity)
+    let s0 = slab_pool.allocate(500 * 1024).unwrap();
+    let s1 = slab_pool.allocate(500 * 1024).unwrap();
 
-    // 1. Allocate 300 bytes (aligned to 8 => 304)
-    let span1 = header
-        .allocate_raw(300, &mut slots, &mut allocator)
-        .unwrap();
-    assert_eq!(span1.offset, 0);
-    assert_eq!(span1.len, 304);
+    // Slot 0: hot (usage_count = 3)
     slots[0] = CacheSlot {
         key: MutableCacheKey::default(),
-        span: span1,
-        state: SlotState::Ready,
+        span: s0,
         active_readers: AtomicU32::new(0),
+        usage_count: AtomicU32::new(3),
+        state: SlotState::Ready,
     };
 
-    // 2. Allocate 400 bytes (aligned => 400)
-    let span2 = header
-        .allocate_raw(400, &mut slots, &mut allocator)
-        .unwrap();
-    assert_eq!(span2.offset, 304);
-    assert_eq!(span2.len, 400);
+    // Slot 1: cold (usage_count = 0)
     slots[1] = CacheSlot {
         key: MutableCacheKey::default(),
-        span: span2,
-        state: SlotState::Ready,
+        span: s1,
         active_readers: AtomicU32::new(0),
+        usage_count: AtomicU32::new(0),
+        state: SlotState::Ready,
     };
 
-    // Remaining linear space: 1000 - 704 = 296 bytes.
-    // 3. Request 400 bytes. Cannot fit linearly, must wrap to 0.
-    // Slot 0 (offset 0..304) has active_readers == 0, so it is evictable.
-    // Tail advances past slot 0 to 304, then past slot 1 to 704.
-    let span3 = header
-        .allocate_raw(400, &mut slots, &mut allocator)
-        .unwrap();
-    assert_eq!(span3.offset, 0);
-    assert_eq!(span3.len, 400);
-    assert_eq!(slots[0].state, SlotState::Empty);
+    // Allocate another 512KB slab. Slab pool is full, so evict_with_clock_sweep is triggered!
+    let s2 = header
+        .evict_with_clock_sweep(500 * 1024, slots, slab_pool)
+        .expect("must evict cold slot and allocate");
+
+    // Slot 1 (cold, usage_count = 0) must be evicted!
     assert_eq!(slots[1].state, SlotState::Empty);
+    // Slot 0 (hot) should still be Ready, but its usage_count decremented!
+    assert_eq!(slots[0].state, SlotState::Ready);
+    assert_eq!(slots[0].usage_count.load(Ordering::Relaxed), 2);
+    // New allocation took Slot 1's freed slab
+    assert_eq!(s2.offset, s1.offset);
 }
 
 #[test]
-fn test_allocator_active_readers_block_eviction() {
-    let header = unsafe { test_header(500) };
+fn test_active_readers_block_clock_sweep() {
+    let header = unsafe { test_header(1024 * 1024) }; // 1MB arena
+    let slots = unsafe { &mut *header.slots.get() };
+    let slab_pool = unsafe { &mut *header.slab_pool.get() };
 
-    let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
-    let mut allocator = AllocatorState::default();
-
-    // Allocate 200 bytes
-    let span1 = header
-        .allocate_raw(200, &mut slots, &mut allocator)
-        .unwrap();
+    let s0 = slab_pool.allocate(1000 * 1024).unwrap();
     slots[0] = CacheSlot {
         key: MutableCacheKey::default(),
-        span: span1,
+        span: s0,
+        active_readers: AtomicU32::new(2), // 2 readers reading!
+        usage_count: AtomicU32::new(0),
         state: SlotState::Ready,
-        // Mark as actively being read by 2 queries
-        active_readers: AtomicU32::new(2),
     };
 
-    // Allocate another 200 bytes
-    let span2 = header
-        .allocate_raw(200, &mut slots, &mut allocator)
-        .unwrap();
-    slots[1] = CacheSlot {
-        key: MutableCacheKey::default(),
-        span: span2,
-        state: SlotState::Ready,
-        active_readers: AtomicU32::new(0),
-    };
+    // Arena is full, and slot 0 has active readers > 0 -> eviction must fail!
+    let blocked = header.evict_with_clock_sweep(500 * 1024, slots, slab_pool);
+    assert!(blocked.is_none(), "Must not evict slot with active readers");
+    assert_eq!(slots[0].state, SlotState::Ready);
 
-    // Now arena has 400 / 500 used.
-    // Request 200 bytes. Needs to wrap around to offset 0, but slot 0 has active readers > 0!
-    let blocked = header.allocate_raw(200, &mut slots, &mut allocator);
-    assert!(
-        blocked.is_none(),
-        "Must reject allocation when eviction is blocked by active readers"
-    );
-
-    // Once active readers finish and drop to 0, eviction can proceed
+    // After readers finish:
     slots[0].active_readers.store(0, Ordering::Release);
-    let allowed = header.allocate_raw(200, &mut slots, &mut allocator);
-    assert!(
-        allowed.is_some(),
-        "Must succeed after active readers finish"
-    );
-    assert_eq!(allowed.unwrap().offset, 0);
+    let allowed = header.evict_with_clock_sweep(500 * 1024, slots, slab_pool);
+    assert!(allowed.is_some(), "Must evict after readers finish");
+    assert_eq!(slots[0].state, SlotState::Empty);
+}
+
+#[test]
+fn test_eager_reclamation_of_superseded_slots() {
+    let header = unsafe { test_header(1024 * 1024) }; // 1MB arena
+    let slots = unsafe { &mut *header.slots.get() };
+    let slab_pool = unsafe { &mut *header.slab_pool.get() };
+
+    let s0 = slab_pool.allocate(500 * 1024).unwrap();
+    slots[0] = CacheSlot {
+        key: MutableCacheKey::default(),
+        span: s0,
+        active_readers: AtomicU32::new(0),
+        usage_count: AtomicU32::new(0),
+        state: SlotState::Superseded,
+    };
+
+    // Superseded slot with 0 readers is reclaimed on the clock sweep immediately
+    let s1 = header
+        .evict_with_clock_sweep(500 * 1024, slots, slab_pool)
+        .expect("must reclaim superseded slot");
+    assert_eq!(slots[0].state, SlotState::Empty);
+    assert_eq!(s1.offset, s0.offset);
 }
 
 #[test]
@@ -305,36 +304,44 @@ fn test_slot_invalidation() {
         span: ArenaSpan {
             offset: 0,
             len: 100,
+            order: 0,
         },
         state: SlotState::Ready,
         active_readers: AtomicU32::new(0),
+        usage_count: AtomicU32::new(0),
     };
     slots[1] = CacheSlot {
         key: key_a2,
         span: ArenaSpan {
             offset: 100,
             len: 100,
+            order: 0,
         },
         state: SlotState::Ready,
         active_readers: AtomicU32::new(0),
+        usage_count: AtomicU32::new(0),
     };
     slots[2] = CacheSlot {
         key: key_b,
         span: ArenaSpan {
             offset: 200,
             len: 100,
+            order: 0,
         },
         state: SlotState::Ready,
         active_readers: AtomicU32::new(0),
+        usage_count: AtomicU32::new(0),
     };
     slots[3] = CacheSlot {
         key: key_other_index,
         span: ArenaSpan {
             offset: 300,
             len: 100,
+            order: 0,
         },
         state: SlotState::Ready,
         active_readers: AtomicU32::new(0),
+        usage_count: AtomicU32::new(0),
     };
 
     // Invalidate segment A in index 100
@@ -365,63 +372,6 @@ fn test_slot_invalidation() {
 
     assert_eq!(slots[2].state, SlotState::Empty);
     assert_eq!(slots[3].state, SlotState::Ready);
-}
-
-#[test]
-fn test_gap_skipping_advances_tail_across_reclaimed_slots() {
-    let mut slots = [const { CacheSlot::empty() }; MAX_SLOTS];
-    let generation = AtomicU64::new(0);
-
-    // Slot 0 is Ready at offset 0..100
-    slots[0] = CacheSlot {
-        key: MutableCacheKey::default(),
-        span: ArenaSpan {
-            offset: 0,
-            len: 100,
-        },
-        state: SlotState::Ready,
-        active_readers: AtomicU32::new(0),
-    };
-
-    // Slot 1 was reclaimed (gap at 100..250) - state is Empty
-    slots[1] = CacheSlot::empty();
-
-    // Slot 2 is Ready at offset 250..400
-    slots[2] = CacheSlot {
-        key: MutableCacheKey::default(),
-        span: ArenaSpan {
-            offset: 250,
-            len: 150,
-        },
-        state: SlotState::Ready,
-        active_readers: AtomicU32::new(0),
-    };
-
-    let mut tail = 0;
-    // First eviction: evicts slot 0, tail advances to 100
-    assert!(MutableCacheHeader::try_advance_tail(
-        &mut slots,
-        &mut tail,
-        &generation
-    ));
-    assert_eq!(tail, 100);
-    assert_eq!(slots[0].state, SlotState::Empty);
-
-    // Second eviction: skips gap [100..250], finds slot 2 at 250, evicts slot 2, tail advances to 400
-    assert!(MutableCacheHeader::try_advance_tail(
-        &mut slots,
-        &mut tail,
-        &generation
-    ));
-    assert_eq!(tail, 400);
-    assert_eq!(slots[2].state, SlotState::Empty);
-
-    // Third eviction: no more active slots at or above 400
-    assert!(!MutableCacheHeader::try_advance_tail(
-        &mut slots,
-        &mut tail,
-        &generation
-    ));
 }
 
 #[test]

@@ -423,9 +423,6 @@ impl VisibilityChecker {
         &mut self,
         segment_ord: SegmentOrdinal,
     ) -> tantivy::Result<bool> {
-        if !enable_visibility_map_shortcuts() {
-            return Ok(false);
-        }
         if let Some(&visible) = self.segment_visibility.get(&segment_ord) {
             return Ok(visible);
         }
@@ -435,9 +432,10 @@ impl VisibilityChecker {
         let Some(segment) = ffhelper.immutable_segment_reader(segment_ord) else {
             return Ok(false);
         };
-        // prove segment is all visible
+        // Disabled shortcuts still record the segment as requiring visibility checks.
         let visible = 'proof: {
-            if self.snapshot.is_null()
+            if !enable_visibility_map_shortcuts()
+                || self.snapshot.is_null()
                 || unsafe { (*self.snapshot).snapshot_type != pg_sys::SnapshotType::SNAPSHOT_MVCC }
                 || segment.num_docs() == 0
             {

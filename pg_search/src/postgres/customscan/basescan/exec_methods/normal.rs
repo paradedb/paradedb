@@ -191,14 +191,18 @@ impl NormalScanExecState {
                 self.prepared_batch.resize(count, PreparedItem::Virtual);
             } else {
                 self.batch_mask.resize(count, true);
-                state.visibility_checker().check_segment_docs_mask(
+                let all_vis = state.visibility_checker().check_segment_docs_mask(
                     seg_ord,
                     &self.batch_doc_ids,
                     &mut self.batch_mask,
                 );
-                for &is_visible in &self.batch_mask {
-                    if is_visible {
-                        self.prepared_batch.push(PreparedItem::Virtual);
+                if all_vis {
+                    self.prepared_batch.resize(count, PreparedItem::Virtual);
+                } else {
+                    for &is_visible in &self.batch_mask {
+                        if is_visible {
+                            self.prepared_batch.push(PreparedItem::Virtual);
+                        }
                     }
                 }
             }

@@ -1143,12 +1143,6 @@ pub mod mvcc_collector {
                     Vec::new()
                 },
                 visibility_buffer: Vec::with_capacity(capacity),
-                filtered_doc_buffer: Vec::with_capacity(capacity),
-                filtered_score_buffer: if requires_scoring {
-                    Vec::with_capacity(capacity)
-                } else {
-                    Vec::new()
-                },
                 requires_scoring,
             })
         }
@@ -1187,10 +1181,6 @@ pub mod mvcc_collector {
         // Entry i records whether doc_buffer[i] is visible to the query snapshot.
         visibility_buffer: Vec<bool>,
 
-        // Outgoing buffers
-        filtered_doc_buffer: Vec<DocId>,
-        filtered_score_buffer: Vec<Score>,
-
         requires_scoring: bool,
     }
     unsafe impl<C: SegmentCollector> Send for MVCCFilterSegmentCollector<C> {}
@@ -1209,39 +1199,50 @@ pub mod mvcc_collector {
                 .expect("buffered docs need visibility checks")
                 .lock();
             self.visibility_buffer.resize(self.doc_buffer.len(), false);
-            vischeck.check_segment_docs_mask(
+            let all_visible = vischeck.check_segment_docs_mask(
                 self.segment_ord,
                 &self.doc_buffer,
                 &mut self.visibility_buffer,
             );
             drop(vischeck);
 
-            // Filter visible docs.
-            self.filtered_doc_buffer.clear();
-            if self.requires_scoring {
-                self.filtered_score_buffer.clear();
-            }
-
-            for (i, &visible) in self.visibility_buffer.iter().enumerate() {
-                if visible {
-                    self.filtered_doc_buffer.push(self.doc_buffer[i]);
-                    if self.requires_scoring {
-                        self.filtered_score_buffer.push(self.score_buffer[i]);
+            if all_visible {
+                // Forward directly without filtering when all buffered docs are visible.
+                if self.requires_scoring {
+                    for (&doc, &score) in self.doc_buffer.iter().zip(self.score_buffer.iter()) {
+                        self.inner.collect(doc, score);
+                    }
+                } else {
+                    self.inner.collect_block(&self.doc_buffer);
+                }
+            } else {
+                // In-place compaction of visible docs.
+                let mut write_idx = 0;
+                if self.requires_scoring {
+                    for read_idx in 0..self.doc_buffer.len() {
+                        if self.visibility_buffer[read_idx] {
+                            self.doc_buffer[write_idx] = self.doc_buffer[read_idx];
+                            self.score_buffer[write_idx] = self.score_buffer[read_idx];
+                            write_idx += 1;
+                        }
+                    }
+                    self.doc_buffer.truncate(write_idx);
+                    self.score_buffer.truncate(write_idx);
+                    for (&doc, &score) in self.doc_buffer.iter().zip(self.score_buffer.iter()) {
+                        self.inner.collect(doc, score);
+                    }
+                } else {
+                    for read_idx in 0..self.doc_buffer.len() {
+                        if self.visibility_buffer[read_idx] {
+                            self.doc_buffer[write_idx] = self.doc_buffer[read_idx];
+                            write_idx += 1;
+                        }
+                    }
+                    self.doc_buffer.truncate(write_idx);
+                    if !self.doc_buffer.is_empty() {
+                        self.inner.collect_block(&self.doc_buffer);
                     }
                 }
-            }
-
-            // Pass to inner collector
-            if self.requires_scoring {
-                for (doc, score) in self
-                    .filtered_doc_buffer
-                    .iter()
-                    .zip(self.filtered_score_buffer.iter())
-                {
-                    self.inner.collect(*doc, *score);
-                }
-            } else if !self.filtered_doc_buffer.is_empty() {
-                self.inner.collect_block(&self.filtered_doc_buffer);
             }
 
             self.doc_buffer.clear();

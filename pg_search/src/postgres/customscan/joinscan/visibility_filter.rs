@@ -1503,31 +1503,44 @@ pub(crate) fn materialize_and_check_deferred_ctid(
             if is_pruned {
                 state.segment_mask.clear();
                 state.segment_mask.resize(rows.len(), false);
-                checker.check_segment_docs_mask(
+                let all_vis = checker.check_segment_docs_mask(
                     seg_ord,
                     &state.segment_doc_ids,
                     &mut state.segment_mask,
                 );
 
-                for ((row_idx, _), &is_vis) in rows.iter().zip(state.segment_mask.iter()) {
-                    if is_vis {
+                if all_vis {
+                    for (row_idx, _) in rows.iter() {
                         state.visible_mask[*row_idx] = true;
+                    }
+                } else {
+                    for ((row_idx, _), &is_vis) in rows.iter().zip(state.segment_mask.iter()) {
+                        if is_vis {
+                            state.visible_mask[*row_idx] = true;
+                        }
                     }
                 }
             } else {
                 state.segment_ctids.clear();
                 state.segment_ctids.resize(rows.len(), None);
 
-                checker.check_segment_docs(
+                let all_vis = checker.check_segment_docs(
                     seg_ord,
                     &state.segment_doc_ids,
                     &mut state.segment_ctids,
                 );
 
-                for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
-                    if let Some(ctid) = value {
+                if all_vis {
+                    for ((row_idx, _), &ctid) in rows.iter().zip(state.segment_ctids.iter()) {
                         state.visible_mask[*row_idx] = true;
-                        state.resolved_ctids[*row_idx] = Some(*ctid);
+                        state.resolved_ctids[*row_idx] = ctid;
+                    }
+                } else {
+                    for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
+                        if let Some(ctid) = value {
+                            state.visible_mask[*row_idx] = true;
+                            state.resolved_ctids[*row_idx] = Some(*ctid);
+                        }
                     }
                 }
             }

@@ -813,11 +813,11 @@ impl VisibilityChecker {
         segment_ord: SegmentOrdinal,
         doc_ids: &[DocId],
         mask: &mut [bool],
-    ) {
+    ) -> bool {
         assert_eq!(doc_ids.len(), mask.len());
         mask.fill(true);
         if doc_ids.is_empty() || !self.check_visibility {
-            return;
+            return true;
         }
         debug_assert!(
             doc_ids.is_sorted(),
@@ -827,7 +827,7 @@ impl VisibilityChecker {
 
         // Fast path: if all blocks in the segment are confirmed all-visible, exit immediately.
         if ranges.as_ref().is_some_and(|r| r.is_empty()) {
-            return;
+            return true;
         }
 
         let ffhelper = self
@@ -835,9 +835,24 @@ impl VisibilityChecker {
             .clone()
             .expect("FFHelper must be configured to check segment doc visibility");
 
+        let batch_len = doc_ids.len();
+        if self.mask_scratch.doc_ids.capacity() < batch_len {
+            self.mask_scratch
+                .doc_ids
+                .reserve(batch_len - self.mask_scratch.doc_ids.capacity());
+            self.mask_scratch
+                .mask_indices
+                .reserve(batch_len - self.mask_scratch.mask_indices.capacity());
+            self.mask_scratch
+                .blocks
+                .reserve(batch_len - self.mask_scratch.blocks.capacity());
+        }
+
         self.mask_scratch.doc_ids.clear();
         self.mask_scratch.mask_indices.clear();
         self.mask_scratch.blocks.clear();
+
+        let mut all_visible = true;
 
         if let Some(ranges) = &ranges {
             let mut start = 0;
@@ -863,6 +878,7 @@ impl VisibilityChecker {
                 if blockno >= self.nblocks {
                     self.invisible_tuple_count += count;
                     mask[start..end].fill(false);
+                    all_visible = false;
                 } else {
                     self.mask_scratch
                         .doc_ids
@@ -887,6 +903,7 @@ impl VisibilityChecker {
                 if blockno >= self.nblocks {
                     self.invisible_tuple_count += 1;
                     mask[i] = false;
+                    all_visible = false;
                     continue;
                 }
                 if self.is_block_all_visible(blockno) {
@@ -901,7 +918,8 @@ impl VisibilityChecker {
 
         let dirty_count = self.mask_scratch.doc_ids.len();
         if dirty_count == 0 {
-            return;
+            debug_assert_eq!(all_visible, mask.iter().all(|&v| v));
+            return all_visible;
         }
 
         self.mask_scratch.offsets.resize(dirty_count, 0);
@@ -959,9 +977,13 @@ impl VisibilityChecker {
                 if !found {
                     self.invisible_tuple_count += 1;
                     mask[mask_idx] = false;
+                    all_visible = false;
                 }
             }
         }
+
+        debug_assert_eq!(all_visible, mask.iter().all(|&v| v));
+        all_visible
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible, fetching ctids directly from
@@ -985,8 +1007,8 @@ impl VisibilityChecker {
         segment_ord: SegmentOrdinal,
         doc_ids: &[DocId],
         results: &mut [Option<u64>],
-    ) {
-        self.check_segment_docs_impl(segment_ord, doc_ids, results, false);
+    ) -> bool {
+        self.check_segment_docs_impl(segment_ord, doc_ids, results, false)
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible and resolves each CTID to the
@@ -1010,8 +1032,8 @@ impl VisibilityChecker {
         segment_ord: SegmentOrdinal,
         doc_ids: &[DocId],
         results: &mut [Option<u64>],
-    ) {
-        self.check_segment_docs_impl(segment_ord, doc_ids, results, true);
+    ) -> bool {
+        self.check_segment_docs_impl(segment_ord, doc_ids, results, true)
     }
 
     fn check_segment_docs_impl(
@@ -1020,9 +1042,9 @@ impl VisibilityChecker {
         doc_ids: &[DocId],
         results: &mut [Option<u64>],
         resolve_hot: bool,
-    ) {
+    ) -> bool {
         if doc_ids.is_empty() {
-            return;
+            return true;
         }
         assert_eq!(doc_ids.len(), results.len());
         debug_assert!(
@@ -1044,9 +1066,12 @@ impl VisibilityChecker {
         tid_reader.read_blocks_u32(doc_ids, &mut raw_blocks);
         tid_reader.read_offsets_u32(doc_ids, &mut raw_offsets);
 
+        let mut all_visible = true;
+
         for (i, (&b, &o)) in raw_blocks.iter().zip(raw_offsets.iter()).enumerate() {
             results[i] =
                 if b == pg_sys::InvalidBlockNumber || o == pg_sys::InvalidOffsetNumber as u32 {
+                    all_visible = false;
                     None
                 } else {
                     Some(crate::postgres::utils::tid_from_components(
@@ -1059,7 +1084,8 @@ impl VisibilityChecker {
         if !self.check_visibility {
             self.ctid_scratch.blocks = raw_blocks;
             self.ctid_scratch.offsets = raw_offsets;
-            return;
+            debug_assert_eq!(all_visible, results.iter().all(|r| r.is_some()));
+            return all_visible;
         }
 
         let ranges = self.doc_id_ranges_needing_visibility_checks(segment_ord);
@@ -1069,7 +1095,8 @@ impl VisibilityChecker {
         if !resolve_hot && ranges.as_ref().is_some_and(|r| r.is_empty()) {
             self.ctid_scratch.blocks = raw_blocks;
             self.ctid_scratch.offsets = raw_offsets;
-            return;
+            debug_assert_eq!(all_visible, results.iter().all(|r| r.is_some()));
+            return all_visible;
         }
 
         if !resolve_hot && let Some(ranges) = &ranges {
@@ -1099,6 +1126,7 @@ impl VisibilityChecker {
                 if blockno >= self.nblocks {
                     self.invisible_tuple_count += end - start;
                     results[start..end].fill(None);
+                    all_visible = false;
                 } else {
                     if current_block != blockno {
                         drop(current_buffer.take());
@@ -1111,6 +1139,7 @@ impl VisibilityChecker {
                         let offset = raw_offsets[item_idx] as pg_sys::OffsetNumber;
                         if offset == pg_sys::InvalidOffsetNumber {
                             results[item_idx] = None;
+                            all_visible = false;
                             continue;
                         }
                         self.heap_tuple_check_count += 1;
@@ -1135,6 +1164,7 @@ impl VisibilityChecker {
                             } else {
                                 self.invisible_tuple_count += 1;
                                 results[item_idx] = None;
+                                all_visible = false;
                             }
                         }
                     }
@@ -1143,7 +1173,8 @@ impl VisibilityChecker {
             }
             self.ctid_scratch.blocks = raw_blocks;
             self.ctid_scratch.offsets = raw_offsets;
-            return;
+            debug_assert_eq!(all_visible, results.iter().all(|r| r.is_some()));
+            return all_visible;
         }
 
         // Fallback for mutable/uncommitted segments without .ctid_map, or when resolve_hot is true.
@@ -1163,13 +1194,15 @@ impl VisibilityChecker {
                            item_idx: usize,
                            curr_block: &mut BlockNumber,
                            curr_buf: &mut Option<crate::postgres::storage::buffer::Buffer>,
-                           out: &mut [Option<u64>]| {
+                           out: &mut [Option<u64>],
+                           all_vis: &mut bool| {
             let blockno = raw_blocks[item_idx];
             let offset = raw_offsets[item_idx] as pg_sys::OffsetNumber;
 
             if blockno >= checker.nblocks || offset == pg_sys::InvalidOffsetNumber {
                 checker.invisible_tuple_count += 1;
                 out[item_idx] = None;
+                *all_vis = false;
                 return;
             }
 
@@ -1205,6 +1238,7 @@ impl VisibilityChecker {
                 } else {
                     checker.invisible_tuple_count += 1;
                     out[item_idx] = None;
+                    *all_vis = false;
                 }
             }
         };
@@ -1217,6 +1251,7 @@ impl VisibilityChecker {
                     &mut current_block,
                     &mut current_buffer,
                     results,
+                    &mut all_visible,
                 );
             }
         } else {
@@ -1227,12 +1262,15 @@ impl VisibilityChecker {
                     &mut current_block,
                     &mut current_buffer,
                     results,
+                    &mut all_visible,
                 );
             }
         }
         self.mask_scratch.order = order;
         self.ctid_scratch.blocks = raw_blocks;
         self.ctid_scratch.offsets = raw_offsets;
+        debug_assert_eq!(all_visible, results.iter().all(|r| r.is_some()));
+        all_visible
     }
 
     /// Resolves a ctid to its visible ctid under the checker's snapshot,

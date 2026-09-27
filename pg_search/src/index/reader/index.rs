@@ -1032,13 +1032,21 @@ impl SearchIndexReader {
 
                 resolved.clear();
                 resolved.resize(doc_ids.len(), None);
-                visibility.resolve_segment_docs(seg_ord, &doc_ids, &mut resolved);
-                visible_ctids = resolved
-                    .iter()
-                    .copied()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .into_iter();
+                let all_vis = visibility.resolve_segment_docs(seg_ord, &doc_ids, &mut resolved);
+                if all_vis {
+                    visible_ctids = resolved
+                        .drain(..)
+                        .map(|c| c.expect("ctid must be present for visible doc"))
+                        .collect::<Vec<_>>()
+                        .into_iter();
+                } else {
+                    visible_ctids = resolved
+                        .iter()
+                        .copied()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .into_iter();
+                }
             }
         }))
     }

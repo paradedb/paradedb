@@ -29,7 +29,6 @@ use antithesis_instrumentation as _;
 mod aggregate;
 mod api;
 mod bootstrap;
-mod immutable_tree;
 mod index;
 mod postgres;
 mod query;

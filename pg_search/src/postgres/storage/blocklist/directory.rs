@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::chunk_size;
-use crate::immutable_tree::{Entry, Node};
+use super::tree::{Entry, Node};
 use crate::postgres::storage::block::{
     BM25PageSpecialData, LinkedListData, block_number_is_valid, bm25_max_free_space,
 };

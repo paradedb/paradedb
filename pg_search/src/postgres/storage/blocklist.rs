@@ -51,6 +51,7 @@ impl From<ChunkStyleTag> for u8 {
 }
 
 mod directory;
+mod tree;
 pub use directory::Directory;
 
 fn chunk_size(bytes: &[u8]) -> (usize, usize) {
@@ -394,7 +395,9 @@ pub mod builder {
 
 pub mod reader {
     use super::{ChunkStyleTag, Directory, chunk_size};
-    use crate::immutable_tree::{Bounds, InvalidNode, Node, PageReader, TreeReader};
+    use crate::postgres::storage::blocklist::tree::{
+        Bounds, InvalidNode, Node, PageReader, TreeReader,
+    };
     use crate::postgres::storage::buffer::BufferManager;
     use bitpacking::{BitPacker, BitPacker1x, BitPacker4x, BitPacker8x};
     use pgrx::pg_sys;
@@ -711,12 +714,12 @@ pub mod reader {
 
         #[pg_test]
         fn test_blocklist_directory_overflow() {
-            use crate::immutable_tree::Entry;
             use crate::postgres::storage::LinkedBytesList;
             use crate::postgres::storage::block::{
                 BM25PageSpecialData, LinkedList, LinkedListData,
             };
             use crate::postgres::storage::blocklist::directory::ROOT_CAPACITY;
+            use crate::postgres::storage::blocklist::tree::Entry;
             Spi::run("CREATE TABLE directory_overflow (id SERIAL, data TEXT)").unwrap();
             Spi::run("CREATE INDEX directory_overflow_idx ON directory_overflow USING bm25 (id, data) WITH (key_field='id')").unwrap();
             let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'directory_overflow_idx'::regclass::oid")
@@ -841,9 +844,9 @@ pub mod reader {
 
         #[pg_test]
         fn test_blocklist_directory_format() {
-            use crate::immutable_tree::Entry;
             use crate::postgres::storage::block::{LinkedListData, bm25_max_free_space};
             use crate::postgres::storage::blocklist::directory::ROOT_CAPACITY;
+            use crate::postgres::storage::blocklist::tree::Entry;
             let directory = Directory {
                 node: Arc::new(Node {
                     entries: vec![

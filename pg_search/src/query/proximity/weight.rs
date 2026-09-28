@@ -117,7 +117,7 @@ impl ProximityWeight {
                 offsets.push(positions.len() as u32);
                 doc_ids.push(scorer.doc());
                 if self.weight_opt.is_some() {
-                    fieldnorms.push(scorer.fieldnorm_id());
+                    fieldnorms.push(scorer.fieldnorm());
                 }
 
                 for (l, r) in scorer.prox_iter() {

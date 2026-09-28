@@ -69,7 +69,7 @@ pgrx-tests = "=0.19.2"
 
 # Keep the Git revisions for `tantivy`, `tantivy-common`, and the crates.io
 # patches in sync.
-tantivy = { path = "/Users/stuhood/src/tantivy-1", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", branch = "stuhood.pnorms-bp128", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -78,12 +78,12 @@ tantivy = { path = "/Users/stuhood/src/tantivy-1", features = [
   "stemmer",
   "stopwords",
 ], default-features = false }
-tantivy-common = { path = "/Users/stuhood/src/tantivy-1/common" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", branch = "stuhood.pnorms-bp128" }
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-common = { path = "/Users/stuhood/src/tantivy-1/common" }
-tantivy-tokenizer-api = { path = "/Users/stuhood/src/tantivy-1/tokenizer-api" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", branch = "stuhood.pnorms-bp128" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", branch = "stuhood.pnorms-bp128" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

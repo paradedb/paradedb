@@ -1508,7 +1508,6 @@ impl CustomScan for BaseScan {
                     }
                 }
             }
-            #[cfg(feature = "io_stats")]
             if explainer.is_buffers() {
                 explainer.add_group("Buffer Hits", |explainer| {
                     for (component, hits) in state.custom_state().io_trace.hits() {
@@ -1730,7 +1729,6 @@ impl CustomScan for BaseScan {
                 state.custom_state().telemetry.stage_elapsed_ns(),
             )
         });
-        #[cfg(feature = "io_stats")]
         let _io = unsafe { state.csstate.ss.ps.instrument.as_ref() }
             .filter(|instrument| instrument.need_bufusage)
             .map(|_| state.custom_state().io_trace.enter());
@@ -2371,7 +2369,6 @@ fn check_visibility(
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
-    #[cfg(feature = "io_stats")]
     let _io = crate::index::reader::io_stats::external("Heap");
     state
         .custom_state_mut()

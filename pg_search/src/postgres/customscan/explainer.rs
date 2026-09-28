@@ -42,7 +42,6 @@ impl Explainer {
         unsafe { (*self.state.as_ptr()).analyze }
     }
 
-    #[cfg(feature = "io_stats")]
     pub fn is_buffers(&self) -> bool {
         unsafe { (*self.state.as_ptr()).buffers }
     }

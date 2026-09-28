@@ -17,20 +17,18 @@
 
 //! Attributes Postgres buffer hits/reads to tantivy segment components, keyed
 //! by [`tantivy::index::SegmentComponent`], with an independent vector-stage axis.
-//! Collection requires an active executor instrumentation request. Ordinary queries
+//! Collection requires an active executor buffer instrumentation request. Ordinary queries
 //! bypass buffer snapshots, component-name allocation, and counter maps.
 //!
-//! Like `block_tracker`, this is compiled out unless the `io_stats` feature is
-//! enabled, in which case the per-segment counters are merged into the
-//! `Segment Info` JSON shown by `EXPLAIN (ANALYZE, VERBOSE)`.
+//! Per-segment counters are merged into the `Segment Info` JSON shown by
+//! `EXPLAIN (ANALYZE, VERBOSE, BUFFERS)`.
 //! With `BUFFERS`, analyzed base scans also expose a `Buffer Hits` breakdown for
 //! component accesses during `ExecCustomScan`, including reader setup and heap
 //! visibility checks.
 
-#[cfg(feature = "io_stats")]
 mod imp {
     use pgrx::pg_sys;
-    use std::cell::{Cell, RefCell};
+    use std::cell::{Cell, OnceCell, RefCell};
     use std::collections::BTreeMap;
     use std::rc::Rc;
     use tantivy::index::{SegmentComponent, SegmentId};
@@ -79,7 +77,7 @@ mod imp {
     }
 
     #[derive(Default)]
-    pub struct Trace(SharedData);
+    pub struct Trace(OnceCell<SharedData>);
 
     pub struct Scope {
         previous: Context,
@@ -97,18 +95,22 @@ mod imp {
 
     impl Trace {
         pub fn enter(&self) -> Scope {
+            let data = self.0.get_or_init(SharedData::default);
             let previous = CONTEXT.replace(Context {
-                data: Some(self.0.clone()),
+                data: Some(data.clone()),
                 component: None,
             });
             Scope {
                 previous,
-                total: Some((self.0.clone(), snapshot().0)),
+                total: Some((data.clone(), snapshot().0)),
             }
         }
 
         pub fn hits(&self) -> Vec<(String, u64)> {
-            let data = self.0.borrow();
+            let Some(data) = self.0.get() else {
+                return vec![("Total".into(), 0)];
+            };
+            let data = data.borrow();
             let mut hits: Vec<_> = data
                 .components
                 .iter()
@@ -161,6 +163,7 @@ mod imp {
         }
     }
 
+    #[inline]
     pub fn external(name: &'static str) -> External {
         let data = ACTIVE
             .get()
@@ -249,6 +252,7 @@ mod imp {
         read()
     }
 
+    #[inline]
     pub fn buffer<R>(read: impl FnOnce() -> R) -> R {
         if !ACTIVE.get() {
             return read();
@@ -532,6 +536,11 @@ mod imp {
                     true,
                 ),
             ] {
+                CURRENT.take();
+                PER_SEGMENT.take();
+                pgrx::Spi::run(query).unwrap();
+                assert!(CURRENT.with_borrow(|current| current.components.is_empty()));
+                assert!(PER_SEGMENT.with_borrow(Vec::is_empty));
                 for (analyze, buffers, verbose) in [
                     (true, true, true),
                     (true, true, false),
@@ -577,18 +586,21 @@ mod imp {
                             .values()
                             .map(|stats| stats["io_vec_buffer_hits"].as_u64().unwrap_or(0))
                             .sum::<u64>();
-                        assert!(vector_hits > 0);
+                        assert_eq!(vector_hits > 0, buffers);
                         if let Some(hits) = hits {
                             assert!(vector_hits <= hits["Vectors"].as_u64().unwrap());
                         }
-                        assert!(segments.values().any(|stats| {
-                            stats.as_object().unwrap().keys().any(|key| {
-                                key != "scan_init_buffer_hits"
-                                    && !key.starts_with("io_")
-                                    && !key.starts_with("scan_init_io_")
-                                    && key.ends_with("_buffer_hits")
-                            })
-                        }));
+                        assert_eq!(
+                            segments.values().any(|stats| {
+                                stats.as_object().unwrap().keys().any(|key| {
+                                    key != "scan_init_buffer_hits"
+                                        && !key.starts_with("io_")
+                                        && !key.starts_with("scan_init_io_")
+                                        && key.ends_with("_buffer_hits")
+                                })
+                            }),
+                            buffers
+                        );
                     }
                 }
             }
@@ -598,8 +610,13 @@ mod imp {
         fn ordinary_reads_bypass_collection_and_reader_open_snapshots() {
             let _request = instrumentation_request(false);
             CURRENT.take();
-            assert_eq!(record(&SegmentComponent::FastFields, || 42), 42);
-            assert!(begin_scan_init().is_none());
+            let trace = Trace::default();
+            assert!(trace.0.get().is_none());
+            CONTEXT.with_borrow_mut(|_| {
+                assert_eq!(record(&SegmentComponent::FastFields, || buffer(|| 42)), 42);
+                let _heap = external("Heap");
+                assert!(begin_scan_init().is_none());
+            });
             assert!(
                 CURRENT.with_borrow(
                     |current| current.components.is_empty() && current.stages.is_empty()
@@ -629,40 +646,7 @@ mod imp {
     }
 }
 
-#[cfg(not(feature = "io_stats"))]
-mod imp {
-    use std::collections::BTreeMap;
-    use tantivy::index::{SegmentComponent, SegmentId};
-
-    pub struct ScanInitGuard;
-    pub struct InstrumentationGuard;
-
-    #[inline(always)]
-    pub fn instrumentation_request(_requested: bool) -> InstrumentationGuard {
-        InstrumentationGuard
-    }
-
-    #[inline(always)]
-    pub fn begin_scan_init() -> ScanInitGuard {
-        ScanInitGuard
-    }
-
-    #[inline(always)]
-    pub fn record<R>(_component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
-        read()
-    }
-
-    #[inline(always)]
-    pub fn reset() {}
-
-    #[inline(always)]
-    pub fn end_segment(_segment_id: SegmentId) {}
-
-    #[inline(always)]
-    pub fn attach(_segment_info: &mut BTreeMap<SegmentId, serde_json::Value>) {}
-}
-
-pub use imp::{attach, begin_scan_init, end_segment, instrumentation_request, record, reset};
-
-#[cfg(feature = "io_stats")]
-pub use imp::{Trace, buffer, external};
+pub use imp::{
+    Trace, attach, begin_scan_init, buffer, end_segment, external, instrumentation_request, record,
+    reset,
+};

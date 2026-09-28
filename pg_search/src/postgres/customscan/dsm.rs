@@ -66,7 +66,12 @@ pub extern "C-unwind" fn initialize_dsm_custom_scan<CS: CustomScan + ParallelQue
     coordinate: *mut std::os::raw::c_void,
 ) {
     let _io = crate::index::reader::io_stats::instrumentation_request(unsafe {
-        !(*node).ss.ps.instrument.is_null()
+        (*node)
+            .ss
+            .ps
+            .instrument
+            .as_ref()
+            .is_some_and(|instrument| instrument.need_bufusage)
     });
     let mut custom_state = wrap_custom_scan_state::<CS>(node);
     unsafe { CS::initialize_dsm_custom_scan(custom_state.as_mut(), coordinate) }
@@ -84,7 +89,12 @@ pub extern "C-unwind" fn reinitialize_dsm_custom_scan<CS: CustomScan + ParallelQ
     coordinate: *mut std::os::raw::c_void,
 ) {
     let _io = crate::index::reader::io_stats::instrumentation_request(unsafe {
-        !(*node).ss.ps.instrument.is_null()
+        (*node)
+            .ss
+            .ps
+            .instrument
+            .as_ref()
+            .is_some_and(|instrument| instrument.need_bufusage)
     });
     let mut custom_state = wrap_custom_scan_state::<CS>(node);
     unsafe { CS::reinitialize_dsm_custom_scan(custom_state.as_mut(), coordinate) }
@@ -100,7 +110,12 @@ pub extern "C-unwind" fn initialize_worker_custom_scan<CS: CustomScan + Parallel
     coordinate: *mut std::os::raw::c_void,
 ) {
     let _io = crate::index::reader::io_stats::instrumentation_request(unsafe {
-        !(*node).ss.ps.instrument.is_null()
+        (*node)
+            .ss
+            .ps
+            .instrument
+            .as_ref()
+            .is_some_and(|instrument| instrument.need_bufusage)
     });
     let mut custom_state = wrap_custom_scan_state::<CS>(node);
     unsafe { CS::initialize_worker_custom_scan(custom_state.as_mut(), toc, coordinate) }

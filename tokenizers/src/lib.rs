@@ -44,15 +44,41 @@ pub fn register_tokenizers_into(
     tokenizer_manager: &TokenizerManager,
     search_tokenizers: Vec<SearchTokenizer>,
 ) {
-    for search_tokenizer in search_tokenizers {
-        let tokenizer_option = search_tokenizer.to_tantivy_tokenizer();
+    // (legacy_name, current_name) pairs to alias once every tokenizer's current name is registered.
+    let mut legacy_aliases = Vec::new();
 
-        if let Some(text_analyzer) = tokenizer_option {
+    for search_tokenizer in &search_tokenizers {
+        let Some(text_analyzer) = search_tokenizer.to_tantivy_tokenizer() else {
+            continue;
+        };
+
+        let current_name = search_tokenizer.name();
+        debug!(tokenizer_name = &current_name, "registering tokenizer");
+        tokenizer_manager.register(&current_name, text_analyzer);
+
+        if let Some(legacy_name) = search_tokenizer.legacy_name_before_trim_fix()
+            && legacy_name != current_name
+        {
+            legacy_aliases.push((legacy_name, current_name));
+        }
+    }
+
+    // Indexes built before the trim-filter naming fix have the pre-fix name baked into their
+    // on-disk Tantivy schema, so that name must still resolve to the same analyzer. Register
+    // these aliases only after every tokenizer's current name is in place, and only when no
+    // other tokenizer in this batch already claims that name -- otherwise we'd silently
+    // reintroduce the exact name collision this fix exists to prevent going forward.
+    for (legacy_name, current_name) in legacy_aliases {
+        if tokenizer_manager.get(&legacy_name).is_some() {
+            continue;
+        }
+        if let Some(text_analyzer) = tokenizer_manager.get(&current_name) {
             debug!(
-                tokenizer_name = &search_tokenizer.name(),
-                "registering tokenizer",
+                tokenizer_name = &legacy_name,
+                aliases = %current_name,
+                "registering legacy pre-trim-fix tokenizer alias",
             );
-            tokenizer_manager.register(&search_tokenizer.name(), text_analyzer);
+            tokenizer_manager.register(&legacy_name, text_analyzer);
         }
     }
 }

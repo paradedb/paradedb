@@ -47,7 +47,7 @@ use tantivy::snippet::SnippetGenerator;
 #[derive(Default)]
 pub struct BaseScanState {
     #[cfg(feature = "io_stats")]
-    pub io_trace: crate::index::reader::io_stats::trace::Trace,
+    pub io_trace: crate::index::reader::io_stats::Trace,
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,
     /// Set when this scan is parallel-aware (DSM attached).

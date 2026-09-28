@@ -2368,7 +2368,7 @@ fn check_visibility(
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
     #[cfg(feature = "io_stats")]
-    let _io = crate::index::reader::io_stats::trace::external("Heap");
+    let _io = crate::index::reader::io_stats::external("Heap");
     state
         .custom_state_mut()
         .visibility_checker()

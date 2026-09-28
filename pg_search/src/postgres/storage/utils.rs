@@ -222,7 +222,7 @@ impl RelationBufferAccess {
         };
         #[cfg(feature = "io_stats")]
         {
-            crate::index::reader::io_stats::trace::buffer(read)
+            crate::index::reader::io_stats::buffer(read)
         }
         #[cfg(not(feature = "io_stats"))]
         {

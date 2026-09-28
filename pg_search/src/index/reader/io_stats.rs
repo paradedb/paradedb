@@ -27,162 +27,11 @@
 //! `ExecCustomScan`, including reader setup and heap visibility checks.
 
 #[cfg(feature = "io_stats")]
-pub mod trace {
-    use pgrx::pg_sys;
-    use std::cell::RefCell;
-    use std::collections::BTreeMap;
-    use std::rc::Rc;
-    use tantivy::index::SegmentComponent;
-
-    type SharedData = Rc<RefCell<Data>>;
-
-    #[derive(Default)]
-    struct Data {
-        total: u64,
-        components: BTreeMap<String, u64>,
-    }
-
-    #[derive(Clone)]
-    struct Context {
-        data: SharedData,
-        component: String,
-    }
-
-    thread_local! {
-        static ACTIVE: RefCell<Option<Context>> = const { RefCell::new(None) };
-    }
-
-    #[derive(Default)]
-    pub struct Trace(SharedData);
-
-    pub struct Scope {
-        previous: Option<Context>,
-        total: Option<(SharedData, i64)>,
-    }
-
-    pub struct External {
-        context: Option<Context>,
-        before: i64,
-        name: &'static str,
-    }
-
-    impl Drop for External {
-        fn drop(&mut self) {
-            if let Some(context) = &self.context {
-                *context
-                    .data
-                    .borrow_mut()
-                    .components
-                    .entry(self.name.into())
-                    .or_default() += snapshot().saturating_sub(self.before) as u64;
-            }
-        }
-    }
-
-    pub fn external(name: &'static str) -> External {
-        let context = ACTIVE.with_borrow(Clone::clone);
-        let before = context.as_ref().map_or(0, |_| snapshot());
-        External {
-            context,
-            before,
-            name,
-        }
-    }
-
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            if let Some((data, before)) = &self.total {
-                data.borrow_mut().total += snapshot().saturating_sub(*before) as u64;
-            }
-            ACTIVE.set(self.previous.take());
-        }
-    }
-
-    fn snapshot() -> i64 {
-        unsafe { std::ptr::addr_of!(pg_sys::pgBufferUsage.shared_blks_hit).read() }
-    }
-
-    impl Trace {
-        pub fn enter(&self) -> Scope {
-            let previous = ACTIVE.replace(Some(Context {
-                data: self.0.clone(),
-                component: "Metadata".into(),
-            }));
-            Scope {
-                previous,
-                total: Some((self.0.clone(), snapshot())),
-            }
-        }
-
-        pub fn hits(&self) -> Vec<(String, u64)> {
-            let data = self.0.borrow();
-            let mut hits = vec![("Total".into(), data.total)];
-            hits.extend(
-                data.components
-                    .iter()
-                    .filter(|(_, hits)| **hits > 0)
-                    .map(|(component, hits)| (component.clone(), *hits)),
-            );
-            let other = data.total.saturating_sub(data.components.values().sum());
-            if other > 0 {
-                hits.push(("Other".into(), other));
-            }
-            hits
-        }
-    }
-
-    pub fn buffer<R>(read: impl FnOnce() -> R) -> R {
-        let context = ACTIVE.with_borrow(Clone::clone);
-        let Some(context) = context else {
-            return read();
-        };
-        let before = snapshot();
-        let result = read();
-        *context
-            .data
-            .borrow_mut()
-            .components
-            .entry(context.component)
-            .or_default() += snapshot().saturating_sub(before) as u64;
-        result
-    }
-
-    pub fn file_read(component: &SegmentComponent) -> Scope {
-        let previous = ACTIVE.with_borrow_mut(|active| {
-            let previous = active.clone();
-            if let Some(context) = active {
-                context.component = match component.to_string().as_str() {
-                    "idx" => "Postings",
-                    "pos" => "Positions",
-                    "term" => "Term Dictionary",
-                    "fieldnorm" => "Field Norms",
-                    "pnorm" => "Posting Norms",
-                    "ctid_map" => "CTID Map",
-                    "fast" => "Columnar Fields",
-                    "store" => "Document Store",
-                    "temp" => "Temporary Store",
-                    "del" => "Liveness Bitmap",
-                    "stats" => "Segment Statistics",
-                    "vec" => "Vectors",
-                    "centroids" => "Centroids",
-                    other => other,
-                }
-                .to_owned();
-            }
-            previous
-        });
-        Scope {
-            previous,
-            total: None,
-        }
-    }
-}
-
-#[cfg(feature = "io_stats")]
 mod imp {
     use pgrx::pg_sys;
     use std::cell::{Cell, RefCell};
     use std::collections::BTreeMap;
+    use std::rc::Rc;
     use tantivy::index::{SegmentComponent, SegmentId};
     use tantivy::vector::current_vector_stage;
 
@@ -205,12 +54,119 @@ mod imp {
         }
     }
 
+    type SharedData = Rc<RefCell<Data>>;
+
+    #[derive(Default)]
+    struct Data {
+        total: u64,
+        components: BTreeMap<String, u64>,
+    }
+
+    #[derive(Clone, Default)]
+    struct Context {
+        data: Option<SharedData>,
+        component: Option<String>,
+    }
+
     thread_local! {
         static ACTIVE: Cell<bool> = const { Cell::new(false) };
+        static CONTEXT: RefCell<Context> = RefCell::default();
         static CURRENT: RefCell<SegmentIo> = RefCell::default();
         static PER_SEGMENT: RefCell<Vec<(SegmentId, SegmentIo)>> = RefCell::default();
         static PRE_SCAN_INIT: Cell<bool> = const { Cell::new(false) };
         static PRESERVE_NEXT_RESET: Cell<bool> = const { Cell::new(false) };
+    }
+
+    #[derive(Default)]
+    pub struct Trace(SharedData);
+
+    pub struct Scope {
+        previous: Context,
+        total: Option<(SharedData, i64)>,
+    }
+
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            if let Some((data, before)) = &self.total {
+                data.borrow_mut().total += snapshot().0.saturating_sub(*before) as u64;
+            }
+            CONTEXT.set(std::mem::take(&mut self.previous));
+        }
+    }
+
+    impl Trace {
+        pub fn enter(&self) -> Scope {
+            let previous = CONTEXT.replace(Context {
+                data: Some(self.0.clone()),
+                component: None,
+            });
+            Scope {
+                previous,
+                total: Some((self.0.clone(), snapshot().0)),
+            }
+        }
+
+        pub fn hits(&self) -> Vec<(String, u64)> {
+            let data = self.0.borrow();
+            let mut hits: Vec<_> = data
+                .components
+                .iter()
+                .filter(|(_, hits)| **hits > 0)
+                .map(|(component, hits)| {
+                    let name = match component.as_str() {
+                        "idx" => "Postings",
+                        "pos" => "Positions",
+                        "term" => "Term Dictionary",
+                        "fieldnorm" => "Field Norms",
+                        "pnorm" => "Posting Norms",
+                        "ctid_map" => "CTID Map",
+                        "fast" => "Columnar Fields",
+                        "store" => "Document Store",
+                        "temp" => "Temporary Store",
+                        "del" => "Liveness Bitmap",
+                        "stats" => "Segment Statistics",
+                        "vec" => "Vectors",
+                        "centroids" => "Centroids",
+                        other => other,
+                    };
+                    (name.to_owned(), *hits)
+                })
+                .collect();
+            hits.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+            hits.insert(0, ("Total".into(), data.total));
+            let other = data.total.saturating_sub(data.components.values().sum());
+            if other > 0 {
+                hits.push(("Other".into(), other));
+            }
+            hits
+        }
+    }
+
+    pub struct External {
+        data: Option<SharedData>,
+        before: i64,
+        name: &'static str,
+    }
+
+    impl Drop for External {
+        fn drop(&mut self) {
+            if let Some(data) = &self.data {
+                *data
+                    .borrow_mut()
+                    .components
+                    .entry(self.name.into())
+                    .or_default() += snapshot().0.saturating_sub(self.before) as u64;
+            }
+        }
+    }
+
+    pub fn external(name: &'static str) -> External {
+        let data = ACTIVE
+            .get()
+            .then(|| CONTEXT.with_borrow(|context| context.data.clone()))
+            .flatten();
+        let before = data.as_ref().map_or(0, |_| snapshot().0);
+        External { data, before, name }
     }
 
     /// Scoped to executor callbacks so interleaved/nested plans cannot leave
@@ -280,7 +236,26 @@ mod imp {
         if !ACTIVE.get() {
             return read();
         }
-        let _component = super::trace::file_read(component);
+        let previous = CONTEXT.with_borrow_mut(|context| {
+            let previous = context.clone();
+            context.component = Some(component.to_string());
+            previous
+        });
+        let _scope = Scope {
+            previous,
+            total: None,
+        };
+        read()
+    }
+
+    pub fn buffer<R>(read: impl FnOnce() -> R) -> R {
+        if !ACTIVE.get() {
+            return read();
+        }
+        let context = CONTEXT.with_borrow(Clone::clone);
+        if context.data.is_none() && context.component.is_none() {
+            return read();
+        }
         let (hit0, read0) = snapshot();
         let result = read();
         let (hit1, read1) = snapshot();
@@ -288,27 +263,38 @@ mod imp {
             blks_hit: hit1.saturating_sub(hit0) as u64,
             blks_read: read1.saturating_sub(read0) as u64,
         };
-        CURRENT.with_borrow_mut(|current| {
-            let component = component.to_string();
-            let slot = current.components.entry(component.clone()).or_default();
-            slot.blks_hit += delta.blks_hit;
-            slot.blks_read += delta.blks_read;
-            let stage = if PRE_SCAN_INIT.get() {
-                Some("scan_init".to_string())
-            } else {
-                current_vector_stage().name().map(Into::into)
-            };
-            if let Some(stage) = stage {
-                let stage_slot = current.stages.entry(stage.clone()).or_default();
-                stage_slot.blks_hit += delta.blks_hit;
-                stage_slot.blks_read += delta.blks_read;
-                if stage == "scan_init" {
-                    let component_slot = current.scan_init_components.entry(component).or_default();
-                    component_slot.blks_hit += delta.blks_hit;
-                    component_slot.blks_read += delta.blks_read;
+        if let Some(component) = &context.component {
+            CURRENT.with_borrow_mut(|current| {
+                let slot = current.components.entry(component.clone()).or_default();
+                slot.blks_hit += delta.blks_hit;
+                slot.blks_read += delta.blks_read;
+                let stage = if PRE_SCAN_INIT.get() {
+                    Some("scan_init".to_string())
+                } else {
+                    current_vector_stage().name().map(Into::into)
+                };
+                if let Some(stage) = stage {
+                    let stage_slot = current.stages.entry(stage.clone()).or_default();
+                    stage_slot.blks_hit += delta.blks_hit;
+                    stage_slot.blks_read += delta.blks_read;
+                    if stage == "scan_init" {
+                        let component_slot = current
+                            .scan_init_components
+                            .entry(component.clone())
+                            .or_default();
+                        component_slot.blks_hit += delta.blks_hit;
+                        component_slot.blks_read += delta.blks_read;
+                    }
                 }
-            }
-        });
+            });
+        }
+        if let Some(data) = context.data {
+            *data
+                .borrow_mut()
+                .components
+                .entry(context.component.unwrap_or_else(|| "Metadata".into()))
+                .or_default() += delta.blks_hit;
+        }
         result
     }
 
@@ -421,6 +407,179 @@ mod imp {
     mod tests {
         use super::*;
 
+        fn read_buffers(hits: i64, reads: i64) {
+            buffer(|| unsafe {
+                pg_sys::pgBufferUsage.shared_blks_hit += hits;
+                pg_sys::pgBufferUsage.shared_blks_read += reads;
+            });
+        }
+
+        #[pgrx::pg_test]
+        fn nested_components_share_buffer_counts_without_double_counting() {
+            let _request = instrumentation_request(true);
+            reset();
+            let trace = Trace::default();
+            {
+                let _scope = trace.enter();
+                record(&SegmentComponent::Custom("vec".into()), || {
+                    read_buffers(2, 1);
+                    record(&SegmentComponent::Custom("centroids".into()), || {
+                        read_buffers(3, 2);
+                    });
+                    read_buffers(5, 0);
+                });
+                record(&SegmentComponent::Custom("ctid_map".into()), || {
+                    read_buffers(7, 0);
+                });
+                read_buffers(11, 0);
+            }
+
+            let hits: BTreeMap<_, _> = trace.hits().into_iter().collect();
+            assert_eq!(hits["Total"], 28);
+            assert_eq!(hits["Vectors"], 7);
+            assert_eq!(hits["Centroids"], 3);
+            assert_eq!(hits["CTID Map"], 7);
+            assert_eq!(hits["Metadata"], 11);
+            assert!(!hits.contains_key("Other"));
+
+            let segment = SegmentId::generate_random();
+            end_segment(segment);
+            let mut info = BTreeMap::from([(segment, serde_json::json!({}))]);
+            attach(&mut info);
+            let counters = &info[&segment];
+            assert_eq!(counters["io_vec_buffer_hits"], hits["Vectors"]);
+            assert_eq!(counters["io_vec_buffer_reads"], 1);
+            assert_eq!(counters["io_centroids_buffer_hits"], hits["Centroids"]);
+            assert_eq!(counters["io_centroids_buffer_reads"], 2);
+            assert_eq!(counters["io_ctid_map_buffer_hits"], hits["CTID Map"]);
+            assert_eq!(counters["buffer_hits"], 17);
+            assert_eq!(counters["buffer_reads"], 3);
+            assert_eq!(counters["blocks_fetched"], 20);
+        }
+
+        #[pgrx::pg_test]
+        fn reader_init_counts_survive_without_a_scan_trace() {
+            let _request = instrumentation_request(true);
+            {
+                let _init = begin_scan_init().unwrap();
+                record(&SegmentComponent::Custom("vec".into()), || {
+                    read_buffers(2, 3);
+                });
+                read_buffers(4, 0);
+            }
+            reset();
+            let segment = SegmentId::generate_random();
+            end_segment(segment);
+            let mut info = BTreeMap::from([(segment, serde_json::json!({}))]);
+            attach(&mut info);
+            let counters = &info[&segment];
+            assert_eq!(counters["io_vec_buffer_hits"], 2);
+            assert_eq!(counters["io_vec_buffer_reads"], 3);
+            assert_eq!(counters["scan_init_buffer_hits"], 6);
+            assert_eq!(counters["scan_init_buffer_reads"], 3);
+            assert_eq!(counters["scan_init_io_vec_buffer_hits"], 2);
+            assert_eq!(counters["scan_init_io_executor_buffer_hits"], 4);
+        }
+
+        #[pgrx::pg_test]
+        fn component_context_restores_after_unwind_and_disabled_reads_bypass_collection() {
+            let _request = instrumentation_request(true);
+            reset();
+            let _ = std::panic::catch_unwind(|| {
+                record(&SegmentComponent::Custom("vec".into()), || {
+                    panic!("test unwind");
+                });
+            });
+            assert!(CONTEXT.with_borrow(|context| context.component.is_none()));
+            record(&SegmentComponent::Custom("centroids".into()), || {
+                {
+                    let _disabled = instrumentation_request(false);
+                    read_buffers(13, 7);
+                }
+                read_buffers(2, 1);
+            });
+            CURRENT.with_borrow(|current| {
+                assert_eq!(current.components.len(), 1);
+                assert_eq!(current.components["centroids"].blks_hit, 2);
+                assert_eq!(current.components["centroids"].blks_read, 1);
+            });
+        }
+
+        #[pgrx::pg_test]
+        fn bm25_and_vector_explain_share_buffer_accounting() {
+            pgrx::Spi::run(
+                "SET max_parallel_workers_per_gather = 0;
+                 SET enable_seqscan = off;
+                 SET paradedb.global_mutable_segment_rows = 0;
+                 SET paradedb.vector_stats = on;
+                 CREATE TABLE io_accounting (id int PRIMARY KEY, body text, embedding vector(3));
+                 INSERT INTO io_accounting
+                 SELECT i, 'search engine ' || i, ARRAY[i::real, 1, 0]::vector
+                 FROM generate_series(1, 1000) AS i;
+                 CREATE INDEX io_accounting_idx ON io_accounting
+                 USING paradedb (id, body, embedding vector_l2_ops);",
+            )
+            .unwrap();
+
+            for (query, vector) in [
+                (
+                    "SELECT id FROM io_accounting WHERE body ||| 'search' ORDER BY pdb.score(id) DESC LIMIT 5",
+                    false,
+                ),
+                (
+                    "SELECT id FROM io_accounting WHERE id @@@ pdb.all() ORDER BY embedding <-> '[1,1,0]' LIMIT 5",
+                    true,
+                ),
+            ] {
+                let plan = pgrx::Spi::get_one::<pgrx::Json>(&format!(
+                    "EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) {query}"
+                ))
+                .unwrap()
+                .unwrap()
+                .0;
+                let mut nodes = vec![&plan[0]["Plan"]];
+                let scan = loop {
+                    let node = nodes.pop().expect("ParadeDB scan should be present");
+                    if node.get("Buffer Hits").is_some() {
+                        break node;
+                    }
+                    if let Some(children) = node["Plans"].as_array() {
+                        nodes.extend(children);
+                    }
+                };
+                let hits = scan["Buffer Hits"].as_object().unwrap();
+                let total = hits["Total"].as_u64().unwrap();
+                assert!(total > 0);
+                assert_eq!(
+                    hits.iter()
+                        .filter(|(name, _)| name.as_str() != "Total")
+                        .map(|(_, value)| value.as_u64().unwrap())
+                        .sum::<u64>(),
+                    total,
+                );
+                if vector {
+                    let segments: BTreeMap<String, serde_json::Value> =
+                        serde_json::from_str(scan["Segment Info"].as_str().unwrap()).unwrap();
+                    let vector_hits = segments
+                        .values()
+                        .map(|stats| stats["io_vec_buffer_hits"].as_u64().unwrap_or(0))
+                        .sum::<u64>();
+                    assert!(vector_hits > 0);
+                    assert!(vector_hits <= hits["Vectors"].as_u64().unwrap());
+                    assert!(
+                        segments
+                            .values()
+                            .any(|stats| stats.as_object().unwrap().keys().any(|key| {
+                                key != "scan_init_buffer_hits"
+                                    && !key.starts_with("io_")
+                                    && !key.starts_with("scan_init_io_")
+                                    && key.ends_with("_buffer_hits")
+                            }))
+                    );
+                }
+            }
+        }
+
         #[pgrx::pg_test]
         fn ordinary_reads_bypass_collection_and_reader_open_snapshots() {
             let _request = instrumentation_request(false);
@@ -490,3 +649,6 @@ mod imp {
 }
 
 pub use imp::{attach, begin_scan_init, end_segment, instrumentation_request, record, reset};
+
+#[cfg(feature = "io_stats")]
+pub use imp::{Trace, buffer, external};

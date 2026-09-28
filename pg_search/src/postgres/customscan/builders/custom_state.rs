@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::utils::DropUnlessExiting;
+use crate::postgres::utils::PgMemoryContextsExt;
 use pgrx::{PgList, PgMemoryContexts, pg_sys};
 use std::fmt::{Debug, Formatter};
 use std::ptr::addr_of_mut;
@@ -28,7 +28,7 @@ pub struct Args {
 #[repr(C)]
 pub struct CustomScanStateWrapper<CS: CustomScan> {
     pub csstate: pg_sys::CustomScanState,
-    custom_state: DropUnlessExiting<CS::State>,
+    custom_state: CS::State,
     pub runtime_context: *mut pg_sys::ExprContext,
 }
 
@@ -43,7 +43,7 @@ where
         ))
         .field("state_type", &std::any::type_name::<CS::State>())
         .field("csstate", &self.csstate)
-        .field("custom_state", &*self.custom_state)
+        .field("custom_state", &self.custom_state)
         .finish()
     }
 }
@@ -114,7 +114,7 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
 
     pub fn build(self) -> *mut CustomScanStateWrapper<CS> {
         let flags = unsafe { (*self.args.cscan).flags };
-        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(CustomScanStateWrapper {
+        let wrapper = CustomScanStateWrapper {
             csstate: pg_sys::CustomScanState {
                 ss: pg_sys::ScanState {
                     ps: pg_sys::PlanState {
@@ -130,8 +130,9 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
                 #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
                 slotOps: std::ptr::null_mut(),
             },
-            custom_state: DropUnlessExiting::new(self.custom_state),
+            custom_state: self.custom_state,
             runtime_context: std::ptr::null_mut(),
-        })
+        };
+        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_unless_exiting(wrapper)
     }
 }

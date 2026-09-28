@@ -1527,6 +1527,16 @@ pub struct HeapDocFetcher<'a> {
     isnull: Vec<bool>,
 }
 
+/// Helper matching PostgreSQL's `HeapTupleHeaderGetRawXmax` macro.
+/// In `pgrx`, `HeapTupleHeaderGetRawXmin` is provided in `htup.rs`, but
+/// `HeapTupleHeaderGetRawXmax` is only available in `pg_sys` starting with PostgreSQL 18.
+#[inline(always)]
+unsafe fn heap_tuple_header_get_raw_xmax(
+    tup: *const pg_sys::HeapTupleHeaderData,
+) -> pg_sys::TransactionId {
+    unsafe { (*tup).t_choice.t_heap.t_xmax }
+}
+
 impl<'a> HeapDocFetcher<'a> {
     pub fn new(
         fetch_state: &'a HeapFetchState,
@@ -1633,26 +1643,19 @@ impl<'a> HeapDocFetcher<'a> {
                 };
 
                 if htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
-                    // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
-                    // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
-                    // must also see it as DEAD, otherwise we'll crash trying to read them.
-                    //
-                    // A single re-check is sufficient (no loop needed) because
-                    // `GetOldestNonRemovableTransactionId` returns the current global
-                    // XID horizon. If the tuple is still RECENTLY_DEAD under this fresh
-                    // horizon, then no concurrent VACUUM could have considered it DEAD
-                    // (VACUUM uses the same or an older horizon), so its TOAST data is
-                    // guaranteed to still exist.
-                    let fresh_oldest_xmin =
-                        pg_sys::GetOldestNonRemovableTransactionId(self.heaprel.as_ptr());
-                    if fresh_oldest_xmin != self.oldest_xmin {
-                        let buffer = (*self.fetch_state.buffer_heap_slot()).buffer;
-                        let _lock = BorrowedBuffer::from_pg(buffer);
-                        htsv_result = pg_sys::HeapTupleSatisfiesVacuum(
-                            (*self.fetch_state.buffer_heap_slot()).base.tuple,
-                            fresh_oldest_xmin,
-                            buffer,
-                        );
+                    // Check if the tuple's deleter is actually removable under the current global
+                    // visibility horizon. `self.oldest_xmin` might be stale or conservative
+                    // compared to on-access pruning or concurrent VACUUM, which use
+                    // `GlobalVisTestIsRemovableXid`. If the deleting XID is removable according to
+                    // `GlobalVisCheckRemovableXid`, VACUUM / pruning could have already freed its
+                    // TOAST chunks and marked line pointers LP_DEAD. Thus, we must treat it as
+                    // DEAD to avoid attempting to detoast missing chunks.
+                    let tuple = (*self.fetch_state.buffer_heap_slot()).base.tuple;
+                    let xmax = heap_tuple_header_get_raw_xmax((*tuple).t_data);
+                    if xmax != pg_sys::InvalidTransactionId
+                        && pg_sys::GlobalVisCheckRemovableXid(self.heaprel.as_ptr(), xmax)
+                    {
+                        htsv_result = pg_sys::HTSV_Result::HEAPTUPLE_DEAD;
                     }
                 }
 
@@ -1662,15 +1665,13 @@ impl<'a> HeapDocFetcher<'a> {
                     // skip so the slot releases its buffer pin.
                     pg_sys::ExecClearTuple(self.fetch_state.slot());
 
-                    // This copy of the tuple is no longer visible to any transaction. Are there
-                    // more in the HOT chain?
-                    if call_again {
-                        // There are more entries in the hot chain: find the first one that is
-                        // visible.
+                    // If this tuple was HOT-updated, the chain continues to a newer member: find
+                    // the first one that is live. Otherwise, the tuple was deleted outright (or
+                    // updated non-HOT, where the new version has its own ctid), so there is no
+                    // live version for this ctid.
+                    if hot_updated {
                         continue 'next_hot_chain;
                     } else {
-                        // There are no more entries in the HOT chain, so no copy of the tuple is
-                        // visible in any transaction.
                         return None;
                     }
                 }
@@ -1725,13 +1726,26 @@ impl<'a> HeapDocFetcher<'a> {
             // row_to_search_document can race with VACUUM deleting TOAST chunks
             // after we release the pin (the "missing chunk number 0" crash).
             // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
+            // If concurrent VACUUM/pruning already freed TOAST chunks for a dead/superseded
+            // tuple version, catch ERRCODE_DATA_CORRUPTED and treat the tuple as unreadable.
             for i in 0..self.heaptupdesc.len() {
                 if !self.isnull[i] {
                     let att = self.heaptupdesc.get(i).expect("valid attribute");
                     if att.attlen == -1 {
-                        self.values[i] = pg_sys::Datum::from(pg_sys::pg_detoast_datum(
-                            self.values[i].cast_mut_ptr(),
-                        ));
+                        let ptr = self.values[i].cast_mut_ptr();
+                        let detoasted =
+                            pgrx::pg_sys::PgTryBuilder::new(|| pg_sys::pg_detoast_datum(ptr))
+                                .catch_when(
+                                    pgrx::pg_sys::errcodes::PgSqlErrorCode::ERRCODE_DATA_CORRUPTED,
+                                    |_| std::ptr::null_mut(),
+                                )
+                                .execute();
+
+                        if detoasted.is_null() {
+                            pg_sys::ExecClearTuple(self.fetch_state.slot());
+                            return None;
+                        }
+                        self.values[i] = pg_sys::Datum::from(detoasted);
                     }
                 }
             }

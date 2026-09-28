@@ -15,6 +15,29 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Stores the tree beside a component's existing compressed page map.
+//!
+//! ```text
+//! Header page
+//!   original 16-byte metadata -> data chain + compressed map chain
+//!   directory root: BDIR | version=3 | level | (logical start, block)...
+//!
+//! Small: header root -> compressed map -> data
+//! Large: header root -> directory page -> ... -> compressed map -> data
+//! ```
+//!
+//! For example, a level-1 entry (100, 72) leads to directory block 72. Its level-0
+//! entry (120, 900) leads to map block 900. Looking up logical page 130 follows
+//! those two blocks, then decodes page 130's data address from the map.
+//!
+//! Extra directory pages use the same format as the root. Numbers are 4-byte
+//! little-endian integers. Used page bytes determine entry count; neighboring
+//! entries, parent ranges, or component length determine range ends.
+//!
+//! The header's next-page link chains all extra directory pages for cleanup.
+//! Existing data/map chains stay unchanged. Old formats remain readable, and a
+//! missing or unsupported directory falls back to walking the original map.
+
 use super::chunk_size;
 use super::tree::{Entry, Node};
 use crate::postgres::storage::block::{
@@ -32,7 +55,6 @@ pub(super) const ROOT_CAPACITY: usize =
     (bm25_max_free_space() - size_of::<LinkedListData>() - HEADER_SIZE) / ENTRY_SIZE;
 const PAGE_CAPACITY: usize = (bm25_max_free_space() - HEADER_SIZE) / ENTRY_SIZE;
 
-/// Version 3: BDIR, version, level, then (logical start, block) pairs; all integers are LE u32.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Directory {
     pub(super) node: Arc<Node<u32, pg_sys::BlockNumber>>,

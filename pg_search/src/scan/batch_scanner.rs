@@ -16,7 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{
+<<<<<<< HEAD
     ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
+=======
+    FFHelper, FFType, FieldCardinality, FieldDelivery, WhichFastField, list_item_field,
+    ords_to_bytes_array, ords_to_string_array,
+>>>>>>> 29b0bfe2a (refactor: separate a fast field's identity, shape, and delivery (#6207))
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
@@ -85,21 +90,21 @@ fn ensure_column_fetched(
         return;
     }
     match &which_fast_fields[ff_index] {
-        WhichFastField::Named(_, search_field_type)
-        | WhichFastField::Deferred(_, search_field_type) => {
-            memoized_columns[ff_index] = Some(
-                ffhelper
-                    .column(segment_ord, ff_index)
-                    .fetch_values_or_ords_to_arrow(ids, *search_field_type),
-            );
-        }
-        // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
-        WhichFastField::Array(_, search_field_type) => {
-            memoized_columns[ff_index] = Some(
-                ffhelper
-                    .column(segment_ord, ff_index)
-                    .fetch_array_values_or_ords_to_arrow(ids, *search_field_type),
-            );
+        WhichFastField::Named {
+            field_type: search_field_type,
+            cardinality,
+            ..
+        } => {
+            let column = ffhelper.column(segment_ord, ff_index);
+            memoized_columns[ff_index] = Some(match cardinality {
+                FieldCardinality::Scalar => {
+                    column.fetch_values_or_ords_to_arrow(ids, *search_field_type)
+                }
+                // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+                FieldCardinality::List => {
+                    column.fetch_array_values_or_ords_to_arrow(ids, *search_field_type)
+                }
+            });
         }
         WhichFastField::Score
         | WhichFastField::Ctid
@@ -277,13 +282,11 @@ impl Scanner {
         let all_strings_deferred = !which_fast_fields.iter().any(|wff| {
             matches!(
                 wff,
-                WhichFastField::Named(_, field_type) | WhichFastField::Array(_, field_type) if matches!(
-                    field_type.arrow_data_type(),
-                    arrow_schema::DataType::Utf8View
-                        | arrow_schema::DataType::BinaryView
-                        | arrow_schema::DataType::LargeUtf8
-                        | arrow_schema::DataType::LargeBinary
-                )
+                WhichFastField::Named {
+                    field_type,
+                    delivery: FieldDelivery::Eager,
+                    ..
+                } if field_type.is_dictionary_storage()
             )
         });
 
@@ -325,10 +328,21 @@ impl Scanner {
     /// still in doc order, so only their dictionary decode is deferred.
     pub fn fetch_ordinals_in_scan(&mut self, field_names: &[String]) {
         for (ff_index, wff) in self.which_fast_fields.iter().enumerate() {
+<<<<<<< HEAD
             if let WhichFastField::Deferred(name, _) = wff {
                 if field_names.contains(name) {
                     self.fetch_ordinals_in_scan[ff_index] = true;
                 }
+=======
+            if let WhichFastField::Named {
+                name,
+                delivery: FieldDelivery::Deferred,
+                ..
+            } = wff
+                && field_names.contains(name)
+            {
+                self.fetch_ordinals_in_scan[ff_index] = true;
+>>>>>>> 29b0bfe2a (refactor: separate a fast field's identity, shape, and delivery (#6207))
             }
         }
     }
@@ -569,14 +583,10 @@ impl Scanner {
             Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         };
 
-        // Pre-fetch any Named or Array columns that weren't already fetched by pre-filters,
+        // Pre-fetch any eager named columns that weren't already fetched by pre-filters,
         // plus the deferred columns whose ordinals are fetched here rather than above.
         for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
-            if matches!(
-                which_ff,
-                WhichFastField::Named(_, _) | WhichFastField::Array(_, _)
-            ) || self.fetch_ordinals_in_scan[ff_index]
-            {
+            if which_ff.is_eager_named() || self.fetch_ordinals_in_scan[ff_index] {
                 ensure_column_fetched(
                     &mut memoized_columns,
                     &self.which_fast_fields,
@@ -605,7 +615,11 @@ impl Scanner {
                     Some(Arc::new(builder.finish()) as ArrayRef)
                 }
                 WhichFastField::Junk(_) => None,
-                WhichFastField::Named(_, _) => {
+                WhichFastField::Named {
+                    delivery: FieldDelivery::Eager,
+                    cardinality: FieldCardinality::Scalar,
+                    ..
+                } => {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
 
                     match ffhelper.column(segment_ord, ff_index) {
@@ -634,7 +648,11 @@ impl Scanner {
                         _ => Some(col_array),
                     }
                 }
-                WhichFastField::Array(_, _) => {
+                WhichFastField::Named {
+                    delivery: FieldDelivery::Eager,
+                    cardinality: FieldCardinality::List,
+                    ..
+                } => {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
                     match ffhelper.column(segment_ord, ff_index) {
                         FFType::Junk => None,
@@ -650,11 +668,7 @@ impl Scanner {
                                 .expect("Expected UInt64Array for inner ordinals");
                             let string_views = ords_to_string_array(str_column.clone(), ords_array)
                                 .expect("Failed to lookup ordinals");
-                            let field = Arc::new(arrow_schema::Field::new(
-                                "item",
-                                arrow_schema::DataType::Utf8View,
-                                true,
-                            ));
+                            let field = list_item_field(arrow_schema::DataType::Utf8View);
                             let final_list = arrow_array::ListArray::try_new(
                                 field,
                                 list_array.offsets().clone(),
@@ -676,11 +690,7 @@ impl Scanner {
                                 .expect("Expected UInt64Array for inner ordinals");
                             let byte_views = ords_to_bytes_array(bytes_column.clone(), ords_array)
                                 .expect("Failed to lookup ordinals");
-                            let field = Arc::new(arrow_schema::Field::new(
-                                "item",
-                                arrow_schema::DataType::BinaryView,
-                                true,
-                            ));
+                            let field = list_item_field(arrow_schema::DataType::BinaryView);
                             let final_list = arrow_array::ListArray::try_new(
                                 field,
                                 list_array.offsets().clone(),
@@ -700,7 +710,10 @@ impl Scanner {
                 WhichFastField::DeferredCtid(_) => Some(Arc::new(
                     crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
                 ) as ArrayRef),
-                WhichFastField::Deferred(_, _field_type) => match &memoized_columns[ff_index] {
+                WhichFastField::Named {
+                    delivery: FieldDelivery::Deferred,
+                    ..
+                } => match &memoized_columns[ff_index] {
                     Some(_) if matches!(ffhelper.column(segment_ord, ff_index), FFType::Junk) => {
                         None
                     }

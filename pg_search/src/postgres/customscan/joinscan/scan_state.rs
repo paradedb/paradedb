@@ -42,7 +42,7 @@ use pgrx::pg_sys;
 
 use super::planning::get_source_attno_by_name;
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
@@ -99,8 +99,70 @@ fn resolve_var_to_df_col(
     })
 }
 
+<<<<<<< HEAD
 /// Adapter that lets `PredicateTranslator` resolve Vars against a
 /// `JoinCSClause` by delegating to [`resolve_var_to_df_col`].
+=======
+/// If a column cannot be resolved to an output DataFusion column, but its relation
+/// participates in the join (e.g. the non-preserved side of an Anti Join that was pruned
+/// from output), all its values in the join result are identically NULL.
+fn null_if_source_exists(join_clause: &JoinCSClause, rti: pg_sys::Index) -> Option<Expr> {
+    if join_clause
+        .plan
+        .sources()
+        .iter()
+        .any(|s| s.contains_rti(rti))
+    {
+        Some(datafusion::logical_expr::lit(
+            datafusion::common::ScalarValue::Null,
+        ))
+    } else {
+        None
+    }
+}
+
+/// Resolves a Var to an output DataFusion column, falling back to NULL if the relation
+/// is part of the join but was pruned from the join output.
+fn resolve_var_or_pruned_null(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<Expr> {
+    resolve_var_to_df_col(join_clause, rti, attno)
+        .or_else(|| null_if_source_exists(join_clause, rti))
+}
+
+/// The registered field type of `(rti, attno)` when it is a NUMERIC fast
+/// field. Numeric columns arrive storage-encoded (scaled i64 or decimal
+/// bytes), so they need decode-aware handling wherever raw values would be
+/// consumed.
+fn numeric_fast_field_type(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<SearchFieldType> {
+    join_clause.plan.output_sources().iter().find_map(|source| {
+        let mapped = source.map_var(rti, attno)?;
+        let field_info = source.scan_info.fields.iter().find(|f| f.attno == mapped)?;
+        match &field_info.field {
+            WhichFastField::Named {
+                field_type: ft,
+                cardinality: FieldCardinality::Scalar,
+                ..
+            } if ft.is_numeric() => Some(*ft),
+            _ => None,
+        }
+    })
+}
+
+/// Adapter that lets `PredicateTranslator` resolve Vars against a `JoinCSClause`.
+///
+/// NOTE: This mapper is used exclusively by [`translate_child_projection_expr`] to
+/// evaluate target-list output projections (`ChildProjection::Expression`).
+/// For output projections, emitting NULL for columns of pruned relations (e.g.
+/// the RHS of an Anti Join) is correct. Filter predicates do not use this mapper;
+/// they use `CombinedMapper` where pruned columns are rejected.
+>>>>>>> 29b0bfe2a (refactor: separate a fast field's identity, shape, and delivery (#6207))
 struct JoinClauseMapper<'a> {
     join_clause: &'a JoinCSClause,
 }

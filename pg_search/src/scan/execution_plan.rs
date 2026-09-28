@@ -59,7 +59,7 @@ use pgrx::pg_sys;
 use tantivy::Score;
 
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::stats::segments_for_partition;
@@ -505,6 +505,91 @@ impl PgSearchScanPlan {
         !self.deferred_fields.is_empty()
     }
 
+<<<<<<< HEAD
+=======
+    /// The planner's row estimate for this scan, whole-plan and never divided among the
+    /// partitions the way `partition_statistics` divides it.
+    pub fn planner_estimated_rows(&self) -> u64 {
+        self.planner_estimated_rows
+    }
+
+    pub fn deferred_fields(&self) -> &[DeferredField] {
+        &self.deferred_fields
+    }
+
+    /// Rebuilds this scan with deferred columns moved into it: the `fetch_at_scan` names
+    /// leave as term ordinals, the `eager` names leave decoded. An eager column changes the
+    /// scan's output type, so its schema and properties are rebuilt and the scanner reads the
+    /// column as a plain named field, which also gives it the larger decode batch.
+    pub(crate) fn with_deferred_placement(
+        &self,
+        fetch_at_scan: &[String],
+        eager: &[String],
+    ) -> Result<Arc<Self>> {
+        let mut plan = self.clone();
+        for d in plan.deferred_fields.iter_mut() {
+            if fetch_at_scan.contains(&d.name) {
+                d.fetch_at_scan = true;
+            }
+        }
+        if eager.is_empty() {
+            return Ok(Arc::new(plan));
+        }
+
+        let eager_types: Vec<(String, DataType)> = plan
+            .deferred_fields
+            .iter()
+            .filter(|d| eager.contains(&d.name))
+            .map(|d| {
+                let ty = if d.is_bytes {
+                    DataType::BinaryView
+                } else {
+                    DataType::Utf8View
+                };
+                (d.name.clone(), ty)
+            })
+            .collect();
+        plan.deferred_fields.retain(|d| !eager.contains(&d.name));
+        plan.eager_fields
+            .extend(eager_types.iter().map(|(name, _)| name.clone()));
+
+        let old_schema = self.properties.eq_properties.schema();
+        let fields: Vec<arrow_schema::Field> = old_schema
+            .fields()
+            .iter()
+            .map(
+                |f| match eager_types.iter().find(|(name, _)| name == f.name()) {
+                    Some((_, ty)) => arrow_schema::Field::new(f.name(), ty.clone(), true),
+                    None => f.as_ref().clone(),
+                },
+            )
+            .collect();
+        let schema: SchemaRef = Arc::new(arrow_schema::Schema::new(fields));
+        plan.properties = Arc::new(PlanProperties::new(
+            build_equivalence_properties(schema, plan.sort_order.as_ref()),
+            self.properties.output_partitioning().clone(),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
+
+        let mut state = plan.state.lock().unwrap();
+        if let ExecutionState::Shared { scan_state, .. }
+        | ExecutionState::RangePartitioned { scan_state, .. } = &mut *state
+        {
+            for wff in scan_state.0.scanner_config.which_fast_fields.iter_mut() {
+                if let WhichFastField::Named { name, delivery, .. } = wff
+                    && matches!(delivery, FieldDelivery::Deferred)
+                    && eager.contains(name)
+                {
+                    *delivery = FieldDelivery::Eager;
+                }
+            }
+        }
+        drop(state);
+        Ok(Arc::new(plan))
+    }
+
+>>>>>>> 29b0bfe2a (refactor: separate a fast field's identity, shape, and delivery (#6207))
     pub fn ffhelper(&self) -> Option<Arc<FFHelper>> {
         self.ffhelper.clone()
     }
@@ -709,7 +794,7 @@ impl PgSearchScanPlan {
             for d in &deferred {
                 if let Some(ref rb) = d.rebuild {
                     which[d.canonical.ff_index] =
-                        WhichFastField::Named(rb.field_name.clone(), rb.field_type);
+                        WhichFastField::eager(rb.field_name.clone(), rb.field_type);
                 }
             }
             Some(Arc::new(FFHelper::with_fields(&reader, &which)))

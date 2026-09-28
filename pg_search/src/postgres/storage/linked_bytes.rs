@@ -200,8 +200,13 @@ impl LinkedBytesListWriter {
 
         if let Some(blockno) = self.blocklist_builder.finish(&mut self.list.bman) {
             metadata.blocklist_start = blockno;
-            if let Some(directory) = blocklist::Directory::build(&self.list.bman, blockno) {
+            if let Some((directory, overflow)) =
+                blocklist::Directory::build(&mut self.list.bman, blockno)
+            {
                 assert!(header_page.append_bytes(&directory.encode()));
+                header_page
+                    .special_mut::<BM25PageSpecialData>()
+                    .next_blockno = overflow;
             }
         }
         Ok(self.list)
@@ -384,14 +389,22 @@ impl LinkedBytesList {
         // contain the blocknumbers of this list) that needs to be marked deleted too
 
         let mut blocklist_blockno = self.get_linked_list_data().blocklist_start;
+        let mut header_blockno = self.header_blockno;
+        let header_bman = self.bman.clone();
         // iterate the BlockList contents -- this is every block used by this LinkedBytesList
         self.blocklist_reader
             .take()
             .map(Mutex::into_inner)
             .unwrap_or_else(|| blocklist::reader::BlockList::new(blocklist_blockno))
             .into_blocks(&self.bman)
-            // include our header page
-            .chain(std::iter::once(self.header_blockno))
+            .chain(std::iter::from_fn(move || {
+                if header_blockno == pg_sys::InvalidBlockNumber {
+                    return None;
+                }
+                let blockno = header_blockno;
+                header_blockno = header_bman.get_buffer(blockno).page().next_blockno();
+                Some(blockno)
+            }))
             // the BlockList itself consumes one or more blocks -- make sure to include them too
             .chain(std::iter::from_fn(move || {
                 if blocklist_blockno == pg_sys::InvalidBlockNumber {
@@ -585,8 +598,9 @@ mod tests {
         let header_blockno = list.header_blockno;
         assert_eq!(list.freeable_blocks().collect::<Vec<_>>(), expected);
 
-        let list = LinkedBytesList::open(&indexrel, header_blockno);
-        let directory = blocklist::Directory::build(&list.bman, start).unwrap();
+        let mut list = LinkedBytesList::open(&indexrel, header_blockno);
+        let (directory, overflow) = blocklist::Directory::build(&mut list.bman, start).unwrap();
+        assert_eq!(overflow, pg_sys::InvalidBlockNumber);
         {
             let mut bman = list.bman.clone();
             let mut header = bman.get_buffer_mut(header_blockno);
@@ -628,7 +642,7 @@ mod tests {
                 page.contents_mut::<LinkedListData>();
                 if mode == 1 {
                     assert!(
-                        page.append_bytes(b"BDIR\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+                        page.append_bytes(b"BDIR\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00")
                     );
                 }
             }

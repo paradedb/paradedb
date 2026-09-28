@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::block::{LinkedListData, block_number_is_valid, bm25_max_free_space};
+use crate::postgres::storage::block::{
+    BM25PageSpecialData, LinkedListData, block_number_is_valid, bm25_max_free_space,
+};
 use crate::postgres::storage::buffer::BufferManager;
 use pgrx::pg_sys;
 
@@ -54,7 +56,9 @@ impl From<ChunkStyleTag> for u8 {
 
 const DIRECTORY_MAGIC: &[u8; 4] = b"BDIR";
 const DIRECTORY_VERSION: u32 = 1;
+const DIRECTORY_TREE_VERSION: u32 = 2;
 const DIRECTORY_HEADER_SIZE: usize = 16;
+const DIRECTORY_TREE_HEADER_SIZE: usize = 20;
 const DIRECTORY_ENTRY_SIZE: usize = 8;
 const MAX_DIRECTORY_ENTRIES: usize =
     (bm25_max_free_space() - size_of::<LinkedListData>() - DIRECTORY_HEADER_SIZE)
@@ -67,22 +71,23 @@ struct DirectoryEntry {
 }
 
 /// Optional component-header suffix: magic, version, entry count, address count, then
-/// (first logical ordinal, physical map block) pairs. All integers are little-endian u32s.
-/// The original linked map is retained for older readers and directories that do not fit.
+/// (first logical ordinal, physical block) pairs. Version 1 points to map pages; version 2
+/// adds a positive directory level before the pairs. Integers are little-endian.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Directory {
     entries: Vec<DirectoryEntry>,
     total_entries: u32,
+    level: u32,
 }
 
 impl Directory {
-    pub fn build(bman: &BufferManager, mut block: pg_sys::BlockNumber) -> Option<Self> {
+    pub fn build(
+        bman: &mut BufferManager,
+        mut block: pg_sys::BlockNumber,
+    ) -> Option<(Self, pg_sys::BlockNumber)> {
         let mut entries = Vec::new();
         let mut total_entries = 0u32;
         while block != pg_sys::InvalidBlockNumber {
-            if entries.len() == MAX_DIRECTORY_ENTRIES {
-                return None;
-            }
             pgrx::check_for_interrupts!();
             entries.push(DirectoryEntry {
                 first_ordinal: total_entries,
@@ -98,28 +103,98 @@ impl Directory {
             }
             block = page.next_blockno();
         }
-        (!entries.is_empty()).then_some(Self {
+        if entries.is_empty() {
+            return None;
+        }
+        let mut directory = Self {
             entries,
             total_entries,
-        })
+            level: 0,
+        };
+        let mut overflow = pg_sys::InvalidBlockNumber;
+        while directory.entries.len() > directory.capacity(true) {
+            let mut parents = Vec::new();
+            for entries in directory.entries.chunks(directory.capacity(false)) {
+                pgrx::check_for_interrupts!();
+                let end = parents.len() * directory.capacity(false) + entries.len();
+                let node = Self {
+                    entries: entries.to_vec(),
+                    total_entries: directory
+                        .entries
+                        .get(end)
+                        .map_or(total_entries, |entry| entry.first_ordinal),
+                    level: directory.level,
+                };
+                let mut buffer = bman.new_buffer();
+                let block = buffer.number();
+                let mut page = buffer.init_page();
+                assert!(page.append_bytes(&node.encode()));
+                page.special_mut::<BM25PageSpecialData>().next_blockno = overflow;
+                overflow = block;
+                parents.push(DirectoryEntry {
+                    first_ordinal: entries[0].first_ordinal,
+                    block,
+                });
+            }
+            directory.entries = parents;
+            directory.level += 1;
+        }
+        Some((directory, overflow))
+    }
+
+    fn capacity(&self, header: bool) -> usize {
+        if header && self.level == 0 {
+            return MAX_DIRECTORY_ENTRIES;
+        }
+        let prefix = if header {
+            size_of::<LinkedListData>()
+        } else {
+            0
+        };
+        let size = if self.level == 0 {
+            DIRECTORY_HEADER_SIZE
+        } else {
+            DIRECTORY_TREE_HEADER_SIZE
+        };
+        (bm25_max_free_space() - prefix - size) / DIRECTORY_ENTRY_SIZE
     }
 
     pub fn read(bytes: &[u8], first_block: pg_sys::BlockNumber) -> Option<Self> {
-        let bytes = bytes.get(size_of::<LinkedListData>()..)?;
+        let directory = Self::decode(bytes.get(size_of::<LinkedListData>()..)?)?;
+        if directory.entries.len() > directory.capacity(true)
+            || directory.entries[0].first_ordinal != 0
+            || (directory.level == 0 && directory.entries[0].block != first_block)
+        {
+            return None;
+        }
+        Some(directory)
+    }
+
+    fn decode(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < DIRECTORY_HEADER_SIZE || &bytes[..4] != DIRECTORY_MAGIC {
             return None;
         }
         let word = |offset| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
-        if word(4) != DIRECTORY_VERSION {
-            return None;
-        }
+        let (level, header_size) = match word(4) {
+            DIRECTORY_VERSION => (0, DIRECTORY_HEADER_SIZE),
+            DIRECTORY_TREE_VERSION if bytes.len() >= DIRECTORY_TREE_HEADER_SIZE => {
+                let level = word(16);
+                if !(1..=3).contains(&level) {
+                    return None;
+                }
+                (level, DIRECTORY_TREE_HEADER_SIZE)
+            }
+            _ => return None,
+        };
         let count = word(8) as usize;
         let total_entries = word(12);
-        if count == 0 || count > MAX_DIRECTORY_ENTRIES || total_entries == 0 {
+        if count == 0
+            || count > (bm25_max_free_space() - header_size) / DIRECTORY_ENTRY_SIZE
+            || total_entries == 0
+        {
             return None;
         }
-        let encoded = bytes
-            .get(DIRECTORY_HEADER_SIZE..DIRECTORY_HEADER_SIZE + count * DIRECTORY_ENTRY_SIZE)?;
+        let encoded = bytes.get(header_size..header_size + count * DIRECTORY_ENTRY_SIZE)?;
         let entries: Vec<_> = encoded
             .chunks_exact(DIRECTORY_ENTRY_SIZE)
             .map(|entry| DirectoryEntry {
@@ -127,30 +202,37 @@ impl Directory {
                 block: u32::from_le_bytes(entry[4..].try_into().unwrap()),
             })
             .collect();
-        if entries[0].first_ordinal != 0
-            || entries[0].block != first_block
-            || entries.iter().any(|entry| {
-                !block_number_is_valid(entry.block) || entry.first_ordinal >= total_entries
-            })
-            || entries
-                .windows(2)
-                .any(|pair| pair[0].first_ordinal >= pair[1].first_ordinal)
+        if entries.iter().any(|entry| {
+            !block_number_is_valid(entry.block) || entry.first_ordinal >= total_entries
+        }) || entries
+            .windows(2)
+            .any(|pair| pair[0].first_ordinal >= pair[1].first_ordinal)
         {
             return None;
         }
         Some(Self {
             entries,
             total_entries,
+            level,
         })
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        let mut bytes =
-            Vec::with_capacity(DIRECTORY_HEADER_SIZE + self.entries.len() * DIRECTORY_ENTRY_SIZE);
+        let mut bytes = Vec::with_capacity(
+            DIRECTORY_TREE_HEADER_SIZE + self.entries.len() * DIRECTORY_ENTRY_SIZE,
+        );
         bytes.extend_from_slice(DIRECTORY_MAGIC);
-        bytes.extend_from_slice(&DIRECTORY_VERSION.to_le_bytes());
+        let version = if self.level == 0 {
+            DIRECTORY_VERSION
+        } else {
+            DIRECTORY_TREE_VERSION
+        };
+        bytes.extend_from_slice(&version.to_le_bytes());
         bytes.extend_from_slice(&(self.entries.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&self.total_entries.to_le_bytes());
+        if self.level > 0 {
+            bytes.extend_from_slice(&self.level.to_le_bytes());
+        }
         for entry in &self.entries {
             bytes.extend_from_slice(&entry.first_ordinal.to_le_bytes());
             bytes.extend_from_slice(&entry.block.to_le_bytes());
@@ -510,9 +592,7 @@ pub mod reader {
     pub struct BlockList {
         blocks: Vec<pg_sys::BlockNumber>,
         next_blockno: pg_sys::BlockNumber,
-        directory: Option<Arc<Directory>>,
-        pages: Vec<Option<Box<MappingPage>>>,
-        current_page: Option<usize>,
+        directory: Option<DirectoryReader>,
     }
 
     impl BlockList {
@@ -521,17 +601,11 @@ pub mod reader {
                 blocks: Vec::new(),
                 next_blockno: starting_block,
                 directory: None,
-                pages: Vec::new(),
-                current_page: None,
             }
         }
 
         pub fn with_directory(mut self, directory: Option<Arc<Directory>>) -> Self {
-            self.pages = (0..directory.as_ref().map_or(0, |dir| dir.entries.len()))
-                .map(|_| None)
-                .collect();
-            self.current_page = None;
-            self.directory = directory;
+            self.directory = directory.map(DirectoryReader::new);
             self
         }
 
@@ -547,30 +621,11 @@ pub mod reader {
         }
 
         pub fn get(&mut self, bman: &BufferManager, i: usize) -> Option<pg_sys::BlockNumber> {
-            if let Some(directory) = &self.directory {
-                if i >= directory.total_entries as usize {
-                    return None;
+            if let Some(directory) = &mut self.directory {
+                match directory.get(bman, i) {
+                    Ok(block) => return block,
+                    Err(()) => self.directory = None,
                 }
-                if let Some(current) = self.current_page {
-                    let page = self.pages[current].as_mut().unwrap();
-                    if page.ordinals.contains(&i) {
-                        return page.get(i);
-                    }
-                }
-                let pos = directory
-                    .entries
-                    .partition_point(|entry| entry.first_ordinal as usize <= i)
-                    - 1;
-                let entry = &directory.entries[pos];
-                self.current_page = Some(pos);
-                let page = self.pages[pos].get_or_insert_with(|| {
-                    let buffer = bman.get_buffer(entry.block);
-                    Box::new(MappingPage::new(
-                        entry.first_ordinal as usize,
-                        buffer.page().as_slice().to_vec(),
-                    ))
-                });
-                return page.get(i);
             }
             while self.blocks.len() <= i && self.next_blockno != pg_sys::InvalidBlockNumber {
                 self.read_next_page(bman);
@@ -582,11 +637,101 @@ pub mod reader {
             mut self,
             bman: &BufferManager,
         ) -> std::vec::IntoIter<pg_sys::BlockNumber> {
-            self.pages.clear();
+            self.directory = None;
             while self.next_blockno != pg_sys::InvalidBlockNumber {
                 self.read_next_page(bman);
             }
             self.blocks.into_iter()
+        }
+    }
+
+    #[derive(Debug)]
+    struct DirectoryReader {
+        directory: Arc<Directory>,
+        pages: Vec<Option<Box<DirectoryPage>>>,
+        current_page: Option<(usize, Range<usize>)>,
+    }
+
+    #[derive(Debug)]
+    enum DirectoryPage {
+        Directory(DirectoryReader),
+        Mapping(MappingPage),
+    }
+
+    impl DirectoryPage {
+        fn get(
+            &mut self,
+            bman: &BufferManager,
+            ordinal: usize,
+        ) -> Result<Option<pg_sys::BlockNumber>, ()> {
+            match self {
+                Self::Mapping(page) => Ok(page.get(ordinal)),
+                Self::Directory(directory) => directory.get(bman, ordinal),
+            }
+        }
+    }
+
+    impl DirectoryReader {
+        fn new(directory: Arc<Directory>) -> Self {
+            let pages = (0..directory.entries.len()).map(|_| None).collect();
+            Self {
+                directory,
+                pages,
+                current_page: None,
+            }
+        }
+
+        fn get(
+            &mut self,
+            bman: &BufferManager,
+            ordinal: usize,
+        ) -> Result<Option<pg_sys::BlockNumber>, ()> {
+            if ordinal >= self.directory.total_entries as usize
+                || ordinal < self.directory.entries[0].first_ordinal as usize
+            {
+                return Ok(None);
+            }
+            if let Some((pos, range)) = &self.current_page
+                && range.contains(&ordinal)
+            {
+                return self.pages[*pos].as_mut().unwrap().get(bman, ordinal);
+            }
+            let pos = self
+                .directory
+                .entries
+                .partition_point(|entry| entry.first_ordinal as usize <= ordinal)
+                - 1;
+            let entry = &self.directory.entries[pos];
+            let first = entry.first_ordinal as usize;
+            let end = self
+                .directory
+                .entries
+                .get(pos + 1)
+                .map_or(self.directory.total_entries, |entry| entry.first_ordinal)
+                as usize;
+            if self.pages[pos].is_none() {
+                let buffer = bman.get_buffer(entry.block);
+                let page = buffer.page();
+                let child = if self.directory.level == 0 {
+                    let mapping = MappingPage::new(first, page.as_slice().to_vec());
+                    if mapping.ordinals != (first..end) {
+                        return Err(());
+                    }
+                    DirectoryPage::Mapping(mapping)
+                } else {
+                    let directory = Directory::decode(page.as_slice()).ok_or(())?;
+                    if directory.level + 1 != self.directory.level
+                        || directory.entries[0].first_ordinal as usize != first
+                        || directory.total_entries as usize != end
+                    {
+                        return Err(());
+                    }
+                    DirectoryPage::Directory(Self::new(Arc::new(directory)))
+                };
+                self.pages[pos] = Some(Box::new(child));
+            }
+            self.current_page = Some((pos, first..end));
+            self.pages[pos].as_mut().unwrap().get(bman, ordinal)
         }
     }
 
@@ -753,7 +898,7 @@ pub mod reader {
                 .unwrap();
             let indexrel = PgSearchRelation::open(oid);
             let mut bman = BufferManager::new(&indexrel);
-            assert!(Directory::build(&bman, pg_sys::InvalidBlockNumber).is_none());
+            assert!(Directory::build(&mut bman, pg_sys::InvalidBlockNumber).is_none());
             let blocks: Vec<u32> = (1u32..30_074)
                 .map(|i| i.wrapping_mul(2_654_435_761))
                 .collect();
@@ -762,7 +907,7 @@ pub mod reader {
                 builder.push(block);
             }
             let start = builder.finish(&mut bman).unwrap();
-            let directory = Arc::new(Directory::build(&bman, start).unwrap());
+            let directory = Arc::new(Directory::build(&mut bman, start).unwrap().0);
             assert!(directory.entries.len() > 4);
             let mut reader = BlockList::new(start).with_directory(Some(directory.clone()));
             let before = unsafe {
@@ -775,8 +920,7 @@ pub mod reader {
             assert_eq!(after - before, 1);
             assert!(reader.blocks.is_empty());
             assert!(
-                reader.pages.last().unwrap().as_ref().unwrap().decoded.len()
-                    <= BitPacker8x::BLOCK_LEN
+                matches!(reader.directory.as_ref().unwrap().pages.last().unwrap().as_deref().unwrap(), DirectoryPage::Mapping(page) if page.decoded.len() <= BitPacker8x::BLOCK_LEN)
             );
             for entry in &directory.entries {
                 let i = entry.first_ordinal as usize;
@@ -792,7 +936,15 @@ pub mod reader {
                 pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
             };
             assert_eq!(after - before, directory.entries.len() as i64);
-            assert!(reader.pages.iter().all(Option::is_some));
+            assert!(
+                reader
+                    .directory
+                    .as_ref()
+                    .unwrap()
+                    .pages
+                    .iter()
+                    .all(Option::is_some)
+            );
             assert_eq!(reader.get(&bman, blocks.len()), None);
             assert_eq!(reader.get(&bman, usize::MAX), None);
             assert_eq!(reader.into_blocks(&bman).collect::<Vec<_>>(), blocks);
@@ -804,7 +956,11 @@ pub mod reader {
 
         #[pg_test]
         fn test_blocklist_directory_overflow() {
-            use crate::postgres::storage::blocklist::MAX_DIRECTORY_ENTRIES;
+            use crate::postgres::storage::LinkedBytesList;
+            use crate::postgres::storage::block::{
+                BM25PageSpecialData, LinkedList, LinkedListData,
+            };
+            use crate::postgres::storage::blocklist::{DirectoryEntry, MAX_DIRECTORY_ENTRIES};
             Spi::run("CREATE TABLE directory_overflow (id SERIAL, data TEXT)").unwrap();
             Spi::run("CREATE INDEX directory_overflow_idx ON directory_overflow USING bm25 (id, data) WITH (key_field='id')").unwrap();
             let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'directory_overflow_idx'::regclass::oid")
@@ -813,17 +969,127 @@ pub mod reader {
             let rel = PgSearchRelation::open(oid);
             let mut bman = BufferManager::new(&rel);
             let count = MAX_DIRECTORY_ENTRIES as u32 * 2048 + 17;
+            let blocks: Vec<_> = (1..=count).map(|i| i.wrapping_mul(2_654_435_761)).collect();
             let mut builder = builder::BlockList::default();
-            for i in 1..=count {
-                builder.push(i.wrapping_mul(2_654_435_761));
+            for &block in &blocks {
+                builder.push(block);
             }
             let start = builder.finish(&mut bman).unwrap();
-            assert!(Directory::build(&bman, start).is_none());
-            let mut reader = BlockList::new(start);
+            let (mut directory, mut overflow) = Directory::build(&mut bman, start).unwrap();
+            assert_eq!(directory.level, 1);
+            assert!(directory.entries.len() > 1);
+            let mut reader =
+                BlockList::new(start).with_directory(Some(Arc::new(directory.clone())));
+            let before = unsafe {
+                pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
+            };
+            assert_eq!(reader.get(&bman, blocks.len() - 1), blocks.last().copied());
+            assert_eq!(reader.get(&bman, blocks.len() - 1), blocks.last().copied());
+            let after = unsafe {
+                pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
+            };
+            assert_eq!(after - before, 2);
             assert_eq!(
-                reader.get(&bman, count as usize - 1),
-                Some(count.wrapping_mul(2_654_435_761))
+                reader
+                    .directory
+                    .as_ref()
+                    .unwrap()
+                    .pages
+                    .iter()
+                    .filter(|page| page.is_some())
+                    .count(),
+                1
             );
+            for entry in &directory.entries {
+                let i = entry.first_ordinal as usize;
+                for i in [i.saturating_sub(1), i, (i + 1).min(blocks.len() - 1)] {
+                    assert_eq!(reader.get(&bman, i), Some(blocks[i]));
+                }
+            }
+            for step in 0usize..1000 {
+                let i = step.wrapping_mul(7919) % blocks.len();
+                assert_eq!(reader.get(&bman, i), Some(blocks[i]));
+            }
+            assert_eq!(reader.get(&bman, blocks.len()), None);
+            assert_eq!(reader.into_blocks(&bman).collect::<Vec<_>>(), blocks);
+            assert_eq!(
+                BlockList::new(start).into_blocks(&bman).collect::<Vec<_>>(),
+                blocks
+            );
+
+            let leaf_block = directory.entries.last().unwrap().block;
+            let buffer = bman.get_buffer(leaf_block);
+            let original = buffer.page().as_slice().to_vec();
+            let next = buffer.page().next_blockno();
+            drop(buffer);
+            let mut invalid = original.clone();
+            invalid[4..8].copy_from_slice(&99u32.to_le_bytes());
+            {
+                let mut buffer = bman.get_buffer_mut(leaf_block);
+                let mut page = buffer.init_page();
+                assert!(page.append_bytes(&invalid));
+                page.special_mut::<BM25PageSpecialData>().next_blockno = next;
+            }
+            let mut reader =
+                BlockList::new(start).with_directory(Some(Arc::new(directory.clone())));
+            assert_eq!(reader.get(&bman, blocks.len() - 1), blocks.last().copied());
+            assert!(reader.directory.is_none());
+            {
+                let mut buffer = bman.get_buffer_mut(leaf_block);
+                let mut page = buffer.init_page();
+                assert!(page.append_bytes(&original));
+                page.special_mut::<BM25PageSpecialData>().next_blockno = next;
+            }
+
+            for level in 2..=3 {
+                let mut buffer = bman.new_buffer();
+                let block = buffer.number();
+                let mut page = buffer.init_page();
+                assert!(page.append_bytes(&directory.encode()));
+                page.special_mut::<BM25PageSpecialData>().next_blockno = overflow;
+                overflow = block;
+                directory = Directory {
+                    entries: vec![DirectoryEntry {
+                        first_ordinal: 0,
+                        block,
+                    }],
+                    total_entries: count,
+                    level,
+                };
+            }
+            let mut reader =
+                BlockList::new(start).with_directory(Some(Arc::new(directory.clone())));
+            let before = unsafe {
+                pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
+            };
+            assert_eq!(reader.get(&bman, blocks.len() - 1), blocks.last().copied());
+            let after = unsafe {
+                pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
+            };
+            assert_eq!(after - before, 4);
+
+            let list = LinkedBytesList::create_with_fsm(&rel);
+            {
+                let mut buffer = bman.get_buffer_mut(list.header_blockno);
+                let mut page = buffer.page_mut();
+                let metadata = page.contents_mut::<LinkedListData>();
+                metadata.blocklist_start = start;
+                assert!(page.append_bytes(&directory.encode()));
+                page.special_mut::<BM25PageSpecialData>().next_blockno = overflow;
+            }
+            let mut expected = blocks;
+            expected.push(list.header_blockno);
+            for mut block in [overflow, start] {
+                while block != pg_sys::InvalidBlockNumber {
+                    expected.push(block);
+                    block = bman.get_buffer(block).page().next_blockno();
+                }
+            }
+            assert_eq!(
+                list.block_for_ord(count as usize - 1),
+                expected.get(count as usize - 1).copied()
+            );
+            assert_eq!(list.freeable_blocks().collect::<Vec<_>>(), expected);
         }
 
         #[pg_test]
@@ -842,6 +1108,7 @@ pub mod reader {
                     },
                 ],
                 total_entries: 150,
+                level: 0,
             };
             let prefix = vec![0u8; size_of::<LinkedListData>()];
             assert!(Directory::read(&prefix, 900).is_none());
@@ -853,7 +1120,7 @@ pub mod reader {
             }
             for (offset, value) in [
                 (16, 0),
-                (20, 2),
+                (20, 99),
                 (24, u32::MAX),
                 (28, 0),
                 (32, 1),
@@ -873,6 +1140,7 @@ pub mod reader {
                     })
                     .collect(),
                 total_entries: MAX_DIRECTORY_ENTRIES as u32,
+                level: 0,
             };
             let mut bytes = prefix;
             bytes.extend_from_slice(&largest.encode());
@@ -881,6 +1149,23 @@ pub mod reader {
                 crate::postgres::storage::block::bm25_max_free_space()
             );
             assert_eq!(Directory::read(&bytes, 1), Some(largest));
+            for level in 1..=3 {
+                let tree = Directory {
+                    level,
+                    ..directory.clone()
+                };
+                let mut bytes = vec![0; size_of::<LinkedListData>()];
+                bytes.extend_from_slice(&tree.encode());
+                assert_eq!(Directory::read(&bytes, 900), Some(tree));
+                for len in size_of::<LinkedListData>()..bytes.len() {
+                    assert!(Directory::read(&bytes[..len], 900).is_none());
+                }
+                for invalid_level in [0u32, 4, u32::MAX] {
+                    let mut invalid = bytes.clone();
+                    invalid[32..36].copy_from_slice(&invalid_level.to_le_bytes());
+                    assert!(Directory::read(&invalid, 900).is_none());
+                }
+            }
         }
 
         #[pg_test]

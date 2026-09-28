@@ -145,7 +145,7 @@ pub mod scan_state;
 pub mod visibility_filter;
 pub mod window_func;
 
-pub use self::build::CtidColumn;
+pub use self::build::{CtidColumn, ScoreColumn};
 use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
@@ -1370,6 +1370,32 @@ impl CustomScan for JoinScan {
                         OrderByFeature::Field { name: f, .. } => {
                             format!("{} {}", f, oi.direction.as_ref())
                         }
+                        OrderByFeature::Score { rti } => {
+                            let table = if let Some(info) =
+                                base_relations.iter().find(|i| i.heap_rti == *rti)
+                            {
+                                info.alias.as_deref().unwrap_or("?")
+                            } else {
+                                "?"
+                            };
+                            format!("{} {}", ScoreColumn::new(table), oi.direction.as_ref())
+                        }
+                        OrderByFeature::ScoreSum { rtis } => {
+                            let scores: Vec<String> = rtis
+                                .iter()
+                                .map(|rti| {
+                                    let table = if let Some(info) =
+                                        base_relations.iter().find(|i| i.heap_rti == *rti)
+                                    {
+                                        info.alias.as_deref().unwrap_or("?")
+                                    } else {
+                                        "?"
+                                    };
+                                    ScoreColumn::new(table).to_string()
+                                })
+                                .collect();
+                            format!("{} {}", scores.join(" + "), oi.direction.as_ref())
+                        }
                         OrderByFeature::Var { rti, attno, name } => {
                             if let Some(info) = base_relations.iter().find(|i| i.heap_rti == *rti) {
                                 let col_name = get_attname_safe(
@@ -1758,9 +1784,12 @@ impl CustomScan for JoinScan {
                                 let alias = RelationAlias::new(source.scan_info.alias.as_deref())
                                     .execution(*plan_position);
                                 let score_col = format!("_score_{alias}");
+                                let score_col_name =
+                                    ScoreColumn::new(source.display_alias()).to_string();
                                 schema
                                     .index_of(&score_col)
                                     .ok()
+                                    .or_else(|| schema.index_of(&score_col_name).ok())
                                     .or_else(|| schema.index_of(privdat::SCORE_COL_NAME).ok())
                             } else {
                                 schema.index_of(privdat::SCORE_COL_NAME).ok()

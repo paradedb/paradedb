@@ -61,24 +61,25 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
    Limit: 5
-   Order By: pdb.score() desc, p.id asc
+   Order By: pdb.score(p) desc, p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score()@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=5), expr=[pdb.score()@0 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score(p)@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[pdb.score(p)@0 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, id@3, ctid_1@4]
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score(p)@0, ctid_0@1, id@3, ctid_1@4]
+     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(p), ctid_0@1 as ctid_0, supplier_id@2 as supplier_id, id@3 as id]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(15 rows)
+(16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
@@ -108,8 +109,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
@@ -117,15 +118,16 @@ LIMIT 5;
    Limit: 5
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score()@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score(p)@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
      :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, id@3, ctid_1@4]
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score(p)@0, ctid_0@1, id@3, ctid_1@4]
+     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(p), ctid_0@1 as ctid_0, supplier_id@2 as supplier_id, id@3 as id]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(15 rows)
+(16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
@@ -167,15 +169,16 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, pdb.score()@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, pdb.score(s)@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score()@0, ctid_1@1]
-     :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score(s)@0, ctid_1@1]
+     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(s), ctid_1@1 as ctid_1, id@2 as id]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(15 rows)
+(16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
 FROM products p
@@ -208,8 +211,8 @@ WHERE p.description ||| 'wireless'
   AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name, (paradedb.score(p.id)), (paradedb.score(s.id))
    Relation Tree: p INNER s
@@ -217,15 +220,17 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score()@0 as col_4, pdb.score()@3 as col_5, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score(p)@0 as col_4, pdb.score(s)@3 as col_5, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[pdb.score()@3, ctid_0@4, id@6, pdb.score()@0, ctid_1@1]
-     :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(15 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[pdb.score(p)@3, ctid_0@4, id@6, pdb.score(s)@0, ctid_1@1]
+     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(s), ctid_1@1 as ctid_1, id@2 as id]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(p), ctid_0@1 as ctid_0, supplier_id@2 as supplier_id, id@3 as id]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name,
        paradedb.score(p.id) AS product_score,
@@ -262,24 +267,25 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
    Limit: 10
-   Order By: pdb.score() desc
+   Order By: pdb.score(p) desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, pdb.score()@0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[pdb.score()@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, pdb.score(p)@0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[pdb.score(p)@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@2)], projection=[pdb.score()@2, ctid_0@3, ctid_1@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@2)], projection=[pdb.score(p)@2, ctid_0@3, ctid_1@1]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(15 rows)
+     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(p), ctid_0@1 as ctid_0, supplier_id@2 as supplier_id]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
 
 SELECT
     p.id,
@@ -312,8 +318,8 @@ WHERE p.description ||| 'wireless'
   AND paradedb.score(p.id) >= 0
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                         QUERY PLAN                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                          QUERY PLAN                                                                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
@@ -321,15 +327,16 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score()@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score(p)@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, id@3, ctid_1@4]
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score(p)@0, ctid_0@1, id@3, ctid_1@4]
+     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(p), ctid_0@1 as ctid_0, supplier_id@2 as supplier_id, id@3 as id]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(15 rows)
+(16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
@@ -363,24 +370,25 @@ WHERE p.price < 100
   AND paradedb.score(s.id) > 0
 ORDER BY score DESC, p.id
 LIMIT 10;
-                                                                                                                                                                 QUERY PLAN                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.id, s.name, (paradedb.score(s.id))
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
    Limit: 10
-   Order By: pdb.score() desc, p.id asc
+   Order By: pdb.score(s) desc, p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@4 as col_3, NULL as col_4, pdb.score()@2 as col_5, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[pdb.score()@2 DESC, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@4 as col_3, NULL as col_4, pdb.score(s)@2 as col_5, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[pdb.score(s)@2 DESC, id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score()@0, ctid_1@1, id@2]
-     :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, query={"score_filter":{"bounds":[[{"Excluded":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score(s)@0, ctid_1@1, id@2]
+     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(s), ctid_1@1 as ctid_1, id@2 as id]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, query={"score_filter":{"bounds":[[{"Excluded":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}}
-(15 rows)
+(16 rows)
 
 SELECT
   p.id,

@@ -32,8 +32,8 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
     FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    PlannerRootId, RelNode, RelationAlias, lookup_base_rel_info, prune_redundant_const_equi_keys,
-    strip_node_wrappers, try_extract_equi_key,
+    PlannerRootId, RelNode, RelationAlias, ScoreColumn, lookup_base_rel_info,
+    prune_redundant_const_equi_keys, strip_node_wrappers, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
     ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
@@ -79,6 +79,10 @@ pub struct JoinAggSource {
 }
 
 impl JoinAggSource {
+    pub fn display_alias(&self) -> String {
+        RelationAlias::new(self.alias.as_deref()).display(self.rti as usize)
+    }
+
     /// Resolve a heap attribute number to its DataFusion-facing column name
     /// via the ParadeDB index.
     ///
@@ -88,14 +92,15 @@ impl JoinAggSource {
     /// sync with the DataFusion schema built by `build_source_df` (see #4849).
     ///
     /// Returns `None` when the column has no pullable fast field or when the
-    /// resolved field is a synthetic/unsupported kind (`Score`, `Junk`).
+    /// resolved field is a synthetic/unsupported kind (`Junk`).
     /// Mirrors `JoinSource::column_name` in joinscan/build.rs.
     pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
         self.fields()
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| match &f.field {
-                WhichFastField::Score | WhichFastField::Junk(_) => None,
+                WhichFastField::Score => Some(ScoreColumn::new(self.display_alias()).to_string()),
+                WhichFastField::Junk(_) => None,
                 _ => Some(f.field.name()),
             })
     }

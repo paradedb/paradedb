@@ -82,15 +82,16 @@ SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id 
    Limit: 8
    Order By: a.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, pdb.score()@2 as col_2, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, pdb.score(b)@2 as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=8), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[a]
-     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@2, id@4, pdb.score()@0]
-     :         CooperativeExec
-     :           PgSearchScan: table=b, segments=1, visibility=eager, query="all"
+     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@2, id@4, pdb.score(b)@0]
+     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(b), id@1 as id]
+     :           CooperativeExec
+     :             PgSearchScan: table=b, segments=1, visibility=eager, query="all"
      :         CooperativeExec
      :           PgSearchScan: table=a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"txt","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(15 rows)
+(16 rows)
 
 SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
  id | score 

@@ -33,10 +33,12 @@ use pgrx::pg_sys;
 
 use crate::api::FieldName;
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::stats::persisted_split_points;
+use crate::index::stats::{Segment1DBounds, persisted_segment_bounds, persisted_split_points};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::range_partitioning::RangeSplitPoints;
+use crate::scan::range_partitioning::{
+    JointPartitionInput, RangeSplitPoints, optimize_joint_split_points,
+};
 use crate::scan::table_provider::PgSearchTableProvider;
 
 /// Estimated row count of a table.
@@ -401,6 +403,7 @@ impl OptimizerRule for RangePartitioningRule {
         // Sort candidate edges in descending order of data volume
         join_edges.sort_by_key(|b| std::cmp::Reverse(b.priority));
 
+        let target_partitions = _config.options().execution.target_partitions.max(1);
         let mut assigned: HashMap<pg_sys::Index, RangeSplitPoints> = HashMap::new();
 
         for edge in join_edges {
@@ -411,9 +414,13 @@ impl OptimizerRule for RangePartitioningRule {
                 (None, None) => {
                     let l_prov = &providers[&edge.l_rti];
                     let r_prov = &providers[&edge.r_rti];
-                    if let Some(points) =
-                        compute_shared_points(l_prov, &edge.l_field, r_prov, &edge.r_field)?
-                    {
+                    if let Some(points) = compute_shared_points(
+                        l_prov,
+                        &edge.l_field,
+                        r_prov,
+                        &edge.r_field,
+                        target_partitions,
+                    )? {
                         assigned.insert(
                             edge.l_rti,
                             RangeSplitPoints {
@@ -489,12 +496,29 @@ impl OptimizerRule for RangePartitioningRule {
             if (cand.anchor_rows > cand.partner_rows || partner_committed_elsewhere)
                 && let Entry::Vacant(e) = assigned.entry(cand.anchor_rti)
                 && let Some(prov) = providers.get(&cand.anchor_rti)
-                && let Some(points) = side_split_points(prov, &cand.anchor_field)?
             {
-                e.insert(RangeSplitPoints {
-                    partition_by: cand.anchor_field,
-                    points,
-                });
+                let bounds = side_segment_bounds(prov, &cand.anchor_field)?;
+                let points = if let Some(bounds) = bounds.as_deref() {
+                    let input = JointPartitionInput::new(bounds, cand.anchor_rows);
+                    let opt_pts = optimize_joint_split_points(
+                        input,
+                        JointPartitionInput::empty(),
+                        target_partitions,
+                    );
+                    if opt_pts.is_empty() {
+                        side_split_points(prov, &cand.anchor_field)?
+                    } else {
+                        Some(opt_pts)
+                    }
+                } else {
+                    side_split_points(prov, &cand.anchor_field)?
+                };
+                if let Some(points) = points {
+                    e.insert(RangeSplitPoints {
+                        partition_by: cand.anchor_field,
+                        points,
+                    });
+                }
             }
         }
 
@@ -530,13 +554,29 @@ fn named_field_arrow_type(
     })
 }
 
-/// Computes shared split points for two tables joining on matching types.
-/// Returns `None` if types don't match or neither side has split points.
+/// Computes shared range split points for two tables joining on matching types.
+///
+/// If both tables (or at least one table) have an index partitioned along the join key, this
+/// function extracts their 1D segment boundaries and planner row count estimates, then invokes
+/// [`optimize_joint_split_points`] to find `target_partitions - 1` split points.
+///
+/// The optimization balances two competing objectives:
+/// 1. **Minimizing Partial Segment Volume**: Slicing through segments (especially in the larger
+///    table) forces expensive row-level range filtering. The optimizer chooses boundaries that align
+///    with segment edges to minimize the stabbed document volume.
+/// 2. **Worker Load Balancing**: Prevents partition row count skew so that no worker becomes a
+///    bottleneck straggler.
+///
+/// If the joint optimizer returns empty points (e.g. when candidate count is less than `target_partitions - 1`),
+/// falls back to legacy single-sided split points.
+///
+/// Returns `None` if join key arrow types do not match, or if neither table has an index on the join key.
 fn compute_shared_points(
     l_provider: &PgSearchTableProvider,
     l_field: &FieldName,
     r_provider: &PgSearchTableProvider,
     r_field: &FieldName,
+    target_partitions: usize,
 ) -> Result<Option<Vec<PdbOwnedValue>>> {
     let (Some(l_type), Some(r_type)) = (
         named_field_arrow_type(l_provider, l_field),
@@ -548,19 +588,55 @@ fn compute_shared_points(
         return Ok(None);
     }
 
-    let points = match (
-        side_split_points(l_provider, l_field)?,
-        side_split_points(r_provider, r_field)?,
-    ) {
-        (Some(l_points), Some(r_points)) => {
-            let l_rows = l_provider.scan_info.estimate.as_planner_estimate();
-            let r_rows = r_provider.scan_info.estimate.as_planner_estimate();
-            if r_rows > l_rows { r_points } else { l_points }
-        }
-        (Some(points), None) | (None, Some(points)) => points,
-        (None, None) => return Ok(None),
+    let l_bounds = side_segment_bounds(l_provider, l_field)?;
+    let r_bounds = side_segment_bounds(r_provider, r_field)?;
+
+    if l_bounds.is_none() && r_bounds.is_none() {
+        return Ok(None);
+    }
+
+    let l_rows = l_provider.scan_info.estimate.as_planner_estimate();
+    let r_rows = r_provider.scan_info.estimate.as_planner_estimate();
+
+    let l_input = match &l_bounds {
+        Some(bounds) => JointPartitionInput::new(bounds, l_rows),
+        None => JointPartitionInput::empty(),
     };
+    let r_input = match &r_bounds {
+        Some(bounds) => JointPartitionInput::new(bounds, r_rows),
+        None => JointPartitionInput::empty(),
+    };
+
+    let points = optimize_joint_split_points(l_input, r_input, target_partitions);
+    if points.is_empty() {
+        let legacy_points = match (
+            side_split_points(l_provider, l_field)?,
+            side_split_points(r_provider, r_field)?,
+        ) {
+            (Some(l_points), Some(r_points)) => {
+                if r_rows > l_rows {
+                    r_points
+                } else {
+                    l_points
+                }
+            }
+            (Some(points), None) | (None, Some(points)) => points,
+            (None, None) => return Ok(None),
+        };
+        return Ok(Some(legacy_points));
+    }
     Ok(Some(points))
+}
+
+/// The 1D segment bounds for `partition_by`, or `None` for an index without any.
+/// Opens the table provider's index relation and extracts `Segment1DBounds` for the given field.
+fn side_segment_bounds(
+    provider: &PgSearchTableProvider,
+    partition_by: &FieldName,
+) -> Result<Option<Vec<Segment1DBounds>>> {
+    let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
+    persisted_segment_bounds(&index_rel, partition_by.as_ref())
+        .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))
 }
 
 /// The split points a partitioned build stamped on the side's segments, sorted ascending, or

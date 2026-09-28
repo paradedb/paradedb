@@ -50,7 +50,8 @@ mod tests;
 use plugin::stats_component;
 pub(crate) use plugin::{StatsWriter, logical_bounds_hold, register};
 pub(crate) use pruning::{
-    PartitionSegments, SegmentInclusion, persisted_split_points, segments_for_partition,
+    PartitionSegments, Segment1DBounds, SegmentInclusion, persisted_segment_bounds,
+    persisted_split_points, segments_for_partition,
 };
 
 const EMPIRICAL_IDX: usize = 0;

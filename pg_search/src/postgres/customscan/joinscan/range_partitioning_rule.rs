@@ -525,7 +525,7 @@ fn named_field_arrow_type(
     field: &FieldName,
 ) -> Option<arrow_schema::DataType> {
     provider.fields.iter().find_map(|f| match f {
-        WhichFastField::Named(name, sft) if name == field.as_ref() => Some(sft.arrow_data_type()),
+        WhichFastField::Named { name, .. } if name == field.as_ref() => Some(f.arrow_data_type()),
         _ => None,
     })
 }

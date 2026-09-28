@@ -182,7 +182,7 @@ mod tests {
             span: s0,
             active_readers: AtomicU32::new(0),
             usage_count: AtomicU32::new(3),
-            state: SlotState::Ready,
+            state: AtomicU32::new(SlotState::Ready as u32),
         };
 
         // Slot 1: cold (usage_count = 0)
@@ -191,7 +191,7 @@ mod tests {
             span: s1,
             active_readers: AtomicU32::new(0),
             usage_count: AtomicU32::new(0),
-            state: SlotState::Ready,
+            state: AtomicU32::new(SlotState::Ready as u32),
         };
 
         // Allocate another 512KB slab. Slab pool is full, so evict_with_clock_sweep is triggered!
@@ -200,9 +200,9 @@ mod tests {
             .expect("must evict cold slot and allocate");
 
         // Slot 1 (cold, usage_count = 0) must be evicted!
-        assert_eq!(slots[1].state, SlotState::Empty);
+        assert_eq!(slots[1].state(), SlotState::Empty);
         // Slot 0 (hot) should still be Ready, but its usage_count decremented!
-        assert_eq!(slots[0].state, SlotState::Ready);
+        assert_eq!(slots[0].state(), SlotState::Ready);
         assert_eq!(slots[0].usage_count.load(Ordering::Relaxed), 2);
         // New allocation took Slot 1's freed slab
         assert_eq!(s2.offset, s1.offset);
@@ -220,19 +220,19 @@ mod tests {
             span: s0,
             active_readers: AtomicU32::new(2), // 2 readers reading!
             usage_count: AtomicU32::new(0),
-            state: SlotState::Ready,
+            state: AtomicU32::new(SlotState::Ready as u32),
         };
 
         // Arena is full, and slot 0 has active readers > 0 -> eviction must fail!
         let blocked = header.evict_with_clock_sweep(500 * 1024, slots, slab_pool);
         assert!(blocked.is_none(), "Must not evict slot with active readers");
-        assert_eq!(slots[0].state, SlotState::Ready);
+        assert_eq!(slots[0].state(), SlotState::Ready);
 
         // After readers finish:
         slots[0].active_readers.store(0, Ordering::Release);
         let allowed = header.evict_with_clock_sweep(500 * 1024, slots, slab_pool);
         assert!(allowed.is_some(), "Must evict after readers finish");
-        assert_eq!(slots[0].state, SlotState::Empty);
+        assert_eq!(slots[0].state(), SlotState::Empty);
     }
 
     #[pg_test]
@@ -247,14 +247,14 @@ mod tests {
             span: s0,
             active_readers: AtomicU32::new(0),
             usage_count: AtomicU32::new(0),
-            state: SlotState::Superseded,
+            state: AtomicU32::new(SlotState::Superseded as u32),
         };
 
         // Superseded slot with 0 readers is reclaimed on the clock sweep immediately
         let s1 = header
             .evict_with_clock_sweep(500 * 1024, slots, slab_pool)
             .expect("must reclaim superseded slot");
-        assert_eq!(slots[0].state, SlotState::Empty);
+        assert_eq!(slots[0].state(), SlotState::Empty);
         assert_eq!(s1.offset, s0.offset);
     }
 
@@ -308,7 +308,7 @@ mod tests {
                 len: 100,
                 order: 0,
             },
-            state: SlotState::Ready,
+            state: AtomicU32::new(SlotState::Ready as u32),
             active_readers: AtomicU32::new(0),
             usage_count: AtomicU32::new(0),
         };
@@ -319,7 +319,7 @@ mod tests {
                 len: 100,
                 order: 0,
             },
-            state: SlotState::Ready,
+            state: AtomicU32::new(SlotState::Ready as u32),
             active_readers: AtomicU32::new(0),
             usage_count: AtomicU32::new(0),
         };
@@ -330,7 +330,7 @@ mod tests {
                 len: 100,
                 order: 0,
             },
-            state: SlotState::Ready,
+            state: AtomicU32::new(SlotState::Ready as u32),
             active_readers: AtomicU32::new(0),
             usage_count: AtomicU32::new(0),
         };
@@ -341,14 +341,14 @@ mod tests {
                 len: 100,
                 order: 0,
             },
-            state: SlotState::Ready,
+            state: AtomicU32::new(SlotState::Ready as u32),
             active_readers: AtomicU32::new(0),
             usage_count: AtomicU32::new(0),
         };
 
         // Invalidate segment A in index 100
         for slot in &mut slots {
-            if slot.state != SlotState::Empty
+            if slot.state() != SlotState::Empty
                 && slot.key.database_oid == pg_sys::Oid::from_u32(10)
                 && slot.key.index_oid == pg_sys::Oid::from_u32(100)
                 && slot.key.segment_id == seg_a
@@ -357,14 +357,14 @@ mod tests {
             }
         }
 
-        assert_eq!(slots[0].state, SlotState::Empty);
-        assert_eq!(slots[1].state, SlotState::Empty);
-        assert_eq!(slots[2].state, SlotState::Ready);
-        assert_eq!(slots[3].state, SlotState::Ready);
+        assert_eq!(slots[0].state(), SlotState::Empty);
+        assert_eq!(slots[1].state(), SlotState::Empty);
+        assert_eq!(slots[2].state(), SlotState::Ready);
+        assert_eq!(slots[3].state(), SlotState::Ready);
 
         // Invalidate all of index 100
         for slot in &mut slots {
-            if slot.state != SlotState::Empty
+            if slot.state() != SlotState::Empty
                 && slot.key.database_oid == pg_sys::Oid::from_u32(10)
                 && slot.key.index_oid == pg_sys::Oid::from_u32(100)
             {
@@ -372,8 +372,8 @@ mod tests {
             }
         }
 
-        assert_eq!(slots[2].state, SlotState::Empty);
-        assert_eq!(slots[3].state, SlotState::Ready);
+        assert_eq!(slots[2].state(), SlotState::Empty);
+        assert_eq!(slots[3].state(), SlotState::Ready);
     }
 
     #[pg_test]

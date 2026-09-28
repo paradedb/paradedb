@@ -27,7 +27,6 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 use pgrx::{FromDatum, IntoDatum, pg_sys};
 use std::marker::PhantomData;
 use tokenizers::SearchTokenizer;
-use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 
 pub(crate) mod definitions;
@@ -249,18 +248,7 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             *chinese_convert = parsed
                 .get("chinese_convert")
                 .and_then(|p| p.as_str())
-                .map(|s| {
-                    let lcase = s.to_lowercase();
-                    match lcase.as_str() {
-                        "t2s" => ConvertMode::T2S,
-                        "s2t" => ConvertMode::S2T,
-                        "tw2s" => ConvertMode::TW2S,
-                        "tw2sp" => ConvertMode::TW2SP,
-                        "s2tw" => ConvertMode::S2TW,
-                        "s2twp" => ConvertMode::S2TWP,
-                        other => panic!("unknown chinese convert mode: {other}"),
-                    }
-                });
+                .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")));
             *filters = SearchTokenizerFilters::from(parsed);
         }
         SearchTokenizer::UnicodeWords {
@@ -283,18 +271,7 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             *chinese_convert = parsed
                 .get("chinese_convert")
                 .and_then(|p| p.as_str())
-                .map(|s| {
-                    let lcase = s.to_lowercase();
-                    match lcase.as_str() {
-                        "t2s" => ConvertMode::T2S,
-                        "s2t" => ConvertMode::S2T,
-                        "tw2s" => ConvertMode::TW2S,
-                        "tw2sp" => ConvertMode::TW2SP,
-                        "s2tw" => ConvertMode::S2TW,
-                        "s2twp" => ConvertMode::S2TWP,
-                        other => panic!("unknown chinese convert mode: {other}"),
-                    }
-                });
+                .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")));
             *filters = SearchTokenizerFilters::from(parsed);
         }
         SearchTokenizer::ICUTokenizer(filters)

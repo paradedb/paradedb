@@ -20,7 +20,7 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::io::{Cursor, Read, Write};
 use std::ops::Range;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, bm25_max_free_space};
 use crate::postgres::rel::PgSearchRelation;
@@ -79,6 +79,7 @@ impl<T> UnsafeCache<T> {
 // |                       Header Buffer                         |
 // +-------------------------------------------------------------+
 // | LinkedListData                                              |
+// | Optional block-map directory                                |
 // +-------------------------------------------------------------+
 // | LP_SPECIAL                                                  |
 // | [next_blockno: BlockNumber, xmax: TransactionId]            |
@@ -105,10 +106,16 @@ impl<T> UnsafeCache<T> {
 // +-------------------------------------------------------------+
 
 #[derive(Debug)]
+struct ComponentMetadata {
+    list: LinkedListData,
+    directory: Option<Arc<blocklist::Directory>>,
+}
+
+#[derive(Debug)]
 pub struct LinkedBytesList {
     bman: BufferManager,
     pub header_blockno: pg_sys::BlockNumber,
-    metadata: OnceLock<LinkedListData>,
+    metadata: OnceLock<ComponentMetadata>,
     last_block_ord: Option<usize>,
     blocklist_reader: OnceLock<Mutex<blocklist::reader::BlockList>>,
     cache: UnsafeCache<CacheEntry>,
@@ -193,6 +200,9 @@ impl LinkedBytesListWriter {
 
         if let Some(blockno) = self.blocklist_builder.finish(&mut self.list.bman) {
             metadata.blocklist_start = blockno;
+            if let Some(directory) = blocklist::Directory::build(&self.list.bman, blockno) {
+                assert!(header_page.append_bytes(&directory.encode()));
+            }
         }
         Ok(self.list)
     }
@@ -226,20 +236,32 @@ impl LinkedList for LinkedBytesList {
     }
 
     fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber> {
-        let metadata = self.metadata.get_or_init(|| self.get_linked_list_data());
+        let metadata = self.metadata.get_or_init(|| {
+            let buffer = self.bman.get_buffer(self.header_blockno);
+            let page = buffer.page();
+            let list = page.contents::<LinkedListData>();
+            let directory =
+                blocklist::Directory::read(page.as_slice(), list.blocklist_start).map(Arc::new);
+            ComponentMetadata { list, directory }
+        });
         if let Some(last_ord) = self.last_block_ord {
             if ord > last_ord {
                 return None;
             }
             if ord == 0 {
-                return Some(metadata.start_blockno);
+                return Some(metadata.list.start_blockno);
             }
             if ord == last_ord {
-                return Some(metadata.last_blockno);
+                return Some(metadata.list.last_blockno);
             }
         }
         self.blocklist_reader
-            .get_or_init(|| Mutex::new(blocklist::reader::BlockList::new(metadata.blocklist_start)))
+            .get_or_init(|| {
+                Mutex::new(
+                    blocklist::reader::BlockList::new(metadata.list.blocklist_start)
+                        .with_directory(metadata.directory.clone()),
+                )
+            })
             .lock()
             .get(&self.bman, ord)
     }
@@ -560,7 +582,76 @@ mod tests {
         }
         assert!(expected.len() > blocks.len() + 2);
         assert_eq!(list.block_for_ord(0), Some(blocks[0]));
+        let header_blockno = list.header_blockno;
         assert_eq!(list.freeable_blocks().collect::<Vec<_>>(), expected);
+
+        let list = LinkedBytesList::open(&indexrel, header_blockno);
+        let directory = blocklist::Directory::build(&list.bman, start).unwrap();
+        {
+            let mut bman = list.bman.clone();
+            let mut header = bman.get_buffer_mut(header_blockno);
+            assert!(header.page_mut().append_bytes(&directory.encode()));
+        }
+        assert_eq!(list.block_for_ord(blocks.len() - 1), blocks.last().copied());
+        assert_eq!(list.freeable_blocks().collect::<Vec<_>>(), expected);
+    }
+
+    #[pg_test]
+    unsafe fn test_linked_bytes_directory_compatibility() {
+        Spi::run("CREATE TABLE directory_compat (id SERIAL, data TEXT)").unwrap();
+        Spi::run("CREATE INDEX directory_compat_idx ON directory_compat USING bm25 (id, data) WITH (key_field='id')").unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'directory_compat_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let rel = PgSearchRelation::open(oid);
+        let page_size = bm25_max_free_space();
+        let bytes: Vec<u8> = (0..300 * page_size + 17)
+            .map(|i| ((i / page_size * 37 + i) % 251) as u8)
+            .collect();
+        let mut writer = LinkedBytesList::create_with_fsm(&rel).writer();
+        writer.write_all(&bytes).unwrap();
+        let list = writer
+            .finalize_and_write()
+            .unwrap()
+            .with_length(bytes.len());
+        let header = list.header_blockno;
+        let buffer = list.bman.get_buffer(header);
+        let page = buffer.page();
+        let metadata = page.contents::<LinkedListData>();
+        assert!(blocklist::Directory::read(page.as_slice(), metadata.blocklist_start).is_some());
+        drop(buffer);
+        for mode in 0..3 {
+            if mode > 0 {
+                let mut bman = BufferManager::new(&rel);
+                let mut buffer = bman.get_buffer_mut(header);
+                let mut page = buffer.page_mut();
+                page.contents_mut::<LinkedListData>();
+                if mode == 1 {
+                    assert!(
+                        page.append_bytes(b"BDIR\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+                    );
+                }
+            }
+            let reopened = LinkedBytesList::open(&rel, header).with_length(bytes.len());
+            for offset in [0, page_size - 4, page_size * 299, 47, bytes.len() - 17] {
+                assert_eq!(
+                    reopened.get_bytes_range(offset..offset + 17).as_ref(),
+                    &bytes[offset..offset + 17]
+                );
+            }
+            assert_eq!(reopened.read_all(), bytes);
+            assert_eq!(
+                reopened
+                    .blocklist_reader
+                    .get()
+                    .unwrap()
+                    .lock()
+                    .get(&reopened.bman, 0),
+                Some(metadata.start_blockno)
+            );
+        }
+        drop(list);
+        LinkedBytesList::open(&rel, header).return_to_fsm();
     }
 
     #[pg_test]

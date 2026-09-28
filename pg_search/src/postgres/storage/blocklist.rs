@@ -15,10 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::block::{
-    BM25PageSpecialData, LinkedListData, block_number_is_valid, bm25_max_free_space,
-};
-use crate::postgres::storage::buffer::BufferManager;
 use pgrx::pg_sys;
 
 #[derive(Debug)]
@@ -54,192 +50,8 @@ impl From<ChunkStyleTag> for u8 {
     }
 }
 
-const DIRECTORY_MAGIC: &[u8; 4] = b"BDIR";
-const DIRECTORY_VERSION: u32 = 1;
-const DIRECTORY_TREE_VERSION: u32 = 2;
-const DIRECTORY_HEADER_SIZE: usize = 16;
-const DIRECTORY_TREE_HEADER_SIZE: usize = 20;
-const DIRECTORY_ENTRY_SIZE: usize = 8;
-const MAX_DIRECTORY_ENTRIES: usize =
-    (bm25_max_free_space() - size_of::<LinkedListData>() - DIRECTORY_HEADER_SIZE)
-        / DIRECTORY_ENTRY_SIZE;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DirectoryEntry {
-    first_ordinal: u32,
-    block: pg_sys::BlockNumber,
-}
-
-/// Optional component-header suffix: magic, version, entry count, address count, then
-/// (first logical ordinal, physical block) pairs. Version 1 points to map pages; version 2
-/// adds a positive directory level before the pairs. Integers are little-endian.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Directory {
-    entries: Vec<DirectoryEntry>,
-    total_entries: u32,
-    level: u32,
-}
-
-impl Directory {
-    pub fn build(
-        bman: &mut BufferManager,
-        mut block: pg_sys::BlockNumber,
-    ) -> Option<(Self, pg_sys::BlockNumber)> {
-        let mut entries = Vec::new();
-        let mut total_entries = 0u32;
-        while block != pg_sys::InvalidBlockNumber {
-            pgrx::check_for_interrupts!();
-            entries.push(DirectoryEntry {
-                first_ordinal: total_entries,
-                block,
-            });
-            let buffer = bman.get_buffer(block);
-            let page = buffer.page();
-            let mut bytes = page.as_slice();
-            while !bytes.is_empty() {
-                let (count, len) = chunk_size(bytes);
-                total_entries = total_entries.checked_add(count.try_into().ok()?)?;
-                bytes = &bytes[len..];
-            }
-            block = page.next_blockno();
-        }
-        if entries.is_empty() {
-            return None;
-        }
-        let mut directory = Self {
-            entries,
-            total_entries,
-            level: 0,
-        };
-        let mut overflow = pg_sys::InvalidBlockNumber;
-        while directory.entries.len() > directory.capacity(true) {
-            let mut parents = Vec::new();
-            for entries in directory.entries.chunks(directory.capacity(false)) {
-                pgrx::check_for_interrupts!();
-                let end = parents.len() * directory.capacity(false) + entries.len();
-                let node = Self {
-                    entries: entries.to_vec(),
-                    total_entries: directory
-                        .entries
-                        .get(end)
-                        .map_or(total_entries, |entry| entry.first_ordinal),
-                    level: directory.level,
-                };
-                let mut buffer = bman.new_buffer();
-                let block = buffer.number();
-                let mut page = buffer.init_page();
-                assert!(page.append_bytes(&node.encode()));
-                page.special_mut::<BM25PageSpecialData>().next_blockno = overflow;
-                overflow = block;
-                parents.push(DirectoryEntry {
-                    first_ordinal: entries[0].first_ordinal,
-                    block,
-                });
-            }
-            directory.entries = parents;
-            directory.level += 1;
-        }
-        Some((directory, overflow))
-    }
-
-    fn capacity(&self, header: bool) -> usize {
-        if header && self.level == 0 {
-            return MAX_DIRECTORY_ENTRIES;
-        }
-        let prefix = if header {
-            size_of::<LinkedListData>()
-        } else {
-            0
-        };
-        let size = if self.level == 0 {
-            DIRECTORY_HEADER_SIZE
-        } else {
-            DIRECTORY_TREE_HEADER_SIZE
-        };
-        (bm25_max_free_space() - prefix - size) / DIRECTORY_ENTRY_SIZE
-    }
-
-    pub fn read(bytes: &[u8], first_block: pg_sys::BlockNumber) -> Option<Self> {
-        let directory = Self::decode(bytes.get(size_of::<LinkedListData>()..)?)?;
-        if directory.entries.len() > directory.capacity(true)
-            || directory.entries[0].first_ordinal != 0
-            || (directory.level == 0 && directory.entries[0].block != first_block)
-        {
-            return None;
-        }
-        Some(directory)
-    }
-
-    fn decode(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < DIRECTORY_HEADER_SIZE || &bytes[..4] != DIRECTORY_MAGIC {
-            return None;
-        }
-        let word = |offset| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
-        let (level, header_size) = match word(4) {
-            DIRECTORY_VERSION => (0, DIRECTORY_HEADER_SIZE),
-            DIRECTORY_TREE_VERSION if bytes.len() >= DIRECTORY_TREE_HEADER_SIZE => {
-                let level = word(16);
-                if !(1..=3).contains(&level) {
-                    return None;
-                }
-                (level, DIRECTORY_TREE_HEADER_SIZE)
-            }
-            _ => return None,
-        };
-        let count = word(8) as usize;
-        let total_entries = word(12);
-        if count == 0
-            || count > (bm25_max_free_space() - header_size) / DIRECTORY_ENTRY_SIZE
-            || total_entries == 0
-        {
-            return None;
-        }
-        let encoded = bytes.get(header_size..header_size + count * DIRECTORY_ENTRY_SIZE)?;
-        let entries: Vec<_> = encoded
-            .chunks_exact(DIRECTORY_ENTRY_SIZE)
-            .map(|entry| DirectoryEntry {
-                first_ordinal: u32::from_le_bytes(entry[..4].try_into().unwrap()),
-                block: u32::from_le_bytes(entry[4..].try_into().unwrap()),
-            })
-            .collect();
-        if entries.iter().any(|entry| {
-            !block_number_is_valid(entry.block) || entry.first_ordinal >= total_entries
-        }) || entries
-            .windows(2)
-            .any(|pair| pair[0].first_ordinal >= pair[1].first_ordinal)
-        {
-            return None;
-        }
-        Some(Self {
-            entries,
-            total_entries,
-            level,
-        })
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(
-            DIRECTORY_TREE_HEADER_SIZE + self.entries.len() * DIRECTORY_ENTRY_SIZE,
-        );
-        bytes.extend_from_slice(DIRECTORY_MAGIC);
-        let version = if self.level == 0 {
-            DIRECTORY_VERSION
-        } else {
-            DIRECTORY_TREE_VERSION
-        };
-        bytes.extend_from_slice(&version.to_le_bytes());
-        bytes.extend_from_slice(&(self.entries.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&self.total_entries.to_le_bytes());
-        if self.level > 0 {
-            bytes.extend_from_slice(&self.level.to_le_bytes());
-        }
-        for entry in &self.entries {
-            bytes.extend_from_slice(&entry.first_ordinal.to_le_bytes());
-            bytes.extend_from_slice(&entry.block.to_le_bytes());
-        }
-        bytes
-    }
-}
+mod directory;
+pub use directory::Directory;
 
 fn chunk_size(bytes: &[u8]) -> (usize, usize) {
     use bitpacking::{BitPacker, BitPacker1x, BitPacker4x, BitPacker8x};
@@ -582,6 +394,7 @@ pub mod builder {
 
 pub mod reader {
     use super::{ChunkStyleTag, Directory, chunk_size};
+    use crate::immutable_tree::{Bounds, InvalidNode, Node, PageReader, TreeReader};
     use crate::postgres::storage::buffer::BufferManager;
     use bitpacking::{BitPacker, BitPacker1x, BitPacker4x, BitPacker8x};
     use pgrx::pg_sys;
@@ -592,7 +405,7 @@ pub mod reader {
     pub struct BlockList {
         blocks: Vec<pg_sys::BlockNumber>,
         next_blockno: pg_sys::BlockNumber,
-        directory: Option<DirectoryReader>,
+        directory: Option<TreeReader<u32, u32, MappingPage>>,
     }
 
     impl BlockList {
@@ -604,8 +417,14 @@ pub mod reader {
             }
         }
 
-        pub fn with_directory(mut self, directory: Option<Arc<Directory>>) -> Self {
-            self.directory = directory.map(DirectoryReader::new);
+        pub fn with_directory(mut self, directory: Option<Directory>, end: Option<usize>) -> Self {
+            self.directory = directory.and_then(|directory| {
+                let end = end.and_then(|end| u32::try_from(end).ok());
+                if end.is_some() && directory.legacy_end.is_some() && end != directory.legacy_end {
+                    return None;
+                }
+                TreeReader::new(directory.node, end.or(directory.legacy_end)).ok()
+            });
             self
         }
 
@@ -622,9 +441,10 @@ pub mod reader {
 
         pub fn get(&mut self, bman: &BufferManager, i: usize) -> Option<pg_sys::BlockNumber> {
             if let Some(directory) = &mut self.directory {
-                match directory.get(bman, i) {
-                    Ok(block) => return block,
-                    Err(()) => self.directory = None,
+                let ordinal = u32::try_from(i).ok()?;
+                match directory.get(&MappingReader(bman), ordinal) {
+                    Ok(page) => return page.and_then(|page| page.get(i)),
+                    Err(InvalidNode) => self.directory = None,
                 }
             }
             while self.blocks.len() <= i && self.next_blockno != pg_sys::InvalidBlockNumber {
@@ -645,93 +465,38 @@ pub mod reader {
         }
     }
 
-    #[derive(Debug)]
-    struct DirectoryReader {
-        directory: Arc<Directory>,
-        pages: Vec<Option<Box<DirectoryPage>>>,
-        current_page: Option<(usize, Range<usize>)>,
-    }
+    struct MappingReader<'a>(&'a BufferManager);
 
-    #[derive(Debug)]
-    enum DirectoryPage {
-        Directory(DirectoryReader),
-        Mapping(MappingPage),
-    }
+    impl PageReader<u32, u32> for MappingReader<'_> {
+        type Leaf = MappingPage;
 
-    impl DirectoryPage {
-        fn get(
-            &mut self,
-            bman: &BufferManager,
-            ordinal: usize,
-        ) -> Result<Option<pg_sys::BlockNumber>, ()> {
-            match self {
-                Self::Mapping(page) => Ok(page.get(ordinal)),
-                Self::Directory(directory) => directory.get(bman, ordinal),
+        fn read_node(
+            &self,
+            address: u32,
+            bounds: Bounds<u32>,
+        ) -> Result<Arc<Node<u32, u32>>, InvalidNode> {
+            let buffer = self.0.get_buffer(address);
+            let directory = Directory::decode(buffer.page().as_slice()).ok_or(InvalidNode)?;
+            if bounds.end.is_some()
+                && directory.legacy_end.is_some()
+                && bounds.end != directory.legacy_end
+            {
+                return Err(InvalidNode);
             }
-        }
-    }
-
-    impl DirectoryReader {
-        fn new(directory: Arc<Directory>) -> Self {
-            let pages = (0..directory.entries.len()).map(|_| None).collect();
-            Self {
-                directory,
-                pages,
-                current_page: None,
-            }
+            Ok(directory.node)
         }
 
-        fn get(
-            &mut self,
-            bman: &BufferManager,
-            ordinal: usize,
-        ) -> Result<Option<pg_sys::BlockNumber>, ()> {
-            if ordinal >= self.directory.total_entries as usize
-                || ordinal < self.directory.entries[0].first_ordinal as usize
+        fn read_leaf(&self, address: u32, bounds: Bounds<u32>) -> Result<MappingPage, InvalidNode> {
+            let buffer = self.0.get_buffer(address);
+            let mapping =
+                MappingPage::new(bounds.start as usize, buffer.page().as_slice().to_vec());
+            if bounds
+                .end
+                .is_some_and(|end| mapping.ordinals.end != end as usize)
             {
-                return Ok(None);
+                return Err(InvalidNode);
             }
-            if let Some((pos, range)) = &self.current_page
-                && range.contains(&ordinal)
-            {
-                return self.pages[*pos].as_mut().unwrap().get(bman, ordinal);
-            }
-            let pos = self
-                .directory
-                .entries
-                .partition_point(|entry| entry.first_ordinal as usize <= ordinal)
-                - 1;
-            let entry = &self.directory.entries[pos];
-            let first = entry.first_ordinal as usize;
-            let end = self
-                .directory
-                .entries
-                .get(pos + 1)
-                .map_or(self.directory.total_entries, |entry| entry.first_ordinal)
-                as usize;
-            if self.pages[pos].is_none() {
-                let buffer = bman.get_buffer(entry.block);
-                let page = buffer.page();
-                let child = if self.directory.level == 0 {
-                    let mapping = MappingPage::new(first, page.as_slice().to_vec());
-                    if mapping.ordinals != (first..end) {
-                        return Err(());
-                    }
-                    DirectoryPage::Mapping(mapping)
-                } else {
-                    let directory = Directory::decode(page.as_slice()).ok_or(())?;
-                    if directory.level + 1 != self.directory.level
-                        || directory.entries[0].first_ordinal as usize != first
-                        || directory.total_entries as usize != end
-                    {
-                        return Err(());
-                    }
-                    DirectoryPage::Directory(Self::new(Arc::new(directory)))
-                };
-                self.pages[pos] = Some(Box::new(child));
-            }
-            self.current_page = Some((pos, first..end));
-            self.pages[pos].as_mut().unwrap().get(bman, ordinal)
+            Ok(mapping)
         }
     }
 
@@ -907,9 +672,11 @@ pub mod reader {
                 builder.push(block);
             }
             let start = builder.finish(&mut bman).unwrap();
-            let directory = Arc::new(Directory::build(&mut bman, start).unwrap().0);
-            assert!(directory.entries.len() > 4);
-            let mut reader = BlockList::new(start).with_directory(Some(directory.clone()));
+            let directory = Directory::build(&mut bman, start).unwrap().0;
+            assert_eq!(directory.node.level, 0);
+            assert!(directory.node.entries.len() > 4);
+            let entries = directory.node.entries.clone();
+            let mut reader = BlockList::new(start).with_directory(Some(directory), None);
             let before = unsafe {
                 pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
             };
@@ -919,11 +686,8 @@ pub mod reader {
             };
             assert_eq!(after - before, 1);
             assert!(reader.blocks.is_empty());
-            assert!(
-                matches!(reader.directory.as_ref().unwrap().pages.last().unwrap().as_deref().unwrap(), DirectoryPage::Mapping(page) if page.decoded.len() <= BitPacker8x::BLOCK_LEN)
-            );
-            for entry in &directory.entries {
-                let i = entry.first_ordinal as usize;
+            for entry in &entries {
+                let i = entry.start as usize;
                 for i in [i.saturating_sub(1), i, (i + 1).min(blocks.len() - 1)] {
                     assert_eq!(reader.get(&bman, i), Some(blocks[i]));
                 }
@@ -935,16 +699,7 @@ pub mod reader {
             let after = unsafe {
                 pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
             };
-            assert_eq!(after - before, directory.entries.len() as i64);
-            assert!(
-                reader
-                    .directory
-                    .as_ref()
-                    .unwrap()
-                    .pages
-                    .iter()
-                    .all(Option::is_some)
-            );
+            assert_eq!(after - before, entries.len() as i64);
             assert_eq!(reader.get(&bman, blocks.len()), None);
             assert_eq!(reader.get(&bman, usize::MAX), None);
             assert_eq!(reader.into_blocks(&bman).collect::<Vec<_>>(), blocks);
@@ -956,11 +711,12 @@ pub mod reader {
 
         #[pg_test]
         fn test_blocklist_directory_overflow() {
+            use crate::immutable_tree::Entry;
             use crate::postgres::storage::LinkedBytesList;
             use crate::postgres::storage::block::{
                 BM25PageSpecialData, LinkedList, LinkedListData,
             };
-            use crate::postgres::storage::blocklist::{DirectoryEntry, MAX_DIRECTORY_ENTRIES};
+            use crate::postgres::storage::blocklist::directory::ROOT_CAPACITY;
             Spi::run("CREATE TABLE directory_overflow (id SERIAL, data TEXT)").unwrap();
             Spi::run("CREATE INDEX directory_overflow_idx ON directory_overflow USING bm25 (id, data) WITH (key_field='id')").unwrap();
             let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'directory_overflow_idx'::regclass::oid")
@@ -968,7 +724,7 @@ pub mod reader {
                 .unwrap();
             let rel = PgSearchRelation::open(oid);
             let mut bman = BufferManager::new(&rel);
-            let count = MAX_DIRECTORY_ENTRIES as u32 * 2048 + 17;
+            let count = ROOT_CAPACITY as u32 * 2048 + 17;
             let blocks: Vec<_> = (1..=count).map(|i| i.wrapping_mul(2_654_435_761)).collect();
             let mut builder = builder::BlockList::default();
             for &block in &blocks {
@@ -976,10 +732,10 @@ pub mod reader {
             }
             let start = builder.finish(&mut bman).unwrap();
             let (mut directory, mut overflow) = Directory::build(&mut bman, start).unwrap();
-            assert_eq!(directory.level, 1);
-            assert!(directory.entries.len() > 1);
+            assert_eq!(directory.node.level, 1);
+            assert!(directory.node.entries.len() > 1);
             let mut reader =
-                BlockList::new(start).with_directory(Some(Arc::new(directory.clone())));
+                BlockList::new(start).with_directory(Some(directory.clone()), Some(count as usize));
             let before = unsafe {
                 pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
             };
@@ -989,19 +745,8 @@ pub mod reader {
                 pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
             };
             assert_eq!(after - before, 2);
-            assert_eq!(
-                reader
-                    .directory
-                    .as_ref()
-                    .unwrap()
-                    .pages
-                    .iter()
-                    .filter(|page| page.is_some())
-                    .count(),
-                1
-            );
-            for entry in &directory.entries {
-                let i = entry.first_ordinal as usize;
+            for entry in &directory.node.entries {
+                let i = entry.start as usize;
                 for i in [i.saturating_sub(1), i, (i + 1).min(blocks.len() - 1)] {
                     assert_eq!(reader.get(&bman, i), Some(blocks[i]));
                 }
@@ -1017,7 +762,7 @@ pub mod reader {
                 blocks
             );
 
-            let leaf_block = directory.entries.last().unwrap().block;
+            let leaf_block = directory.node.entries.last().unwrap().address;
             let buffer = bman.get_buffer(leaf_block);
             let original = buffer.page().as_slice().to_vec();
             let next = buffer.page().next_blockno();
@@ -1031,7 +776,7 @@ pub mod reader {
                 page.special_mut::<BM25PageSpecialData>().next_blockno = next;
             }
             let mut reader =
-                BlockList::new(start).with_directory(Some(Arc::new(directory.clone())));
+                BlockList::new(start).with_directory(Some(directory.clone()), Some(count as usize));
             assert_eq!(reader.get(&bman, blocks.len() - 1), blocks.last().copied());
             assert!(reader.directory.is_none());
             {
@@ -1049,16 +794,18 @@ pub mod reader {
                 page.special_mut::<BM25PageSpecialData>().next_blockno = overflow;
                 overflow = block;
                 directory = Directory {
-                    entries: vec![DirectoryEntry {
-                        first_ordinal: 0,
-                        block,
-                    }],
-                    total_entries: count,
-                    level,
+                    node: Arc::new(Node {
+                        entries: vec![Entry {
+                            start: 0,
+                            address: block,
+                        }],
+                        level,
+                    }),
+                    legacy_end: None,
                 };
             }
             let mut reader =
-                BlockList::new(start).with_directory(Some(Arc::new(directory.clone())));
+                BlockList::new(start).with_directory(Some(directory.clone()), Some(count as usize));
             let before = unsafe {
                 pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
             };
@@ -1094,75 +841,103 @@ pub mod reader {
 
         #[pg_test]
         fn test_blocklist_directory_format() {
-            use crate::postgres::storage::block::LinkedListData;
-            use crate::postgres::storage::blocklist::{DirectoryEntry, MAX_DIRECTORY_ENTRIES};
+            use crate::immutable_tree::Entry;
+            use crate::postgres::storage::block::{LinkedListData, bm25_max_free_space};
+            use crate::postgres::storage::blocklist::directory::ROOT_CAPACITY;
             let directory = Directory {
-                entries: vec![
-                    DirectoryEntry {
-                        first_ordinal: 0,
-                        block: 900,
-                    },
-                    DirectoryEntry {
-                        first_ordinal: 100,
-                        block: 2700,
-                    },
-                ],
-                total_entries: 150,
-                level: 0,
+                node: Arc::new(Node {
+                    entries: vec![
+                        Entry {
+                            start: 0,
+                            address: 900,
+                        },
+                        Entry {
+                            start: 100,
+                            address: 2700,
+                        },
+                    ],
+                    level: 0,
+                }),
+                legacy_end: None,
             };
             let prefix = vec![0u8; size_of::<LinkedListData>()];
             assert!(Directory::read(&prefix, 900).is_none());
-            let mut bytes = prefix.clone();
-            bytes.extend_from_slice(&directory.encode());
-            assert_eq!(Directory::read(&bytes, 900), Some(directory.clone()));
-            for len in prefix.len()..bytes.len() {
-                assert!(Directory::read(&bytes[..len], 900).is_none());
-            }
-            for (offset, value) in [
-                (16, 0),
-                (20, 99),
-                (24, u32::MAX),
-                (28, 0),
-                (32, 1),
-                (36, 0),
-                (40, 0),
-            ] {
-                let mut invalid = bytes.clone();
-                invalid[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-                assert!(Directory::read(&invalid, 900).is_none());
-            }
-            assert!(Directory::read(&bytes, 901).is_none());
-            let largest = Directory {
-                entries: (0..MAX_DIRECTORY_ENTRIES as u32)
-                    .map(|i| DirectoryEntry {
-                        first_ordinal: i,
-                        block: i + 1,
-                    })
-                    .collect(),
-                total_entries: MAX_DIRECTORY_ENTRIES as u32,
-                level: 0,
-            };
-            let mut bytes = prefix;
-            bytes.extend_from_slice(&largest.encode());
-            assert_eq!(
-                bytes.len(),
-                crate::postgres::storage::block::bm25_max_free_space()
-            );
-            assert_eq!(Directory::read(&bytes, 1), Some(largest));
-            for level in 1..=3 {
-                let tree = Directory {
-                    level,
-                    ..directory.clone()
-                };
-                let mut bytes = vec![0; size_of::<LinkedListData>()];
-                bytes.extend_from_slice(&tree.encode());
-                assert_eq!(Directory::read(&bytes, 900), Some(tree));
-                for len in size_of::<LinkedListData>()..bytes.len() {
+            for (version, level) in [(1u32, 0u32), (2, 0), (2, 1), (2, 2), (2, 3)] {
+                let mut bytes = prefix.clone();
+                bytes.extend_from_slice(b"BDIR");
+                for word in [version, 2, 150] {
+                    bytes.extend_from_slice(&word.to_le_bytes());
+                }
+                if version == 2 {
+                    bytes.extend_from_slice(&level.to_le_bytes());
+                }
+                for word in [0u32, 900, 100, 2700] {
+                    bytes.extend_from_slice(&word.to_le_bytes());
+                }
+                let parsed = Directory::read(&bytes, 900).unwrap();
+                assert_eq!(parsed.node.entries, directory.node.entries);
+                assert_eq!(parsed.node.level, level);
+                assert_eq!(parsed.legacy_end, Some(150));
+                for len in prefix.len()..bytes.len() {
                     assert!(Directory::read(&bytes[..len], 900).is_none());
                 }
-                for invalid_level in [0u32, 4, u32::MAX] {
+                if level == 0 {
+                    assert!(Directory::read(&bytes, 901).is_none());
+                }
+            }
+            let legacy_count = ((bm25_max_free_space() - prefix.len() - 16) / 8) as u32;
+            let mut legacy = prefix.clone();
+            legacy.extend_from_slice(b"BDIR");
+            for word in [1u32, legacy_count, legacy_count] {
+                legacy.extend_from_slice(&word.to_le_bytes());
+            }
+            for i in 0..legacy_count {
+                legacy.extend_from_slice(&i.to_le_bytes());
+                legacy.extend_from_slice(&(i + 1).to_le_bytes());
+            }
+            assert_eq!(legacy.len(), bm25_max_free_space());
+            assert_eq!(
+                Directory::read(&legacy, 1).unwrap().node.entries.len(),
+                legacy_count as usize
+            );
+
+            let largest = Directory {
+                node: Arc::new(Node {
+                    entries: (0..ROOT_CAPACITY as u32)
+                        .map(|i| Entry {
+                            start: i,
+                            address: i + 1,
+                        })
+                        .collect(),
+                    level: 1,
+                }),
+                legacy_end: None,
+            };
+            let mut bytes = prefix.clone();
+            bytes.extend_from_slice(&largest.encode());
+            assert!(bytes.len() <= bm25_max_free_space());
+            assert!(bm25_max_free_space() - bytes.len() < 8);
+            assert_eq!(Directory::read(&bytes, 1), Some(largest));
+            for level in 0..=3 {
+                let node = Directory {
+                    node: Arc::new(Node {
+                        level,
+                        ..(*directory.node).clone()
+                    }),
+                    legacy_end: None,
+                };
+                let mut bytes = prefix.clone();
+                bytes.extend_from_slice(&node.encode());
+                assert_eq!(Directory::read(&bytes, 900), Some(node));
+                for len in prefix.len()..bytes.len() {
+                    // Whole-entry prefixes are valid in v3; pd_lower supplies the entry count.
+                    if len < prefix.len() + 20 || !(len - prefix.len() - 12).is_multiple_of(8) {
+                        assert!(Directory::read(&bytes[..len], 900).is_none());
+                    }
+                }
+                for (offset, value) in [(16, 0), (20, 99), (24, 4), (28, 1), (32, 0), (36, 0)] {
                     let mut invalid = bytes.clone();
-                    invalid[32..36].copy_from_slice(&invalid_level.to_le_bytes());
+                    invalid[offset..offset + 4].copy_from_slice(&u32::to_le_bytes(value));
                     assert!(Directory::read(&invalid, 900).is_none());
                 }
             }

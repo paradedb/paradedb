@@ -20,7 +20,7 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::io::{Cursor, Read, Write};
 use std::ops::Range;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, bm25_max_free_space};
 use crate::postgres::rel::PgSearchRelation;
@@ -108,7 +108,7 @@ impl<T> UnsafeCache<T> {
 #[derive(Debug)]
 struct ComponentMetadata {
     list: LinkedListData,
-    directory: Option<Arc<blocklist::Directory>>,
+    directory: Option<blocklist::Directory>,
 }
 
 #[derive(Debug)]
@@ -245,8 +245,7 @@ impl LinkedList for LinkedBytesList {
             let buffer = self.bman.get_buffer(self.header_blockno);
             let page = buffer.page();
             let list = page.contents::<LinkedListData>();
-            let directory =
-                blocklist::Directory::read(page.as_slice(), list.blocklist_start).map(Arc::new);
+            let directory = blocklist::Directory::read(page.as_slice(), list.blocklist_start);
             ComponentMetadata { list, directory }
         });
         if let Some(last_ord) = self.last_block_ord {
@@ -264,7 +263,10 @@ impl LinkedList for LinkedBytesList {
             .get_or_init(|| {
                 Mutex::new(
                     blocklist::reader::BlockList::new(metadata.list.blocklist_start)
-                        .with_directory(metadata.directory.clone()),
+                        .with_directory(
+                            metadata.directory.clone(),
+                            self.last_block_ord.map(|last| last + 1),
+                        ),
                 )
             })
             .lock()
@@ -604,7 +606,9 @@ mod tests {
         {
             let mut bman = list.bman.clone();
             let mut header = bman.get_buffer_mut(header_blockno);
-            assert!(header.page_mut().append_bytes(&directory.encode()));
+            let mut page = header.page_mut();
+            assert!(page.append_bytes(&directory.encode()));
+            page.special_mut::<BM25PageSpecialData>().next_blockno = overflow;
         }
         assert_eq!(list.block_for_ord(blocks.len() - 1), blocks.last().copied());
         assert_eq!(list.freeable_blocks().collect::<Vec<_>>(), expected);

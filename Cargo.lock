@@ -5083,6 +5083,7 @@ dependencies = [
  "chrono",
  "datafusion",
  "datafusion-distributed",
+ "datafusion-functions-aggregate-common",
  "datafusion-proto",
  "decimal-bytes",
  "dst",

@@ -23,8 +23,9 @@
 //! Like `block_tracker`, this is compiled out unless the `io_stats` feature is
 //! enabled, in which case the per-segment counters are merged into the
 //! `Segment Info` JSON shown by `EXPLAIN (ANALYZE, VERBOSE)`.
-//! Base scans also expose a `Buffer Hits` breakdown for component accesses during
-//! `ExecCustomScan`, including reader setup and heap visibility checks.
+//! With `BUFFERS`, analyzed base scans also expose a `Buffer Hits` breakdown for
+//! component accesses during `ExecCustomScan`, including reader setup and heap
+//! visibility checks.
 
 #[cfg(feature = "io_stats")]
 mod imp {
@@ -531,51 +532,64 @@ mod imp {
                     true,
                 ),
             ] {
-                let plan = pgrx::Spi::get_one::<pgrx::Json>(&format!(
-                    "EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) {query}"
-                ))
-                .unwrap()
-                .unwrap()
-                .0;
-                let mut nodes = vec![&plan[0]["Plan"]];
-                let scan = loop {
-                    let node = nodes.pop().expect("ParadeDB scan should be present");
-                    if node.get("Buffer Hits").is_some() {
-                        break node;
+                for (analyze, buffers, verbose) in [
+                    (true, true, true),
+                    (true, true, false),
+                    (true, false, true),
+                    (true, false, false),
+                    (false, true, false),
+                ] {
+                    let plan = pgrx::Spi::get_one::<pgrx::Json>(&format!(
+                        "EXPLAIN (ANALYZE {analyze}, VERBOSE {verbose}, BUFFERS {buffers}, FORMAT JSON) {query}"
+                    ))
+                    .unwrap()
+                    .unwrap()
+                    .0;
+                    let mut nodes = vec![&plan[0]["Plan"]];
+                    let scan = loop {
+                        let node = nodes.pop().expect("ParadeDB scan should be present");
+                        if node["Index"] == "io_accounting_idx" {
+                            break node;
+                        }
+                        if let Some(children) = node["Plans"].as_array() {
+                            nodes.extend(children);
+                        }
+                    };
+                    let hits = scan
+                        .get("Buffer Hits")
+                        .map(|hits| hits.as_object().unwrap());
+                    assert_eq!(hits.is_some(), analyze && buffers);
+                    if let Some(hits) = hits {
+                        let total = hits["Total"].as_u64().unwrap();
+                        assert!(total > 0);
+                        assert_eq!(
+                            hits.iter()
+                                .filter(|(name, _)| name.as_str() != "Total")
+                                .map(|(_, value)| value.as_u64().unwrap())
+                                .sum::<u64>(),
+                            total,
+                        );
                     }
-                    if let Some(children) = node["Plans"].as_array() {
-                        nodes.extend(children);
-                    }
-                };
-                let hits = scan["Buffer Hits"].as_object().unwrap();
-                let total = hits["Total"].as_u64().unwrap();
-                assert!(total > 0);
-                assert_eq!(
-                    hits.iter()
-                        .filter(|(name, _)| name.as_str() != "Total")
-                        .map(|(_, value)| value.as_u64().unwrap())
-                        .sum::<u64>(),
-                    total,
-                );
-                if vector {
-                    let segments: BTreeMap<String, serde_json::Value> =
-                        serde_json::from_str(scan["Segment Info"].as_str().unwrap()).unwrap();
-                    let vector_hits = segments
-                        .values()
-                        .map(|stats| stats["io_vec_buffer_hits"].as_u64().unwrap_or(0))
-                        .sum::<u64>();
-                    assert!(vector_hits > 0);
-                    assert!(vector_hits <= hits["Vectors"].as_u64().unwrap());
-                    assert!(
-                        segments
+                    if vector && analyze && verbose {
+                        let segments: BTreeMap<String, serde_json::Value> =
+                            serde_json::from_str(scan["Segment Info"].as_str().unwrap()).unwrap();
+                        let vector_hits = segments
                             .values()
-                            .any(|stats| stats.as_object().unwrap().keys().any(|key| {
+                            .map(|stats| stats["io_vec_buffer_hits"].as_u64().unwrap_or(0))
+                            .sum::<u64>();
+                        assert!(vector_hits > 0);
+                        if let Some(hits) = hits {
+                            assert!(vector_hits <= hits["Vectors"].as_u64().unwrap());
+                        }
+                        assert!(segments.values().any(|stats| {
+                            stats.as_object().unwrap().keys().any(|key| {
                                 key != "scan_init_buffer_hits"
                                     && !key.starts_with("io_")
                                     && !key.starts_with("scan_init_io_")
                                     && key.ends_with("_buffer_hits")
-                            }))
-                    );
+                            })
+                        }));
+                    }
                 }
             }
         }

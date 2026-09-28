@@ -15,6 +15,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! A lookup tree that stays fixed after it is built.
+//!
+//! ```text
+//! root (level 1)
+//!   0 -> A (level 0):   0 -> leaf a,  40 -> leaf b
+//! 100 -> B (level 0): 100 -> leaf c, 160 -> leaf d
+//! ```
+//!
+//! To find key 130, take the last start <= 130 at each node: root -> B -> leaf c.
+//! Level 0 points to leaf data; higher levels point to lower nodes. A small tree
+//! can put its level-0 node directly in the root.
+//!
+//! Building groups sorted entries into pages, adding parents until the root fits.
+//! Lookups load and cache only visited pages. The caller supplies page sizes,
+//! reads, writes, and leaf data; this module has no Postgres-specific code.
+
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

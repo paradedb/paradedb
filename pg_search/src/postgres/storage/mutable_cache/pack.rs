@@ -43,7 +43,7 @@
 //! references directly into PostgreSQL shared memory.
 
 use std::collections::HashMap;
-use std::io::{self, Cursor, Write};
+use std::io::{self, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -91,18 +91,28 @@ pub struct PackedTocEntry {
     pub len: u64,
 }
 
-/// A directory implementation that collects written files into memory buffers.
+// TODO: Once `RamDirectory` in Tantivy implements `list_managed_files()` or exposes internal file
+// iteration, `pack_segment` can read `FileSlice`s directly without calling `RamDirectory::persist`
+// or using `SegmentCollector`, eliminating intermediate heap allocations and buffer copies entirely.
+
+type CollectedFiles = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
+
+/// A directory implementation that collects written files matching a prefix into memory buffers.
 #[derive(Default, Clone, Debug)]
 pub struct SegmentCollector {
-    files: Arc<Mutex<HashMap<PathBuf, Vec<u8>>>>,
+    prefix: String,
+    files: CollectedFiles,
 }
 
 impl SegmentCollector {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(prefix: String) -> Self {
+        Self {
+            prefix,
+            files: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
-    pub fn into_files(self) -> HashMap<PathBuf, Vec<u8>> {
+    pub fn into_files(self) -> Vec<(String, Vec<u8>)> {
         Arc::try_unwrap(self.files)
             .map(|m| m.into_inner().unwrap())
             .unwrap_or_else(|arc| arc.lock().unwrap().clone())
@@ -110,14 +120,15 @@ impl SegmentCollector {
 }
 
 struct CollectorWriter {
-    path: PathBuf,
-    collector: SegmentCollector,
-    data: Cursor<Vec<u8>>,
+    filename: String,
+    files: CollectedFiles,
+    data: Vec<u8>,
 }
 
 impl Write for CollectorWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.data.write(buf)
+        self.data.extend_from_slice(buf);
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -127,75 +138,88 @@ impl Write for CollectorWriter {
 
 impl TerminatingWrite for CollectorWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> io::Result<()> {
-        let mut files = self.collector.files.lock().unwrap();
-        files.insert(self.path.clone(), self.data.get_ref().clone());
+        let mut files = self.files.lock().unwrap();
+        files.push((self.filename.clone(), std::mem::take(&mut self.data)));
+        Ok(())
+    }
+}
+
+struct DiscardWriter;
+
+impl Write for DiscardWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl TerminatingWrite for DiscardWriter {
+    fn terminate_ref(&mut self, _: AntiCallToken) -> io::Result<()> {
         Ok(())
     }
 }
 
 impl Directory for SegmentCollector {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        let files = self.files.lock().unwrap();
-        let data = files
-            .get(path)
-            .ok_or_else(|| OpenReadError::FileDoesNotExist(path.to_path_buf()))?;
-        Ok(Arc::new(FileSlice::from(data.clone())))
+        Err(OpenReadError::FileDoesNotExist(path.to_path_buf()))
     }
 
     fn open_read(&self, path: &Path) -> Result<FileSlice, OpenReadError> {
-        let files = self.files.lock().unwrap();
-        let data = files
-            .get(path)
-            .ok_or_else(|| OpenReadError::FileDoesNotExist(path.to_path_buf()))?;
-        Ok(FileSlice::from(data.clone()))
+        Err(OpenReadError::FileDoesNotExist(path.to_path_buf()))
     }
 
     fn delete(&self, path: &Path) -> Result<(), DeleteError> {
-        self.files.lock().unwrap().remove(path);
-        Ok(())
+        Err(DeleteError::FileDoesNotExist(path.to_path_buf()))
     }
 
-    fn exists(&self, path: &Path) -> Result<bool, OpenReadError> {
-        Ok(self.files.lock().unwrap().contains_key(path))
+    fn exists(&self, _path: &Path) -> Result<bool, OpenReadError> {
+        Ok(false)
     }
 
     fn open_write_inner(&self, path: &Path) -> Result<InnerWritePtr, OpenWriteError> {
-        Ok(Box::new(CollectorWriter {
-            path: path.to_path_buf(),
-            collector: self.clone(),
-            data: Cursor::new(Vec::new()),
-        }))
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        if filename.starts_with(&self.prefix) {
+            Ok(Box::new(CollectorWriter {
+                filename,
+                files: Arc::clone(&self.files),
+                data: Vec::new(),
+            }))
+        } else {
+            Ok(Box::new(DiscardWriter))
+        }
     }
 
     fn open_temp_file(&self) -> io::Result<TempFilePtr> {
-        Ok(Box::new(Cursor::new(Vec::new())))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "temp file unsupported in SegmentCollector",
+        ))
     }
 
     fn atomic_read(&self, path: &Path) -> Result<Vec<u8>, OpenReadError> {
-        let files = self.files.lock().unwrap();
-        files
-            .get(path)
-            .cloned()
-            .ok_or_else(|| OpenReadError::FileDoesNotExist(path.to_path_buf()))
+        Err(OpenReadError::FileDoesNotExist(path.to_path_buf()))
     }
 
-    fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        self.files
-            .lock()
-            .unwrap()
-            .insert(path.to_path_buf(), data.to_vec());
-        Ok(())
+    fn atomic_write(&self, _path: &Path, _data: &[u8]) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "atomic write unsupported in SegmentCollector",
+        ))
     }
 
     fn sync_directory(&self) -> io::Result<()> {
         Ok(())
     }
 
-    fn acquire_lock(&self, lock: &Lock) -> Result<tantivy::directory::DirectoryLock, LockError> {
-        Ok(tantivy::directory::DirectoryLock::from(Box::new(Lock {
-            filepath: lock.filepath.clone(),
-            is_blocking: true,
-        })))
+    fn acquire_lock(&self, _lock: &Lock) -> Result<tantivy::directory::DirectoryLock, LockError> {
+        Err(LockError::LockBusy)
     }
 
     fn watch(&self, _watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
@@ -208,24 +232,10 @@ pub fn pack_segment(
     ram_directory: &tantivy::directory::RamDirectory,
     segment_id: &SegmentId,
 ) -> anyhow::Result<Vec<u8>> {
-    let collector = SegmentCollector::new();
-    ram_directory.persist(&collector)?;
-    let files = collector.into_files();
-
     let id_str = segment_id.uuid_string();
-    let mut relevant_files: Vec<(String, Vec<u8>)> = Vec::new();
-
-    for (path, data) in files {
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
-        if filename.starts_with(&id_str) {
-            relevant_files.push((filename, data));
-        }
-    }
-
+    let collector = SegmentCollector::new(id_str);
+    ram_directory.persist(&collector)?;
+    let mut relevant_files = collector.into_files();
     relevant_files.sort_by(|a, b| a.0.cmp(&b.0));
 
     let file_count = relevant_files.len();
@@ -305,11 +315,12 @@ pub fn unpack_toc(slice: &[u8]) -> Option<HashMap<PathBuf, Range<usize>>> {
         return None;
     }
 
-    let file_count = header.file_count as usize;
+    let file_count = usize::try_from(header.file_count).ok()?;
     let toc_entry_size = std::mem::size_of::<PackedTocEntry>();
-    let total_toc_size = header_size + file_count * toc_entry_size;
+    let total_toc_size = header_size.checked_add(file_count.checked_mul(toc_entry_size)?)?;
+    let total_bytes = usize::try_from(header.total_bytes).ok()?;
 
-    if slice.len() < total_toc_size || slice.len() < header.total_bytes as usize {
+    if slice.len() < total_toc_size || slice.len() < total_bytes {
         return None;
     }
 
@@ -318,16 +329,17 @@ pub fn unpack_toc(slice: &[u8]) -> Option<HashMap<PathBuf, Range<usize>>> {
 
     for i in 0..file_count {
         let entry = unsafe { std::ptr::read_unaligned(toc_ptr.add(i)) };
-        let name_len = entry.name_len as usize;
+        let name_len = usize::from(entry.name_len);
         if name_len > MAX_FILENAME_LEN {
             return None;
         }
 
         let name_str = std::str::from_utf8(&entry.name[..name_len]).ok()?;
-        let start = entry.offset as usize;
-        let end = start + entry.len as usize;
+        let start = usize::try_from(entry.offset).ok()?;
+        let len = usize::try_from(entry.len).ok()?;
+        let end = start.checked_add(len)?;
 
-        if end > slice.len() {
+        if start < total_toc_size || end > slice.len() {
             return None;
         }
 

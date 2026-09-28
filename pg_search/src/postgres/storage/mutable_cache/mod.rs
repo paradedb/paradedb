@@ -252,6 +252,16 @@ pub enum SlotState {
     Superseded = 2,
 }
 
+impl SlotState {
+    pub const fn from_u32(val: u32) -> Self {
+        match val {
+            1 => SlotState::Ready,
+            2 => SlotState::Superseded,
+            _ => SlotState::Empty,
+        }
+    }
+}
+
 /// Metadata entry tracking a cached segment in shared memory.
 #[repr(C)]
 pub struct CacheSlot {
@@ -264,10 +274,22 @@ pub struct CacheSlot {
     /// Saturated usage count for clock-sweep cache eviction (0..=5). Incremented on read cache hits.
     pub usage_count: AtomicU32,
     /// Current lifecycle state.
-    pub state: SlotState,
+    pub state: AtomicU32,
 }
 
 impl CacheSlot {
+    /// Retrieve the current slot state with `Acquire` ordering.
+    #[inline]
+    pub fn state(&self) -> SlotState {
+        SlotState::from_u32(self.state.load(Ordering::Acquire))
+    }
+
+    /// Set the current slot state with `Release` ordering.
+    #[inline]
+    pub fn set_state(&self, state: SlotState) {
+        self.state.store(state as u32, Ordering::Release);
+    }
+
     /// Construct an empty slot.
     pub const fn empty() -> Self {
         Self {
@@ -287,7 +309,7 @@ impl CacheSlot {
             },
             active_readers: AtomicU32::new(0),
             usage_count: AtomicU32::new(0),
-            state: SlotState::Empty,
+            state: AtomicU32::new(SlotState::Empty as u32),
         }
     }
 }
@@ -311,7 +333,7 @@ impl Drop for ActiveReaderGuard {
                 let prev = slots[self.slot_index]
                     .active_readers
                     .fetch_sub(1, Ordering::Release);
-                if prev == 1 && slots[self.slot_index].state == SlotState::Superseded {
+                if prev == 1 && slots[self.slot_index].state() == SlotState::Superseded {
                     cache.reclaim_superseded_slot(self.slot_index);
                 }
             }
@@ -359,6 +381,10 @@ impl MutableCacheHeader {
     /// Must be called once during PostgreSQL shared-memory startup while holding exclusive access
     /// to the newly zeroed shared-memory chunk.
     pub unsafe fn init_raw(ptr: *mut Self, lock: LWLock, arena_capacity: u32) {
+        assert!(
+            arena_capacity > 0 && arena_capacity.is_power_of_two(),
+            "arena_capacity must be a non-zero power of two, got {arena_capacity}"
+        );
         std::ptr::addr_of_mut!((*ptr).lock).write(lock);
         std::ptr::addr_of_mut!((*ptr).arena_capacity).write(arena_capacity);
         (*ptr).cv.init();
@@ -459,7 +485,7 @@ impl MutableCacheHeader {
             let idx = (self.clock_hand.fetch_add(1, Ordering::Relaxed) as usize) % MAX_SLOTS;
             let slot = &mut slots[idx];
 
-            match slot.state {
+            match slot.state() {
                 SlotState::Empty => continue,
                 SlotState::Superseded => {
                     if slot.active_readers.load(Ordering::Acquire) == 0 {
@@ -505,7 +531,7 @@ impl MutableCacheHeader {
             let idx = (self.clock_hand.fetch_add(1, Ordering::Relaxed) as usize) % MAX_SLOTS;
             let slot = &mut slots[idx];
 
-            match slot.state {
+            match slot.state() {
                 SlotState::Empty => return Some(idx),
                 SlotState::Superseded => {
                     if slot.active_readers.load(Ordering::Acquire) == 0 {
@@ -543,7 +569,7 @@ impl MutableCacheHeader {
         let slots = unsafe { self.slots_mut(&guard) };
         if slot_index < slots.len() {
             let slot = &mut slots[slot_index];
-            if slot.state == SlotState::Superseded
+            if slot.state() == SlotState::Superseded
                 && slot.active_readers.load(Ordering::Acquire) == 0
             {
                 let span = slot.span;
@@ -570,7 +596,7 @@ impl MutableCacheHeader {
         let slots = unsafe { self.slots_mut(&guard) };
         let slab_pool = unsafe { self.slab_pool_mut(&guard) };
         for slot in slots {
-            if slot.state != SlotState::Empty
+            if slot.state() != SlotState::Empty
                 && slot.key.database_oid == database_oid
                 && slot.key.index_oid == index_oid
                 && slot.key.segment_id == *segment_id
@@ -579,7 +605,7 @@ impl MutableCacheHeader {
                     slab_pool.free(slot.span.offset, slot.span.order);
                     *slot = CacheSlot::empty();
                 } else {
-                    slot.state = SlotState::Superseded;
+                    slot.set_state(SlotState::Superseded);
                 }
             }
         }
@@ -611,7 +637,7 @@ impl MutableCacheHeader {
         let slots = unsafe { self.slots_mut(&guard) };
         let slab_pool = unsafe { self.slab_pool_mut(&guard) };
         for slot in slots {
-            if slot.state != SlotState::Empty
+            if slot.state() != SlotState::Empty
                 && slot.key.database_oid == database_oid
                 && slot.key.index_oid == index_oid
             {
@@ -619,7 +645,7 @@ impl MutableCacheHeader {
                     slab_pool.free(slot.span.offset, slot.span.order);
                     *slot = CacheSlot::empty();
                 } else {
-                    slot.state = SlotState::Superseded;
+                    slot.set_state(SlotState::Superseded);
                 }
             }
         }
@@ -662,6 +688,8 @@ unsafe fn is_pid_alive(pid: pg_sys::pid_t) -> bool {
 
 struct InflightBuildGuard {
     inflight_index: usize,
+    key: MutableCacheKey,
+    builder_pid: pg_sys::pid_t,
     completed: bool,
 }
 
@@ -676,8 +704,11 @@ impl Drop for InflightBuildGuard {
         let guard = cache.lock.acquire_exclusive();
         let inflights = unsafe { cache.inflight_builds_mut(&guard) };
         if self.inflight_index < inflights.len() {
-            inflights[self.inflight_index] = InflightBuild::empty();
-            cache.cv.broadcast();
+            let entry = &mut inflights[self.inflight_index];
+            if entry.builder_pid == self.builder_pid && entry.key == self.key {
+                *entry = InflightBuild::empty();
+                cache.cv.broadcast();
+            }
         }
     }
 }
@@ -718,7 +749,7 @@ pub fn get_or_build(
 
         // 1. Check for existing Ready entry
         for (idx, slot) in slots.iter().enumerate() {
-            if slot.state == SlotState::Ready && slot.key == *key {
+            if slot.state() == SlotState::Ready && slot.key == *key {
                 slot.active_readers.fetch_add(1, Ordering::AcqRel);
                 let _ = slot
                     .usage_count
@@ -767,10 +798,15 @@ pub fn get_or_build(
             continue;
         }
 
-        // 3. Find an empty inflight slot to claim build
+        // 3. Find an empty inflight slot to claim build (reaping any dead builder PIDs)
         let mut claim_build_idx = None;
-        for (idx, build) in inflights.iter().enumerate() {
+        for (idx, build) in inflights.iter_mut().enumerate() {
             if build.is_empty() {
+                claim_build_idx = Some(idx);
+                break;
+            } else if !unsafe { is_pid_alive(build.builder_pid) } {
+                *build = InflightBuild::empty();
+                cache.cv.broadcast();
                 claim_build_idx = Some(idx);
                 break;
             }
@@ -795,6 +831,8 @@ pub fn get_or_build(
         // We are now the designated builder
         let mut build_guard = InflightBuildGuard {
             inflight_index: build_idx,
+            key: *key,
+            builder_pid: my_pid,
             completed: false,
         };
 
@@ -808,8 +846,10 @@ pub fn get_or_build(
                 build_guard.completed = true;
                 let guard = cache.lock.acquire_exclusive();
                 let inflights = unsafe { cache.inflight_builds_mut(&guard) };
-                inflights[build_idx] = InflightBuild::empty();
-                cache.cv.broadcast();
+                if inflights[build_idx].key == *key && inflights[build_idx].builder_pid == my_pid {
+                    inflights[build_idx] = InflightBuild::empty();
+                    cache.cv.broadcast();
+                }
                 drop(guard);
                 return Ok(Arc::new(ram_dir));
             }
@@ -841,7 +881,7 @@ pub fn get_or_build(
 
         // Find a slot in slots for the new Ready segment
         let slots = unsafe { cache.slots_mut(&guard) };
-        let mut claim_slot_idx = slots.iter().position(|s| s.state == SlotState::Empty);
+        let mut claim_slot_idx = slots.iter().position(|s| s.state() == SlotState::Empty);
 
         if claim_slot_idx.is_none() {
             let slab_pool = unsafe { cache.slab_pool_mut(&guard) };
@@ -863,6 +903,13 @@ pub fn get_or_build(
         };
 
         // Copy packed bytes into arena
+        assert!(
+            (span.offset as usize) + packed_bytes.len() <= cache.arena_capacity as usize,
+            "packed segment bytes (offset {} + len {}) exceed arena capacity {}",
+            span.offset,
+            packed_bytes.len(),
+            cache.arena_capacity
+        );
         let arena_start = unsafe { cache.arena_slice_mut(&guard).as_mut_ptr() };
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -876,7 +923,7 @@ pub fn get_or_build(
         let slots = unsafe { cache.slots_mut(&guard) };
         slots[slot_idx].key = *key;
         slots[slot_idx].span = span;
-        slots[slot_idx].state = SlotState::Ready;
+        slots[slot_idx].set_state(SlotState::Ready);
         slots[slot_idx].active_readers.store(1, Ordering::Release);
         slots[slot_idx].usage_count.store(1, Ordering::Release);
 
@@ -884,14 +931,14 @@ pub fn get_or_build(
         let slab_pool = unsafe { cache.slab_pool_mut(&guard) };
         for (i, other_slot) in slots.iter_mut().enumerate() {
             if i != slot_idx
-                && other_slot.state == SlotState::Ready
+                && other_slot.state() == SlotState::Ready
                 && other_slot.key.matches_segment(key)
             {
                 if other_slot.active_readers.load(Ordering::Acquire) == 0 {
                     slab_pool.free(other_slot.span.offset, other_slot.span.order);
                     *other_slot = CacheSlot::empty();
                 } else {
-                    other_slot.state = SlotState::Superseded;
+                    other_slot.set_state(SlotState::Superseded);
                 }
             }
         }
@@ -983,6 +1030,10 @@ unsafe extern "C-unwind" fn shmem_startup() {
     let lock = LWLock::from_raw(tranche_ptr as *mut pg_sys::LWLock);
 
     let arena_size = crate::gucs::mutable_segment_cache_size();
+    assert!(
+        arena_size.is_power_of_two(),
+        "mutable_segment_cache_size must be a power of two, got {arena_size}"
+    );
     let size = total_shmem_size();
     let mut found = false;
     let header_ptr = pg_sys::ShmemInitStruct(c"pg_search_mutable_cache".as_ptr(), size, &mut found)

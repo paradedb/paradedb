@@ -78,13 +78,25 @@ impl SlabPool {
 
     /// Initialize the slab pool for `arena_capacity` in bytes.
     pub fn init(&mut self, arena_capacity: usize) {
+        assert!(
+            arena_capacity > 0 && arena_capacity.is_power_of_two(),
+            "arena_capacity must be a non-zero power of two, got {arena_capacity}"
+        );
         let mut base_shift = DEFAULT_BASE_SHIFT;
         while (1 << base_shift) > arena_capacity && base_shift > 12 {
             base_shift -= 1;
         }
 
         let base_size = 1 << base_shift;
-        let leaves = (arena_capacity / base_size).next_power_of_two().max(1);
+        assert!(
+            arena_capacity >= base_size,
+            "arena_capacity ({arena_capacity}) must be at least base slab size ({base_size})"
+        );
+        let leaves = arena_capacity / base_size;
+        assert!(
+            leaves.is_power_of_two(),
+            "leaves ({leaves}) must be a power of two"
+        );
         let max_order = leaves.trailing_zeros() as u8;
         let total_nodes = 2 * leaves;
 
@@ -163,6 +175,12 @@ impl SlabPool {
         let index_in_level = node - (1 << depth);
         let block_size = (1 << self.base_shift) << needed_order;
         let offset = (index_in_level as u32) * (block_size as u32);
+
+        assert!(
+            (offset as usize) + needed_bytes <= (self.num_leaves as usize) * (1 << self.base_shift),
+            "allocated span (offset {offset} + len {needed_bytes}) exceeds pool capacity {}",
+            (self.num_leaves as usize) * (1 << self.base_shift)
+        );
 
         let mut p = node / 2;
         while p > 0 {

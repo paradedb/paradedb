@@ -1212,6 +1212,44 @@ unsafe fn heap_tuple_header_get_raw_xmax(
     unsafe { (*tup).t_choice.t_heap.t_xmax }
 }
 
+/// Helper matching PostgreSQL's `MultiXactIdGetUpdateXid` logic.
+/// Returns the transaction ID that deleted or updated this tuple, or `InvalidTransactionId`
+/// if the tuple's xmax is invalid, lock-only, or belongs to a MultiXact without an update member.
+unsafe fn heap_tuple_get_update_xid(
+    tup: *const pg_sys::HeapTupleHeaderData,
+) -> pg_sys::TransactionId {
+    let infomask = u32::from((*tup).t_infomask);
+    if infomask & pg_sys::HEAP_XMAX_INVALID != 0 {
+        return pg_sys::InvalidTransactionId;
+    }
+    if infomask & pg_sys::HEAP_XMAX_LOCK_ONLY != 0 {
+        return pg_sys::InvalidTransactionId;
+    }
+    let raw_xmax = heap_tuple_header_get_raw_xmax(tup);
+    if raw_xmax == pg_sys::InvalidTransactionId {
+        return pg_sys::InvalidTransactionId;
+    }
+    if infomask & pg_sys::HEAP_XMAX_IS_MULTI != 0 {
+        let mut members: *mut pg_sys::MultiXactMember = std::ptr::null_mut();
+        let nmembers = pg_sys::GetMultiXactIdMembers(raw_xmax, &mut members, false, false);
+        if nmembers <= 0 || members.is_null() {
+            return pg_sys::InvalidTransactionId;
+        }
+        let mut update_xid = pg_sys::InvalidTransactionId;
+        for i in 0..nmembers as usize {
+            let member = *members.add(i);
+            if member.status >= pg_sys::MultiXactStatus::MultiXactStatusNoKeyUpdate {
+                update_xid = member.xid;
+                break;
+            }
+        }
+        pg_sys::pfree(members as *mut std::ffi::c_void);
+        update_xid
+    } else {
+        raw_xmax
+    }
+}
+
 impl<'a> HeapDocFetcher<'a> {
     pub fn new(
         fetch_state: &'a HeapFetchState,
@@ -1326,7 +1364,7 @@ impl<'a> HeapDocFetcher<'a> {
                     // TOAST chunks and marked line pointers LP_DEAD. Thus, we must treat it as
                     // DEAD to avoid attempting to detoast missing chunks.
                     let tuple = (*self.fetch_state.buffer_heap_slot()).base.tuple;
-                    let xmax = heap_tuple_header_get_raw_xmax((*tuple).t_data);
+                    let xmax = heap_tuple_get_update_xid((*tuple).t_data);
                     if xmax != pg_sys::InvalidTransactionId
                         && pg_sys::GlobalVisCheckRemovableXid(self.heaprel.as_ptr(), xmax)
                     {

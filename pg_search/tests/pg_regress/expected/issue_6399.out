@@ -6,37 +6,51 @@
 -- the parent operator instead.
 -- Setup
 DROP TABLE IF EXISTS issue_6399_pf CASCADE;
-DROP TABLE
 CREATE TABLE issue_6399_pf (id INTEGER PRIMARY KEY, name TEXT);
-CREATE TABLE
 INSERT INTO issue_6399_pf VALUES (1, 'alice'), (2, 'bob'), (3, 'bob');
-INSERT 0 3
 CREATE INDEX issue_6399_pf_idx ON issue_6399_pf USING paradedb (id, name)
 WITH (text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
-CREATE INDEX
 SET max_parallel_workers_per_gather = 0;
-SET
+-- Plan assertion: confirms the aggregate custom scan uses the ctid semi-join
+-- with dynamic filtering so the regression cannot pass via fallback planning.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob');
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*))
+   Backend: DataFusion
+   Indexes: issue_6399_pf_idx (issue_6399_pf), issue_6399_pf_idx (issue_6399_pf)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(ctid_0@0, ctid_0@0)], projection=[]
+     :     CooperativeExec
+     :       PgSearchScan: table=issue_6399_pf, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :     CooperativeExec
+     :       PgSearchScan: table=issue_6399_pf, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(12 rows)
+
 -- Previously errored with "Pre-filter failed: Column 0 not fetched".
 SELECT count(*) FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob');
- count
+ count 
 -------
      2
 (1 row)
 
 -- Parity with the native plan.
 SET paradedb.enable_aggregate_custom_scan TO off;
-SET
 SELECT count(*) FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob');
- count
+ count 
 -------
      2
 (1 row)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
-SET
 -- Non-aggregate shape over the same predicate still works.
 SELECT id FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob') ORDER BY id;
- id
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (table: issue_6399_pf)
+ id 
 ----
   2
   3
@@ -44,4 +58,3 @@ SELECT id FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE
 
 -- Teardown
 DROP TABLE issue_6399_pf CASCADE;
-DROP TABLE

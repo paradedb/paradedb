@@ -503,18 +503,16 @@ pub mod reader {
     use crate::postgres::storage::buffer::BufferManager;
     use bitpacking::{BitPacker, BitPacker1x, BitPacker4x, BitPacker8x};
     use pgrx::pg_sys;
-    use std::collections::VecDeque;
     use std::ops::Range;
     use std::sync::Arc;
-
-    const MAPPING_PAGE_CACHE_SIZE: usize = 4;
 
     #[derive(Debug)]
     pub struct BlockList {
         blocks: Vec<pg_sys::BlockNumber>,
         next_blockno: pg_sys::BlockNumber,
         directory: Option<Arc<Directory>>,
-        pages: VecDeque<MappingPage>,
+        pages: Vec<Option<Box<MappingPage>>>,
+        current_page: Option<usize>,
     }
 
     impl BlockList {
@@ -523,11 +521,16 @@ pub mod reader {
                 blocks: Vec::new(),
                 next_blockno: starting_block,
                 directory: None,
-                pages: VecDeque::new(),
+                pages: Vec::new(),
+                current_page: None,
             }
         }
 
         pub fn with_directory(mut self, directory: Option<Arc<Directory>>) -> Self {
+            self.pages = (0..directory.as_ref().map_or(0, |dir| dir.entries.len()))
+                .map(|_| None)
+                .collect();
+            self.current_page = None;
             self.directory = directory;
             self
         }
@@ -548,32 +551,26 @@ pub mod reader {
                 if i >= directory.total_entries as usize {
                     return None;
                 }
-                if let Some(page) = self.pages.back_mut()
-                    && page.ordinals.contains(&i)
-                {
-                    return page.get(i);
+                if let Some(current) = self.current_page {
+                    let page = self.pages[current].as_mut().unwrap();
+                    if page.ordinals.contains(&i) {
+                        return page.get(i);
+                    }
                 }
                 let pos = directory
                     .entries
                     .partition_point(|entry| entry.first_ordinal as usize <= i)
                     - 1;
                 let entry = &directory.entries[pos];
-                if let Some(cached) = self.pages.iter().position(|page| page.block == entry.block) {
-                    let page = self.pages.remove(cached).unwrap();
-                    self.pages.push_back(page);
-                } else {
+                self.current_page = Some(pos);
+                let page = self.pages[pos].get_or_insert_with(|| {
                     let buffer = bman.get_buffer(entry.block);
-                    let page = MappingPage::new(
-                        entry.block,
+                    Box::new(MappingPage::new(
                         entry.first_ordinal as usize,
                         buffer.page().as_slice().to_vec(),
-                    );
-                    if self.pages.len() == MAPPING_PAGE_CACHE_SIZE {
-                        self.pages.pop_front();
-                    }
-                    self.pages.push_back(page);
-                }
-                return self.pages.back_mut().unwrap().get(i);
+                    ))
+                });
+                return page.get(i);
             }
             while self.blocks.len() <= i && self.next_blockno != pg_sys::InvalidBlockNumber {
                 self.read_next_page(bman);
@@ -585,6 +582,7 @@ pub mod reader {
             mut self,
             bman: &BufferManager,
         ) -> std::vec::IntoIter<pg_sys::BlockNumber> {
+            self.pages.clear();
             while self.next_blockno != pg_sys::InvalidBlockNumber {
                 self.read_next_page(bman);
             }
@@ -594,7 +592,6 @@ pub mod reader {
 
     #[derive(Debug)]
     struct MappingPage {
-        block: pg_sys::BlockNumber,
         ordinals: Range<usize>,
         bytes: Vec<u8>,
         chunks: Vec<(usize, usize)>,
@@ -603,7 +600,7 @@ pub mod reader {
     }
 
     impl MappingPage {
-        fn new(block: pg_sys::BlockNumber, first_ordinal: usize, bytes: Vec<u8>) -> Self {
+        fn new(first_ordinal: usize, bytes: Vec<u8>) -> Self {
             let mut chunks = Vec::new();
             let mut ordinal = first_ordinal;
             let mut offset = 0;
@@ -614,7 +611,6 @@ pub mod reader {
                 offset += len;
             }
             Self {
-                block,
                 ordinals: first_ordinal..ordinal,
                 bytes,
                 chunks,
@@ -778,7 +774,10 @@ pub mod reader {
             };
             assert_eq!(after - before, 1);
             assert!(reader.blocks.is_empty());
-            assert!(reader.pages.back().unwrap().decoded.len() <= BitPacker8x::BLOCK_LEN);
+            assert!(
+                reader.pages.last().unwrap().as_ref().unwrap().decoded.len()
+                    <= BitPacker8x::BLOCK_LEN
+            );
             for entry in &directory.entries {
                 let i = entry.first_ordinal as usize;
                 for i in [i.saturating_sub(1), i, (i + 1).min(blocks.len() - 1)] {
@@ -788,8 +787,12 @@ pub mod reader {
             for step in 0..blocks.len() {
                 let i = step.wrapping_mul(7919) % blocks.len();
                 assert_eq!(reader.get(&bman, i), Some(blocks[i]));
-                assert!(reader.pages.len() <= 4);
             }
+            let after = unsafe {
+                pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
+            };
+            assert_eq!(after - before, directory.entries.len() as i64);
+            assert!(reader.pages.iter().all(Option::is_some));
             assert_eq!(reader.get(&bman, blocks.len()), None);
             assert_eq!(reader.get(&bman, usize::MAX), None);
             assert_eq!(reader.into_blocks(&bman).collect::<Vec<_>>(), blocks);
@@ -919,7 +922,7 @@ pub mod reader {
                             let mut bytes = vec![if strict { $strict } else { $sorted }, bits];
                             bytes.extend_from_slice(&initial.unwrap_or(0).to_le_bytes());
                             bytes.extend_from_slice(&encoded);
-                            let mut page = MappingPage::new(1, 1000, bytes);
+                            let mut page = MappingPage::new(1000, bytes);
                             for (i, value) in values.iter().enumerate().rev() {
                                 assert_eq!(page.get(1000 + i), Some(*value));
                             }
@@ -936,7 +939,7 @@ pub mod reader {
             for n in [19u32, 2, 73] {
                 bytes.extend_from_slice(&n.to_le_bytes());
             }
-            let mut page = MappingPage::new(1, 0, bytes);
+            let mut page = MappingPage::new(0, bytes);
             assert_eq!(page.get(2), Some(73));
             assert_eq!(page.get(0), Some(19));
             assert_eq!(page.get(3), None);

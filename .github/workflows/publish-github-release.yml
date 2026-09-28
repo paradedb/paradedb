@@ -2,10 +2,13 @@
 #
 # Publish GitHub Release
 # Orchestrates fragment assembly, version syncing, and publishes a ParadeDB GitHub Release.
-# This workflow is triggered manually via the GitHub Actions UI and deploys the branch that it is being run from.
+# This workflow is triggered manually via the GitHub Actions UI and releases the selected branch or tag.
+# Beta releases require an -rc.N version and create a prerelease without advancing the branch.
+# The new version tag triggers the other publishing workflows.
 #
-# Conditionals checking for `paradedb/paradedb` ensure that mutable steps (e.g., artifact assembly,
-# version bumps, and commits) only run on the community repository. See RELEASE.md for details.
+# Conditionals checking for `paradedb/paradedb` ensure that artifact assembly,
+# version bumps, and release commits only run on the community repository.
+# See RELEASE.md for the community and enterprise release procedures.
 
 name: Publish GitHub Release
 
@@ -13,12 +16,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to release, in semver format (e.g. 0.22.0)."
+        description: "The version to release, without the v prefix (e.g. 0.26.0 or 0.26.0-rc.0 for a beta)."
         type: string
         required: true
         default: ""
       beta:
-        description: "Whether this release is a beta release. Defaults to false."
+        description: "Whether this release is a beta release. Requires an -rc.N version and skips manual approval. Creates a prerelease and tag without advancing the selected branch. Defaults to false."
         type: boolean
         required: false
         default: false

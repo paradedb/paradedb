@@ -1,9 +1,7 @@
 # workflows/publish-pg_search-macos.yml
 #
 # Publish pg_search (macOS)
-# Build and publish the pg_search extension for macOS as .pkg to GitHub Releases. This
-# workflow is triggered on creation of a GitHub Tag, but beta releases get filtered
-# out by the `if` condition of the job.
+# Build and publish the pg_search extension for macOS as signed .pkg installers to GitHub Releases.
 
 name: Publish pg_search (macOS)
 
@@ -14,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        description: "The existing GitHub Release version to upload to, without the v prefix (e.g. 0.25.9). Builds the selected branch or tag."
         required: true
         default: ""
 

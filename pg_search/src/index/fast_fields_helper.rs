@@ -519,8 +519,8 @@ impl FFType {
 pub enum FieldDelivery {
     /// Values are fetched and decoded during the initial scan.
     Eager,
-    /// The scan emits the deferred union encoding (doc addresses or term
-    /// ordinals); values are decoded above the scan, after row-reducing
+    /// The scan emits the packed deferred encoding, a doc address or a term
+    /// ordinal per row; values are decoded above the scan, after row-reducing
     /// operators have run. See `crate::scan::deferred_encode`.
     Deferred,
 }

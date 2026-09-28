@@ -1,0 +1,23 @@
+{
+  "query": "join_aggregate_topk_count",
+  "hash_metrics": {
+    "planning_time_ms": 8.44,
+    "execution_time_ms": 1417.116,
+    "shared_hit_buffers": 873,
+    "mpp_workers": 8,
+    "has_repartition_exec": true,
+    "has_network_shuffle": true,
+    "has_hash_join": true,
+    "has_visibility_filter": false
+  },
+  "range_metrics": {
+    "planning_time_ms": 8.191,
+    "execution_time_ms": 1509.696,
+    "shared_hit_buffers": 1834,
+    "mpp_workers": 8,
+    "has_repartition_exec": true,
+    "has_network_shuffle": true,
+    "has_hash_join": true,
+    "has_visibility_filter": false
+  }
+}

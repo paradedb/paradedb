@@ -1,0 +1,23 @@
+{
+  "query": "join_semi_filter",
+  "hash_metrics": {
+    "planning_time_ms": 9.702,
+    "execution_time_ms": 56.859,
+    "shared_hit_buffers": 812,
+    "mpp_workers": 8,
+    "has_repartition_exec": false,
+    "has_network_shuffle": false,
+    "has_hash_join": true,
+    "has_visibility_filter": true
+  },
+  "range_metrics": {
+    "planning_time_ms": 10.542,
+    "execution_time_ms": 87.157,
+    "shared_hit_buffers": 941,
+    "mpp_workers": 8,
+    "has_repartition_exec": false,
+    "has_network_shuffle": false,
+    "has_hash_join": true,
+    "has_visibility_filter": true
+  }
+}

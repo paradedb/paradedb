@@ -733,11 +733,14 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
     use std::sync::Arc;
 
     // A deferred column is a plain `UInt64` to Arrow; its field's metadata is what marks it.
+    // Only a scalar column can be deferred, so a deferred list falls through to
+    // `arrow_data_type` and is rejected there.
     let fields: Vec<Field> = which_fast_fields
         .iter()
         .map(|wff| match wff {
             WhichFastField::Named {
                 name,
+                cardinality: FieldCardinality::Scalar,
                 delivery: FieldDelivery::Deferred,
                 ..
             } => crate::scan::deferred_encode::deferred_field(name),
@@ -1095,6 +1098,12 @@ mod tests {
     #[should_panic(expected = "cannot be deferred")]
     fn deferred_list_is_rejected() {
         text_field(FieldCardinality::List, FieldDelivery::Deferred).arrow_data_type();
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot be deferred")]
+    fn build_arrow_schema_rejects_deferred_list() {
+        build_arrow_schema(&[text_field(FieldCardinality::List, FieldDelivery::Deferred)]);
     }
 
     /// The helper opens a segment's fast fields only when a value is actually read from that

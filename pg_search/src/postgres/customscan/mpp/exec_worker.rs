@@ -171,6 +171,11 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_desired_task_count_handler(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
+        // No dynamic filter update crosses the shm mesh, so a cross-stage filter only adds
+        // the join's bounds barrier without ever pruning a remote scan. Intra-stage dynamic
+        // filters are unaffected.
+        .with_distributed_remote_dynamic_filters(false)
+        .expect("with_distributed_remote_dynamic_filters")
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }

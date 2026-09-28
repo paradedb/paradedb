@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::io_stats;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::{CustomScan, MarkRestoreCapable, wrap_custom_scan_state};
 use pgrx::{pg_guard, pg_sys};
@@ -28,9 +27,6 @@ pub extern "C-unwind" fn begin_custom_scan<CS: CustomScan>(
     estate: *mut pg_sys::EState,
     eflags: i32,
 ) {
-    let _io = io_stats::instrumentation_request(unsafe {
-        (*estate).es_instrument & pg_sys::InstrumentOption::INSTRUMENT_BUFFERS as i32 != 0
-    });
     unsafe { CS::begin_custom_scan(wrap_custom_scan_state(node).as_mut(), estate, eflags) }
 }
 
@@ -41,14 +37,6 @@ pub extern "C-unwind" fn begin_custom_scan<CS: CustomScan>(
 pub extern "C-unwind" fn exec_custom_scan<CS: CustomScan>(
     node: *mut pg_sys::CustomScanState,
 ) -> *mut pg_sys::TupleTableSlot {
-    let _io = io_stats::instrumentation_request(unsafe {
-        (*node)
-            .ss
-            .ps
-            .instrument
-            .as_ref()
-            .is_some_and(|instrument| instrument.need_bufusage)
-    });
     let mut custom_state = wrap_custom_scan_state::<CS>(node);
     unsafe { CS::exec_custom_scan(custom_state.as_mut()) }
 }
@@ -64,14 +52,6 @@ pub extern "C-unwind" fn end_custom_scan<CS: CustomScan>(node: *mut pg_sys::Cust
 /// Rewind the current scan to the beginning and prepare to rescan the relation.
 #[pg_guard]
 pub extern "C-unwind" fn rescan_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
-    let _io = io_stats::instrumentation_request(unsafe {
-        (*node)
-            .ss
-            .ps
-            .instrument
-            .as_ref()
-            .is_some_and(|instrument| instrument.need_bufusage)
-    });
     let mut custom_state = wrap_custom_scan_state(node);
     unsafe { CS::rescan_custom_scan(custom_state.as_mut()) }
 }

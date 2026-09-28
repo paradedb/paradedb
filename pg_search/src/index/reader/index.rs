@@ -592,12 +592,15 @@ impl SearchIndexReader {
         index_relation: &PgSearchRelation,
         mvcc_style: MvccSatisfies,
         needs_tokenizer_manager: bool,
+        io_stats: Option<io_stats::Trace>,
     ) -> Result<IndexComponents> {
+        let _metadata = io_stats.as_ref().map(|stats| stats.external("Metadata"));
         #[cfg(any(test, feature = "pg_test"))]
         test_support::INDEX_COMPONENT_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
-        let directory = mvcc_style.directory(index_relation);
+        let mut directory = mvcc_style.directory(index_relation);
+        directory.io_stats = io_stats;
         let mut index = crate::index::open_index(directory.clone())?;
         let total_segment_count = directory
             .total_segment_count()
@@ -652,10 +655,12 @@ impl SearchIndexReader {
             None,
             None,
             needs_tokenizer_manager,
+            None,
         )
     }
 
     /// Open a tantivy index with optional expression context for proper postgres expression evaluation
+    #[allow(clippy::too_many_arguments)]
     pub fn open_with_context(
         index_relation: &PgSearchRelation,
         search_query_input: SearchQueryInput,
@@ -664,15 +669,20 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
+        io_stats: Option<io_stats::Trace>,
     ) -> Result<Self> {
         let scan_init_start = Instant::now();
-        let scan_init_io = io_stats::begin_scan_init();
+        let scan_init_io = io_stats.as_ref().map(io_stats::Trace::begin_scan_init);
         // Derive the tokenizer need from the query as well as the caller's flag: a caller
         // passing `false` alongside a query that tokenizes must not silently parse wrong.
         let needs_tokenizer_manager =
             needs_tokenizer_manager || search_query_input.needs_tokenizer();
-        let components =
-            Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
+        let components = Self::open_index_components(
+            index_relation,
+            mvcc_style,
+            needs_tokenizer_manager,
+            io_stats,
+        )?;
         let mut reader = Self::from_components(
             index_relation,
             components,
@@ -701,7 +711,12 @@ impl SearchIndexReader {
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
         let scan_init_start = Instant::now();
-        let scan_init_io = io_stats::begin_scan_init();
+        let scan_init_io = manifest
+            .components()
+            .directory
+            .io_stats
+            .as_ref()
+            .map(io_stats::Trace::begin_scan_init);
         if needs_tokenizer_manager || search_query_input.needs_tokenizer() {
             crate::index::search::register_tokenizers(
                 index_relation,
@@ -742,7 +757,13 @@ impl SearchIndexReader {
             schema,
         } = components;
 
-        let index_created_by_version = index_relation.created_by_version();
+        let index_created_by_version = {
+            let _metadata = directory
+                .io_stats
+                .as_ref()
+                .map(|stats| stats.external("Metadata"));
+            index_relation.created_by_version()
+        };
         let need_scores = need_scores || search_query_input.need_scores();
         let parser = || {
             QueryParser::for_index(
@@ -1592,7 +1613,9 @@ impl SearchIndexReader {
                         segment_scan_init.saturating_add(self.scan_init_ns).into(),
                     );
                 }
-                io_stats::attach(&mut segment_info);
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.attach(&mut segment_info);
+                }
                 let scored_results: Vec<(SearchIndexScore, DocAddress)> = fruit
                     .results
                     .into_iter()
@@ -2236,13 +2259,17 @@ impl SearchIndexReader {
         collector: &C,
         weight: &dyn Weight,
     ) -> Vec<<<C as Collector>::Child as SegmentCollector>::Fruit> {
-        io_stats::reset();
+        if let Some(stats) = &self.directory.io_stats {
+            stats.reset();
+        }
         readers
             .map(|(segment_ord, segment_reader)| {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
                     .expect("should be able to collect in segment");
-                io_stats::end_segment(segment_reader.segment_id());
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.end_segment(segment_reader.segment_id());
+                }
                 fruit
             })
             .collect()
@@ -2259,7 +2286,7 @@ impl SearchIndexManifest {
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
         let components =
-            SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
+            SearchIndexReader::open_index_components(index_relation, mvcc_style, false, None)?;
         Ok(Self(Rc::new(SearchIndexManifestInner { components })))
     }
 

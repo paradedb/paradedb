@@ -17,6 +17,7 @@
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
+use crate::index::reader::io_stats::Trace;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::buffile::{BufFileReleaseGuard, create_temp_buffile};
@@ -24,8 +25,9 @@ use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    CTID_MAP_EXT, FileEntry, MVCCEntry, STATS_EXT, SegmentMetaEntry, SegmentMetaEntryContent,
-    SegmentMetaEntryImmutable, SegmentMetaEntryMutable, bm25_max_free_space,
+    CTID_MAP_EXT, FileEntry, MVCCEntry, STATS_EXT, SegmentFileDetails, SegmentMetaEntry,
+    SegmentMetaEntryContent, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+    bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
@@ -49,7 +51,7 @@ use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
     TempFilePtr, WatchCallback, WatchHandle,
 };
-use tantivy::index::{SegmentComponent, SegmentId, SegmentMetaInventory};
+use tantivy::index::{SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 
 /// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
@@ -370,6 +372,7 @@ type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
 /// and should back all Tantivy Indexes used in insert and scan operations
 #[derive(Debug, Clone)]
 pub struct MVCCDirectory {
+    pub(crate) io_stats: Option<Trace>,
     //
     // NB:  Directories get cloned, **A LOT**, by tantivy.  As such, it should be cheap, especially
     // in terms of memory usage, to clone this struct.
@@ -405,6 +408,7 @@ impl MVCCDirectory {
 
     pub fn with_mvcc_style(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Self {
         Self {
+            io_stats: None,
             indexrel: Clone::clone(index_relation),
             mvcc_style: Arc::new(mvcc_style),
 
@@ -509,9 +513,10 @@ impl MVCCDirectory {
                     SegmentComponentReader::new(
                         &self.indexrel,
                         file_entry,
-                        path.extension()
-                            .and_then(|ext| ext.to_str())
-                            .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                        self.io_stats.as_ref().and_then(|stats| {
+                            path.component_type()
+                                .map(|component| stats.component(&component))
+                        }),
                     )
                 }))
             }
@@ -674,9 +679,10 @@ impl Directory for MVCCDirectory {
                             SegmentComponentReader::new_uncommitted(
                                 &self.indexrel,
                                 file_entry,
-                                path.extension()
-                                    .and_then(|ext| ext.to_str())
-                                    .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                                self.io_stats.as_ref().and_then(|stats| {
+                                    path.component_type()
+                                        .map(|component| stats.component(&component))
+                                }),
                             )
                         }))
                         .clone())
@@ -745,6 +751,10 @@ impl Directory for MVCCDirectory {
     /// Returns a list of all segment components to Tantivy,
     /// identified by `<uuid>.<ext>` PathBufs
     fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
+        let _io = self
+            .io_stats
+            .as_ref()
+            .map(|stats| stats.external("Metadata"));
         unsafe {
             Ok(MetaPage::open(&self.indexrel)
                 .segment_metas()
@@ -812,6 +822,10 @@ impl Directory for MVCCDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
+        let _io = self
+            .io_stats
+            .as_ref()
+            .map(|stats| stats.external("Metadata"));
         let loaded_metas = self.loaded_metas.get_or_init(|| unsafe {
             match load_metas(
                 &self.indexrel,

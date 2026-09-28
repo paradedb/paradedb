@@ -69,6 +69,7 @@ impl BM25Page for pg_sys::Page {
 #[derive(Clone, Debug)]
 pub struct RelationBufferAccess {
     rel: PgSearchRelation,
+    pub(super) io_stats: Option<crate::index::reader::io_stats::ComponentStats>,
 }
 
 unsafe impl Send for RelationBufferAccess {}
@@ -76,7 +77,10 @@ unsafe impl Sync for RelationBufferAccess {}
 
 impl RelationBufferAccess {
     pub fn open(rel: &PgSearchRelation) -> Self {
-        Self { rel: rel.clone() }
+        Self {
+            rel: rel.clone(),
+            io_stats: None,
+        }
     }
 
     pub fn rel(&self) -> &PgSearchRelation {
@@ -220,7 +224,10 @@ impl RelationBufferAccess {
             }
             buffer
         };
-        crate::index::reader::io_stats::buffer(read)
+        match &self.io_stats {
+            Some(stats) => stats.buffer(read),
+            None => read(),
+        }
     }
 }
 

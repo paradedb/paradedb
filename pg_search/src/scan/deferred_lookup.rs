@@ -133,6 +133,7 @@ pub(crate) fn open_rebuilt_ffhelper(
         None,
         None,
         /* needs_tokenizer_manager */ false,
+        None,
     )
     .map_err(|e| DataFusionError::Internal(format!("ffhelper rebuild: open reader: {e}")))?;
 

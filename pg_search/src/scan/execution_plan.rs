@@ -801,6 +801,7 @@ impl PgSearchScanPlan {
             // https://github.com/paradedb/paradedb/issues/5445.
             None,
             needs_tokenizer,
+            None,
         )
         .map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))

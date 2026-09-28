@@ -63,15 +63,18 @@ use datafusion::functions_aggregate::expr_fn::{
     array_agg, avg, bool_and, bool_or, count, max, min, stddev, stddev_pop, sum, var_pop,
     var_sample,
 };
+use datafusion::functions_aggregate::min_max::{max_udaf, min_udaf};
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
+use datafusion::functions_aggregate::sum::sum_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
 use datafusion::logical_expr::{
-    Aggregate, Cast, Expr, GroupingSet, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
-    col, lit,
+    Aggregate, AggregateUDF, Cast, Expr, GroupingSet, LogicalPlan, LogicalPlanBuilder,
+    LogicalPlanBuilderOptions, col, lit,
 };
 use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
+use std::sync::Arc;
 use tantivy::aggregation::Key;
 
 /// Creates a DataFusion [`SessionContext`] for aggregate-on-join workloads.
@@ -664,7 +667,7 @@ fn pdb_missing_lit(missing: &Key, field: &PdbAggFieldRef) -> Expr {
     ))
 }
 
-fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
+pub(crate) fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
     let column = make_plan_position_col_with(
         plan,
         key.field.plan_position,
@@ -677,53 +680,83 @@ fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
     }
 }
 
+/// A metric as an aggregate call: the function and its arguments.
+pub(crate) struct PdbMetricCall {
+    pub udaf: Arc<AggregateUDF>,
+    pub args: Vec<Expr>,
+}
+
+/// The aggregate call a metric runs as. `column` supplies the metric's field as
+/// a column of the caller's plan. The function and the number of arguments
+/// depend on the metric alone, so a caller that only needs those can pass any
+/// expression for the column.
+pub(crate) fn pdb_metric_call(
+    metric: &PdbMetricSpec,
+    column: impl FnOnce(&PdbAggFieldRef) -> Expr,
+) -> PdbMetricCall {
+    let PdbMetricSpec::Stat {
+        stat,
+        field,
+        missing,
+        ..
+    } = metric
+    else {
+        return PdbMetricCall {
+            udaf: count_udaf(),
+            args: vec![lit(1)],
+        };
+    };
+    let mut column = column(field);
+    if let Some(missing) = missing {
+        column = coalesce(vec![column, pdb_missing_lit(missing, field)]);
+    }
+    // A sum runs in f64 like Tantivy's, which also keeps an integer sum
+    // from overflowing. Timestamps have no direct f64 cast.
+    let as_f64 = |column: Expr| {
+        let column = if field.is_datetime() {
+            Expr::Cast(Cast::new(Box::new(column), DataType::Int64))
+        } else {
+            column
+        };
+        Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
+    };
+    let (udaf, args) = match stat {
+        PdbStat::Count => (count_udaf(), vec![column]),
+        // NUMERIC takes the decimal accumulator the SQL aggregates use; the
+        // assembler decodes its blob.
+        PdbStat::Sum if field.field_type.is_numeric() => match field.field_type {
+            SearchFieldType::Numeric64(_, scale) => {
+                (numeric64_sum_udaf(), vec![column, lit(scale as i32)])
+            }
+            _ => (numeric_bytes_sum_udaf(), vec![column]),
+        },
+        PdbStat::Sum => (sum_udaf(), vec![as_f64(column)]),
+        PdbStat::Min => (min_udaf(), vec![column]),
+        PdbStat::Max => (max_udaf(), vec![column]),
+        // Tantivy's own sketch, salted by the column type the way a
+        // segment collection is.
+        PdbStat::Cardinality => (
+            tantivy_cardinality_udaf(),
+            vec![
+                column,
+                lit(ScalarValue::UInt8(Some(field.column_type().to_code()))),
+            ],
+        ),
+    };
+    PdbMetricCall { udaf, args }
+}
+
 fn pdb_metric_expr(
     metric: &PdbMetricSpec,
     plan: &RelNode,
     pdb_filters: &HashMap<usize, Expr>,
 ) -> Expr {
-    let (expr, entry_filter) = match metric {
-        PdbMetricSpec::DocCount { entry_filter } => (count(lit(1)), entry_filter),
-        PdbMetricSpec::Stat {
-            stat,
-            field,
-            missing,
-            entry_filter,
-        } => {
-            let mut column = make_plan_position_col(plan, field.plan_position, &field.field_name);
-            if let Some(missing) = missing {
-                column = coalesce(vec![column, pdb_missing_lit(missing, field)]);
-            }
-            // A sum runs in f64 like Tantivy's, which also keeps an integer sum
-            // from overflowing. Timestamps have no direct f64 cast.
-            let as_f64 = |column: Expr| {
-                let column = if field.is_datetime() {
-                    Expr::Cast(Cast::new(Box::new(column), DataType::Int64))
-                } else {
-                    column
-                };
-                Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
-            };
-            let expr = match stat {
-                PdbStat::Count => count(column),
-                // NUMERIC takes the decimal accumulator the SQL aggregates use; the
-                // assembler decodes its blob.
-                PdbStat::Sum if field.field_type.is_numeric() => {
-                    numeric_sum(column, &field.field_type)
-                }
-                PdbStat::Sum => sum(as_f64(column)),
-                PdbStat::Min => min(column),
-                PdbStat::Max => max(column),
-                // Tantivy's own sketch, salted by the column type the way a
-                // segment collection is.
-                PdbStat::Cardinality => tantivy_cardinality_udaf().call(vec![
-                    column,
-                    lit(ScalarValue::UInt8(Some(field.column_type().to_code()))),
-                ]),
-            };
-            (expr, entry_filter)
-        }
-    };
+    let call = pdb_metric_call(metric, |field| {
+        make_plan_position_col(plan, field.plan_position, &field.field_name)
+    });
+    let expr = call.udaf.call(call.args);
+    let (PdbMetricSpec::DocCount { entry_filter } | PdbMetricSpec::Stat { entry_filter, .. }) =
+        metric;
     match entry_filter.and_then(|i| pdb_filters.get(&i)) {
         Some(filter) => with_filter(expr, filter.clone()),
         None => expr,
@@ -1206,7 +1239,11 @@ fn make_plan_position_col_with(
     }
 }
 
-fn make_plan_position_col(plan: &RelNode, plan_position: usize, field_name: &str) -> Expr {
+pub(crate) fn make_plan_position_col(
+    plan: &RelNode,
+    plan_position: usize,
+    field_name: &str,
+) -> Expr {
     make_plan_position_col_with(
         plan,
         plan_position,

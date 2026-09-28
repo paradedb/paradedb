@@ -49,12 +49,14 @@ use pgrx::pg_sys;
 
 use super::planning::get_source_attno_by_name;
 use super::window_func::{
-    SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggColumn, WindowAggIndex,
+    SqlWindowAggDef, SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggColumn, WindowAggDef,
+    WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
+use crate::postgres::customscan::datafusion::pdb_agg_udaf::pdb_agg;
 use crate::postgres::customscan::datafusion::topk_agg::{
     TOPK_AGG_ROWS_COL_NAME, distinct_topk_as_agg, topk_as_agg,
 };
@@ -111,11 +113,15 @@ fn resolve_var_to_df_col(
     if rti == WINDOW_SENTINEL_VARNO {
         let index = WindowAggIndex::from_sentinel_attno(attno)?;
         let window_agg = join_clause.window_aggs.get(index)?;
-        if window_agg
-            .arg_field_type()
-            .is_some_and(|ft| ft.is_numeric())
-        {
-            return None;
+        match &window_agg.agg_def {
+            WindowAggDef::Sql(sql) => {
+                if sql.arg_field_type().is_some_and(|ft| ft.is_numeric()) {
+                    return None;
+                }
+            }
+            // The column holds the document as text, which only the
+            // PgExprUdf path turns back into the jsonb the expression reads.
+            WindowAggDef::PdbAgg(_) => return None,
         }
         let canonical = join_clause.window_aggs.canonical_index(index);
         return Some(col(canonical.as_col_name()));
@@ -218,13 +224,14 @@ impl<'a> ColumnMapper for JoinClauseMapper<'a> {
             let index = WindowAggIndex::from_sentinel_attno(varattno)?;
             let window_agg = self.join_clause.window_aggs.get(index)?;
             let canonical = self.join_clause.window_aggs.canonical_index(index);
-            return Some((
-                col(canonical.as_col_name()),
-                InputDecode::StorageEncoded {
-                    is_avg: matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
-                    field_type: window_agg.arg_field_type().cloned(),
+            let decode = match &window_agg.agg_def {
+                WindowAggDef::Sql(sql) => InputDecode::StorageEncoded {
+                    is_avg: matches!(sql.agg_type(), SupportedWindowAggType::Avg),
+                    field_type: sql.arg_field_type().cloned(),
                 },
-            ));
+                WindowAggDef::PdbAgg(_) => InputDecode::JsonDocument,
+            };
+            return Some((col(canonical.as_col_name()), decode));
         }
         let field_type = numeric_fast_field_type(self.join_clause, varno, varattno)?;
         let expr = resolve_var_to_df_col(self.join_clause, varno, varattno)?;
@@ -1562,7 +1569,10 @@ fn window_agg_exprs(join_clause: &JoinCSClause) -> Result<WindowAggExprs> {
         .iter_indexed()
         .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
     {
-        let expr = window_agg_expr(info, join_clause)?;
+        let expr = match &info.agg_def {
+            WindowAggDef::Sql(sql) => window_agg_expr(sql, join_clause)?,
+            WindowAggDef::PdbAgg(request) => pdb_agg(request, &join_clause.plan)?,
+        };
         let target = if matches!(expr, Expr::AggregateFunction(_)) {
             &mut exprs.aggregates
         } else {
@@ -1587,11 +1597,11 @@ fn aggregate_udf(udaf: Arc<AggregateUDF>, args: Vec<Expr>) -> Expr {
 /// The aggregate computing one window aggregate. `agg OVER ()` is the aggregate
 /// over the whole join result, so it is an ordinary aggregate function in the
 /// group-key-free Top-K aggregate node.
-fn window_agg_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
+fn window_agg_expr(info: &SqlWindowAggDef, join_clause: &JoinCSClause) -> Result<Expr> {
     use crate::customscan::datafusion::numeric_agg;
     use datafusion::functions_aggregate::{average, count, min_max, sum};
 
-    let col_expr = match &info.col_info {
+    let col_expr = match info.col_info() {
         Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
             Some(ce) => Some(ce),
             None => {
@@ -1603,7 +1613,7 @@ fn window_agg_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr>
                 // of the `null_if_source_exists` fallback every other
                 // pruned-column consumer applies.
                 if null_if_source_exists(join_clause, ci.rti).is_some() {
-                    return Ok(match info.agg_type {
+                    return Ok(match info.agg_type() {
                         SupportedWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
                         _ => datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null),
                     });
@@ -1617,7 +1627,7 @@ fn window_agg_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr>
         },
         None => None,
     };
-    let numeric_field = numeric_window_field(info.agg_type, info.arg_field_type())?;
+    let numeric_field = numeric_window_field(info.agg_type(), info.arg_field_type())?;
 
     // Match only basic aggregate functions. Missing and filters are not supported in global window
     // functions
@@ -1625,7 +1635,7 @@ fn window_agg_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr>
     // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
     // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
     // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-    match info.agg_type {
+    match info.agg_type() {
         SupportedWindowAggType::Sum => {
             let ce = col_expr.expect("should always have a column expression for SUM");
             match numeric_field {

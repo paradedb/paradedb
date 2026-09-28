@@ -62,6 +62,10 @@ pub enum InputDecode {
         is_avg: bool,
         field_type: Option<SearchFieldType>,
     },
+    /// A `pdb.agg()` window value (joinscan sentinel input): the document as
+    /// text, which reads back as the jsonb the expression takes. The plain
+    /// conversion would make a jsonb string of it.
+    JsonDocument,
 }
 
 /// A DataFusion ScalarUDF that wraps PostgreSQL's ExecEvalExpr.
@@ -220,7 +224,7 @@ impl PgExprUdf {
     fn compute_signature(input_vars: &[InputVarInfo], input_decodes: &[InputDecode]) -> Signature {
         if input_decodes
             .iter()
-            .any(|d| matches!(d, InputDecode::StorageEncoded { .. }))
+            .any(|d| !matches!(d, InputDecode::Plain))
         {
             return Signature::variadic_any(Volatility::Immutable);
         }
@@ -314,6 +318,7 @@ unsafe fn populate_slot(
                 field_type.as_ref(),
                 input_vars[col_idx].type_oid,
             )?,
+            InputDecode::JsonDocument => json_document_value_to_datum(arg, row_idx)?,
         };
         (*pg_state.slot).tts_values.add(col_idx).write(val);
         (*pg_state.slot).tts_isnull.add(col_idx).write(null);
@@ -344,6 +349,27 @@ unsafe fn storage_value_to_datum(
         }
     }
     .map_err(|e| DataFusionError::Internal(format!("storage-encoded input decode failed: {e}")))?;
+    Ok(match maybe_datum {
+        Some(datum) => (datum, false),
+        None => (pg_sys::Datum::null(), true),
+    })
+}
+
+/// Convert one row of a `pdb.agg()` document column to a jsonb Datum.
+unsafe fn json_document_value_to_datum(
+    arg: &ColumnarValue,
+    row_idx: usize,
+) -> Result<(pg_sys::Datum, bool)> {
+    use crate::postgres::customscan::datafusion::pdb_agg_udaf::json_document_to_datum;
+
+    let maybe_datum = match arg {
+        ColumnarValue::Array(array) => json_document_to_datum(array.as_ref(), row_idx),
+        ColumnarValue::Scalar(scalar) => {
+            let array = scalar.to_array()?;
+            json_document_to_datum(array.as_ref(), 0)
+        }
+    }
+    .map_err(|e| DataFusionError::Internal(format!("pdb.agg document decode failed: {e}")))?;
     Ok(match maybe_datum {
         Some(datum) => (datum, false),
         None => (pg_sys::Datum::null(), true),

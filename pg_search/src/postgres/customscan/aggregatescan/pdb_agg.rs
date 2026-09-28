@@ -33,7 +33,9 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
-use arrow_array::{Array, ArrayRef, Int64Array, RecordBatch, UInt64Array, new_null_array};
+use arrow_array::{
+    Array, ArrayRef, Int64Array, RecordBatch, RecordBatchOptions, UInt64Array, new_null_array,
+};
 use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion::common::{DataFusionError, Result};
 use decimal_bytes::Decimal;
@@ -206,6 +208,14 @@ pub struct PdbAggRequest {
     /// The spec as written, beside its parsed form: EXPLAIN prints it, and the
     /// result rewrites look their fields up by path in it.
     pub agg_json: serde_json::Value,
+}
+
+impl PartialEq for PdbAggRequest {
+    /// `agg_json` is left out: it is `agg` as written, so two requests with the
+    /// same `agg` compute the same document.
+    fn eq(&self, other: &Self) -> bool {
+        self.agg == other.agg && self.fields == other.fields && self.visibility == other.visibility
+    }
 }
 
 impl PdbAggRequest {
@@ -715,6 +725,55 @@ impl PdbAggPlan {
     pub fn root_grouping_id(&self) -> u64 {
         self.grouping_id_for_level(0)
     }
+
+    /// Per level, the metrics (positions into `metrics`) the assembler reads
+    /// from that level's rows. Grouping sets compute every metric at every
+    /// level; a caller that aggregates level by level can skip the rest.
+    pub fn metrics_by_level(&self) -> Vec<Vec<usize>> {
+        let mut by_level = vec![Vec::new(); self.levels.len()];
+        for entry in &self.entries {
+            self.collect_metrics_by_level(&entry.root, 0, &mut by_level);
+        }
+        for metrics in &mut by_level {
+            metrics.sort_unstable();
+            metrics.dedup();
+        }
+        by_level
+    }
+
+    fn collect_metrics_by_level(
+        &self,
+        node: &PdbAggNodeLayout,
+        parent_level: usize,
+        by_level: &mut [Vec<usize>],
+    ) {
+        let first_metric_col = self.metric_col(0);
+        match node {
+            PdbAggNodeLayout::Terms {
+                level,
+                doc_count_col,
+                sub,
+                ..
+            } => {
+                by_level[*level].push(doc_count_col - first_metric_col);
+                for (_, sub) in sub {
+                    self.collect_metrics_by_level(sub, *level, by_level);
+                }
+            }
+            PdbAggNodeLayout::Metric {
+                count_col,
+                value_col,
+                ..
+            } => {
+                by_level[parent_level].extend(
+                    count_col
+                        .iter()
+                        .chain(value_col)
+                        .map(|col| col - first_metric_col),
+                );
+            }
+        }
+    }
 }
 
 /// A bucket key, SQL group value, or metric read back from Arrow.
@@ -1087,7 +1146,13 @@ pub fn assemble_pdb_agg_rows(
                 }
             })
             .collect();
-        let root_batch = RecordBatch::try_new(null_schema, columns)?;
+        // A query of only `pdb.agg()` entries has no root columns, and a batch
+        // without columns needs its row count spelled out.
+        let root_batch = RecordBatch::try_new_with_options(
+            null_schema,
+            columns,
+            &RecordBatchOptions::new().with_row_count(Some(1)),
+        )?;
         return Ok(AssembledPdbAggRows { root_batch, json });
     }
 

@@ -1026,6 +1026,69 @@ WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
 
+-- Test 27d: pdb.agg() as a global window function over a JOIN. JoinScan
+-- computes the document as one more aggregate in its Top-K aggregate node,
+-- beside the SQL window aggregate. The spec reads fields of both tables.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}},
+            "scores": {"terms": {"field": "score", "order": {"_key": "asc"}}}
+        }
+    }'::jsonb) OVER () AS by_brand,
+    COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}},
+            "scores": {"terms": {"field": "score", "order": {"_key": "asc"}}}
+        }
+    }'::jsonb) OVER () AS by_brand,
+    COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- Test 27e: The pdb.agg() document as an input of target list expressions:
+-- read as text, and mixed with a source column.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () ->> 'value' AS avg_text,
+    (pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () -> 'value')::float8 + r.score AS avg_plus_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () ->> 'value' AS avg_text,
+    (pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () -> 'value')::float8 + r.score AS avg_plus_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
 -- Test 28: Window function in subquery
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *

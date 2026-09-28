@@ -146,13 +146,15 @@ pub mod visibility_filter;
 pub mod window_func;
 
 pub use self::build::CtidColumn;
-use self::build::{JoinCSClause, RelNode, RelationAlias};
+use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
     get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
-use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node};
+use self::window_func::{
+    SupportedWindowAggType, WindowAggDef, extract_window_agg, is_supported_window_agg_node,
+};
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -204,6 +206,7 @@ use std::ffi::CStr;
 use std::sync::Arc;
 
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
+use super::datafusion::pdb_agg_udaf::json_document_to_datum;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -676,6 +679,19 @@ impl JoinScan {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: window functions require a statically known LIMIT and OFFSET",
             ));
+        }
+
+        // A `pdb.agg()` field has to come from a source the join still puts
+        // out: the aggregate reads the join's rows.
+        let root_id = PlannerRootId::from(root);
+        for window_agg in &mut window_aggs {
+            if let WindowAggDef::PdbAgg(request) = &mut window_agg.agg_def {
+                request
+                    .assign_plan_positions(|field| {
+                        plan.plan_position(root_id, field.rti, field.attno)
+                    })
+                    .map_err(|e| JoinDeclineReason::new(format!("JoinScan not used: {e}")))?;
+            }
         }
 
         order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
@@ -2568,22 +2584,29 @@ impl JoinScan {
                         continue;
                     };
                     let agg_col = batch.column(col_idx);
-                    let numeric = match numeric_window_field(
-                        window_agg.agg_type,
-                        window_agg.arg_field_type(),
-                    ) {
-                        Ok(f) => f,
-                        Err(e) => pgrx::error!(
-                            "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
-                        ),
+                    let try_maybe_datum = match &window_agg.agg_def {
+                        WindowAggDef::Sql(sql) => {
+                            let numeric = match numeric_window_field(
+                                sql.agg_type(),
+                                sql.arg_field_type(),
+                            ) {
+                                Ok(f) => f,
+                                Err(e) => pgrx::error!(
+                                    "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
+                                ),
+                            };
+                            datafusion_agg_to_datum(
+                                matches!(sql.agg_type(), SupportedWindowAggType::Avg),
+                                numeric,
+                                window_agg.result_type.0,
+                                agg_col.as_ref(),
+                                row_idx,
+                            )
+                        }
+                        WindowAggDef::PdbAgg(_) => {
+                            json_document_to_datum(agg_col.as_ref(), row_idx)
+                        }
                     };
-                    let try_maybe_datum = datafusion_agg_to_datum(
-                        matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
-                        numeric,
-                        window_agg.result_type.0,
-                        agg_col.as_ref(),
-                        row_idx,
-                    );
                     let maybe_datum = match try_maybe_datum {
                         Ok(d) => d,
                         Err(e) => pgrx::error!("Failed to convert window agg result to datum: {e}"),

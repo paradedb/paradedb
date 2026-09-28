@@ -193,6 +193,18 @@ impl SearchTokenizerFilters {
     }
 
     fn name_suffix(&self) -> String {
+        self.name_suffix_impl(true)
+    }
+
+    /// Reproduces the tokenizer name that this filter set would have produced before the
+    /// `trim` filter was included in [`Self::name_suffix`]. Indexes built before that fix
+    /// have this string baked into their on-disk Tantivy schema, so it must stay registerable
+    /// as an alias for the current analyzer or those indexes fail to look up their tokenizer.
+    fn name_suffix_without_trim(&self) -> String {
+        self.name_suffix_impl(false)
+    }
+
+    fn name_suffix_impl(&self, include_trim: bool) -> String {
         let mut buffer = String::new();
         let mut is_empty = true;
 
@@ -240,7 +252,7 @@ impl SearchTokenizerFilters {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
             is_empty = false;
         }
-        if let Some(value) = self.trim {
+        if include_trim && let Some(value) = self.trim {
             write!(buffer, "{}trim={value}", sep(is_empty)).unwrap();
             is_empty = false;
         }
@@ -840,7 +852,20 @@ pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
 
 impl SearchTokenizer {
     pub fn name(&self) -> String {
-        let filters_suffix = self.filters().name_suffix();
+        self.name_with_suffix(&self.filters().name_suffix())
+    }
+
+    /// Reproduces the name this tokenizer would have been registered under before the
+    /// `trim` filter was included in the generated name, when `trim` is set. Indexes built
+    /// before that fix have this exact string baked into their on-disk Tantivy schema, so the
+    /// analyzer must still be registerable under it or those indexes can't find their tokenizer.
+    pub fn legacy_name_before_trim_fix(&self) -> Option<String> {
+        self.filters()
+            .trim
+            .map(|_| self.name_with_suffix(&self.filters().name_suffix_without_trim()))
+    }
+
+    fn name_with_suffix(&self, filters_suffix: &str) -> String {
         match self {
             SearchTokenizer::Simple(_filters) => format!("default{filters_suffix}"),
             SearchTokenizer::Keyword => format!("keyword{filters_suffix}"),
@@ -1018,6 +1043,7 @@ impl SearchNormalizer {
 mod tests {
     use super::*;
     use rstest::*;
+    use tantivy::tokenizer::TokenizerManager;
 
     #[rstest]
     fn test_search_tokenizer() {
@@ -1077,6 +1103,99 @@ mod tests {
         assert_eq!(without_trim.name(), "default");
         assert_eq!(with_trim.name(), "default[trim=true]");
         assert_ne!(without_trim.name(), with_trim.name());
+    }
+
+    #[rstest]
+    fn test_trim_filter_legacy_name_is_backward_compatible() {
+        // Indexes built before the trim-naming fix have the pre-fix name (which ignores
+        // `trim` entirely) baked into their on-disk Tantivy schema. A tokenizer with no
+        // `trim` set at all never changed name, so it has no legacy alias to produce.
+        let without_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: None,
+            ..SearchTokenizerFilters::default()
+        });
+        assert_eq!(without_trim.legacy_name_before_trim_fix(), None);
+
+        // A tokenizer with `trim` set produces a different pre-fix name that must remain
+        // registerable, regardless of what `trim` is actually set to.
+        let with_trim_true = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: Some(true),
+            ..SearchTokenizerFilters::default()
+        });
+        assert_eq!(
+            with_trim_true.legacy_name_before_trim_fix().as_deref(),
+            Some("default")
+        );
+
+        let with_trim_false = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: Some(false),
+            ..SearchTokenizerFilters::default()
+        });
+        assert_eq!(
+            with_trim_false.legacy_name_before_trim_fix().as_deref(),
+            Some("default")
+        );
+
+        // The legacy name also has to account for every other filter set on the tokenizer.
+        let with_trim_and_other_filters = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: Some(true),
+            remove_short: Some(2),
+            ..SearchTokenizerFilters::default()
+        });
+        assert_eq!(
+            with_trim_and_other_filters
+                .legacy_name_before_trim_fix()
+                .as_deref(),
+            Some("default[remove_short=2]")
+        );
+    }
+
+    #[rstest]
+    fn test_register_tokenizers_into_preserves_legacy_trim_alias() {
+        // A field created before the trim-naming fix (trim=true, registered under the old
+        // name "default") must still resolve when the field's current config (trim=true,
+        // current name "default[trim=true]") is registered under the fixed code.
+        let tokenizer_manager = TokenizerManager::default();
+        let with_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: Some(true),
+            ..SearchTokenizerFilters::default()
+        });
+
+        crate::register_tokenizers_into(&tokenizer_manager, vec![with_trim.clone()]);
+
+        assert!(tokenizer_manager.get(&with_trim.name()).is_some());
+        assert!(
+            tokenizer_manager
+                .get(&with_trim.legacy_name_before_trim_fix().unwrap())
+                .is_some(),
+            "the pre-fix name must still resolve so existing indexes keep working"
+        );
+    }
+
+    #[rstest]
+    fn test_register_tokenizers_into_does_not_clobber_colliding_legacy_alias() {
+        // If another field in the same batch genuinely uses the plain, unfiltered "default"
+        // tokenizer, the trim field's legacy alias must not overwrite that field's real
+        // registration -- doing so would reintroduce the exact collision the trim fix exists
+        // to prevent for anything indexed going forward.
+        let tokenizer_manager = TokenizerManager::default();
+        let plain_default = SearchTokenizer::Simple(SearchTokenizerFilters::default());
+        let with_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
+            trim: Some(true),
+            ..SearchTokenizerFilters::default()
+        });
+        assert_eq!(plain_default.name(), "default");
+        assert_eq!(with_trim.legacy_name_before_trim_fix().unwrap(), "default");
+
+        crate::register_tokenizers_into(
+            &tokenizer_manager,
+            vec![with_trim.clone(), plain_default.clone()],
+        );
+
+        // "default" must still be the plain tokenizer's analyzer, not the trim field's alias.
+        let default_analyzer = tokenizer_manager.get("default");
+        assert!(default_analyzer.is_some());
+        assert!(tokenizer_manager.get(&with_trim.name()).is_some());
     }
 
     #[rstest]

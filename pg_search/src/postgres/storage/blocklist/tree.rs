@@ -17,19 +17,32 @@
 
 //! An immutable B+ tree implementation.
 //!
+//! Suppose records with keys 0 through 199 are stored in four leaf pages. We want
+//! to find the page containing key 130 without reading all four pages. Index each
+//! page by its first key. If each directory page holds only two entries, we get:
+//!
 //! ```text
 //! root (level 1)
-//!   0 -> A (level 0):   0 -> leaf a,  40 -> leaf b
-//! 100 -> B (level 0): 100 -> leaf c, 160 -> leaf d
+//! ├──   0 -> A (level 0)
+//! │          ├──  0 -> leaf a: records with keys   0-39
+//! │          └── 40 -> leaf b: records with keys  40-99
+//! └── 100 -> B (level 0)
+//!            ├── 100 -> leaf c: records with keys 100-159
+//!            └── 160 -> leaf d: records with keys 160-199
 //! ```
 //!
-//! To find key 130, take the last start <= 130 at each node: root -> B -> leaf c.
-//! Level 0 points to leaf data; higher levels point to lower nodes. A small tree
-//! can put its level-0 node directly in the root.
+//! To look up key 130:
+//! 1. At the root, choose 100 -> B: 100 is the largest start not greater than 130.
+//! 2. At B, choose 100 -> leaf c: the next page starts at 160, past our key.
+//! 3. Return leaf c; the caller finds record 130 inside it.
+//!
+//! Only root, B, and leaf c are visited. A and the other leaf pages stay unloaded.
+//! Level 0 points to leaf data; higher levels point to lower directory nodes.
 //!
 //! Building groups sorted entries into pages, adding parents until the root fits.
-//! Lookups load and cache only visited pages. The caller supplies page sizes,
-//! reads, writes, and leaf data; this module has no Postgres-specific code.
+//! If all entries fit in the root, it points straight to the leaf pages. Visited
+//! pages are cached for later lookups. The caller supplies page sizes, reads,
+//! writes, and leaf data; this module has no Postgres-specific code.
 
 use std::sync::Arc;
 

@@ -77,20 +77,9 @@ impl InsertShape {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mutation {
-    Insert {
-        table: String,
-        rows: usize,
-    },
-    Delete {
-        table: String,
-        rows: usize,
-    },
     /// Deletes `rows` random rows and inserts as many fresh ones, so the heap churns while the
     /// row count (and with it the join fan-out the test was sized for) holds.
-    Replace {
-        table: String,
-        rows: usize,
-    },
+    Replace { table: String, rows: usize },
     /// Rewrites one column on `rows` random rows. A column outside every index keeps these
     /// updates HOT, which is the only way to grow a HOT chain behind a ctid the index holds.
     Update {
@@ -102,10 +91,7 @@ pub enum Mutation {
     /// Reclaims dead tuples, marks their docs deleted in the index, and sets visibility-map bits
     /// again. Truncation is drawn per mutation, since it takes an exclusive lock and returns the
     /// space to the filesystem rather than to the free space map.
-    Vacuum {
-        table: String,
-        truncate: bool,
-    },
+    Vacuum { table: String, truncate: bool },
 }
 
 impl Mutation {
@@ -124,10 +110,6 @@ impl Mutation {
             )
         };
         match self {
-            Mutation::Insert { table, rows } => vec![insert(table, *rows)],
-            Mutation::Delete { table, rows } => {
-                vec![format!("DELETE FROM {table} WHERE {};", pick(table, *rows))]
-            }
             Mutation::Replace { table, rows } => vec![
                 format!("DELETE FROM {table} WHERE {};", pick(table, *rows)),
                 insert(table, *rows),
@@ -148,34 +130,32 @@ impl Mutation {
     }
 }
 
-/// Session settings for one churn phase.
+/// The settings the churn's own transactions run under.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Session {
-    /// `setseed()` argument, so the rows a phase picks replay under the same proptest seed.
+    /// `setseed()` argument, so the rows the churn picks replay under the same fixture seed.
     pub seed: f64,
-    /// `paradedb.global_mutable_segment_rows` for the phase's inserts. `None` leaves the index
+    /// `paradedb.global_mutable_segment_rows` for the churn's inserts. `None` leaves the index
     /// option in charge; `Some(0)` sends every insert straight to an immutable segment.
     pub mutable_segment_rows: Option<usize>,
 }
 
 impl Session {
-    /// The churn is a fixture, not a subject: its DML runs on plain Postgres paths, whatever the
-    /// previous case left the custom-scan GUCs at, and `SET LOCAL` keeps those settings off the
-    /// pooled session. The seed is drawn once per phase, so batches split at a `VACUUM` go on
-    /// drawing from the same stream.
-    fn session_statements(&self) -> Vec<String> {
-        vec![
-            PgGucs::pg_search_disabled().set_local(),
-            format!("SELECT setseed({});", self.seed),
-        ]
+    /// Drawn once per churn, since a second `setseed()` would hand the batches after a `VACUUM`
+    /// the same rows. It is session state, so it outlives the transaction that runs it.
+    fn seed_statement(&self) -> String {
+        format!("SELECT setseed({});", self.seed)
     }
 
-    /// Re-applied for each transaction of a phase, since `SET LOCAL` ends with it. Row picks hand
-    /// out `random()` in scan order, so they stay off index-only scans, which read the bm25 index
-    /// in segment order, and off parallel plans, whose row order varies from run to run. Either
-    /// would pick other rows on replay.
+    /// Re-applied for each transaction of the churn, since `SET LOCAL` ends with it. The churn is a
+    /// fixture, not a subject: its DML runs on plain Postgres paths, whatever the previous case
+    /// left the custom-scan GUCs at, and `SET LOCAL` keeps the fixture's own settings off the
+    /// pooled session. Row picks hand out `random()` in scan order, so they stay off index-only
+    /// scans, which read the bm25 index in segment order, and off parallel plans, whose row order
+    /// varies from run to run. Either would pick other rows on replay.
     fn local_statements(&self) -> Vec<String> {
         let mut statements = vec![
+            PgGucs::pg_search_disabled().set_local(),
             "SET LOCAL enable_indexonlyscan TO off;".to_string(),
             "SET LOCAL max_parallel_workers_per_gather TO 0;".to_string(),
         ];
@@ -346,7 +326,7 @@ impl Churn {
     /// the order drawn: a vacuum drawn first reclaims what the fixture's own build left, and the
     /// inserts after it reuse the space.
     fn apply(&self, pool: &MutexObjectPool<PgConnection>, mut setup: SetupScript) -> SetupScript {
-        let mut preamble = self.session.session_statements();
+        let mut seed = Some(self.session.seed_statement());
         let mut dml: Vec<String> = Vec::new();
         setup.sql.push_str("\n-- churn\n");
 
@@ -357,7 +337,7 @@ impl Churn {
                 continue;
             }
             if !dml.is_empty() {
-                self.run_batch(pool, &mut setup, &mut preamble, &mut dml);
+                self.run_batch(pool, &mut setup, &mut seed, &mut dml);
             }
             for vacuum in statements {
                 run_retrying(pool, &setup, "qgen churn vacuum", &vacuum);
@@ -367,22 +347,22 @@ impl Churn {
             }
         }
         if !dml.is_empty() {
-            self.run_batch(pool, &mut setup, &mut preamble, &mut dml);
+            self.run_batch(pool, &mut setup, &mut seed, &mut dml);
         }
         setup
     }
 
-    /// One transaction of the churn. The session-level settings and the seed go in the first
-    /// batch only: re-seeding would hand the batches after a vacuum the same rows.
+    /// One transaction of the churn. Every setting is transaction-local, so each batch applies it
+    /// again. Only the seed is spent on the first batch.
     fn run_batch(
         &self,
         pool: &MutexObjectPool<PgConnection>,
         setup: &mut SetupScript,
-        preamble: &mut Vec<String>,
+        seed: &mut Option<String>,
         dml: &mut Vec<String>,
     ) {
-        let mut statements = std::mem::take(preamble);
-        statements.extend(self.session.local_statements());
+        let mut statements = self.session.local_statements();
+        statements.extend(seed.take());
         statements.append(dml);
         let batch = format!("BEGIN;\n{}\nCOMMIT;", statements.join("\n"));
         run_retrying(pool, setup, "qgen churn", &batch);
@@ -411,4 +391,30 @@ fn run_retrying(pool: &MutexObjectPool<PgConnection>, setup: &SetupScript, what:
         Err(RetryError::GraceExpired(reason)) => reason,
     };
     panic!("{}", handle_setup_error(setup, what, &detail, sql));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A batch after a `VACUUM` runs in its own transaction, and `SET LOCAL` died with the one
+    /// before it, so the churn's settings have to come from the per-transaction list.
+    #[test]
+    fn each_batch_keeps_the_churn_off_the_search_paths() {
+        let session = Session {
+            seed: 0.25,
+            mutable_segment_rows: None,
+        };
+        let locals = session.local_statements().join("\n");
+
+        assert!(
+            locals.contains("SET LOCAL paradedb.enable_custom_scan TO false;"),
+            "{locals}"
+        );
+        assert!(
+            locals.contains("SET LOCAL enable_indexonlyscan TO off;"),
+            "{locals}"
+        );
+        assert!(!locals.contains("setseed"), "{locals}");
+    }
 }

@@ -897,8 +897,6 @@ where
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         compare_outcome_inner(sides, pg_query, bm25_query, gucs, conn, setup, run_query)
     }));
-    // Rendered before the frame closes, since closing appends the case's churn to the log and
-    // the script carries it inline.
     match outcome {
         Ok(o) => o,
         Err(panic) => {
@@ -993,7 +991,6 @@ pub fn compare_plan_retrying(
     use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
 
     let fail = |msg: String| {
-        // The plan check runs on its own pooled session, outside the case's transaction.
         CaseOutcome::Failure(handle_compare_error(
             TestCaseError::fail(msg),
             pg_query,
@@ -1163,9 +1160,9 @@ where
     }
 }
 
-/// The seeds a reproduction script replays under.
-fn repro_seeds(setup: &SetupScript) -> (String, String) {
-    let qgen_seed = setup
+/// The fixture's seed: the rows, and the churn on top of them, replay under it.
+fn fixture_seed(setup: &SetupScript) -> String {
+    setup
         .qgen_seed
         .map(|s| s.to_string())
         .or_else(|| {
@@ -1175,11 +1172,14 @@ fn repro_seeds(setup: &SetupScript) -> (String, String) {
                 .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
                 .map(|s| s.to_string())
         })
-        .unwrap_or_else(|| "<unknown>".to_string());
-    let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
+        .unwrap_or_else(|| "<unknown>".to_string())
+}
+
+/// The seed of the case under test, which exists only once proptest has drawn one.
+fn proptest_seed() -> String {
+    std::env::var("PROPTEST_RNG_SEED")
         .ok()
-        .unwrap_or_else(|| "<from proptest output above>".to_string());
-    (qgen_seed, proptest_seed)
+        .unwrap_or_else(|| "<from proptest output above>".to_string())
 }
 
 /// A reproduction script for a failure in the fixture rather than in a query under test: the
@@ -1191,7 +1191,8 @@ pub fn handle_setup_error(
     detail: &str,
     sql: &str,
 ) -> TestCaseError {
-    let (qgen_seed, proptest_seed) = repro_seeds(setup);
+    // The fixture is built before proptest draws a case, so its own seed is the whole replay.
+    let qgen_seed = fixture_seed(setup);
     TestCaseError::fail(format!(
         r#"{what} failed: {detail}
 
@@ -1213,8 +1214,8 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 --
 -- ==== END REPRODUCTION SCRIPT ====
 
-Replay this proptest case end-to-end:
-  PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
+Replay this run end-to-end:
+  PARADEDB_QGEN_SEED={qgen_seed} \
     cargo test --package tests --test qgen <test_fn_name>
 "#,
         setup_sql = setup.sql,
@@ -1246,7 +1247,7 @@ pub fn handle_compare_error(
         "RESULT MISMATCH"
     };
 
-    let (qgen_seed, proptest_seed) = repro_seeds(setup);
+    let (qgen_seed, proptest_seed) = (fixture_seed(setup), proptest_seed());
 
     let drop_tables_sql = setup.drop_tables_sql();
 

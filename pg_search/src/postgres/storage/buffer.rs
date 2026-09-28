@@ -254,20 +254,22 @@ impl Buffer {
         }
     }
 
-    /// Converts this Buffer into an ImmutablePage, which is UNLOCKED but still pinned.
+    /// Converts this Buffer into a PinnedBuffer, which is UNLOCKED but still pinned.
     ///
     /// SAFETY: Must only be used with Buffers representing immutable data, which will not be
     /// changed until all pins are dropped and/or a transaction horizon has passed (as enforced by
     /// the FSM, for example).
-    pub unsafe fn into_immutable_page(mut self) -> ImmutablePage {
+    pub unsafe fn into_pinned(mut self) -> PinnedBuffer {
         // Unlock the buffer, but preserve our pin.
         pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
         let pg_buffer =
             std::mem::replace(&mut self.pg_buffer, pg_sys::InvalidBuffer as pg_sys::Buffer);
         block_tracker::forget!(self.blockno);
-        ImmutablePage {
-            pinned_buffer: PinnedBuffer::new(pg_buffer),
-        }
+        PinnedBuffer::new(pg_buffer)
+    }
+
+    pub unsafe fn into_immutable_page(self) -> PinnedBuffer {
+        self.into_pinned()
     }
 
     pub fn number(&self) -> pg_sys::BlockNumber {
@@ -386,11 +388,8 @@ impl BufferMut {
         self.inner.page_size()
     }
 
-    pub fn into_immutable_page(mut self) -> ImmutablePage {
-        assert!(
-            !self.dirty,
-            "BufferMut::into_immutable_page called on a dirty page"
-        );
+    pub fn into_pinned(mut self) -> PinnedBuffer {
+        assert!(!self.dirty, "BufferMut::into_pinned called on a dirty page");
 
         let inner = std::mem::replace(
             &mut self.inner,
@@ -400,7 +399,11 @@ impl BufferMut {
                 blockno: pg_sys::InvalidBlockNumber,
             },
         );
-        unsafe { inner.into_immutable_page() }
+        unsafe { inner.into_pinned() }
+    }
+
+    pub fn into_immutable_page(self) -> PinnedBuffer {
+        self.into_pinned()
     }
 
     /// Return this [`BufferMut`] instance back to our' Free Space Map, making
@@ -478,7 +481,35 @@ impl PinnedBuffer {
     pub fn pg_buffer(&self) -> pg_sys::Buffer {
         self.pg_buffer
     }
+
+    pub fn page(&self) -> Page<'_> {
+        let pg_page = unsafe { pg_sys::BufferGetPage(self.pg_buffer) };
+        Page {
+            pg_page,
+            _buffer: None,
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        let pg_page = unsafe { pg_sys::BufferGetPage(self.pg_buffer) };
+        let header = unsafe { &*(pg_page as *const pg_sys::PageHeaderData) };
+        let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
+        let slice_len = header.pd_lower as usize - header_size;
+        unsafe { std::slice::from_raw_parts((pg_page as *const u8).add(header_size), slice_len) }
+    }
 }
+
+impl Deref for PinnedBuffer {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+unsafe impl StableDeref for PinnedBuffer {}
+unsafe impl Send for PinnedBuffer {}
+unsafe impl Sync for PinnedBuffer {}
 
 /// Borrows a pinned Buffer owned by another struct (rather than acquiring one from the
 /// BufferManager), and locks it as BUFFER_LOCK_SHARE for the lifetime of the guard.
@@ -825,6 +856,10 @@ impl BufferManager {
         &self.rbufacc
     }
 
+    pub fn rel(&self) -> &PgSearchRelation {
+        self.rbufacc.rel()
+    }
+
     #[must_use]
     pub fn new_buffer(&mut self) -> BufferMut {
         let pg_buffer = self
@@ -1137,28 +1172,3 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     special.xmax = pg_sys::InvalidTransactionId;
     buffer
 }
-
-#[derive(Debug)]
-pub struct ImmutablePage {
-    pinned_buffer: PinnedBuffer,
-}
-
-impl Deref for ImmutablePage {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        let pg_page = unsafe { pg_sys::BufferGetPage(self.pinned_buffer.pg_buffer) };
-        let page = Page {
-            pg_page,
-            _buffer: None,
-        };
-        let slice = page.as_slice();
-        // It's safe to extend the lifetime of this slice because `self` owns the `Buffer`,
-        // which keeps the underlying page data alive and pinned in memory.
-        unsafe { &*(slice as *const [u8]) }
-    }
-}
-
-unsafe impl StableDeref for ImmutablePage {}
-unsafe impl Send for ImmutablePage {}
-unsafe impl Sync for ImmutablePage {}

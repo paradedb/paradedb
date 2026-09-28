@@ -19,7 +19,7 @@ use std::cmp::min;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::io::{Cursor, Read, Write};
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::sync::OnceLock;
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, bm25_max_free_space};
@@ -37,8 +37,8 @@ use tantivy::directory::OwnedBytes;
 
 const BLOCK_CACHE_SIZE: usize = 16;
 
-/// Unified cache entry: stores OwnedBytes which wraps an Arc'd ImmutablePage.
-/// get_byte indexes directly into the pre-resolved &[u8] slice (no vtable dispatch).
+/// Unified cache entry: stores OwnedBytes for a block.
+/// get_byte indexes directly into OwnedBytes' slice (evaluating lazily if needed).
 /// get_bytes_range_block clones the Arc on cache hit and promotes the entry
 /// to the back (LRU); get_byte skips promotion to keep its hot path minimal.
 struct CacheEntry {
@@ -66,6 +66,20 @@ impl<T> UnsafeCache<T> {
     #[allow(clippy::mut_from_ref)] // SAFETY: Postgres backends are single-threaded.
     unsafe fn get(&self) -> &mut VecDeque<T> {
         &mut *self.0.get()
+    }
+}
+
+/// Wraps a value to implement Send and Sync.
+/// SAFETY: Postgres backends are single-threaded.
+#[derive(Clone)]
+#[repr(transparent)]
+struct SendSync<T>(T);
+unsafe impl<T> Send for SendSync<T> {}
+unsafe impl<T> Sync for SendSync<T> {}
+impl<T> Deref for SendSync<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -104,12 +118,51 @@ impl<T> UnsafeCache<T> {
 // | [next_blockno: BlockNumber, xmax: TransactionId]            |
 // +-------------------------------------------------------------+
 
+#[derive(Clone, Copy, Debug)]
+struct FileLength {
+    total_bytes: usize,
+    is_finalized: bool,
+}
+
+impl FileLength {
+    fn new(total_bytes: usize, is_finalized: bool) -> Self {
+        Self {
+            total_bytes,
+            is_finalized,
+        }
+    }
+
+    fn last_block_ord(&self) -> Option<usize> {
+        self.total_bytes
+            .checked_sub(1)
+            .map(|last| last / bm25_max_free_space())
+    }
+
+    fn block_len(&self, block_ord: usize) -> usize {
+        let last_ord = self.last_block_ord().unwrap_or_else(|| {
+            panic!("empty file has no blocks; block_ord {block_ord} is out of bounds")
+        });
+        if block_ord < last_ord {
+            bm25_max_free_space()
+        } else if block_ord == last_ord {
+            let rem = self.total_bytes % bm25_max_free_space();
+            if rem == 0 && self.total_bytes > 0 {
+                bm25_max_free_space()
+            } else {
+                rem
+            }
+        } else {
+            panic!("block_ord {block_ord} out of bounds: last_block_ord is {last_ord}");
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct LinkedBytesList {
     bman: BufferManager,
     pub header_blockno: pg_sys::BlockNumber,
     metadata: OnceLock<LinkedListData>,
-    last_block_ord: Option<usize>,
+    length: Option<FileLength>,
     blocklist_reader: OnceLock<Mutex<blocklist::reader::BlockList>>,
     cache: UnsafeCache<CacheEntry>,
 }
@@ -227,14 +280,18 @@ impl LinkedList for LinkedBytesList {
 
     fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber> {
         let metadata = self.metadata.get_or_init(|| self.get_linked_list_data());
-        if let Some(last_ord) = self.last_block_ord {
+        if let Some(length) = self.length {
+            if length.total_bytes == 0 {
+                return None;
+            }
+            let last_ord = length.last_block_ord().unwrap();
             if ord > last_ord {
                 return None;
             }
             if ord == 0 {
                 return Some(metadata.start_blockno);
             }
-            if ord == last_ord {
+            if ord == last_ord && length.is_finalized {
                 return Some(metadata.last_blockno);
             }
         }
@@ -251,18 +308,32 @@ impl LinkedBytesList {
             bman: BufferManager::new(rel),
             header_blockno,
             metadata: Default::default(),
-            last_block_ord: None,
+            length: None,
             blocklist_reader: Default::default(),
             cache: UnsafeCache::new(),
         }
     }
 
-    /// The list must be finalized and `total_bytes` must be its complete file length.
+    /// Sets the length of a finalized list. Enables the `last_blockno` endpoint optimization
+    /// in addition to bounding block lookups.
     pub fn with_length(mut self, total_bytes: usize) -> Self {
-        self.last_block_ord = total_bytes
-            .checked_sub(1)
-            .map(|last| last / bm25_max_free_space());
+        self.length = Some(FileLength::new(total_bytes, true));
         self
+    }
+
+    /// Sets the length of an uncommitted/in-flight list whose header `last_blockno` is not yet
+    /// written. Bounding block lookups is enabled, but the endpoint optimization for `last_blockno`
+    /// is skipped (falling back to the blocklist).
+    pub fn with_uncommitted_length(mut self, total_bytes: usize) -> Self {
+        self.length = Some(FileLength::new(total_bytes, false));
+        self
+    }
+
+    fn block_len(&self, block_ord: usize) -> usize {
+        self.length
+            .as_ref()
+            .expect("file length must be set to determine block_len")
+            .block_len(block_ord)
     }
 
     /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method
@@ -308,7 +379,7 @@ impl LinkedBytesList {
             bman,
             header_blockno,
             metadata: Default::default(),
-            last_block_ord: None,
+            length: None,
             blocklist_reader: Default::default(),
             cache: UnsafeCache::new(),
         }
@@ -410,25 +481,9 @@ impl LinkedBytesList {
         {
             return last.block_bytes[local_offset];
         }
-        if let Some(pos) = cache.iter().rposition(|e| e.block_ord == block_ord) {
-            return cache[pos].block_bytes[local_offset];
-        }
 
-        // Cache miss: read the block, cache it, return the byte.
-        let blockno = self.block_for_ord(block_ord).expect("block not found");
-        let buffer = self.bman.get_buffer(blockno);
-        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
-        let byte = block_bytes[local_offset];
-
-        if cache.len() >= BLOCK_CACHE_SIZE {
-            cache.pop_front();
-        }
-        cache.push_back(CacheEntry {
-            block_ord,
-            block_bytes,
-        });
-
-        byte
+        let block_bytes = self.get_bytes_range_block(block_ord);
+        block_bytes[local_offset]
     }
 
     pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> OwnedBytes {
@@ -450,25 +505,35 @@ impl LinkedBytesList {
             return block_bytes.slice(slice_start..slice_end);
         }
 
-        // Multi-page read: must copy, but each page is served through the block
-        // cache so blocks shared with adjacent reads (torn items on a page
-        // boundary, consecutive spans) skip the buffer manager round trip.
-        let mut data = Vec::with_capacity(range.len());
-        let mut remaining = range.len();
-
+        // Multi-page read: defer the copy until the bytes are dereferenced.
+        let mut blocks = Vec::with_capacity(end_block_ord - start_block_ord + 1);
         for block_ord in start_block_ord..=end_block_ord {
-            let block_bytes = self.get_bytes_range_block(block_ord);
-            let slice_start = if block_ord == start_block_ord {
-                range.start % ITEM_SIZE
-            } else {
-                0
-            };
-            let slice_len = (ITEM_SIZE - slice_start).min(remaining);
-            data.extend_from_slice(&block_bytes[slice_start..slice_start + slice_len]);
-            remaining -= slice_len;
+            let blockno = self.block_for_ord(block_ord).expect("block not found");
+            blocks.push(blockno);
         }
 
-        OwnedBytes::new(data)
+        let rel = SendSync(self.bman.rel().clone());
+        let total_len = range.len();
+        let start_offset = range.start % ITEM_SIZE;
+        OwnedBytes::new_lazy(total_len, move || {
+            let mut data = Vec::with_capacity(total_len);
+            let mut remaining = total_len;
+            let bman = BufferManager::new(&rel);
+
+            for (i, &blockno) in blocks.iter().enumerate() {
+                let buffer = bman.get_buffer(blockno);
+                let page = buffer.page();
+                let slice = page.as_slice();
+                let slice_start = if i == 0 { start_offset } else { 0 };
+                let slice_len = (slice.len().saturating_sub(slice_start)).min(remaining);
+                data.extend_from_slice(&slice[slice_start..slice_start + slice_len]);
+                remaining -= slice_len;
+                if remaining == 0 {
+                    break;
+                }
+            }
+            data
+        })
     }
 
     unsafe fn get_bytes_range_block(&self, start_block_ord: usize) -> OwnedBytes {
@@ -482,12 +547,15 @@ impl LinkedBytesList {
             return block_bytes;
         }
 
-        // Cache miss: read the block.
+        // Cache miss: create a lazy block handle and store it in cache.
         let blockno = self
             .block_for_ord(start_block_ord)
             .expect("block not found");
-        let buffer = self.bman.get_buffer(blockno);
-        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
+        let block_len = self.block_len(start_block_ord);
+        let rel = SendSync(self.bman.rel().clone());
+        let block_bytes = OwnedBytes::new_lazy(block_len, move || {
+            BufferManager::new(&rel).pinned_buffer(blockno)
+        });
 
         if cache.len() >= BLOCK_CACHE_SIZE {
             cache.pop_front();

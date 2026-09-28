@@ -64,7 +64,8 @@ impl SegmentComponentReader {
         entry: FileEntry,
         component: Option<tantivy::index::SegmentComponent>,
     ) -> Self {
-        let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+        let block_list = LinkedBytesList::open(indexrel, entry.starting_block)
+            .with_uncommitted_length(entry.total_bytes);
 
         Self {
             block_list,

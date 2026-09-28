@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! A lookup tree that stays fixed after it is built.
+//! An immutable B+ tree implementation.
 //!
 //! ```text
 //! root (level 1)

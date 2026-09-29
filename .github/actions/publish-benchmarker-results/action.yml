@@ -58,23 +58,34 @@ runs:
         shopt -s nullglob
         mkdir -p _metrics
         for j in "${RESULTS_DIR}"/*.json; do
+          case "$(basename "$j")" in
+            benchmarker_*.json) continue ;;
+          esac
           nm="$(basename "$j" .json)"
-          jq '[ .runs | to_entries[] | .value as $r
-                | ([$r.queries[]?.latencies[]?] | sort) as $sorted
-                | ($sorted | length) as $n
-                | select($n > 0)
-                | { name:  ($r.name + " mean latency"),
-                    unit:  "ms",
-                    value: (($sorted | add) / $n) },
-                  ((50, 90, 95, 99) as $p
-                   | { name:  ($r.name + " p" + ($p|tostring) + " latency"),
-                       unit:  "ms",
-                       value: $sorted[ ((($n - 1) * $p / 100) | floor) ] }) ]' \
-            "$j" > "_metrics/${nm}.json"
+          jq --arg nm "$nm" '
+            [ .runs | to_entries[] | .value as $r
+              | ([$r.queries[]?.latencies[]?] | sort) as $sorted
+              | ($sorted | length) as $n
+              | select($n > 0)
+              | ([$r.queries[]?.displayName | select(. != null)][0] // ($r.name + " (" + $nm + ")")) as $label
+              | {
+                  name: ($label + " p50 latency"),
+                  unit: "ms",
+                  value: $sorted[((($n - 1) * 50 / 100) | floor)]
+                },
+                {
+                  name: ($label + " p99 latency"),
+                  unit: "ms",
+                  value: $sorted[((($n - 1) * 99 / 100) | floor)]
+                }
+            ]
+          ' "$j" > "_metrics/${nm}.json"
         done
+
         mkdir -p "$(dirname "${METRICS_FILE}")"
         if compgen -G "_metrics/*.json" > /dev/null; then
           jq -s 'add' _metrics/*.json > "${METRICS_FILE}"
+          echo "=== Extracted Metrics ==="
           cat "${METRICS_FILE}"
         fi
 
@@ -82,7 +93,7 @@ runs:
       shell: bash
       run: rm -rf ./benchmark-data-repository
 
-    - name: Publish Latency (mean + percentiles)
+    - name: Publish Latency Metrics (p50 and p99)
       if: hashFiles(inputs.metrics_file) != ''
       continue-on-error: true
       uses: benchmark-action/github-action-benchmark@v1
@@ -150,7 +161,7 @@ runs:
           printf '### 📊 Benchmarker dashboards (%s): `%s`\n\n' "${DATASET}" "${STEP_COMMIT_INFO_SHORT_COMMIT}"
           printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
           printf '%s\n' "$links"
-          printf 'Over-time tracking (mean + percentile latency across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
+          printf 'Over-time tracking (p50 + p99 latency across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
           printf '_gh-pages may take ~a minute to deploy after this run._\n'
         } > _comment.md
         gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file _comment.md

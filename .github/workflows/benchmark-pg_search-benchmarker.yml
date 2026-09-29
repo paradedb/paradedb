@@ -284,10 +284,29 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p results
+
+          topk_styles=(conjunction disjunction phrase mixed)
+          for style in "${topk_styles[@]}"; do
+            echo "== Running workload=topk query_style=${style} =="
+            make -f Makefile.${DATASET} run \
+              BACKENDS=paradedb \
+              WORKLOAD=topk \
+              QUERY_STYLE="${style}" \
+              VUS=1 \
+              DURATION=60s \
+              OUTPUT=json,html \
+              OUT_DIR="${PWD}/results" \
+              PARADEDB_IMAGE="${IMAGE_TAG}" \
+              VOLUME_ROOT="${VOLUME_ROOT}"
+          done
+
+          echo "== Running workload=count query_style=mixed =="
           make -f Makefile.${DATASET} run \
             BACKENDS=paradedb \
-            WORKLOAD=topk \
-            QUERY_STYLE=disjunction \
+            WORKLOAD=count \
+            QUERY_STYLE=mixed \
+            VUS=1 \
+            DURATION=60s \
             OUTPUT=json,html \
             OUT_DIR="${PWD}/results" \
             PARADEDB_IMAGE="${IMAGE_TAG}" \

@@ -44,7 +44,8 @@ The latest version of `pg_search` is `{version}`. Please refer to the [releases]
 
 ## Updating ParadeDB
 
-### Helm Chart
+<Tabs>
+<Tab title="Helm Chart">
 
 To upgrade the ParadeDB Helm chart:
 
@@ -72,7 +73,8 @@ Replace `<helm_version>` with the latest version of the chart and `<paradedb_ver
 
 5. If you are using [ParadeDB BYOC](/operate/deploy/byoc), an automatic rollout will begin. One by one, the pods will be restarted to apply the new version of the extension.
 
-### Docker Image
+</Tab>
+<Tab title="Docker Image">
 
 To upgrade the ParadeDB Docker image while preserving your data volume:
 
@@ -89,13 +91,17 @@ The latest version of the Docker image should be `{version}`.
 
 3. Start the new ParadeDB Docker image via `docker run paradedb`.
 
-### Self-Managed Postgres
+</Tab>
+<Tab title="Self-Managed Postgres">
 
 To upgrade the extensions running in a self-managed Postgres:
 
 1. Stop Postgres (e.g. `pg_ctl stop -D </path/to/data/directory>`).
 2. Download and install the extension you wish to upgrade in the same way that it was initially installed.
 3. Start Postgres (e.g. `pg_ctl start -D </path/to/data/directory>`).
+
+</Tab>
+</Tabs>
 
 ## Alter Extension
 

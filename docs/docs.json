@@ -295,8 +295,7 @@
                   "operate/performance-tuning/overview",
                   "operate/performance-tuning/create-index",
                   "operate/performance-tuning/reads",
-                  "operate/performance-tuning/writes",
-                  "operate/performance-tuning/aggregates"
+                  "operate/performance-tuning/writes"
                 ]
               },
               {

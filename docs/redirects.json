@@ -373,7 +373,7 @@
   },
   {
     "source": "/documentation/aggregates/tuning",
-    "destination": "/operate/performance-tuning/aggregates"
+    "destination": "/operate/performance-tuning/reads"
   },
   {
     "source": "/documentation/aggregates/limitations",
@@ -1014,6 +1014,10 @@
   {
     "source": "/changelog/deprecated",
     "destination": "/project/changelog/deprecated"
+  },
+  {
+    "source": "/operate/performance-tuning/aggregates",
+    "destination": "/operate/performance-tuning/reads"
   },
   {
     "source": "/operate/deploy/logical-replication/operational-guide",

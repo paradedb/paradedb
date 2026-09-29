@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: A deep dive into how ParadeDB is built on Postgres
+description: A deep dive into how ParadeDB is built
 canonical: https://www.paradedb.com/docs/concepts/architecture
 ---
 
@@ -13,7 +13,7 @@ optimized for high-ingest search and analytics workloads.
 ## Custom Index
 
 In Postgres, indexes provide alternative data structures for accessing the data in a table (which Postgres calls a "heap table") more efficiently.
-ParadeDB introduces a custom index called the _ParadeDB index_.
+ParadeDB introduces a custom index called the ParadeDB index.
 
 When a table row is inserted or updated, the ParadeDB index is immediately notified. These changes are recorded as part of the current transaction, ensuring that index updates are real-time.
 

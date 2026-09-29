@@ -609,6 +609,26 @@ def update_version_snippet(repo_root, clean_ver):
     update_installation_version(repo_root, clean_ver)
     update_kubernetes_version(repo_root, clean_ver)
     update_digitalocean_version(repo_root, clean_ver)
+    update_upgrading_version(repo_root, clean_ver)
+
+
+def update_upgrading_version(repo_root, clean_ver):
+    """Update literal versions in upgrade prose and executable examples."""
+    upgrading_file = repo_root / "docs/operate/deploy/upgrading.mdx"
+    if not upgrading_file.exists():
+        return
+
+    semver = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
+    patterns = [
+        rf"(The latest version of `pg_search` is `){semver}(?=`)",
+        rf"(docker pull paradedb/paradedb:){semver}",
+        rf"(The latest version of the Docker image should be `){semver}(?=`)",
+        rf"(ALTER EXTENSION pg_search UPDATE TO '){semver}(?=';)",
+    ]
+    content = upgrading_file.read_text(encoding="utf-8")
+    for pattern in patterns:
+        content = re.sub(pattern, lambda match: match[1] + clean_ver, content)
+    upgrading_file.write_text(content, encoding="utf-8")
 
 
 def update_installation_version(repo_root, clean_ver):

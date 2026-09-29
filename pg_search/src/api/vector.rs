@@ -17,7 +17,6 @@
 
 //! SQL diagnostics for vector quantization.
 
-use crate::index::directory::utils::load_index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::catalog::{OidExt, is_pgvector_oid};
@@ -174,25 +173,17 @@ fn vector_estimator_info_internal(
     let FieldType::Vector(vector_options) = field_entry.field_type() else {
         bail!("field {field:?} is not a vector field");
     };
-    let settings = load_index_settings(&index)?;
-    let quantization = settings
-        .as_ref()
-        .into_iter()
-        .flat_map(|settings| &settings.vector_quantization)
-        .find(|config| config.field == field)
-        .with_context(|| format!("field is not quantized; nothing to diagnose: {field:?}"))?;
-    let expected_dim = quantization.dim;
-    ensure!(
-        vector_options.dim() == expected_dim,
-        "quantization dimension {expected_dim} for field {field:?} does not match schema dimension {}",
-        vector_options.dim()
-    );
+    let expected_dim = vector_options.dim();
+    ensure_quantized_segments(&search_reader, vector_field, &field)?;
 
     let membership_rows = search_reader
         .segment_readers()
         .iter()
         .map(|segment_reader| -> Result<u64> {
             let vector_index = segment_reader.vector_index(vector_field)?;
+            if !is_quantized(&vector_index) {
+                return Ok(0);
+            }
             u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset()))
                 .context("live posting-membership row count exceeds u64")
         })
@@ -411,14 +402,21 @@ fn vector_error_audit_internal(
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
-    let settings = load_index_settings(&index)?
-        .with_context(|| format!("index {:?} has no persisted settings", index.name()))?;
-    let quantization = settings
-        .vector_quantization
-        .iter()
-        .find(|config| config.field == field)
-        .with_context(|| format!("field {field:?} is not configured for quantization"))?;
-    let expected_dim = quantization.dim;
+    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+    let vector_field = search_reader
+        .schema()
+        .tantivy_schema()
+        .get_field(&field)
+        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
+    let field_entry = search_reader
+        .schema()
+        .tantivy_schema()
+        .get_field_entry(vector_field);
+    let FieldType::Vector(vector_options) = field_entry.field_type() else {
+        bail!("field {field:?} is not a vector field");
+    };
+    let expected_dim = vector_options.dim();
+    ensure_quantized_segments(&search_reader, vector_field, &field)?;
     let (external_queries, input_query_count) = decode_queries_capped(
         &queries,
         expected_dim,
@@ -438,30 +436,14 @@ fn vector_error_audit_internal(
         })
         .collect::<Vec<_>>();
 
-    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-    let vector_field = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field(&field)
-        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
-    let field_entry = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field_entry(vector_field);
-    let FieldType::Vector(vector_options) = field_entry.field_type() else {
-        bail!("field {field:?} is not a vector field");
-    };
-    ensure!(
-        vector_options.dim() == expected_dim,
-        "quantization dimension {expected_dim} for field {field:?} does not match schema dimension {}",
-        vector_options.dim()
-    );
-
     let membership_rows = search_reader
         .segment_readers()
         .iter()
         .map(|segment_reader| -> Result<u64> {
             let vector_index = segment_reader.vector_index(vector_field)?;
+            if !is_quantized(&vector_index) {
+                return Ok(0);
+            }
             u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset()))
                 .context("live posting-membership row count exceeds u64")
         })
@@ -477,6 +459,9 @@ fn vector_error_audit_internal(
         .iter()
         .map(|segment_reader| -> Result<u64> {
             let vector_index = segment_reader.vector_index(vector_field)?;
+            if !is_quantized(&vector_index) {
+                return Ok(0);
+            }
             u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset()))
                 .context("live distinct-vector count exceeds u64")
         })
@@ -665,16 +650,24 @@ fn vector_error_cone_audit_internal(
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
-    let settings = load_index_settings(&index)?
-        .with_context(|| format!("index {:?} has no persisted settings", index.name()))?;
-    let quantization = settings
-        .vector_quantization
-        .iter()
-        .find(|config| config.field == field)
-        .with_context(|| format!("field {field:?} is not configured for quantization"))?;
+    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+    let vector_field = search_reader
+        .schema()
+        .tantivy_schema()
+        .get_field(&field)
+        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
+    let field_entry = search_reader
+        .schema()
+        .tantivy_schema()
+        .get_field_entry(vector_field);
+    let FieldType::Vector(vector_options) = field_entry.field_type() else {
+        bail!("field {field:?} is not a vector field");
+    };
+    let expected_dim = vector_options.dim();
+    ensure_quantized_segments(&search_reader, vector_field, &field)?;
     let (external_queries, input_query_count) = decode_queries_capped(
         &queries,
-        quantization.dim,
+        expected_dim,
         EXACT_E_AUDIT_QUERY_COUNT,
         "error cone audit",
     )?;
@@ -690,30 +683,10 @@ fn vector_error_cone_audit_internal(
         })
         .collect::<Vec<_>>();
 
-    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-    let vector_field = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field(&field)
-        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
-    let field_entry = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field_entry(vector_field);
-    let FieldType::Vector(vector_options) = field_entry.field_type() else {
-        bail!("field {field:?} is not a vector field");
-    };
-    ensure!(
-        vector_options.dim() == quantization.dim,
-        "quantization dimension {} for field {field:?} does not match schema dimension {}",
-        quantization.dim,
-        vector_options.dim()
-    );
-
     let mut vector_segments = Vec::new();
     for segment_reader in search_reader.segment_readers() {
         let vector_index = segment_reader.vector_index(vector_field)?;
-        if vector_index.num_vectors() != 0 {
+        if is_quantized(&vector_index) && vector_index.num_vectors() != 0 {
             vector_segments.push((segment_reader, vector_index));
         }
     }
@@ -732,6 +705,40 @@ fn vector_error_cone_audit_internal(
             )
         })?;
     Ok(TableIterator::new(exact_e_cone_audit_rows(&measurements)?))
+}
+
+/// Identifies segments whose stored metadata contains quantization layers.
+fn is_quantized(reader: &tantivy::vector::VectorIndexReader) -> bool {
+    matches!(
+        reader.metadata(),
+        Some(tantivy::vector::VectorColMetadata::Quantized { .. })
+    )
+}
+
+/// Requires a visible quantized segment and identifies Plain segments excluded from diagnostics.
+fn ensure_quantized_segments(
+    reader: &SearchIndexReader,
+    field: tantivy::schema::Field,
+    name: &str,
+) -> Result<()> {
+    let mut quantized = false;
+    for segment in reader.segment_readers() {
+        let vector = segment.vector_index(field)?;
+        if is_quantized(&vector) {
+            quantized = true;
+        } else if vector.metadata().is_some() {
+            pgrx::notice!(
+                "skipping Plain segment {} for vector field {:?}",
+                segment.segment_id().short_uuid_string(),
+                name
+            );
+        }
+    }
+    ensure!(
+        quantized,
+        "field {name:?} has no visible quantized segment; nothing to diagnose"
+    );
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -887,6 +894,9 @@ fn sample_held_out_queries(
         .iter()
         .map(|segment_reader| -> Result<u64> {
             let vector_index = segment_reader.vector_index(vector_field)?;
+            if !is_quantized(&vector_index) {
+                return Ok(0);
+            }
             u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset()))
                 .context("live distinct-vector count exceeds u64")
         })

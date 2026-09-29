@@ -24,7 +24,7 @@ By default, ParadeDB favors correctness, even when it comes at the cost of slowe
 
 Postgres distinguishes between logical replication and physical replication.
 
-Logical replication refers to replicating changes from a standard Postgres primary (e.g. AWS RDS) into a ParadeDB instance. This is commonly used when ParadeDB acts as a search node built from upstream Postgres changes.
+[Logical replication](/operate/deploy/logical-replication/getting-started) refers to replicating changes from a standard Postgres primary (e.g. AWS RDS) into a ParadeDB instance. This is commonly used when ParadeDB acts as a search node built from upstream Postgres changes.
 
 Physical replication refers to running ParadeDB itself in a multi-node, high-availability (HA) setup using write-ahead log (WAL) shipping.
 

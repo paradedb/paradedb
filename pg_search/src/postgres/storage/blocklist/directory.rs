@@ -56,19 +56,14 @@ const ENTRY_SIZE: usize = 2 * WORD_SIZE;
 pub(super) const ROOT_CAPACITY: usize =
     (bm25_max_free_space() - size_of::<LinkedListData>() - HEADER_SIZE) / ENTRY_SIZE;
 const PAGE_CAPACITY: usize = (bm25_max_free_space() - HEADER_SIZE) / ENTRY_SIZE;
-/// Maximum root level needed to cover all `u32` logical page numbers.
-/// A level-0 root covers `ROOT_CAPACITY` map pages; each extra level multiplies
-/// coverage by `PAGE_CAPACITY` (level 3 is enough with 8 KiB pages).
-pub(super) const MAX_LEVEL: u32 = {
-    let mut covered_pages = ROOT_CAPACITY as u64;
-    let mut level = 0;
-    while covered_pages <= u32::MAX as u64 {
-        covered_pages *= PAGE_CAPACITY as u64;
-        level += 1;
-    }
-    level
-};
+/// Maximum root level for `u32` logical page numbers. With 8 KiB pages, level 2
+/// covers about 1 billion map pages; level 3 exceeds the 4.3 billion addressable
+/// pages. Level 0 already points to map pages, so level 3 means four directory levels.
+pub(super) const MAX_LEVEL: u32 = 3;
 
+/// A shared directory root for one component's compressed page map.
+/// Level-0 entries point to map pages; higher levels point to directory pages.
+/// The root is stored beside the component header on the same Postgres page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Directory {
     pub(super) node: Arc<Node<u32, pg_sys::BlockNumber>>,

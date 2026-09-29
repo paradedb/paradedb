@@ -54,7 +54,11 @@ mod directory;
 mod tree;
 pub use directory::Directory;
 
-fn chunk_size(bytes: &[u8]) -> (usize, usize) {
+type ChunkBlockCount = usize;
+type ChunkByteLength = usize;
+
+/// Reads a chunk header to get its mapped block count and encoded byte length.
+fn chunk_size(bytes: &[u8]) -> (ChunkBlockCount, ChunkByteLength) {
     use bitpacking::{BitPacker, BitPacker1x, BitPacker4x, BitPacker8x};
     let tag = ChunkStyleTag::from(bytes[0]);
     let (count, len) = match tag {

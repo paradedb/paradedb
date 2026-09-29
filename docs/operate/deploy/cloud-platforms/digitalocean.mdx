@@ -4,8 +4,7 @@ description: Deploy ParadeDB on DigitalOcean
 canonical: https://www.paradedb.com/docs/operate/deploy/cloud-platforms/digitalocean
 ---
 
-[DigitalOcean](https://www.digitalocean.com) is a cloud platform for deploying and managing applications. This guide walks you through
-deploying ParadeDB on a DigitalOcean Droplet using Docker. Docker packages Postgres and `pg_search` together, so you don't need to install them manually.
+[DigitalOcean](https://www.digitalocean.com) is a cloud platform for deploying and managing applications. This guide walks you through deploying ParadeDB Community on a DigitalOcean Droplet.
 
 ## Prerequisites
 
@@ -15,7 +14,7 @@ deploying ParadeDB on a DigitalOcean Droplet using Docker. Docker packages Postg
 ## Create a Droplet
 
 1. In the DigitalOcean console, create a new Droplet
-2. Select **Ubuntu 24.04 (LTS) x64** as the image
+2. Select **Ubuntu 26.04 (LTS) x64** as the image
 3. Choose a plan size — see the [DigitalOcean sizing guide](https://docs.digitalocean.com/products/droplets/concepts/choosing-a-plan/) for recommendations
 
 Once the Droplet is running, SSH into it to complete the remaining steps.

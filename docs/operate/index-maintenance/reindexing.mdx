@@ -118,7 +118,7 @@ WHERE i.relname = 'search_idx_v2';
 (1 row)
 ```
 
-If all three columns are `true`, the original index can safely be dropped, which will redirect queries to the new index.
+If all three columns are `true`, the original index can safely be dropped. This will redirect queries to the new index.
 
 ```sql
 DROP INDEX search_idx;

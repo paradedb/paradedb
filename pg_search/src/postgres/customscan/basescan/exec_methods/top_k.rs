@@ -381,6 +381,7 @@ impl ExecMethod for TopKScanExecState {
                     state.heaprel(),
                     prepared.mvcc_enabled,
                     agg_limits.clone(),
+                    None,
                 );
 
                 TopKAuxiliaryCollector {
@@ -465,6 +466,7 @@ impl ExecMethod for TopKScanExecState {
                     state.heaprel(),
                     prepared.mvcc_enabled,
                     agg_limits.clone(),
+                    None,
                 );
                 if let Some(vischeck) = vischeck {
                     search_reader.collect(MVCCFilterCollector::new(aggregation_collector, vischeck))

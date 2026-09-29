@@ -47,7 +47,7 @@ use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
-    field_type_for_pullup, get_attno_by_name, resolve_fast_field,
+    field_type_for_pullup, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::customscan::range_table::{bms_iter, get_rte};
@@ -1275,12 +1275,8 @@ fn numeric_bytes_layouts_differ(
     inner_ff: &WhichFastField,
     inner_ir: &PgSearchRelation,
 ) -> bool {
-    let is_numeric_bytes = |ff: &WhichFastField| {
-        matches!(
-            ff,
-            WhichFastField::Named(_, SearchFieldType::NumericBytes(..))
-        )
-    };
+    let is_numeric_bytes =
+        |ff: &WhichFastField| matches!(ff.field_type(), Some(SearchFieldType::NumericBytes(..)));
     is_numeric_bytes(outer_ff)
         && is_numeric_bytes(inner_ff)
         && outer_ir
@@ -1786,13 +1782,8 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
         return;
     }
     let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&indexrel)
-        && let Some(search_field) = schema.search_field(field_name)
-    {
-        side.scan_info.add_field(
-            attno,
-            WhichFastField::Array(field_name.to_string(), search_field.field_type()),
-        );
+    if let Some(field) = resolve_fast_field_by_name(field_name, &indexrel) {
+        side.scan_info.add_field(attno, field);
     }
 }
 
@@ -1836,7 +1827,7 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
     source.scan_info.add_field_by_name(
         synthetic_attno,
-        WhichFastField::Named(field_name.to_string(), field_type),
+        WhichFastField::eager(field_name.to_string(), field_type),
     );
     Ok(())
 }

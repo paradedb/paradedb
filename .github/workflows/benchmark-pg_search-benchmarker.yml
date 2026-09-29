@@ -60,20 +60,23 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
+          gh pr edit "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --remove-label benchmark-benchmarker || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
+        env:
+          INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
           # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
           # commit, or the current main commit for nightly runs).
-          if [ -n "${{ inputs.commit }}" ]; then
-            echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
+          if [ -n "${INPUTS_COMMIT}" ]; then
+            echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
           else
-            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout Workflow
@@ -290,24 +293,27 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_REPOSITORY_NAME: ${{ github.event.repository.name }}
+          STEP_COMMIT_INFO_SHORT_COMMIT: ${{ steps.commit_info.outputs.short_commit }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}"
-          OVERTIME="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker/"
+          BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker-runs/${STEP_COMMIT_INFO_SHORT_COMMIT}"
+          OVERTIME="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker/"
           links=""
           for h in _ghpages_html/*.html; do
             nm="$(basename "$h" .html)"
             links="${links}- [${nm}](${BASE}/${nm}.html)"$'\n'
           done
           {
-            printf '### 📊 Benchmarker dashboards: `%s`\n\n' "${{ steps.commit_info.outputs.short_commit }}"
+            printf '### 📊 Benchmarker dashboards: `%s`\n\n' "${STEP_COMMIT_INFO_SHORT_COMMIT}"
             printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
             printf '%s\n' "$links"
             printf 'Over-time tracking (mean + percentile latency across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
             printf '_gh-pages may take ~a minute to deploy after this run._\n'
           } > _comment.md
-          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file _comment.md
+          gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file _comment.md
 
       # Publishes run continue-on-error, so gate here: fail loudly if k6 recorded
       # no samples (empty metrics) instead of a silently-masked green.

@@ -129,11 +129,14 @@ runs:
       if: inputs.alert_strategy == 'paired-bootstrap'
       id: paired_bootstrap
       shell: bash
+      env:
+        INPUTS_DATASET: ${{ inputs.dataset }}
+        INPUTS_INDEX: ${{ inputs.index }}
       run: |
-        python3 "${{ github.action_path }}/compare_baseline.py" \
+        python3 "${GITHUB_ACTION_PATH}/compare_baseline.py" \
           --results benchmarks/results.json \
           --data-js benchmark-data-repository/benchmarks/data.js \
-          --suite "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)" \
+          --suite "pg_search '${INPUTS_DATASET} (${INPUTS_INDEX})' (${{ env.ROWS_LABEL }} rows)" \
           --out benchmark-alert.md
 
     - name: Comment on Alert (Paired Bootstrap)
@@ -142,8 +145,8 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
-        printf '\ncc @%s\n' "${{ github.actor }}" >> benchmark-alert.md
-        gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+        printf '\ncc @%s\n' "${GITHUB_ACTOR}" >> benchmark-alert.md
+        gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
           -F body=@benchmark-alert.md
 
     - name: Upload Benchmark Results to Slack (push only)

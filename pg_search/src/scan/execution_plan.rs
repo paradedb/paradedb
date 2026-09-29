@@ -59,7 +59,7 @@ use pgrx::pg_sys;
 use tantivy::Score;
 
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::stats::{PartitionSegments, segments_for_partition};
@@ -618,10 +618,11 @@ impl PgSearchScanPlan {
         | ExecutionState::RangePartitioned { scan_state, .. } = &mut *state
         {
             for wff in scan_state.0.scanner_config.which_fast_fields.iter_mut() {
-                if let WhichFastField::Deferred(name, ty) = wff
+                if let WhichFastField::Named { name, delivery, .. } = wff
+                    && matches!(delivery, FieldDelivery::Deferred)
                     && eager.contains(name)
                 {
-                    *wff = WhichFastField::Named(name.clone(), *ty);
+                    *delivery = FieldDelivery::Eager;
                 }
             }
         }
@@ -846,7 +847,7 @@ impl PgSearchScanPlan {
             for d in &deferred {
                 if let Some(ref rb) = d.rebuild {
                     which[d.canonical.ff_index] =
-                        WhichFastField::Named(rb.field_name.clone(), rb.field_type);
+                        WhichFastField::eager(rb.field_name.clone(), rb.field_type);
                 }
             }
             Some(Arc::new(FFHelper::with_fields(&reader, &which)))

@@ -74,8 +74,10 @@ runs:
     - name: Install cargo-pgrx ${{ steps.versions.outputs.pgrx }}
       if: inputs.install_cargo_pgrx == 'true'
       shell: bash
+      env:
+        STEP_VERSIONS_PGRX: ${{ steps.versions.outputs.pgrx }}
       run: |
-        version="${{ steps.versions.outputs.pgrx }}"
+        version="${STEP_VERSIONS_PGRX}"
         installed="$(cargo pgrx --version 2>/dev/null || true)"
         if [ "${installed}" = "cargo-pgrx ${version}" ]; then
           echo "cargo-pgrx ${version} restored from rust-cache"

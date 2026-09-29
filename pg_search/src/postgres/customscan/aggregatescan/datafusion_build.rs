@@ -27,7 +27,7 @@
 use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{CompareOp, FilterExpr};
 use crate::api::operator::expr_contains_search_predicate;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
@@ -196,12 +196,8 @@ unsafe fn collect_source_fields(
     let Some(bm25) = bm25_index else {
         return Vec::new();
     };
-    let Ok(schema) = bm25.schema() else {
-        return Vec::new();
-    };
     let heaprel = PgSearchRelation::open(relid);
     let tupdesc = heaprel.tuple_desc();
-    let categorized = schema.categorized_fields();
     let mut fields = Vec::new();
     for attno in 1..=tupdesc.len() {
         if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, bm25) {
@@ -211,15 +207,16 @@ unsafe fn collect_source_fields(
             });
         } else {
             let att = tupdesc.get(attno - 1).unwrap();
-            let col_name = att.name();
-            if let Some(search_field) = schema.search_field(col_name)
-                && search_field.is_fast()
-                && let Some((_, data)) = categorized.iter().find(|(sf, _)| sf == &search_field)
-                && data.is_array
+            if let Some(
+                field @ WhichFastField::Named {
+                    cardinality: FieldCardinality::List,
+                    ..
+                },
+            ) = resolve_fast_field_by_name(att.name(), bm25)
             {
                 fields.push(FieldInfo {
                     attno: attno as pg_sys::AttrNumber,
-                    field: WhichFastField::Array(col_name.to_string(), search_field.field_type()),
+                    field,
                 });
             }
         }

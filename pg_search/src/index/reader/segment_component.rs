@@ -35,7 +35,31 @@ pub struct SegmentComponentReader {
 }
 
 impl SegmentComponentReader {
+    /// Opens a finalized, immutable segment component for reading.
+    ///
+    /// Endpoint reads (e.g. footers or headers) are resolved directly via the header
+    /// page, avoiding block list lookups.
     pub unsafe fn new(
+        indexrel: &PgSearchRelation,
+        entry: FileEntry,
+        component: Option<tantivy::index::SegmentComponent>,
+    ) -> Self {
+        let block_list =
+            LinkedBytesList::open(indexrel, entry.starting_block).with_length(entry.total_bytes);
+
+        Self {
+            block_list,
+            entry,
+            component,
+        }
+    }
+
+    /// Opens an uncommitted segment component whose file length may still be in flux.
+    ///
+    /// Used for in-flight files before `finalize_and_write()` has executed. Endpoint
+    /// optimizations are disabled because the header page does not yet have a valid
+    /// `last_blockno`.
+    pub unsafe fn new_uncommitted(
         indexrel: &PgSearchRelation,
         entry: FileEntry,
         component: Option<tantivy::index::SegmentComponent>,
@@ -109,30 +133,42 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
-        let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
-        let segment = format!("{}.term", uuid::Uuid::new_v4());
-        let path = Path::new(segment.as_str());
+        let page_size = bm25_max_free_space();
+        for len in [
+            0,
+            1,
+            page_size - 1,
+            page_size,
+            page_size + 1,
+            2 * page_size,
+            100_000,
+        ] {
+            let bytes: Vec<u8> = (1..=255).cycle().take(len).collect();
+            let segment = format!("{}.term", uuid::Uuid::new_v4());
+            let path = Path::new(segment.as_str());
+            let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
+            writer.write_all(&bytes).unwrap();
+            let file_entry = writer.file_entry();
+            writer.terminate().unwrap();
 
-        let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
-        writer.write_all(&bytes).unwrap();
-        let file_entry = writer.file_entry();
-        writer.terminate().unwrap();
-
-        let reader = SegmentComponentReader::new(&indexrel, file_entry, None);
-        assert_eq!(reader.storage_block_len(), Some(bm25_max_free_space()));
-
-        assert_eq!(reader.len(), 100_000);
-        assert_eq!(
-            reader.read_bytes(99_998..100_000).unwrap().as_ref(),
-            &bytes[99_998..100_000]
-        );
-        assert_eq!(
-            reader.read_bytes(99_999..100_001).unwrap().as_ref(),
-            &bytes[99_999..100_000]
-        );
-        assert_eq!(
-            reader.read_bytes(0..100_000).unwrap().as_ref(),
-            &bytes[0..100_000]
-        );
+            for finalized in [false, true] {
+                let reader = if finalized {
+                    SegmentComponentReader::new(&indexrel, file_entry, None)
+                } else {
+                    SegmentComponentReader::new_uncommitted(&indexrel, file_entry, None)
+                };
+                assert_eq!(reader.storage_block_len(), Some(page_size));
+                assert_eq!(reader.len(), len);
+                let tail = len.saturating_sub(24);
+                assert_eq!(
+                    reader.read_bytes(tail..len + 1).unwrap().as_ref(),
+                    &bytes[tail..]
+                );
+                for offset in (0..len).step_by(page_size.saturating_sub(1)).rev() {
+                    assert_eq!(reader.read_byte(offset).unwrap(), bytes[offset]);
+                }
+                assert_eq!(reader.read_bytes(0..len).unwrap().as_ref(), bytes);
+            }
+        }
     }
 }

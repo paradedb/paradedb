@@ -62,6 +62,9 @@ static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(tr
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows visibility proofs from segment bounds and heap-block document ranges.
+static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
     GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
@@ -373,6 +376,15 @@ pub fn init() {
         c"Enable intersecting ParadeDB scans with bitmaps from other indexes",
         c"When enabled (default), a ParadeDB scan whose query carries heap-filter predicates covered by another index (btree, GiST, GIN) builds that index's bitmap and prunes documents against it before touching the heap.",
         &ENABLE_BITMAP_INTERSECTION,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_visibility_map_shortcuts",
+        c"Enable visibility-map shortcuts for segments and document ranges",
+        c"When disabled, fetch each matching document's CTID and use per-row visibility checks",
+        &ENABLE_VISIBILITY_MAP_SHORTCUTS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -895,6 +907,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_visibility_map_shortcuts() -> bool {
+    ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
 }
 
 pub fn enable_bitmap_intersection() -> bool {

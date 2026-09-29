@@ -10,10 +10,7 @@ canonical: https://www.paradedb.com/docs/operate/deploy/logical-replication/gett
   Postgres 17+.
 </Note>
 
-In production, ParadeDB is commonly deployed as a logical subscriber to your
-primary Postgres. Your application continues to write to the source database,
-while ParadeDB receives the same row changes and maintains local ParadeDB indexes
-for search and analytics.
+Logical replication lets you deploy ParadeDB alongside your existing Postgres infrastructure, including hosted services that do not support the `pg_search` extension. Your application continues writing to your primary database while ParadeDB receives those changes and serves search and analytics queries. This provides a way to get started without changing your current setup, with the option to migrate to ParadeDB Cloud later.
 
 This deployment model is useful when:
 

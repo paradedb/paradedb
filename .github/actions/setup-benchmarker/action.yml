@@ -1,0 +1,49 @@
+name: Set Up Benchmarker
+description: Checkout benchmarker repository, optionally apply patch, set up Go, and build binaries
+
+inputs:
+  repository:
+    description: "Repository to clone"
+    required: false
+    default: "paradedb/benchmarker"
+  ref:
+    description: "Ref to checkout"
+    required: false
+    default: "main"
+  patch_file:
+    description: "Relative path to patch file to apply (optional)"
+    required: false
+    default: ""
+  lfs:
+    description: "Whether to download LFS objects"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout benchmarker (${{ inputs.ref }})
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        path: benchmarker
+        lfs: ${{ inputs.lfs == 'true' }}
+
+    - name: Apply benchmarker patch
+      if: inputs.patch_file != ''
+      shell: bash
+      run: git -C benchmarker apply "${GITHUB_WORKSPACE}/${{ inputs.patch_file }}"
+
+    - name: Set Up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: benchmarker/go.mod
+        cache-dependency-path: benchmarker/go.sum
+
+    - name: Build benchmarker (k6 + loader)
+      shell: bash
+      working-directory: benchmarker
+      env:
+        GOTOOLCHAIN: auto
+      run: make

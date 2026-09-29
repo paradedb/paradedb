@@ -35,7 +35,7 @@ const SEGMENTS: usize = 100;
 const SETUP_SQL: &str = r#"
 CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 CREATE TABLE bs_cancel (id bigserial primary key, body text, grp int, extra int);
-CREATE INDEX bs_cancel_idx ON bs_cancel USING paradedb (id, body, grp);
+CREATE INDEX bs_cancel_idx ON bs_cancel USING paradedb (id, body, grp) WITH (key_field = 'id');
 -- A heap-filter predicate that checks for interrupts itself, like any function calling pg_sleep.
 CREATE FUNCTION bs_cancel_sleepy(x int) RETURNS bool LANGUAGE plpgsql IMMUTABLE AS
 $$ BEGIN PERFORM pg_sleep(0); RETURN x = -1; END $$;

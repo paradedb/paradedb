@@ -6,7 +6,7 @@ canonical: https://www.paradedb.com/docs/operate/deploy/upgrading
 
 ## Overview
 
-ParadeDB ships its functionality packaged as a Postgres extension, `pg_search`. Upgrading ParadeDB is as simple as updating the `pg_search` extension.
+ParadeDB ships its functionality packaged as a Postgres extension, `pg_search`. To upgrade, first install the new extension binary, then update the extension in the Postgres catalog.
 
 <Note>
   ParadeDB depends on `pgvector` for its vector types, which are used by [native

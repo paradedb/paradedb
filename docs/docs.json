@@ -274,7 +274,7 @@
                     "pages": [
                       "operate/deploy/logical-replication/getting-started",
                       "operate/deploy/logical-replication/operational-guide",
-                      "operate/deploy/logical-replication/configuration",
+                      "operate/deploy/logical-replication/schema-changes",
                       "operate/deploy/logical-replication/multi-database"
                     ]
                   }
@@ -308,7 +308,7 @@
                 "group": "Continuous Integration",
                 "pages": [
                   "operate/deploy/ci/github-actions",
-                  "operate/deploy/ci/gitlab-ci"
+                  "operate/deploy/ci/gitlab-pipelines"
                 ]
               }
             ]

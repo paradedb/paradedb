@@ -1,5 +1,13 @@
 [
   {
+    "source": "/operate/deploy/logical-replication/configuration",
+    "destination": "/operate/deploy/logical-replication/schema-changes"
+  },
+  {
+    "source": "/operate/deploy/ci/gitlab-ci",
+    "destination": "/operate/deploy/ci/gitlab-pipelines"
+  },
+  {
     "source": "/start/connect-your-app",
     "destination": "/start/configure-your-environment"
   },
@@ -441,7 +449,7 @@
   },
   {
     "source": "/deploy/logical-replication/configuration",
-    "destination": "/operate/deploy/logical-replication/configuration"
+    "destination": "/operate/deploy/logical-replication/schema-changes"
   },
   {
     "source": "/deploy/logical-replication/multi-database",
@@ -477,7 +485,7 @@
   },
   {
     "source": "/deploy/ci/gitlab-ci",
-    "destination": "/operate/deploy/ci/gitlab-ci"
+    "destination": "/operate/deploy/ci/gitlab-pipelines"
   },
   {
     "source": "/changelog/0.25.10",

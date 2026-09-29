@@ -21,7 +21,12 @@ use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
+<<<<<<< HEAD
 use crate::postgres::{parallel, ParallelScanState, ScanStrategy};
+=======
+use crate::postgres::utils::PgMemoryContextsExt;
+use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
+>>>>>>> 4917fb13f (fix: Fix a crash when a search scan is cancelled or terminated (#6479))
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys::IndexScanDesc;
@@ -255,10 +260,16 @@ pub extern "C-unwind" fn amrescan(
             }
         };
 
+<<<<<<< HEAD
         (*scan).opaque = PgMemoryContexts::CurrentMemoryContext
             .leak_and_drop_on_delete(Some(scan_state))
             .cast();
     }
+=======
+    scan.opaque = PgMemoryContexts::CurrentMemoryContext
+        .leak_and_drop_unless_exiting(Some(scan_state))
+        .cast();
+>>>>>>> 4917fb13f (fix: Fix a crash when a search scan is cancelled or terminated (#6479))
 }
 
 #[pg_guard]

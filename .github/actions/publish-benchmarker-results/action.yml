@@ -1,0 +1,169 @@
+name: Publish Benchmarker Results
+description: Extract latency metrics, upload dashboards, publish to gh-pages, and comment on PRs
+
+inputs:
+  dataset:
+    description: "Dataset name (e.g. hn-ci, stackexchange)"
+    required: true
+  short_commit:
+    description: "Short commit SHA"
+    required: true
+  ref:
+    description: "Git ref or commit benchmarked"
+    required: true
+  image_tag:
+    description: "Image tag tested"
+    required: false
+    default: "paradedb-source:ci"
+  results_dir:
+    description: "Directory containing results json and html files"
+    required: false
+    default: "benchmarker/results"
+  metrics_file:
+    description: "Path to write extracted metrics json"
+    required: false
+    default: "benchmarker/benchmarker_metrics.json"
+  github_token:
+    description: "GitHub token for publishing and comments"
+    required: true
+  pr_number:
+    description: "PR number to comment on (empty if not a PR)"
+    required: false
+    default: ""
+  auto_push:
+    description: "Whether to auto-push baseline metrics to gh-pages"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Upload dashboards
+      uses: actions/upload-artifact@v7
+      with:
+        overwrite: true
+        name: benchmarker-dashboards-${{ inputs.dataset }}-${{ inputs.short_commit }}
+        path: |
+          ${{ inputs.results_dir }}/*.json
+          ${{ inputs.results_dir }}/*.html
+        if-no-files-found: warn
+
+    - name: Extract tracked metrics
+      shell: bash
+      env:
+        RESULTS_DIR: ${{ inputs.results_dir }}
+        METRICS_FILE: ${{ inputs.metrics_file }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        mkdir -p _metrics
+        for j in "${RESULTS_DIR}"/*.json; do
+          nm="$(basename "$j" .json)"
+          jq '[ .runs | to_entries[] | .value as $r
+                | ([$r.queries[]?.latencies[]?] | sort) as $sorted
+                | ($sorted | length) as $n
+                | select($n > 0)
+                | { name:  ($r.name + " mean latency"),
+                    unit:  "ms",
+                    value: (($sorted | add) / $n) },
+                  ((50, 90, 95, 99) as $p
+                   | { name:  ($r.name + " p" + ($p|tostring) + " latency"),
+                       unit:  "ms",
+                       value: $sorted[ ((($n - 1) * $p / 100) | floor) ] }) ]' \
+            "$j" > "_metrics/${nm}.json"
+        done
+        mkdir -p "$(dirname "${METRICS_FILE}")"
+        if compgen -G "_metrics/*.json" > /dev/null; then
+          jq -s 'add' _metrics/*.json > "${METRICS_FILE}"
+          cat "${METRICS_FILE}"
+        fi
+
+    - name: Cleanup Previous Benchmark Publish Working Directory
+      shell: bash
+      run: rm -rf ./benchmark-data-repository
+
+    - name: Publish Latency (mean + percentiles)
+      if: hashFiles(inputs.metrics_file) != ''
+      continue-on-error: true
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: "benchmarker ${{ inputs.dataset }} (latency)"
+        ref: ${{ inputs.ref }}
+        tool: customSmallerIsBetter
+        output-file-path: ${{ inputs.metrics_file }}
+        github-token: ${{ inputs.github_token }}
+        gh-repository: github.com/${{ github.repository }}
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: benchmarker
+        auto-push: ${{ inputs.auto_push == 'true' }}
+        alert-threshold: "115%"
+        comment-on-alert: true
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ inputs.pr_number != '' }}
+
+    - name: Stage dashboards (HTML only) for gh-pages
+      shell: bash
+      env:
+        RESULTS_DIR: ${{ inputs.results_dir }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        mkdir -p _ghpages_html
+        htmls=("${RESULTS_DIR}"/*.html)
+        if [ ${#htmls[@]} -gt 0 ]; then
+          cp "${htmls[@]}" _ghpages_html/
+        fi
+        ls -la _ghpages_html
+
+    - name: Publish dashboards to gh-pages
+      if: hashFiles('_ghpages_html/*.html') != ''
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ inputs.github_token }}
+        publish_dir: ./_ghpages_html
+        destination_dir: benchmarker-runs/${{ inputs.short_commit }}/${{ inputs.dataset }}
+        keep_files: true
+        user_name: "github-actions[bot]"
+        user_email: "github-actions[bot]@users.noreply.github.com"
+        commit_message: "benchmarker dashboards for ${{ inputs.short_commit }} (${{ inputs.dataset }})"
+
+    - name: Comment dashboard links
+      if: inputs.pr_number != '' && hashFiles('_ghpages_html/*.html') != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        EVENT_REPOSITORY_NAME: ${{ github.event.repository.name }}
+        STEP_COMMIT_INFO_SHORT_COMMIT: ${{ inputs.short_commit }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        DATASET: ${{ inputs.dataset }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker-runs/${STEP_COMMIT_INFO_SHORT_COMMIT}/${DATASET}"
+        OVERTIME="https://${GITHUB_REPOSITORY_OWNER}.github.io/${EVENT_REPOSITORY_NAME}/benchmarker/"
+        links=""
+        for h in _ghpages_html/*.html; do
+          nm="$(basename "$h" .html)"
+          links="${links}- [${nm}](${BASE}/${nm}.html)"$'\n'
+        done
+        {
+          printf '### 📊 Benchmarker dashboards (%s): `%s`\n\n' "${DATASET}" "${STEP_COMMIT_INFO_SHORT_COMMIT}"
+          printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
+          printf '%s\n' "$links"
+          printf 'Over-time tracking (mean + percentile latency across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
+          printf '_gh-pages may take ~a minute to deploy after this run._\n'
+        } > _comment.md
+        gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file _comment.md
+
+    - name: Fail if no metrics were extracted
+      shell: bash
+      env:
+        METRICS_FILE: ${{ inputs.metrics_file }}
+      run: |
+        [ -f "${METRICS_FILE}" ] || { echo "no metrics file (earlier stage failed); skipping guard"; exit 0; }
+        n=$(jq 'length' "${METRICS_FILE}")
+        echo "extracted metric rows: ${n}"
+        if [ "${n:-0}" -eq 0 ]; then
+          echo "::error::No benchmark metrics extracted: the k6 run produced no query samples. Check query execution / the dashboard export." >&2
+          exit 1
+        fi

@@ -42,14 +42,16 @@ ParadeDB Enterprise adds commercial licensing, support, and physical replication
 | Accelerated JOINs                               | ✅                  | ✅                   |
 | Aggregates and facets                           | ✅                  | ✅                   |
 | **Concurrency and Consistency**                 |                    |                     |
-| Postgres MVCC-safe<sup>1</sup>                  | ✅                  | ✅                   |
+| ACID transactions and consistent reads<sup>1</sup> | ✅                | ✅                   |
 | Concurrent, non-blocking writes                 | ✅                  | ✅                   |
-| Block storage integration                       | ✅                  | ✅                   |
-| Buffer cache integration<sup>2</sup>            | ✅                  | ✅                   |
-| **Deployment <sup>3</sup>**                     |                    |                     |
+| **Deployment <sup>2</sup>**                     |                    |                     |
 | Crash recovery                                  | ✅                  | ✅                   |
 | Point-in-time recovery                          | ✅                  | ✅                   |
-| High availability and read replicas<sup>4</sup> | ❌                  | ✅                   |
+| High availability and failover<sup>3</sup>       | ❌                  | ✅                   |
+| Read replicas for search queries<sup>3</sup>     | ❌                  | ✅                   |
+| **Licensing and Support**                       |                    |                     |
+| License                                         | AGPL-3.0           | Commercial          |
+| Support                                         | Community          | Enterprise          |
 
 <Info>
 **Footnotes**
@@ -59,14 +61,11 @@ ParadeDB Enterprise adds commercial licensing, support, and physical replication
   rules. The index reflects the current state of the underlying table at all
   times, changes to the index are atomic, and queries are transactionally
   consistent with the table.
-  2. The ParadeDB index is built on block storage, Postgres' native storage API.
-  This means that it leverages the Postgres buffer cache, which minimizes disk
-  I/O.
-  3. Deployment features and limitations are specific to the ParadeDB index.
+  2. Deployment features and limitations are specific to the ParadeDB index.
   ParadeDB Community can still use standard Postgres replication, crash recovery,
   and point-in-time recovery for heap tables and other Postgres indexes like
   B-tree indexes.
-  4. In a primary-replica topology, ParadeDB indexes in ParadeDB Community are
+  3. In a primary-replica topology, ParadeDB indexes in ParadeDB Community are
   only available on the primary because Community does not physically replicate
   the ParadeDB index.
 </p>

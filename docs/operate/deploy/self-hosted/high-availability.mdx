@@ -4,11 +4,9 @@ description: Use read replicas to minimize downtime in production
 canonical: https://www.paradedb.com/docs/operate/deploy/self-hosted/high-availability
 ---
 
-High availability (HA) minimizes downtime when a Postgres instance fails by automatically promoting a standby instance to take its place. For
-ParadeDB queries, HA requires [ParadeDB Enterprise](/operate/deploy/enterprise)
-because the ParadeDB index must be physically replicated to standby instances.
-Deploy Enterprise inside a [CNPG Kubernetes
-cluster](/operate/deploy/self-hosted/kubernetes) to run this topology.
+High availability (HA) minimizes downtime when a Postgres instance fails by automatically promoting a standby instance to take its place.
+
+High availability for ParadeDB indexes requires [ParadeDB Enterprise](/operate/deploy/enterprise), which is included with [ParadeDB Cloud](/operate/deploy/cloud). To self-host it, [contact sales](mailto:sales@paradedb.com).
 
 ## How High Availability Works
 

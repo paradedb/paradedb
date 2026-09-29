@@ -3,7 +3,9 @@
 -- each later field inside the ranges of the fields before it. A range
 -- co-partitioned join on the first field therefore reaches whole segments
 -- only (`partial=0`), while a join on a later field still crosses segment
--- boxes. A `field=N` count fixes how many ranges a field is cut into.
+-- boxes. The join cuts on whichever side's edges land inside the fewest
+-- documents, not on the larger side's. A `field=N` count fixes how many
+-- ranges a field is cut into.
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -37,8 +39,11 @@ ANALYZE pbh_comments;
 
 CREATE INDEX pbh_users_idx ON pbh_users USING paradedb (id, display_name)
 WITH (partition_by = 'id', target_segment_count = 4);
+-- Comments segments are half the size of posts segments, so cutting on a posts
+-- edge, which lands inside one comments segment, is cheaper than cutting on a
+-- comments edge, which lands inside one or more posts segments.
 CREATE INDEX pbh_comments_idx ON pbh_comments USING paradedb (id, post_id, body)
-WITH (partition_by = 'post_id', target_segment_count = 4);
+WITH (partition_by = 'post_id', target_segment_count = 8);
 
 -- =====================================================================
 -- Default layout: `id` is cut into four global ranges, `owner_user_id`
@@ -53,17 +58,18 @@ SELECT count(*) AS segments FROM paradedb.index_info('pbh_posts_idx');
 SET max_parallel_workers_per_gather TO 3;
 
 -- A join on the first field: every posts segment is whole in its task. The
--- posts side is the larger scan, so the join takes its split points.
+-- comments scan is the larger one, but its edges would land inside the posts
+-- boxes, so the join cuts on the posts edges and comments takes the partials.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
 
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
 
@@ -96,13 +102,13 @@ SELECT count(*) AS segments FROM paradedb.index_info('pbh_posts_idx');
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
 
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
 
@@ -120,13 +126,13 @@ SELECT count(*) AS segments FROM paradedb.index_info('pbh_posts_idx');
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
 
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
 

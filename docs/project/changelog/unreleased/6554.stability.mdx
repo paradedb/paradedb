@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+A backend terminated, for example with `pg_terminate_backend`, while it was loading or saving tokenizer settings no longer hangs. It used to stay active and keep its locks until it was killed with `SIGKILL`, which restarts the cluster. A new connection loads these settings in its first query against an index with more than one tokenizer-configured field.

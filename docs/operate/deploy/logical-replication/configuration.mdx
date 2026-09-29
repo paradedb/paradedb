@@ -37,13 +37,6 @@ subscriptions, including extra capacity during the initial copy.
 - On Postgres 18+, also size `max_active_replication_origins` for replication
   origin tracking.
 
-**Initial-copy parallelism:**
-
-`max_sync_workers_per_subscription` controls how many tables a subscription
-can copy at once when it is created or refreshed. The default is `2`. Raising
-it lets multi-table subscriptions copy more tables at once, but requires more
-slots and workers.
-
 ## Handling Tables Without Primary Keys
 
 Postgres needs a replica identity to replicate `UPDATE` and `DELETE`

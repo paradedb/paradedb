@@ -31,6 +31,16 @@ OLTP traffic.
 By default, logical replication starts with an initial copy of the existing data. Let Postgres finish copying the base table data before you build ParadeDB indexes.
 This avoids extra indexing work during the bootstrap phase.
 
+### Initial-Copy Parallelism
+
+`max_sync_workers_per_subscription` controls how many tables a subscription
+can copy at once when it is created or refreshed. The default is `2`. Raising
+it lets multi-table subscriptions copy more tables at once, but requires more
+slots and workers. See [Replication Configuration](/operate/deploy/logical-replication/configuration#choosing-publication-and-subscription-boundaries)
+for capacity settings.
+
+### Checking Copy Progress
+
 On ParadeDB, you can check whether the initial copy is still running with:
 
 ```sql

@@ -396,6 +396,11 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
             && !(!join.has_only_inner() && where_expr.has_null_predicate());
 
         if expect_custom_scan {
+            // Boolean simplification can remove every search predicate, e.g. A OR (B AND A).
+            let plan_gucs = PgGucs {
+                custom_scan_without_operator: true,
+                ..gucs
+            };
             // A leftover PostgreSQL WindowAgg node would mean the scan
             // engaged without absorbing the window aggregates (#5637).
             let forbidden: &[&str] = if window_targets.is_empty() {
@@ -408,7 +413,7 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
                 compare_plan_retrying(
                     &pg_query,
                     &bm25_query,
-                    &gucs,
+                    &plan_gucs,
                     &pool,
                     &setup_sql,
                     &["ParadeDB Join Scan", "ParadeDB Aggregate Scan"],

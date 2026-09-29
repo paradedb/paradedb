@@ -14,7 +14,7 @@ These settings can be changed in several ways:
 
 1. By editing the `postgresql.conf` file and restarting Postgres. This makes the setting permanent for all sessions. `postgresql.conf`
    accepts ParadeDB's custom `paradedb.*` settings.
-2. By running `SET`. This temporarily changes the setting for the current session. Note that Postgres does not allow all `postgresql.conf` settings to be changed with `SET`.
+2. By running `SET`. This temporarily changes the setting for the current session. Note that Postgres does not allow all `postgresql.conf` settings to be changed with `SET`. For example:
 
 ```sql
 SET maintenance_work_mem = '8GB'

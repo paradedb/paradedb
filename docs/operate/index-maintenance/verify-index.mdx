@@ -902,9 +902,9 @@ await dbContext.Database
  app        | articles    | articles_idx  |      16448 |            2 |      10000
 ```
 
-## Index Build Time
+## Inspecting Index Creation Time
 
-To see the wall-clock time a ParadeDB index was built at:
+To see when the index was built:
 
 ```sql SQL
 SELECT paradedb.index_created_at('search_idx');

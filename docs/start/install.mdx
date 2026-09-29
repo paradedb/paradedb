@@ -50,7 +50,7 @@ docker exec -it paradedb psql -U postgres -d paradedb -W
 </Tab>
 <Tab title="Postgres.app (macOS)">
 
-These steps assume you have Postgres.app running PostgreSQL 18.
+These steps assume you have [Postgres.app](https://postgresapp.com/) running PostgreSQL 18.
 
 1. Download the `pg_search` installer from the [Postgres.app extensions page](https://postgresapp.com/extensions/) and install it.
 2. Connect to your database via `psql`, run `SHOW config_file;` to locate `postgresql.conf`, then add `pg_search` to `shared_preload_libraries`:

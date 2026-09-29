@@ -243,7 +243,7 @@ spec:
 Save the examples as `cluster.yaml` and `database.yaml`, then apply them in your cluster's namespace:
 
 ```bash
-kubectl apply --namespace paradedb -f cluster.yaml -f database.yaml
+kubectl apply --namespace <namespace> -f cluster.yaml -f database.yaml
 ```
 
-Replace `paradedb` with your cluster's namespace if it differs. Once the cluster is ready, connect to the `app` database as usual. CloudNativePG enables `vector` and `pg_search` automatically, so you do not need to run `CREATE EXTENSION`.
+Once the cluster is ready, connect to the `app` database as usual. CloudNativePG enables `vector` and `pg_search` automatically, so you do not need to run `CREATE EXTENSION`.

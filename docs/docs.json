@@ -26,7 +26,7 @@
                 "group": "Getting Started",
                 "pages": [
                   "start/install",
-                  "start/connect-your-app",
+                  "start/configure-your-environment",
                   "start/create-your-first-index",
                   "start/run-queries"
                 ]

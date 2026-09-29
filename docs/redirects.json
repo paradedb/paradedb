@@ -1,5 +1,9 @@
 [
   {
+    "source": "/start/connect-your-app",
+    "destination": "/start/configure-your-environment"
+  },
+  {
     "source": "/concepts/how-the-paradedb-index-works",
     "destination": "/concepts/architecture"
   },
@@ -41,7 +45,7 @@
   },
   {
     "source": "/documentation/getting-started/environment",
-    "destination": "/start/connect-your-app"
+    "destination": "/start/configure-your-environment"
   },
   {
     "source": "/documentation/getting-started/queries",

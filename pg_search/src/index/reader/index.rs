@@ -202,7 +202,16 @@ fn probe_stats_to_segment_info(
         .iter()
         .zip(stats.iter())
         .map(|(id, s)| {
-            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
+            let mut value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
+            // Numeric fields accumulate across repeated scans and parallel workers.
+            let fields = value.as_object_mut().expect("ProbeStats is an object");
+            fields.remove("rerank_io");
+            fields.insert("rerank_reads".into(), s.rerank_io.reads.into());
+            fields.insert("rerank_bytes_read".into(), s.rerank_io.bytes_read.into());
+            fields.insert(
+                "rerank_storage_blocks".into(),
+                s.rerank_io.storage_blocks.into(),
+            );
             (*id, value)
         })
         .collect()
@@ -3520,5 +3529,30 @@ mod tests {
             "execution after the merge must resolve the new segment generation"
         );
         Spi::run("DEALLOCATE merge_freshness_query; RESET plan_cache_mode;").unwrap();
+    }
+}
+
+#[cfg(test)]
+mod vector_probe_stats_tests {
+    use super::{ProbeStats, SegmentId, probe_stats_to_segment_info};
+    use tantivy::vector::VectorIoStats;
+
+    // Rerank I/O is exposed as additive scalar counters in per-segment EXPLAIN data.
+    #[test]
+    fn rerank_io_counters_are_flat_segment_fields() {
+        let id = SegmentId::from_bytes([7; 16]);
+        let stats = ProbeStats {
+            rerank_io: VectorIoStats {
+                reads: 3,
+                bytes_read: 64,
+                storage_blocks: 5,
+            },
+            ..Default::default()
+        };
+        let info = probe_stats_to_segment_info(&[id], &[stats]);
+        assert_eq!(info[&id]["rerank_reads"], 3);
+        assert_eq!(info[&id]["rerank_bytes_read"], 64);
+        assert_eq!(info[&id]["rerank_storage_blocks"], 5);
+        assert!(info[&id].get("rerank_io").is_none());
     }
 }

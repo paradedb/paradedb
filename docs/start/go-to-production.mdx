@@ -16,21 +16,7 @@ Postgres enough room to do the work.
 3. Design indexes around real query patterns.
 4. Tune index creation, reads, and writes with production-sized data.
 5. Confirm query plans with `EXPLAIN`.
-6. Decide how upgrades, backups, and high availability will work.
-
-## Production Readiness
-
-[ParadeDB Community](https://github.com/paradedb/paradedb), our open-source
-edition, has been downloaded millions of times. It is durable and
-crash-safe: changes to ParadeDB indexes are write-ahead logged and support crash
-recovery and point-in-time recovery. See [Guarantees](/concepts/guarantees) for
-the full details.
-
-[ParadeDB Enterprise](/operate/deploy/enterprise) adds commercial licensing,
-support, and physical replication for ParadeDB indexes. Physical replication is
-what enables high availability, failover, and read replicas that can serve
-ParadeDB queries. [ParadeDB Cloud](/operate/deploy/cloud) deploys the Enterprise image. To self-host
-ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.com).
+6. Configure upgrades, backups, and [high availability](/operate/deploy/self-hosted/high-availability).
 
 ## Deployment
 

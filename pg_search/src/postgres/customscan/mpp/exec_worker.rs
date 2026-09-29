@@ -171,8 +171,8 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_desired_task_count_handler(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        // Disable the use of distributed dynamic filters until we find the cause of the perf
-        // regressions found in https://github.com/paradedb/paradedb/pull/6475
+        // Disable the use of distributed dynamic filters until we fix
+        // https://github.com/paradedb/datafusion-distributed/issues/107
         .with_distributed_remote_dynamic_filters(false)
         .expect("with_distributed_remote_dynamic_filters")
         .with_distributed_planner();

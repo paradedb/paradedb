@@ -111,18 +111,13 @@ kubectl exec service/paradedb-rw -n paradedb -it -- psql
 
 ## Connect to the Grafana Dashboard
 
-The ParadeDB Helm Chart includes a Grafana dashboard to help you monitor your cluster. The examples above enable it; to disable it, set `monitoring.grafanaDashboard.create` to `false` in `values.yaml`.
-
-To access the dashboard, forward the Grafana service to localhost:
+The ParadeDB Helm Chart includes a Grafana dashboard to help you monitor your cluster. To access the dashboard, forward the Grafana service to localhost:
 
 ```bash
 kubectl --namespace prometheus-community port-forward svc/prometheus-community-grafana 3000:80
 ```
 
-You can then access the Grafana dashboard at `localhost:3000` using `admin` as the username
-and `prom-operator` as the password. These default credentials are defined in the [`kube-stack-config.yaml`](https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/samples/monitoring/kube-stack-config.yaml)
-file used as the `values.yaml` file in [Install the Prometheus Stack](#install-the-prometheus-stack) and can be modified by providing
-your own `values.yaml` file. A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/docs/1.30/monitoring).
+The dashboard will be accessible at `localhost:3000` using username `admin` and password `prom-operator`. A more detailed guide on configuring the monitoring stack can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/docs/1.30/monitoring).
 
 ---
 

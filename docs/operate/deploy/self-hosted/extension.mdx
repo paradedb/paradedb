@@ -33,15 +33,9 @@ The prebuilt releases can be found in [GitHub Releases](https://github.com/parad
 
 <CodeGroup>
 
-```bash Ubuntu 26.04
+```bash Debian 12
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-resolute_amd64.deb" -o /tmp/pg_search.deb
-sudo apt-get install -y /tmp/*.deb
-```
-
-```bash Ubuntu 24.04
-# Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-noble_amd64.deb" -o /tmp/pg_search.deb
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
@@ -51,16 +45,16 @@ curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgre
 sudo apt-get install -y /tmp/*.deb
 ```
 
-```bash Debian 12
+```bash Ubuntu 24.04
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-noble_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
-```bash RHEL 10
-# Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_search_18-0.25.10-1PARADEDB.el10.x86_64.rpm" -o /tmp/pg_search.rpm
-sudo dnf install -y /tmp/*.rpm
+```bash Ubuntu 26.04
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-resolute_amd64.deb" -o /tmp/pg_search.deb
+sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash RHEL 9
@@ -69,15 +63,21 @@ curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_sear
 sudo dnf install -y /tmp/*.rpm
 ```
 
-```bash macOS 26 (Tahoe)
-# Available arch version is arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_search@18--0.25.10.arm64_tahoe.pkg" -o ~/Downloads/pg_search.pkg
-sudo installer -pkg ~/Downloads/pg_search.pkg -target /
+```bash RHEL 10
+# Available arch versions are x86_64, aarch64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_search_18-0.25.10-1PARADEDB.el10.x86_64.rpm" -o /tmp/pg_search.rpm
+sudo dnf install -y /tmp/*.rpm
 ```
 
 ```bash macOS 15 (Sequoia)
 # Available arch version is arm64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_search@18--0.25.10.arm64_sequoia.pkg" -o ~/Downloads/pg_search.pkg
+sudo installer -pkg ~/Downloads/pg_search.pkg -target /
+```
+
+```bash macOS 26 (Tahoe)
+# Available arch version is arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_search@18--0.25.10.arm64_tahoe.pkg" -o ~/Downloads/pg_search.pkg
 sudo installer -pkg ~/Downloads/pg_search.pkg -target /
 ```
 

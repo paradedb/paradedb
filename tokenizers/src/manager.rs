@@ -447,6 +447,21 @@ impl Default for SearchTokenizer {
     }
 }
 
+/// Parses the `chinese_convert` field shared by the `jieba` and `chinese_compatible` JSON
+/// tokenizer configs. `tokenizer_name` is used only to name the tokenizer in the error message.
+fn parse_chinese_convert_json(
+    value: &serde_json::Value,
+    tokenizer_name: &str,
+) -> Result<Option<ConvertMode>, anyhow::Error> {
+    if value["chinese_convert"].is_null() {
+        return Ok(None);
+    }
+    let mode = serde_json::from_value(value["chinese_convert"].clone()).map_err(|_| {
+        anyhow::anyhow!("{tokenizer_name} tokenizer requires a string 'chinese_convert' field")
+    })?;
+    Ok(Some(mode))
+}
+
 impl SearchTokenizer {
     // This is only used by the v1 api (prior to v0.20.0)
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
@@ -475,17 +490,7 @@ impl SearchTokenizer {
                 Ok(SearchTokenizer::RegexTokenizer { pattern, filters })
             }
             "chinese_compatible" => {
-                let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
-                    None
-                } else {
-                    Some(
-                        serde_json::from_value(value["chinese_convert"].clone()).map_err(|_| {
-                            anyhow::anyhow!(
-                                "chinese_compatible tokenizer requires a string 'chinese_convert' field"
-                            )
-                        })?,
-                    )
-                };
+                let chinese_convert = parse_chinese_convert_json(value, "chinese_compatible")?;
                 Ok(SearchTokenizer::ChineseCompatible {
                     chinese_convert,
                     filters,
@@ -538,17 +543,7 @@ impl SearchTokenizer {
             "korean_lindera" => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => {
-                let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
-                    None
-                } else {
-                    Some(
-                        serde_json::from_value(value["chinese_convert"].clone()).map_err(|_| {
-                            anyhow::anyhow!(
-                                "jieba tokenizer requires a string 'chinese_convert' field"
-                            )
-                        })?,
-                    )
-                };
+                let chinese_convert = parse_chinese_convert_json(value, "jieba")?;
                 let search_mode = if value["search_mode"].is_null() {
                     true
                 } else {

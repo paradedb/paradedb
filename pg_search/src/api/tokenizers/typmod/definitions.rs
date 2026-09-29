@@ -105,12 +105,15 @@ impl TypmodRules for GenericTypmod {
     }
 }
 
+/// Allowed `chinese_convert` values, shared by the `jieba` and `chinese_compatible` typmod rules.
+const CHINESE_CONVERT_CHOICES: &[&str] = &["t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"];
+
 impl TypmodRules for JiebaTypmod {
     fn rules() -> Vec<PropertyRule> {
         vec![
             rule!(
                 "chinese_convert",
-                ValueConstraint::StringChoice(vec!["t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"])
+                ValueConstraint::StringChoice(CHINESE_CONVERT_CHOICES.to_vec())
             ),
             rule!("search_mode", ValueConstraint::Boolean),
         ]
@@ -121,7 +124,7 @@ impl TypmodRules for ChineseCompatibleTypmod {
     fn rules() -> Vec<PropertyRule> {
         vec![rule!(
             "chinese_convert",
-            ValueConstraint::StringChoice(vec!["t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"])
+            ValueConstraint::StringChoice(CHINESE_CONVERT_CHOICES.to_vec())
         )]
     }
 }
@@ -255,18 +258,7 @@ impl TryFrom<i32> for JiebaTypmod {
         let chinese_convert = parsed
             .get("chinese_convert")
             .and_then(|p| p.as_str())
-            .map(|s| {
-                let lcase: String = s.to_lowercase();
-                match lcase.as_str() {
-                    "t2s" => ConvertMode::T2S,
-                    "s2t" => ConvertMode::S2T,
-                    "tw2s" => ConvertMode::TW2S,
-                    "tw2sp" => ConvertMode::TW2SP,
-                    "s2tw" => ConvertMode::S2TW,
-                    "s2twp" => ConvertMode::S2TWP,
-                    other => panic!("unknown chinese convert mode: {other}"),
-                }
-            });
+            .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")));
         let search_mode = parsed
             .get("search_mode")
             .and_then(|p| p.as_bool())
@@ -288,18 +280,7 @@ impl TryFrom<i32> for ChineseCompatibleTypmod {
         let chinese_convert = parsed
             .get("chinese_convert")
             .and_then(|p| p.as_str())
-            .map(|s| {
-                let lcase: String = s.to_lowercase();
-                match lcase.as_str() {
-                    "t2s" => ConvertMode::T2S,
-                    "s2t" => ConvertMode::S2T,
-                    "tw2s" => ConvertMode::TW2S,
-                    "tw2sp" => ConvertMode::TW2SP,
-                    "s2tw" => ConvertMode::S2TW,
-                    "s2twp" => ConvertMode::S2TWP,
-                    other => panic!("unknown chinese convert mode: {other}"),
-                }
-            });
+            .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")));
         Ok(ChineseCompatibleTypmod {
             chinese_convert,
             filters,

@@ -75,19 +75,37 @@ SELECT id, title FROM test_chinese_compatible_convert
 WHERE title ||| '标题'
 ORDER BY id;
 
--- Test 14: nested search_tokenizer expression path (index-level WITH option)
-DROP INDEX test_chinese_compatible_bm25;
-CREATE INDEX test_chinese_compatible_bm25 ON test_chinese_compatible_convert
-USING paradedb (id, title, content)
+-- Test 14: nested search_tokenizer expression path proves query-time conversion.
+-- Mirrors search_tokenizer_index_level.sql's Test 3 pattern: the field itself is indexed with
+-- NO chinese_convert (each CJK character its own token, exactly as typed -- nothing is converted
+-- at index time), and only the search_tokenizer WITH option applies chinese_convert=t2s, at
+-- query time only.
+DROP TABLE IF EXISTS test_chinese_search_tokenizer;
+CREATE TABLE test_chinese_search_tokenizer (
+    id SERIAL PRIMARY KEY,
+    title TEXT
+);
+
+-- Simplified-only content.
+INSERT INTO test_chinese_search_tokenizer (title) VALUES ('简体标题');
+
+CREATE INDEX test_chinese_search_tokenizer_bm25 ON test_chinese_search_tokenizer
+USING paradedb (id, (title::pdb.chinese_compatible))
 WITH (search_tokenizer = 'chinese_compatible(chinese_convert=t2s)');
 
-SELECT id, title FROM test_chinese_compatible_convert
+-- Sanity check: the Simplified query term matches the Simplified-only index directly.
+SELECT id, title FROM test_chinese_search_tokenizer
 WHERE title ||| '标题'
 ORDER BY id;
 
-SELECT id, title FROM test_chinese_compatible_convert
-WHERE content ||| '鼠标'
+-- The Traditional form of the same word can only match a Simplified-only index if
+-- search_tokenizer's chinese_convert=t2s is actually converting the query at search time --
+-- '標題' and '简体标题' share no codepoints at all until t2s runs.
+SELECT id, title FROM test_chinese_search_tokenizer
+WHERE title ||| '標題'
 ORDER BY id;
+
+DROP TABLE test_chinese_search_tokenizer;
 
 -- ERROR TESTS
 SELECT '繁體中文測試'::pdb.chinese_compatible('chinese_convert=t2st')::text[];

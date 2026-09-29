@@ -95,7 +95,7 @@ For more query examples, see [Run Your First Queries](/start/run-queries).
 For large or high-churn production tables, use one publication and one
 subscription per large table, or group only small related tables together.
 
-This gives each subscription its own main apply worker and replication slot.
+This gives each subscription its own apply worker and replication slot.
 In normal steady-state replication, Postgres does not parallelize ordinary
 change application across tables within a single subscription, so one hot table
 can delay other tables that share that apply worker. A publication per table

@@ -608,6 +608,7 @@ def update_version_snippet(repo_root, clean_ver):
     print(f"✅ Updated {snippet_file} with version '{clean_ver}'")
     update_installation_version(repo_root, clean_ver)
     update_kubernetes_version(repo_root, clean_ver)
+    update_digitalocean_version(repo_root, clean_ver)
 
 
 def update_installation_version(repo_root, clean_ver):
@@ -644,6 +645,22 @@ def update_kubernetes_version(repo_root, clean_ver):
     for pattern in patterns:
         content = re.sub(pattern, lambda match: match[1] + clean_ver, content)
     kubernetes_file.write_text(content, encoding="utf-8")
+
+
+def update_digitalocean_version(repo_root, clean_ver):
+    """Keep the DigitalOcean installer tag aligned with the latest release."""
+    install_file = repo_root / "docs/operate/deploy/cloud-platforms/digitalocean.mdx"
+    if not install_file.exists():
+        return
+
+    content = install_file.read_text(encoding="utf-8")
+    content = re.sub(
+        r"(https://paradedb\.com/install\.sh\?tag=)"
+        r"\d+\.\d+\.\d+(?:-rc\.\d+)?(?=-pg\d+)",
+        lambda match: match[1] + clean_ver,
+        content,
+    )
+    install_file.write_text(content, encoding="utf-8")
 
 
 def assemble_changelog_files(

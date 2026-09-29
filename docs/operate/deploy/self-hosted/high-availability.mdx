@@ -15,22 +15,6 @@ In a highly available configuration, ParadeDB deploys as a cluster of Postgres i
 
 If the primary server goes down, a standby server is promoted to become the new primary server. This process is called failover.
 
-## Enable High Availability
-
-Prior to starting the CNPG cluster, modify the `values.yaml` file to increase the number of instances.
-
-```yaml ParadeDB Enterprise
-type: paradedb-enterprise
-mode: standalone
-
-cluster:
-  instances: 3
-  storage:
-    size: 256Mi
-```
-
-The number of replicas is equal to `instances - 1`. Having at least `3` instances guarantees that a standby will be available even while a failover process is occurring.
-
 ## Synchronous Replication
 
 Between physical replicas, ParadeDB requires the use of a few settings (which are automatically set by [CNPG](/operate/deploy/self-hosted/kubernetes)) in order to avoid query cancellation due to ongoing reorganization of the data on the primary replica.

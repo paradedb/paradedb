@@ -156,7 +156,7 @@ kubectl create secret docker-registry paradedb-enterprise-registry-cred \
 
 ### Configure the Extension Image
 
-The `pg_search` extension requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource:
+The `pg_search` extension requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource and save it as `cluster.yaml`:
 
 <CodeGroup>
 
@@ -226,7 +226,7 @@ spec:
 
 </CodeGroup>
 
-Then, enable pgvector and `pg_search` in your database using a `Database` resource:
+Then, enable pgvector and `pg_search` in your database using a `Database` resource saved as `database.yaml`:
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
@@ -247,7 +247,7 @@ spec:
 
 ### Install the Extension Image
 
-Save the examples as `cluster.yaml` and `database.yaml`, then apply them in your cluster's namespace:
+Apply the resources in your cluster's namespace:
 
 ```bash
 kubectl apply --namespace <namespace> -f cluster.yaml -f database.yaml

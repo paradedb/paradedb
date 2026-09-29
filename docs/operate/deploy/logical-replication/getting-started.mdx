@@ -18,12 +18,6 @@ This deployment approach lets you:
 - **Start alongside your existing infrastructure and consolidate later.** Evaluate ParadeDB at scale before choosing to bring your transactional and search workloads together in a single Postgres cluster.
 - **Keep indexing off your OLTP write path.** With asynchronous logical replication, transactions commit without waiting for ParadeDB to index the changes. Search results are eventually consistent with your primary database.
 
-<Warning>
-  Logical replication copies row changes, not schema changes or indexes. The
-  published tables must already exist on ParadeDB, and any DDL must be applied
-  on both sides. For ongoing operations, see the [Logical Replication
-  Operational Guide](/operate/deploy/logical-replication/operational-guide).
-</Warning>
 
 For self-hosted Postgres, we recommend [installing the extension directly](/operate/deploy/self-hosted/extension).
 
@@ -43,3 +37,10 @@ ParadeDB is the **subscriber**.
   [tutorial](https://cloud.google.com/alloydb/docs/omni/replicate-data-omni-other-db)
 - **Supabase**: Follow Supabase's
   [tutorial](https://supabase.com/docs/guides/database/postgres/setup-replication-external)
+
+<Warning>
+  Logical replication copies row changes, not schema changes or indexes. The
+  published tables must already exist on ParadeDB, and any DDL must be applied
+  on both sides. For ongoing operations, see the [Logical Replication
+  Operational Guide](/operate/deploy/logical-replication/operational-guide).
+</Warning>

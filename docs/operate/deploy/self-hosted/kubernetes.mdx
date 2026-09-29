@@ -68,10 +68,10 @@ cluster:
 
 </CodeGroup>
 
-Next, create a namespace for this step or use an existing namespace. The namespace can be any value.
+Next, create the `paradedb` namespace. Skip this step if it already exists.
 
 ```bash
-kubectl create namespace <your-namespace>
+kubectl create namespace paradedb
 ```
 
 To self-host ParadeDB Enterprise on Kubernetes, please [contact sales](mailto:sales@paradedb.com) for an enterprise Docker username and personal access token. The following step passes these
@@ -79,7 +79,7 @@ credentials to Kubernetes and should be skipped if you are deploying ParadeDB Co
 
 ```bash ParadeDB Enterprise
 kubectl create secret docker-registry paradedb-enterprise-registry-cred \
---namespace <your-namespace> \
+--namespace paradedb \
 --docker-server="https://index.docker.io/v1/" \
 --docker-username="<enterprise_docker_username>" \
 --docker-password="<enterprise_docker_access_token>"
@@ -90,7 +90,7 @@ Finally, launch the ParadeDB cluster.
 ```bash
 helm repo add paradedb https://paradedb.github.io/charts
 helm upgrade --atomic --install paradedb \
---namespace <your-namespace> \
+--namespace paradedb \
 --values values.yaml \
 --set cluster.monitoring.enabled=true \
 paradedb/paradedb

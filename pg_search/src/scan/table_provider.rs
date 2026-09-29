@@ -778,6 +778,7 @@ impl PgSearchTableProvider {
                 expr_ctx,
                 None,
                 needs_tokenizer,
+                None,
             ),
         }
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;

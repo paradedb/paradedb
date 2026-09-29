@@ -807,6 +807,10 @@ pub struct BufferManager {
 }
 
 impl BufferManager {
+    pub fn set_io_stats(&mut self, stats: Option<crate::index::reader::io_stats::ComponentStats>) {
+        self.rbufacc.io_stats = stats;
+    }
+
     pub fn new(rel: &PgSearchRelation) -> Self {
         Self {
             rbufacc: RelationBufferAccess::open(rel),

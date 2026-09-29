@@ -162,6 +162,7 @@ impl BaseScan {
             std::ptr::NonNull::new(expr_context),
             std::ptr::NonNull::new(planstate),
             needs_tokenizer_manager,
+            state.custom_state().io_trace.clone(),
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
@@ -1508,6 +1509,19 @@ impl CustomScan for BaseScan {
                     }
                 }
             }
+            if explainer.is_buffers() {
+                explainer.add_group("Buffer Hits", |explainer| {
+                    for (component, hits) in state
+                        .custom_state()
+                        .io_trace
+                        .as_ref()
+                        .map(|stats| stats.hits())
+                        .unwrap_or_else(|| vec![("Total".into(), 0)])
+                    {
+                        explainer.add_unsigned_integer(&component, hits, None);
+                    }
+                });
+            }
         }
 
         explainer.add_text(
@@ -1582,6 +1596,7 @@ impl CustomScan for BaseScan {
                             None,                          // No expr_context needed for estimates
                             None,                          // No planstate needed for estimates
                             base_query.needs_tokenizer(),
+                            None,
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 
@@ -1607,6 +1622,10 @@ impl CustomScan for BaseScan {
     ) {
         let begin_start = std::time::Instant::now();
         let explain_analyze = unsafe { (*estate).es_instrument != 0 };
+        state.custom_state_mut().io_trace = unsafe {
+            (*estate).es_instrument & pg_sys::InstrumentOption::INSTRUMENT_BUFFERS as i32 != 0
+        }
+        .then(crate::index::reader::io_stats::Trace::default);
         state.custom_state_mut().explain_stage_accounting = explain_analyze;
         unsafe {
             // open the heap and index relations with the proper locks
@@ -1722,6 +1741,11 @@ impl CustomScan for BaseScan {
                 state.custom_state().telemetry.stage_elapsed_ns(),
             )
         });
+        let _io = state
+            .custom_state()
+            .io_trace
+            .as_ref()
+            .map(|stats| stats.enter());
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }
@@ -2359,6 +2383,11 @@ fn check_visibility(
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
+    let _io = state
+        .custom_state()
+        .io_trace
+        .as_ref()
+        .map(|stats| stats.external("Heap"));
     state
         .custom_state_mut()
         .visibility_checker()

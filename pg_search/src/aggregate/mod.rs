@@ -324,6 +324,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 NonNull::new(context_ptr),
                 planstate.and_then(NonNull::new),
                 self.query.needs_tokenizer(),
+                None,
             )?;
             &opened_reader
         };
@@ -522,6 +523,7 @@ pub fn execute_aggregate(
             NonNull::new(expr_context),
             NonNull::new(planstate),
             query.needs_tokenizer(),
+            None,
         )?;
 
         // Fast path: a bare doc count without MVCC filtering is answerable by

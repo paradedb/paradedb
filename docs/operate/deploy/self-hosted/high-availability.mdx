@@ -10,8 +10,7 @@ High availability for ParadeDB indexes requires [ParadeDB Enterprise](/operate/d
 
 ## How High Availability Works
 
-In a highly available configuration, ParadeDB deploys as a cluster of Postgres instances. One instance is designated as the **primary** while the other instances are designated as
-**standby** instances. The primary server sends write-ahead logs (WALs) to the standby servers, which replicate the primary by replaying these logs.
+In a highly available Postgres cluster, ParadeDB indexes replicate to standby instances alongside your data and remain available after failover. One instance serves as the **primary**, while the others serve as **standbys**. The primary sends write-ahead logs (WALs) to the standbys, which replay them to stay in sync.
 
 If the primary server goes down, a standby server is promoted to become the new primary server. This process is called failover.
 

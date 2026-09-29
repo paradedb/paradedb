@@ -49,54 +49,34 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry as MapEntry;
 use std::sync::{Arc, LazyLock};
 
-use super::{literal_arg, reject_distinct};
+use super::literal_arg;
 
 pub const TOPK_AS_AGG_NAME: &str = "topk_as_agg";
-pub const DISTINCT_TOPK_AS_AGG_NAME: &str = "distinct_topk_as_agg";
 pub const TOPK_AGG_ROWS_COL_NAME: &str = "__topk";
 
 static TOPK_AS_AGG: LazyLock<Arc<AggregateUDF>> =
-    LazyLock::new(|| Arc::new(AggregateUDF::from(TopKAgg::new(false))));
-static DISTINCT_TOPK_AS_AGG: LazyLock<Arc<AggregateUDF>> =
-    LazyLock::new(|| Arc::new(AggregateUDF::from(TopKAgg::new(true))));
+    LazyLock::new(|| Arc::new(AggregateUDF::from(TopKAgg::new())));
 
 pub fn topk_as_agg_udaf() -> Arc<AggregateUDF> {
     Arc::clone(&TOPK_AS_AGG)
 }
 
-pub fn distinct_topk_as_agg_udaf() -> Arc<AggregateUDF> {
-    Arc::clone(&DISTINCT_TOPK_AS_AGG)
-}
-
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct TopKAgg {
     signature: Signature,
-    /// `distinct_topk_as_agg` takes two more trailing literals after `k`: the
-    /// distinct-key positions and the ctid positions within the payload.
-    distinct: bool,
 }
 
 impl TopKAgg {
-    fn new(distinct: bool) -> Self {
+    fn new() -> Self {
         Self {
             signature: Signature::variadic_any(Volatility::Immutable),
-            distinct,
         }
-    }
-
-    /// Literal arguments after the payload.
-    fn trailing(&self) -> usize {
-        if self.distinct { 3 } else { 1 }
     }
 }
 
 impl AggregateUDFImpl for TopKAgg {
     fn name(&self) -> &str {
-        if self.distinct {
-            DISTINCT_TOPK_AS_AGG_NAME
-        } else {
-            TOPK_AS_AGG_NAME
-        }
+        TOPK_AS_AGG_NAME
     }
 
     fn signature(&self) -> &Signature {
@@ -110,11 +90,11 @@ impl AggregateUDFImpl for TopKAgg {
             .iter()
             .map(|t| Arc::new(Field::new("", t.clone(), true)))
             .collect();
-        Ok(list_of_rows(payload_fields(&fields, self.trailing())?))
+        Ok(list_of_rows(payload_fields(&fields)?))
     }
 
     fn return_field(&self, arg_fields: &[FieldRef]) -> Result<FieldRef> {
-        let rows = list_of_rows(payload_fields(arg_fields, self.trailing())?);
+        let rows = list_of_rows(payload_fields(arg_fields)?);
         Ok(Arc::new(Field::new(self.name(), rows, true)))
     }
 
@@ -149,8 +129,7 @@ impl AggregateUDFImpl for TopKAgg {
 
     fn accumulator(&self, acc_args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
         let name = self.name();
-        reject_distinct(&acc_args, name)?;
-        let payload = payload_fields(acc_args.expr_fields, self.trailing())?;
+        let payload = payload_fields(acc_args.expr_fields)?;
         let n = payload.len();
 
         let k = match literal_arg(&acc_args, n, name, "k")? {
@@ -186,12 +165,11 @@ impl AggregateUDFImpl for TopKAgg {
             })
             .collect::<Result<_>>()?;
 
-        let (suffix, ctid_positions) = if self.distinct {
-            let keys = positions_arg(&acc_args, n + 1, name, "distinct key positions", n)?;
-            let ctids = positions_arg(&acc_args, n + 2, name, "ctid positions", n)?;
-            if let Some((p, _)) = sort.iter().find(|(p, _)| !keys.contains(p)) {
+        let (suffix, ctid_positions) = if acc_args.is_distinct {
+            let ctids = positions_arg(&acc_args, n + 1, name, "ctid positions", n)?;
+            if let Some((p, _)) = sort.iter().find(|(p, _)| ctids.contains(p)) {
                 return Err(DataFusionError::Internal(format!(
-                    "{name} ORDER BY position {p} is not in the distinct key"
+                    "{name} ORDER BY position {p} is a ctid position, which is not supported"
                 )));
             }
             if let Some(p) = ctids
@@ -202,10 +180,11 @@ impl AggregateUDFImpl for TopKAgg {
                     "{name} ctid position {p} is not a UInt64 column"
                 )));
             }
-            let rest = keys
-                .iter()
-                .copied()
-                .filter(|p| !sort.iter().any(|(s, _)| s == p))
+            let rest = (0..n)
+                .filter(|p| {
+                    // Distinct Suffix keys are all non-ctid and non-orderby positions
+                    !ctids.iter().any(|ctidp| ctidp == p) && !sort.iter().any(|(s, _)| s == p)
+                })
                 .collect();
             (Suffix::Distinct { positions: rest }, ctids)
         } else {
@@ -222,12 +201,14 @@ impl AggregateUDFImpl for TopKAgg {
     }
 }
 
+const NUM_TRAILING_ARG_LITERALS: usize = 2;
+
 /// Every argument but the `trailing` literals.
-fn payload_fields(arg_fields: &[FieldRef], trailing: usize) -> Result<&[FieldRef]> {
-    match arg_fields.len().checked_sub(trailing) {
+fn payload_fields(arg_fields: &[FieldRef]) -> Result<&[FieldRef]> {
+    match arg_fields.len().checked_sub(NUM_TRAILING_ARG_LITERALS) {
         Some(n) if n > 0 => Ok(&arg_fields[..n]),
         _ => Err(DataFusionError::Internal(format!(
-            "a Top-K aggregate takes at least one payload column and {trailing} trailing literal(s)"
+            "a Top-K aggregate takes at least one payload column and {NUM_TRAILING_ARG_LITERALS} trailing literal(s)"
         ))),
     }
 }
@@ -570,65 +551,39 @@ impl Accumulator for FusedTopK {
     }
 }
 
-/// `topk_as_agg(payload…, k) ORDER BY sort_exprs`.
+/// `topk_as_agg(payload…, k, key_positions, ctid_positions) ORDER BY sort_exprs`.
 ///
-/// The first `payload.len()` fields of each emitted row are `payload` in order.
-/// Sort keys the payload does not already carry are appended after it, since
-/// the accumulator can only sort on columns it receives. With no sort keys any
-/// k rows are a correct answer, and the first k to arrive are kept.
-pub fn topk_as_agg(payload: &[Expr], sort_exprs: Vec<SortExpr>, k: usize) -> Expr {
-    let args = topk_args(payload, &sort_exprs, k);
-    Expr::AggregateFunction(AggregateFunction::new_udf(
-        topk_as_agg_udaf(),
-        args,
-        false,
-        None,
-        sort_exprs,
-        None,
-    ))
-}
-
-/// `distinct_topk_as_agg(payload…, k, key_positions, ctid_positions) ORDER BY sort_exprs`.
-///
-/// `key_positions` are the payload positions of the distinct key, which must
-/// contain every sort key; `ctid_positions` are the payload's ctid columns, which
-/// take the element-wise minimum over each distinct group.
-pub fn distinct_topk_as_agg(
+/// `ctid_positions` are the payload's ctid columns, which take the element-wise minimum
+/// over each distinct group. We assume the DISTINCT keys are represented by payload - ctids,
+/// and that they contain the sort expressions
+pub fn topk_as_agg(
     payload: &[Expr],
     sort_exprs: Vec<SortExpr>,
     k: usize,
-    key_positions: &[usize],
     ctid_positions: &[usize],
+    distinct: bool,
 ) -> Expr {
-    assert_eq!(
-        payload.len(),
-        key_positions.len() + ctid_positions.len(),
-        "We assume the DISTINCT keys cover all non-ctid columns"
-    );
+    ctid_positions
+        .iter()
+        .for_each(|p| assert!(*p < payload.len(), "ctid_positions must be valid"));
 
-    let mut args = topk_args(payload, &sort_exprs, k);
-
-    args.push(positions_lit(key_positions));
-    args.push(positions_lit(ctid_positions));
-    Expr::AggregateFunction(AggregateFunction::new_udf(
-        distinct_topk_as_agg_udaf(),
-        args,
-        false,
-        None,
-        sort_exprs,
-        None,
-    ))
-}
-
-fn topk_args(payload: &[Expr], sort_exprs: &[SortExpr], k: usize) -> Vec<Expr> {
     let mut args = payload.to_vec();
-    for sort in sort_exprs {
+    for sort in sort_exprs.iter() {
         if !args.contains(&sort.expr) {
             args.push(sort.expr.clone());
         }
     }
     args.push(lit(k as u64));
-    args
+    args.push(positions_lit(ctid_positions));
+
+    Expr::AggregateFunction(AggregateFunction::new_udf(
+        topk_as_agg_udaf(),
+        args,
+        distinct,
+        None,
+        sort_exprs,
+        None,
+    ))
 }
 
 #[cfg(test)]
@@ -944,6 +899,8 @@ mod tests {
                 &[col("score"), col("id")],
                 vec![col("score").sort(false, true), col("id").sort(true, false)],
                 2,
+                &[],
+                false,
             );
             let df = ctx
                 .read_table(Arc::new(table))
@@ -1005,12 +962,12 @@ mod tests {
 
             let ctx =
                 SessionContext::new_with_config(SessionConfig::new().with_target_partitions(2));
-            let topk = distinct_topk_as_agg(
+            let topk = topk_as_agg(
                 &[col("score"), col("id"), col("ctid")],
                 vec![col("score").sort(false, true), col("id").sort(true, false)],
                 2,
-                &[0, 1],
                 &[2],
+                true,
             );
             let df = ctx
                 .read_table(Arc::new(table))

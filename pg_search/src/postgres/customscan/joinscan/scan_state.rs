@@ -54,9 +54,7 @@ use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
-use crate::postgres::customscan::datafusion::topk_agg::{
-    TOPK_AGG_ROWS_COL_NAME, distinct_topk_as_agg, topk_as_agg,
-};
+use crate::postgres::customscan::datafusion::topk_agg::{TOPK_AGG_ROWS_COL_NAME, topk_as_agg};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
@@ -881,23 +879,7 @@ fn build_clause_df<'a>(
             // The Top-K aggregate needs a known k
             && let Some(k) = topk_as_agg_limit(join_clause.limit_offset.as_ref())
         {
-            match distinct_key_exprs(join_clause)? {
-                Some((key_exprs, distinct_col_map)) => (
-                    apply_distinct_topk_as_agg(
-                        df,
-                        join_clause,
-                        &private_data.output_columns,
-                        key_exprs,
-                        &distinct_col_map,
-                        k,
-                    )?,
-                    distinct_col_map,
-                ),
-                None => (
-                    apply_topk_as_agg(df, join_clause, k)?,
-                    DistinctColMap::default(),
-                ),
-            }
+            apply_topk_as_agg(df, join_clause, &private_data.output_columns, k)?
         } else {
             apply_distinct_group_by(df, join_clause, &private_data.output_columns)?
         };
@@ -945,15 +927,25 @@ fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
     }
 }
 
-fn apply_distinct_topk_as_agg(
+/// DISTINCT and non-distinct topk function mostly the same way and take the same path. The only
+/// difference is the entry requirement into topk, which is gated by join_clause.has_distinct.
+///
+/// We use the same path because specifying the desired input columns and a whole-row DISTINCT's key
+/// expressions are the same logic, so we project them regardless through distinct_key_exprs.
+fn apply_topk_as_agg(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-    distinct_key_exprs: Vec<Expr>,
-    distinct_col_map: &DistinctColMap,
     k: usize,
-) -> Result<DataFrame> {
+) -> Result<(DataFrame, DistinctColMap)> {
     let (df, k) = empty_input_for_zero_k(df, k)?;
+
+    let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause, true)?
+    else {
+        return Err(DataFusionError::Internal(
+            "Bug: Unable to build distinct key expressions for topk aggregate".to_string(),
+        ));
+    };
 
     {
         let projection = join_clause
@@ -993,26 +985,24 @@ fn apply_distinct_topk_as_agg(
         .chain(ctid_names.iter().map(|n| col(n.as_str())))
         .collect();
 
-    let mut key_positions: Vec<usize> = (0..num_non_ctid_cols).collect();
     let ctid_positions: Vec<usize> = (num_non_ctid_cols..num_all_cols).collect();
 
     // the sort expressions built from distinct_col_map will be correct thanks to the above SELECT
-    let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
+    let sort_exprs = build_sort_exprs(join_clause, &distinct_col_map)?;
     // we must ensure all_col_exprs contains the sort expression. The appended expression is
     // necessarily a function of key columns, so adding it does not change which rows are distinct
     for sort in sort_exprs.iter() {
         if !all_col_exprs.contains(&sort.expr) {
-            key_positions.push(all_col_exprs.len());
             all_col_exprs.push(sort.expr.clone());
         }
     }
 
-    let topk_agg = distinct_topk_as_agg(
+    let topk_agg = topk_as_agg(
         &all_col_exprs,
         sort_exprs,
         k,
-        &key_positions,
         &ctid_positions,
+        join_clause.has_distinct,
     );
     let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
     let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
@@ -1031,35 +1021,7 @@ fn apply_distinct_topk_as_agg(
             .alias(name.as_str())
         }))
         .collect();
-    df.select(name_restoration_exprs)
-}
-
-fn apply_topk_as_agg(df: DataFrame, join_clause: &JoinCSClause, k: usize) -> Result<DataFrame> {
-    let (df, k) = empty_input_for_zero_k(df, k)?;
-
-    let columns = df.schema().columns();
-    let all_col_exprs: Vec<_> = columns.iter().cloned().map(Expr::from).collect();
-    let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
-    let topk_agg = topk_as_agg(&all_col_exprs, sort_exprs, k);
-
-    // Do aggregations
-    let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
-
-    // unnest/flatten back to rows
-    let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
-
-    // restore original column names
-    let name_restoration_exprs: Vec<_> = columns
-        .iter()
-        .enumerate()
-        .map(|(i, c)| {
-            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
-                .alias_qualified(c.relation.clone(), c.name.clone())
-        })
-        .collect();
-    let df = df.select(name_restoration_exprs)?;
-
-    Ok(df)
+    Ok((df.select(name_restoration_exprs)?, distinct_col_map))
 }
 
 /// The accumulator rejects a k of 0. Empty the input instead and keep one row,
@@ -1127,10 +1089,16 @@ fn surviving_ctid_columns<'a>(
 /// The DISTINCT key: one expression per output projection entry, in target-list
 /// order, plus the map the sort and output projection use to find those entries
 /// by their `col_{i}` names afterwards. `None` when there is no DISTINCT to apply.
-fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, DistinctColMap)>> {
+///
+/// If `bypass_distinct_clause` is true, `join_clause.has_distinct` is not considered when
+/// generating the response.
+fn distinct_key_exprs(
+    join_clause: &JoinCSClause,
+    bypass_distinct_clause: bool,
+) -> Result<Option<(Vec<Expr>, DistinctColMap)>> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
-    if !join_clause.has_distinct {
+    if !bypass_distinct_clause && !join_clause.has_distinct {
         return Ok(None);
     }
     let Some(projection) = &join_clause.output_projection else {
@@ -1199,7 +1167,7 @@ fn apply_distinct_group_by(
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
 ) -> Result<(DataFrame, DistinctColMap)> {
-    let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
+    let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause, false)? else {
         return Ok((df, DistinctColMap::default()));
     };
     let group_exprs: Vec<Expr> = key_exprs

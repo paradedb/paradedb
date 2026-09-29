@@ -79,6 +79,8 @@ fn chunk_size(bytes: &[u8]) -> (usize, usize) {
 }
 
 pub mod builder {
+    use super::tree::Entry;
+    use super::{Directory, chunk_size};
     use crate::postgres::storage::block::BM25PageSpecialData;
     use crate::postgres::storage::blocklist::ChunkStyleTag;
     use crate::postgres::storage::buffer::BufferManager;
@@ -246,7 +248,10 @@ pub mod builder {
             self.queue.push(block_number);
         }
 
-        pub fn finish(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
+        pub fn finish(
+            &mut self,
+            bman: &mut BufferManager,
+        ) -> Option<(pg_sys::BlockNumber, Directory, pg_sys::BlockNumber)> {
             let mut queue = &self.queue[..];
             let mut last = self.last_chunked_blockno;
             while !queue.is_empty() {
@@ -281,6 +286,11 @@ pub mod builder {
             block.init_page();
 
             let starting_blockno = block.number();
+            let mut ordinal = 0u32;
+            let mut entries = vec![Entry {
+                start: ordinal,
+                address: starting_blockno,
+            }];
             loop {
                 let mut page = block.page_mut();
 
@@ -289,25 +299,35 @@ pub mod builder {
                     // TODO:  can probably write directly to the slice rather than going through a Vec<u8>
                     let bytes = chunk.into_bytes();
                     page.append_bytes(&bytes);
+                    ordinal = ordinal
+                        .checked_add(chunk_size(&bytes).0 as u32)
+                        .expect("too many blocks in component");
 
                     chunk = match chunks.next() {
                         Some(chunk) => chunk,
                         None => break,
                     }
                 } else {
+                    pgrx::check_for_interrupts!();
                     // this chunk doesn't fit on this page, so allocate another page
                     let mut next_block = bman.new_buffer();
                     next_block.init_page();
 
                     // and link it to this one
                     page.special_mut::<BM25PageSpecialData>().next_blockno = next_block.number();
+                    entries.push(Entry {
+                        start: ordinal,
+                        address: next_block.number(),
+                    });
 
                     // and loop back around to write this chunk to the new page
                     block = next_block;
                 }
             }
 
-            Some(starting_blockno)
+            drop(block);
+            let (directory, overflow) = Directory::build(bman, entries);
+            Some((starting_blockno, directory, overflow))
         }
 
         fn pack_8x(
@@ -507,9 +527,17 @@ pub mod reader {
     struct MappingPage {
         ordinals: Range<usize>,
         bytes: Vec<u8>,
-        chunks: Vec<(usize, usize)>,
-        decoded_chunk: Option<usize>,
-        decoded: Vec<pg_sys::BlockNumber>,
+        chunks: Vec<MappingChunk>,
+        current_chunk: Option<usize>,
+        #[cfg(any(test, feature = "pg_test"))]
+        chunk_decodes: usize,
+    }
+
+    #[derive(Debug)]
+    struct MappingChunk {
+        start: usize,
+        offset: usize,
+        decoded: Option<Box<[pg_sys::BlockNumber]>>,
     }
 
     impl MappingPage {
@@ -518,7 +546,11 @@ pub mod reader {
             let mut ordinal = first_ordinal;
             let mut offset = 0;
             while offset < bytes.len() {
-                chunks.push((ordinal, offset));
+                chunks.push(MappingChunk {
+                    start: ordinal,
+                    offset,
+                    decoded: None,
+                });
                 let (count, len) = chunk_size(&bytes[offset..]);
                 ordinal += count;
                 offset += len;
@@ -527,29 +559,41 @@ pub mod reader {
                 ordinals: first_ordinal..ordinal,
                 bytes,
                 chunks,
-                decoded_chunk: None,
-                decoded: Vec::new(),
+                current_chunk: None,
+                #[cfg(any(test, feature = "pg_test"))]
+                chunk_decodes: 0,
             }
         }
 
         fn get(&mut self, ordinal: usize) -> Option<pg_sys::BlockNumber> {
-            if let Some(chunk) = self.decoded_chunk {
-                let first = self.chunks[chunk].0;
-                if ordinal >= first && ordinal - first < self.decoded.len() {
-                    return Some(self.decoded[ordinal - first]);
+            if !self.ordinals.contains(&ordinal) {
+                return None;
+            }
+            if let Some(chunk) = self.current_chunk {
+                let chunk = &self.chunks[chunk];
+                if ordinal >= chunk.start
+                    && let Some(block) = chunk.decoded.as_ref()?.get(ordinal - chunk.start)
+                {
+                    return Some(*block);
                 }
             }
             let chunk = self
                 .chunks
-                .partition_point(|&(start, _)| start <= ordinal)
+                .partition_point(|chunk| chunk.start <= ordinal)
                 .checked_sub(1)?;
-            let (first, offset) = self.chunks[chunk];
-            if self.decoded_chunk != Some(chunk) {
-                self.decoded.clear();
-                decode_chunk(&self.bytes[offset..], &mut self.decoded);
-                self.decoded_chunk = Some(chunk);
-            }
-            self.decoded.get(ordinal - first).copied()
+            let entry = &mut self.chunks[chunk];
+            let decoded = entry.decoded.get_or_insert_with(|| {
+                let bytes = &self.bytes[entry.offset..];
+                let mut decoded = Vec::with_capacity(chunk_size(bytes).0);
+                decode_chunk(bytes, &mut decoded);
+                #[cfg(any(test, feature = "pg_test"))]
+                {
+                    self.chunk_decodes += 1;
+                }
+                decoded.into_boxed_slice()
+            });
+            self.current_chunk = Some(chunk);
+            decoded.get(ordinal - entry.start).copied()
         }
     }
 
@@ -666,7 +710,7 @@ pub mod reader {
                 .unwrap();
             let indexrel = PgSearchRelation::open(oid);
             let mut bman = BufferManager::new(&indexrel);
-            assert!(Directory::build(&mut bman, pg_sys::InvalidBlockNumber).is_none());
+            assert!(builder::BlockList::default().finish(&mut bman).is_none());
             let blocks: Vec<u32> = (1u32..30_074)
                 .map(|i| i.wrapping_mul(2_654_435_761))
                 .collect();
@@ -674,8 +718,8 @@ pub mod reader {
             for &block in &blocks {
                 builder.push(block);
             }
-            let start = builder.finish(&mut bman).unwrap();
-            let directory = Directory::build(&mut bman, start).unwrap().0;
+            let (start, directory, overflow) = builder.finish(&mut bman).unwrap();
+            assert_eq!(overflow, pg_sys::InvalidBlockNumber);
             assert_eq!(directory.node.level, 0);
             assert!(directory.node.entries.len() > 4);
             let entries = directory.node.entries.clone();
@@ -733,8 +777,7 @@ pub mod reader {
             for &block in &blocks {
                 builder.push(block);
             }
-            let start = builder.finish(&mut bman).unwrap();
-            let (mut directory, mut overflow) = Directory::build(&mut bman, start).unwrap();
+            let (start, mut directory, mut overflow) = builder.finish(&mut bman).unwrap();
             assert_eq!(directory.node.level, 1);
             assert!(directory.node.entries.len() > 1);
             let mut reader =
@@ -947,6 +990,60 @@ pub mod reader {
         }
 
         #[pg_test]
+        fn test_blocklist_interleaved_chunks() {
+            const STREAMS: usize = 32;
+            const ROUNDS: usize = 100;
+            const FIRST: usize = 10_000;
+            let packer = BitPacker4x::new();
+            let mut bytes = Vec::new();
+            for stream in 0..STREAMS {
+                let initial = (stream * BitPacker4x::BLOCK_LEN * 3) as u32;
+                let values: Vec<_> = (1..=BitPacker4x::BLOCK_LEN)
+                    .map(|i| initial + i as u32 * 3)
+                    .collect();
+                let previous = (initial != 0).then_some(initial);
+                let bits = packer.num_bits_strictly_sorted(previous, &values);
+                let mut encoded = vec![0; values.len() * bits as usize / 8];
+                packer.compress_strictly_sorted(previous, &values, &mut encoded, bits);
+                bytes.extend_from_slice(&[ChunkStyleTag::StrictlySorted4x as u8, bits]);
+                bytes.extend_from_slice(&initial.to_le_bytes());
+                bytes.extend_from_slice(&encoded);
+            }
+            assert!(bytes.len() <= crate::postgres::storage::block::bm25_max_free_space());
+            let mut page = MappingPage::new(FIRST, bytes.clone());
+            assert_eq!(page.chunk_decodes, 0);
+            for round in 0..ROUNDS {
+                for stream in 0..STREAMS {
+                    let offset = stream * BitPacker4x::BLOCK_LEN + round;
+                    assert_eq!(page.get(FIRST + offset), Some((offset as u32 + 1) * 3));
+                }
+                assert_eq!(page.chunk_decodes, STREAMS);
+            }
+            pgrx::notice!(
+                "{} interleaved lookups, {} chunk decodes",
+                STREAMS * ROUNDS,
+                page.chunk_decodes
+            );
+
+            let mut sparse = MappingPage::new(FIRST, bytes);
+            let last = STREAMS * BitPacker4x::BLOCK_LEN - 1;
+            for offset in [last, 0, last, 1, last - 1] {
+                assert_eq!(sparse.get(FIRST + offset), Some((offset as u32 + 1) * 3));
+            }
+            assert_eq!(sparse.get(FIRST - 1), None);
+            assert_eq!(sparse.get(FIRST + last + 1), None);
+            assert_eq!(sparse.chunk_decodes, 2);
+            assert_eq!(
+                sparse
+                    .chunks
+                    .iter()
+                    .filter(|chunk| chunk.decoded.is_some())
+                    .count(),
+                2
+            );
+        }
+
+        #[pg_test]
         fn test_blocklist_chunk_encodings() {
             macro_rules! check {
                 ($packer:ty, $sorted:expr, $strict:expr) => {
@@ -1024,7 +1121,7 @@ pub mod reader {
             for &block in &blocks {
                 builder.push(block);
             }
-            let start = builder.finish(&mut bman).unwrap();
+            let (start, _, _) = builder.finish(&mut bman).unwrap();
 
             let mut reader = BlockList::new(start);
             assert_eq!(reader.get(&bman, 0), Some(blocks[0]));

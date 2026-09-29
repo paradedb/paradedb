@@ -596,24 +596,6 @@
     ]
   },
   "footer": {
-    "links": [
-      {
-        "items": [
-          {
-            "label": "Learn",
-            "href": "https://www.paradedb.com/learn"
-          }
-        ]
-      },
-      {
-        "items": [
-          {
-            "label": "Blog",
-            "href": "https://www.paradedb.com/blog"
-          }
-        ]
-      }
-    ],
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
       "twitter": "https://x.com/paradedb",

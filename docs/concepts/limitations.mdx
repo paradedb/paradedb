@@ -13,7 +13,7 @@ For datasets that significantly exceed this scale, ParadeDB supports partitioned
 ## Covering Index
 
 The ParadeDB index is a covering index, which means it stores all indexed columns inside a single index per table. This
-decision is intentional -- by colocating all the relevant data, ParadeDB optimizes for fast reads and boolean conditions.
+decision is intentional: by colocating all the relevant data, ParadeDB optimizes for fast reads and boolean conditions.
 
 However, this means that all columns must be defined up front at index creation time. Adding or removing columns requires a `REINDEX`.
 

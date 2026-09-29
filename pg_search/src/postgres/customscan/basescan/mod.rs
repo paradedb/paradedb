@@ -1857,26 +1857,27 @@ impl CustomScan for BaseScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Leader-only: last chance to read DSM before Postgres destroys it.
+        // Both roles exchange telemetry here. `take()` makes this one-shot, so a second
+        // shutdown is a no-op (#6374).
+        //
+        // Workers must publish here rather than in `end_custom_scan`: a worker's
+        // `ExecutorRun` calls `ExecShutdownNode` before `ExecutorEnd`, so the handle is
+        // already gone by then (#6404). This also runs before the worker detaches its tuple
+        // queue, so a leader that has read every row sees the counts at its own shutdown.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel.take()
-            && parallel.is_leader()
-        {
-            parallel.finalize_explain(&mut scan_state.telemetry);
-        };
-    }
-
-    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Workers: DSM is still alive; publish local telemetry once.
-        // Leader: do not touch DSM — Shutdown already ran (or serial path).
-        {
-            let scan_state = state.custom_state_mut();
-            if let Some(parallel) = scan_state.parallel.take()
-                && !parallel.is_leader()
-            {
+        if let Some(parallel) = scan_state.parallel.take() {
+            if parallel.is_leader() {
+                // Leader: last chance to read the DSM before Postgres destroys it.
+                parallel.finalize_explain(&mut scan_state.telemetry);
+            } else {
+                // Worker: flush local telemetry into the DSM for the leader to read.
                 parallel.publish_telemetry(&scan_state.telemetry);
             }
         }
+    }
+
+    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Parallel telemetry was already exchanged in `shutdown_custom_scan`.
 
         // get some things dropped now. Order matters: scorers hold bitmap
         // cursors into the TIDBitmap/DSA, so everything that can hold a scorer

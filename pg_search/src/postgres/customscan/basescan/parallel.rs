@@ -67,7 +67,7 @@ impl ParallelScanHandle {
         self.dsm.as_ptr()
     }
 
-    /// Worker End: flush local telemetry into DSM.
+    /// Worker Shutdown: flush local telemetry into DSM.
     pub fn publish_telemetry(&self, local: &ScanTelemetry) {
         debug_assert_eq!(self.role, ParallelRole::Worker);
         let dsm = unsafe { &mut *self.dsm.as_ptr() };

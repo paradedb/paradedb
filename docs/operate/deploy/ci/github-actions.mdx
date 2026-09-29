@@ -40,7 +40,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Wait for PostgreSQL to be ready
+      - name: Wait for Postgres to be ready
         run: |
           for i in {1..10}; do
             if psql -h localhost -U testuser -d testdb -c "SELECT 1;" > /dev/null 2>&1; then

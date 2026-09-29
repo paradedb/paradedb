@@ -116,7 +116,7 @@ number of subscriptions you plan to run:
   `max_wal_senders` high enough to cover the same plus any physical replicas.
 - On the subscriber, set `max_replication_slots` and
   `max_logical_replication_workers` to at least the number of subscriptions plus
-  reserve for table synchronization workers. On PostgreSQL 18+,
+  reserve for table synchronization workers. On Postgres 18+,
   `max_active_replication_origins` controls replication origin tracking
   separately and should also be sized accordingly. `max_worker_processes` must
   be high enough to accommodate those logical replication workers and any other
@@ -330,7 +330,7 @@ When you suspect a replication conflict:
 
 Skipping a conflicting transaction can leave the subscriber inconsistent, so it
 should be treated as a last resort rather than the default fix. For conflict
-types and the Postgres recovery workflow, see the [PostgreSQL logical
+types and the Postgres recovery workflow, see the [Postgres logical
 replication conflicts
 documentation](https://www.postgresql.org/docs/current/logical-replication-conflicts.html).
 

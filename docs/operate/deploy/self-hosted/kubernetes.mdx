@@ -136,7 +136,11 @@ Use the ParadeDB extension image to add ParadeDB to an existing CloudNativePG cl
 
 `pg_search` requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource:
 
-```yaml
+For Enterprise, create the registry secret described in [Start the ParadeDB Cluster](#start-the-paradedb-cluster) in your cluster's namespace before applying the manifest.
+
+<CodeGroup>
+
+```yaml ParadeDB Community
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -166,6 +170,41 @@ spec:
         ld_library_path:
           - system
 ```
+
+```yaml ParadeDB Enterprise
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: paradedb
+spec:
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie
+  instances: 3
+  imagePullSecrets:
+    - name: paradedb-enterprise-registry-cred
+
+  storage:
+    size: 1Gi
+
+  postgresql:
+    shared_preload_libraries:
+      - "pg_search"
+    extensions:
+      # You can omit this if pgvector is already installed on your cluster
+      - name: vector
+        image:
+          reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-18-trixie
+      - name: pg_search
+        image:
+          reference: docker.io/paradedb/paradedb-enterprise-extension:0.25.10-18-trixie
+        extension_control_path:
+          - share
+        dynamic_library_path:
+          - lib
+        ld_library_path:
+          - system
+```
+
+</CodeGroup>
 
 Then enable pgvector (named `vector` in Postgres) and `pg_search` in your database using a `Database` resource:
 

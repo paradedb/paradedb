@@ -637,7 +637,7 @@ def update_kubernetes_version(repo_root, clean_ver):
 
     semver = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
     patterns = [
-        rf"(paradedb/paradedb-extension:){semver}",
+        rf"(paradedb/paradedb(?:-enterprise)?-extension:){semver}",
         rf'(- name: pg_search\s+version: "){semver}',
     ]
     content = kubernetes_file.read_text(encoding="utf-8")

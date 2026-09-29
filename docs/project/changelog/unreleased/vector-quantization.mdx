@@ -19,5 +19,17 @@ Quantization is now enabled by default for vector fields with at least 64 dimens
 - Added `paradedb.max_scan_levels` to limit how many code layers a query reads. It defaults to all built layers; `0` scans full-precision vectors through the same cluster routing.
 
 - Replaced the `centroid_ratio` and `training_samples_per_centroid` index options with `training_sample_ratio` (default `0.32`) and `max_leaf_size` (default `100`). The settings now directly control Tantivy's training fraction and SuperKMeans' maximum training leaf size. The old names are no longer accepted; recreate indexes that explicitly store them using the new options.
-- `paradedb.vector_info` now reports `quantized`, the `layers` schedule, `bytes_per_row`, and the format identifier for each vector field.
+- `paradedb.vector_info` reports quantization metadata for each stored segment; `paradedb.vector_config` reports the field build target.
 - Added `paradedb.vector_estimator_info(index, field[, queries])`, a read-only diagnostic that reports per-layer estimator bias and spread on indexed data or supplied `vector[]` queries. It never changes index behavior.
+
+Every index containing a vector field must be rebuilt with `REINDEX` after upgrading,
+including indexes with quantization disabled. Vector storage uses format 4.
+
+`paradedb.vector_info(index, field)` reports stored metadata for each segment:
+`quantized`, ordered `layers`, ordered `quantizer_kinds` (`SignPlane` or `GridPlane`),
+and `bytes_per_row`. Plain segments have NULL layer and byte fields. Quantized byte
+counts include codes, sidecars, constants and residual norms, excluding rows and padding.
+
+`paradedb.vector_config(index, field)` reports one field-level build target:
+`quantized`, `layers`, `bytes_per_row` and `format_version`. This version describes
+settings serialization (3), independently of segment storage.

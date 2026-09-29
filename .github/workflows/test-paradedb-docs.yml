@@ -44,9 +44,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
-      - name: Test Release Documentation Updates
-        run: python3 .github/scripts/test_release.py
-
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 

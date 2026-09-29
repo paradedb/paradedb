@@ -1,5 +1,9 @@
 [
   {
+    "source": "/concepts/how-the-paradedb-index-works",
+    "destination": "/concepts/architecture"
+  },
+  {
     "source": "/welcome/introduction",
     "destination": "/start/introduction"
   },

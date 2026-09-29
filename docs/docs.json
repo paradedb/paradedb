@@ -229,7 +229,6 @@
             "pages": [
               "concepts/architecture",
               "concepts/guarantees",
-              "concepts/how-the-paradedb-index-works",
               "concepts/full-text/overview",
               "concepts/vector/overview",
               "concepts/hybrid/overview",

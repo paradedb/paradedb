@@ -124,15 +124,11 @@ Restart the Postgres server for these changes to take effect.
 
 Finally, connect to your Postgres database and run the following command:
 
+<Note>
+  `pg_search` requires [`pgvector`](https://github.com/pgvector/pgvector).
+  `CASCADE` enables it in the database if it is not already enabled.
+</Note>
+
 ```sql
 CREATE EXTENSION pg_search CASCADE;
 ```
-
-<Note>
-  As of `0.25.0`, `pg_search` requires the
-  [`pgvector`](https://github.com/pgvector/pgvector) extension because it relies
-  on `pgvector`'s `vector` type. `CASCADE` runs `CREATE EXTENSION vector`
-  automatically if it has not already been created. Without `CASCADE`, `CREATE
-  EXTENSION pg_search` fails with `required extension "vector" is not
-  installed`.
-</Note>

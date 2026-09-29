@@ -156,7 +156,7 @@ kubectl create secret docker-registry paradedb-enterprise-registry-cred \
 
 ### Configure the Extension Image
 
-`pg_search` requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource:
+The `pg_search` extension requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource:
 
 <CodeGroup>
 

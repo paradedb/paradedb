@@ -9,7 +9,7 @@ Now that your [environment is configured](/start/connect-your-app), select the c
 
 ## Text Search
 
-We're now ready to execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
+We'll first execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
 
 <CodeGroup>
 ```sql SQL
@@ -97,8 +97,7 @@ await dbContext
 (3 rows)
 ```
 
-`|||` is ParadeDB's custom [match disjunction](/reference/full-text/match#match-disjunction) operator, which means "find me all documents containing
-`running OR shoes`.
+The `|||` operator is ParadeDB's custom [match disjunction](/reference/full-text/match#match-disjunction) operator, which means "find me all documents containing `running OR shoes`."
 
 If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/reference/full-text/match#match-conjunction) operator.
 

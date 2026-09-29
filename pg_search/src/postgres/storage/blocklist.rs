@@ -419,20 +419,18 @@ pub mod builder {
 
 pub mod reader {
     use super::{ChunkStyleTag, Directory, chunk_size};
-    use crate::postgres::storage::blocklist::tree::{
-        Bounds, InvalidNode, Node, PageReader, TreeReader,
-    };
+    use crate::postgres::storage::blocklist::tree::{Bounds, InvalidNode, PageReader, TreeReader};
     use crate::postgres::storage::buffer::BufferManager;
     use bitpacking::{BitPacker, BitPacker1x, BitPacker4x, BitPacker8x};
     use pgrx::pg_sys;
     use std::ops::Range;
-    use std::sync::Arc;
+    use tantivy::directory::OwnedBytes;
 
     #[derive(Debug)]
     pub struct BlockList {
         blocks: Vec<pg_sys::BlockNumber>,
         next_blockno: pg_sys::BlockNumber,
-        directory: Option<TreeReader<u32, u32, MappingPage>>,
+        directory: Option<TreeReader<u32, u32, MappingPage, Directory>>,
     }
 
     impl BlockList {
@@ -447,7 +445,7 @@ pub mod reader {
         pub fn with_directory(mut self, directory: Option<Directory>, end: Option<usize>) -> Self {
             self.directory = directory.and_then(|directory| {
                 let end = end.and_then(|end| u32::try_from(end).ok());
-                TreeReader::new(directory.node, end).ok()
+                TreeReader::new(directory, end).ok()
             });
             self
         }
@@ -492,16 +490,14 @@ pub mod reader {
     struct MappingReader<'a>(&'a BufferManager);
 
     impl PageReader<u32, u32> for MappingReader<'_> {
+        type Node = Directory;
         type Leaf = MappingPage;
 
-        fn read_node(
-            &self,
-            address: u32,
-            _bounds: Bounds<u32>,
-        ) -> Result<Arc<Node<u32, u32>>, InvalidNode> {
+        fn read_node(&self, address: u32, _bounds: Bounds<u32>) -> Result<Directory, InvalidNode> {
             let buffer = self.0.get_buffer(address);
-            let directory = Directory::decode(buffer.page().as_slice()).ok_or(InvalidNode)?;
-            Ok(directory.node)
+            // Published directory pages are immutable for the component's lifetime.
+            let bytes = OwnedBytes::new(unsafe { buffer.into_immutable_page() });
+            Directory::decode(bytes).ok_or(InvalidNode)
         }
 
         fn read_leaf(&self, address: u32, bounds: Bounds<u32>) -> Result<MappingPage, InvalidNode> {
@@ -694,6 +690,7 @@ pub mod reader {
         use super::*;
         use crate::postgres::rel::PgSearchRelation;
         use crate::postgres::storage::blocklist::builder;
+        use crate::postgres::storage::blocklist::tree::{Node, ReadNode};
         use pgrx::prelude::*;
 
         #[pg_test]
@@ -715,9 +712,11 @@ pub mod reader {
             }
             let (start, directory, overflow) = builder.finish(&mut bman).unwrap();
             assert_eq!(overflow, pg_sys::InvalidBlockNumber);
-            assert_eq!(directory.node.level, 0);
-            assert!(directory.node.entries.len() > 4);
-            let entries = directory.node.entries.clone();
+            assert_eq!(directory.level(), 0);
+            assert!(directory.len() > 4);
+            let entries = (0..directory.len())
+                .map(|i| directory.entry(i))
+                .collect::<Vec<_>>();
             let mut reader = BlockList::new(start).with_directory(Some(directory), None);
             let before = unsafe {
                 pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
@@ -773,8 +772,8 @@ pub mod reader {
                 builder.push(block);
             }
             let (start, mut directory, mut overflow) = builder.finish(&mut bman).unwrap();
-            assert_eq!(directory.node.level, 1);
-            assert!(directory.node.entries.len() > 1);
+            assert_eq!(directory.level(), 1);
+            assert!(directory.len() > 1);
             let mut reader =
                 BlockList::new(start).with_directory(Some(directory.clone()), Some(count as usize));
             let before = unsafe {
@@ -786,7 +785,7 @@ pub mod reader {
                 pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
             };
             assert_eq!(after - before, 2);
-            for entry in &directory.node.entries {
+            for entry in (0..directory.len()).map(|i| directory.entry(i)) {
                 let i = entry.start as usize;
                 for i in [i.saturating_sub(1), i, (i + 1).min(blocks.len() - 1)] {
                     assert_eq!(reader.get(&bman, i), Some(blocks[i]));
@@ -803,7 +802,7 @@ pub mod reader {
                 blocks
             );
 
-            let leaf_block = directory.node.entries.last().unwrap().address;
+            let leaf_block = directory.entry(directory.len() - 1).address;
             let buffer = bman.get_buffer(leaf_block);
             let original = buffer.page().as_slice().to_vec();
             let next = buffer.page().next_blockno();
@@ -831,18 +830,16 @@ pub mod reader {
                 let mut buffer = bman.new_buffer();
                 let block = buffer.number();
                 let mut page = buffer.init_page();
-                assert!(page.append_bytes(&directory.encode()));
+                assert!(page.append_bytes(directory.encode()));
                 page.special_mut::<BM25PageSpecialData>().next_blockno = overflow;
                 overflow = block;
-                directory = Directory {
-                    node: Arc::new(Node {
-                        entries: vec![Entry {
-                            start: 0,
-                            address: block,
-                        }],
-                        level,
-                    }),
-                };
+                directory = Directory::from(Node {
+                    entries: vec![Entry {
+                        start: 0,
+                        address: block,
+                    }],
+                    level,
+                });
             }
             let mut reader =
                 BlockList::new(start).with_directory(Some(directory.clone()), Some(count as usize));
@@ -861,7 +858,7 @@ pub mod reader {
                 let mut page = buffer.page_mut();
                 let metadata = page.contents_mut::<LinkedListData>();
                 metadata.blocklist_start = start;
-                assert!(page.append_bytes(&directory.encode()));
+                assert!(page.append_bytes(directory.encode()));
                 page.special_mut::<BM25PageSpecialData>().next_blockno = overflow;
             }
             let mut expected = blocks;
@@ -884,69 +881,78 @@ pub mod reader {
             use crate::postgres::storage::block::{LinkedListData, bm25_max_free_space};
             use crate::postgres::storage::blocklist::directory::{MAX_LEVEL, ROOT_CAPACITY};
             use crate::postgres::storage::blocklist::tree::Entry;
-            let directory = Directory {
-                node: Arc::new(Node {
-                    entries: vec![
-                        Entry {
-                            start: 0,
-                            address: 900,
-                        },
-                        Entry {
-                            start: 100,
-                            address: 2700,
-                        },
-                    ],
-                    level: 0,
-                }),
-            };
+            let directory = Directory::from(Node {
+                entries: vec![
+                    Entry {
+                        start: 0,
+                        address: 900,
+                    },
+                    Entry {
+                        start: 100,
+                        address: 2700,
+                    },
+                ],
+                level: 0,
+            });
             let prefix = vec![0u8; size_of::<LinkedListData>()];
-            assert!(Directory::read(&prefix, 900).is_none());
+            assert!(Directory::read(OwnedBytes::new(prefix.clone()), 900).is_none());
             let mut expected = b"BDIR".to_vec();
             for word in [2u32, 0, 0, 900, 100, 2700] {
                 expected.extend_from_slice(&word.to_le_bytes());
             }
             assert_eq!(directory.encode(), expected);
+            let encoded = OwnedBytes::new(expected.clone());
+            let decoded = Directory::decode(encoded.clone()).unwrap();
+            assert_eq!(decoded.encode().as_ptr(), encoded.as_ptr());
+            let mut unaligned = vec![0];
+            unaligned.extend_from_slice(&expected);
+            let unaligned = OwnedBytes::new(unaligned);
+            assert!(Directory::decode(unaligned.slice(1..unaligned.len())).is_none());
             for version in [0u32, 1, 3, u32::MAX] {
                 let mut bytes = prefix.clone();
                 bytes.extend_from_slice(&expected);
                 let version_offset = prefix.len() + 4;
                 bytes[version_offset..version_offset + 4].copy_from_slice(&version.to_le_bytes());
-                assert!(Directory::read(&bytes, 900).is_none());
+                assert!(Directory::read(OwnedBytes::new(bytes.clone()), 900).is_none());
             }
 
-            let largest = Directory {
-                node: Arc::new(Node {
-                    entries: (0..ROOT_CAPACITY as u32)
-                        .map(|i| Entry {
-                            start: i,
-                            address: i + 1,
-                        })
-                        .collect(),
-                    level: 1,
-                }),
-            };
+            let largest = Directory::from(Node {
+                entries: (0..ROOT_CAPACITY as u32)
+                    .map(|i| Entry {
+                        start: i,
+                        address: i + 1,
+                    })
+                    .collect(),
+                level: 1,
+            });
             let mut bytes = prefix.clone();
             bytes.extend_from_slice(&largest.encode());
             assert!(bytes.len() <= bm25_max_free_space());
             assert!(bm25_max_free_space() - bytes.len() < 8);
-            assert_eq!(Directory::read(&bytes, 1), Some(largest));
+            assert_eq!(
+                Directory::read(OwnedBytes::new(bytes.clone()), 1),
+                Some(largest)
+            );
             for level in 0..=MAX_LEVEL {
-                let node = Directory {
-                    node: Arc::new(Node {
-                        level,
-                        ..(*directory.node).clone()
-                    }),
-                };
+                let node = Directory::from(Node {
+                    level,
+                    entries: (0..directory.len()).map(|i| directory.entry(i)).collect(),
+                });
                 let mut bytes = prefix.clone();
                 bytes.extend_from_slice(&node.encode());
-                assert_eq!(Directory::read(&bytes, 900), Some(node));
+                assert_eq!(
+                    Directory::read(OwnedBytes::new(bytes.clone()), 900),
+                    Some(node)
+                );
                 if level == 0 {
-                    assert!(Directory::read(&bytes, 901).is_none());
+                    assert!(Directory::read(OwnedBytes::new(bytes.clone()), 901).is_none());
                 }
                 for len in prefix.len()..bytes.len() {
                     // Whole-entry prefixes are valid; pd_lower supplies the entry count.
                     if len < prefix.len() + 20 || !(len - prefix.len() - 12).is_multiple_of(8) {
-                        assert!(Directory::read(&bytes[..len], 900).is_none());
+                        assert!(
+                            Directory::read(OwnedBytes::new(bytes[..len].to_vec()), 900).is_none()
+                        );
                     }
                 }
                 for (offset, value) in [
@@ -959,7 +965,7 @@ pub mod reader {
                 ] {
                     let mut invalid = bytes.clone();
                     invalid[offset..offset + 4].copy_from_slice(&u32::to_le_bytes(value));
-                    assert!(Directory::read(&invalid, 900).is_none());
+                    assert!(Directory::read(OwnedBytes::new(invalid.clone()), 900).is_none());
                 }
             }
         }

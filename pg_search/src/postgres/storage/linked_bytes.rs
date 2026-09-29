@@ -202,7 +202,7 @@ impl LinkedBytesListWriter {
             self.blocklist_builder.finish(&mut self.list.bman)
         {
             metadata.blocklist_start = blockno;
-            assert!(header_page.append_bytes(&directory.encode()));
+            assert!(header_page.append_bytes(directory.encode()));
             header_page
                 .special_mut::<BM25PageSpecialData>()
                 .next_blockno = overflow;
@@ -243,7 +243,9 @@ impl LinkedList for LinkedBytesList {
             let buffer = self.bman.get_buffer(self.header_blockno);
             let page = buffer.page();
             let list = page.contents::<LinkedListData>();
-            let directory = blocklist::Directory::read(page.as_slice(), list.blocklist_start);
+            // The directory is published only after the component is finalized.
+            let bytes = OwnedBytes::new(unsafe { buffer.into_immutable_page() });
+            let directory = blocklist::Directory::read(bytes, list.blocklist_start);
             ComponentMetadata { list, directory }
         });
         if let Some(last_ord) = self.last_block_ord {
@@ -604,7 +606,7 @@ mod tests {
             let mut bman = list.bman.clone();
             let mut header = bman.get_buffer_mut(header_blockno);
             let mut page = header.page_mut();
-            assert!(page.append_bytes(&directory.encode()));
+            assert!(page.append_bytes(directory.encode()));
             page.special_mut::<BM25PageSpecialData>().next_blockno = overflow;
         }
         assert_eq!(list.block_for_ord(blocks.len() - 1), blocks.last().copied());
@@ -633,7 +635,13 @@ mod tests {
         let buffer = list.bman.get_buffer(header);
         let page = buffer.page();
         let metadata = page.contents::<LinkedListData>();
-        assert!(blocklist::Directory::read(page.as_slice(), metadata.blocklist_start).is_some());
+        assert!(
+            blocklist::Directory::read(
+                OwnedBytes::new(page.as_slice().to_vec()),
+                metadata.blocklist_start
+            )
+            .is_some()
+        );
         drop(buffer);
         for mode in 0..3 {
             if mode > 0 {

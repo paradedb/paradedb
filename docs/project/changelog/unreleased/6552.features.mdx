@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+A multi-field `partition_by` now cuts its first field into global ranges and each later field inside them, so a range co-partitioned join on the first field takes whole segments. A `field=N` count, as in `partition_by = 'id=8, owner_user_id'`, sets how many ranges a field is cut into.

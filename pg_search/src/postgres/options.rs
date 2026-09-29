@@ -174,17 +174,8 @@ extern "C-unwind" fn validate_partition_by(value: *const std::os::raw::c_char) {
     if partition_by_str.is_empty() {
         return;
     }
-
-    let mut fields = 0;
-    for part in partition_by_str.split(',') {
-        if !part.trim().is_empty() {
-            fields += 1;
-        }
-    }
-
-    if fields == 0 {
-        panic!("invalid partition_by value: must specify at least one field");
-    }
+    // Parse and validate the partition_by string (panics on invalid input)
+    let _ = parse_partition_by_string(&partition_by_str);
 }
 
 #[pg_guard]
@@ -477,6 +468,11 @@ impl BM25IndexOptions {
 
     pub fn partition_by(&self) -> Vec<FieldName> {
         self.options_data().partition_by()
+    }
+
+    /// The `partition_by` fields with the range count each one declares.
+    pub fn partition_by_fields(&self) -> Vec<PartitionByField> {
+        self.options_data().partition_by_fields()
     }
 
     pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
@@ -906,15 +902,20 @@ impl BM25IndexOptionsData {
     }
 
     pub fn partition_by(&self) -> Vec<FieldName> {
+        self.partition_by_fields()
+            .into_iter()
+            .map(|field| field.field_name)
+            .collect()
+    }
+
+    /// The `partition_by` fields with the range count each one declares, or empty when the
+    /// index is not partitioned.
+    pub fn partition_by_fields(&self) -> Vec<PartitionByField> {
         let pb_str = self.get_str(self.partition_by_offset, "".to_string());
         if pb_str.is_empty() {
             vec![]
         } else {
-            pb_str
-                .split(',')
-                .filter(|s| !s.trim().is_empty())
-                .map(|s| FieldName::from(s.trim().to_string()))
-                .collect()
+            parse_partition_by_string(&pb_str)
         }
     }
 
@@ -1181,6 +1182,62 @@ fn deserialize_config_fields(
         .collect()
 }
 
+/// One field in the `partition_by` specification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartitionByField {
+    pub field_name: FieldName,
+    /// How many ranges the field is cut into inside each range of the fields before it, when
+    /// the index says so (`id=8`). Without one, the build shares the leaves the counted
+    /// fields leave over between the uncounted ones.
+    pub ranges: Option<usize>,
+}
+
+/// Parse a partition_by string like "id=8, owner_user_id"
+///
+/// Grammar:
+///   partition_by_value ::= partition_key { ',' partition_key }
+///   partition_key      ::= field_name [ '=' ranges ]
+///
+/// `ranges` is a positive integer. Panics on invalid input.
+fn parse_partition_by_string(input: &str) -> Vec<PartitionByField> {
+    let fields: Vec<PartitionByField> = input
+        .split(',')
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(parse_partition_key)
+        .collect();
+    if fields.is_empty() {
+        panic!("invalid partition_by value: must specify at least one field");
+    }
+    fields
+}
+
+fn parse_partition_key(key: &str) -> PartitionByField {
+    let (field_name, ranges) = match key.split_once('=') {
+        Some((field_name, ranges)) => {
+            let ranges = ranges
+                .trim()
+                .parse::<usize>()
+                .ok()
+                .filter(|&ranges| ranges > 0)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "invalid partition_by value: expected a positive number of ranges after '=' in: {key}"
+                    )
+                });
+            (field_name.trim(), Some(ranges))
+        }
+        None => (key, None),
+    };
+    if field_name.is_empty() {
+        panic!("invalid partition_by value: empty field name in: {key}");
+    }
+    PartitionByField {
+        field_name: FieldName::from(field_name.to_string()),
+        ranges,
+    }
+}
+
 /// Represents a single field in the sort_by specification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SortByField {
@@ -1394,6 +1451,52 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].field_name, FieldName::from("field1".to_string()));
         assert_eq!(result[0].direction, SortByDirection::Asc);
+    }
+
+    #[pg_test]
+    fn test_parse_partition_by_fields_and_ranges() {
+        let result = parse_partition_by_string(" id = 8 ,owner_user_id,, topic_id=4 ");
+        assert_eq!(
+            result,
+            vec![
+                PartitionByField {
+                    field_name: FieldName::from("id".to_string()),
+                    ranges: Some(8),
+                },
+                PartitionByField {
+                    field_name: FieldName::from("owner_user_id".to_string()),
+                    ranges: None,
+                },
+                PartitionByField {
+                    field_name: FieldName::from("topic_id".to_string()),
+                    ranges: Some(4),
+                },
+            ]
+        );
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "must specify at least one field")]
+    fn test_parse_partition_by_only_commas_error() {
+        parse_partition_by_string(" , ");
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "expected a positive number of ranges")]
+    fn test_parse_partition_by_zero_ranges_error() {
+        parse_partition_by_string("id=0");
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "expected a positive number of ranges")]
+    fn test_parse_partition_by_missing_ranges_error() {
+        parse_partition_by_string("id=, x");
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "empty field name")]
+    fn test_parse_partition_by_empty_field_name_error() {
+        parse_partition_by_string("=8");
     }
 
     #[pg_test]

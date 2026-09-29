@@ -20,7 +20,7 @@ rank, filter, and aggregate inside Postgres using ParadeDB. To go to production,
 
 Before cutting over traffic, verify the important paths:
 
-- Run representative queries with `EXPLAIN` and confirm ParadeDB is used.
+- Run representative queries with `EXPLAIN` and confirm that ParadeDB is used.
 - Test writes and updates against indexed tables.
 - Check backup, restore, and upgrade procedures.
 - Set monitoring around slow queries, index size, and segment growth.

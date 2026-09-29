@@ -133,9 +133,7 @@ The basic syntax for `REINDEX` is:
 REINDEX INDEX search_idx;
 ```
 
-This operation takes an exclusive lock on the table, which blocks incoming writes (but not reads) while the new index is being built.
-
-To allow for concurrent writes during a reindex, use `REINDEX CONCURRENTLY`:
+This operation takes an exclusive lock on the table, which blocks incoming writes (but not reads) while the new index is being built. To allow for concurrent writes during a reindex, use `REINDEX CONCURRENTLY`:
 
 ```sql
 REINDEX INDEX CONCURRENTLY search_idx;

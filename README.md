@@ -33,15 +33,13 @@
 
 ## Installation
 
-Run ParadeDB locally with Docker, or use [ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud) for a fully managed deployment. Cloud is available in private preview. [Sign up](https://auth.paradedb.com/sign-up) to get started.
-
-To start a local instance and open a `psql` session:
+To run ParadeDB locally with Docker and open a `psql` session:
 
 ```bash
 curl -fsSL https://paradedb.com/install.sh | sh
 ```
 
-When you're ready to deploy, check out our [deployment options](https://www.paradedb.com/docs/operate/deploy/overview).
+When you're ready to deploy, get started on [ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud) for a fully managed experience, or explore our [self-hosted deployment options](https://www.paradedb.com/docs/operate/deploy/overview).
 
 ## What is ParadeDB?
 

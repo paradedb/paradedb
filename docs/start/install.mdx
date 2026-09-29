@@ -5,6 +5,10 @@ description: Run the ParadeDB Community Docker image
 canonical: https://www.paradedb.com/docs/start/install
 ---
 
+<Note>
+  For a fully managed experience, get started with [ParadeDB Cloud](/operate/deploy/cloud).
+</Note>
+
 The fastest way to install ParadeDB is by pulling the ParadeDB Docker image and running it locally. If
 your primary Postgres is in a virtual private cloud (VPC), we recommend deploying ParadeDB on a compute
 instance within your VPC to avoid exposing public IP addresses and needing to provision traffic routing
@@ -32,8 +36,5 @@ To connect to ParadeDB, run
 ```bash
 docker exec -it paradedb psql -U myuser -d mydatabase -W
 ```
-
-To see all the ways in which you can install ParadeDB, please refer to our [deployment documentation](/operate/deploy/overview).
-If you'd rather not manage your own deployment, [ParadeDB Cloud](/operate/deploy/cloud) is now available in private preview. [Sign up](https://auth.paradedb.com/sign-up) to get started.
 
 That's it! Next, let's [set up your environment](/start/connect-your-app) so we can run a few queries.

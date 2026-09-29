@@ -409,11 +409,10 @@ fn vector_info(
             name!(vector_avg_cluster_size, Option<f64>),
             name!(vector_empty_clusters, Option<AnyNumeric>),
             name!(vector_total_rows, Option<AnyNumeric>),
-            name!(configured_quantized, bool),
-            name!(configured_layers, Option<Vec<i32>>),
-            name!(configured_bytes_per_row, Option<i32>),
-            name!(configured_format, Option<i32>),
-            name!(quantized_storage, bool),
+            name!(quantized, bool),
+            name!(layers, Option<Vec<i32>>),
+            name!(quantizer_kinds, Option<Vec<String>>),
+            name!(bytes_per_row, Option<i32>),
         ),
     >,
 > {
@@ -434,7 +433,6 @@ fn vector_info(
             continue;
         }
         let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-        let settings = load_index_settings(&index)?;
         let resolved = search_reader
             .schema()
             .fields()
@@ -449,32 +447,47 @@ fn vector_info(
         let Some(vector_field) = resolved else {
             anyhow::bail!("`{field}` is not a vector field of the index");
         };
-        let quantization = settings
-            .as_ref()
-            .into_iter()
-            .flat_map(|settings| &settings.vector_quantization)
-            .find(|config| config.field == field);
-        let quantized = quantization.is_some();
-        let layers = quantization.map(|config| {
-            config
-                .layers
-                .iter()
-                .map(|layer| i32::from(layer.bits))
-                .collect()
-        });
-        let bytes_per_row = quantization
-            .map(|config| i32::try_from(config.bytes_per_row()))
-            .transpose()
-            .context("quantized bytes per row exceeds SQL integer range")?;
-        let format = quantization
-            .map(|config| i32::try_from(config.format_version))
-            .transpose()
-            .context("quantization format exceeds SQL integer range")?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
             let Some(info) = vector_index.info() else {
                 continue;
             };
+            let metadata = vector_index
+                .metadata()
+                .context("vector storage metadata is absent")?;
+            let quantized = matches!(
+                metadata,
+                tantivy::vector::VectorColMetadata::Quantized { .. }
+            );
+            let layers = quantized.then(|| {
+                metadata
+                    .layers()
+                    .iter()
+                    .map(|layer| i32::from(layer.bits()))
+                    .collect()
+            });
+            let quantizer_kinds = quantized
+                .then(|| {
+                    metadata
+                        .layers()
+                        .iter()
+                        .map(|layer| match layer {
+                            tantivy::vector::Quantizer::SignPlane { .. } => {
+                                Ok("SignPlane".to_string())
+                            }
+                            tantivy::vector::Quantizer::GridPlane { .. } => {
+                                Ok("GridPlane".to_string())
+                            }
+                            _ => anyhow::bail!("unsupported vector quantizer"),
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()
+                })
+                .transpose()?;
+            let bytes_per_row = metadata
+                .quantized_bytes_per_row()
+                .map(i32::try_from)
+                .transpose()
+                .context("quantized bytes per row exceeds SQL integer range")?;
             let cluster_stats = info.cluster_stats.as_ref();
             let total_rows = vector_index
                 .cluster_sizes()
@@ -495,15 +508,69 @@ fn vector_info(
                 cluster_stats.map(|stats| stats.empty_clusters.into()),
                 total_rows.map(Into::into),
                 quantized,
-                layers.clone(),
+                layers,
+                quantizer_kinds,
                 bytes_per_row,
-                format,
-                vector_index.has_quantized_storage(),
             ));
         }
     }
 
     Ok(TableIterator::new(rows))
+}
+
+/// The field's quantization build target. The format version describes settings serialization.
+#[pg_extern]
+#[allow(clippy::type_complexity)]
+fn vector_config(
+    index: PgRelation,
+    field: String,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(quantized, bool),
+            name!(layers, Option<Vec<i32>>),
+            name!(bytes_per_row, Option<i32>),
+            name!(format_version, Option<i32>),
+        ),
+    >,
+> {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let schema = index.schema()?;
+    anyhow::ensure!(
+        matches!(
+            schema.get_field_type(&field),
+            Some(SearchFieldType::Vector(..))
+        ),
+        "`{field}` is not a vector field of the index"
+    );
+    let settings = load_index_settings(&index)?;
+    let config = settings
+        .as_ref()
+        .into_iter()
+        .flat_map(|settings| &settings.vector_quantization)
+        .find(|config| config.field == field);
+    let layers = config.map(|config| {
+        config
+            .layers
+            .iter()
+            .map(|layer| i32::from(layer.bits))
+            .collect()
+    });
+    let bytes = config
+        .map(|config| i32::try_from(config.bytes_per_row()))
+        .transpose()
+        .context("quantized bytes per row exceeds SQL integer range")?;
+    let version = config
+        .map(|config| i32::try_from(config.format_version))
+        .transpose()
+        .context("quantization format exceeds SQL integer range")?;
+    Ok(TableIterator::once((
+        config.is_some(),
+        layers,
+        bytes,
+        version,
+    )))
 }
 
 /// Per-cluster posting-list sizes and ball-bound radii for a single vector

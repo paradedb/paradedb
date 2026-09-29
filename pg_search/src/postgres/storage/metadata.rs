@@ -412,6 +412,67 @@ mod tests {
     use pgrx::datum::TimestampWithTimeZone;
     use pgrx::prelude::*;
 
+    fn vector_metadata_fixture() -> PgSearchRelation {
+        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;
+            SET paradedb.vector_clustering_threshold = 64;
+            CREATE TABLE metadata_vectors(id int PRIMARY KEY, vec vector(1024));
+            INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
+                FROM generate_series(1,1024) i)::vector FROM generate_series(1,2048) g;
+            CREATE INDEX metadata_vectors_idx ON metadata_vectors USING paradedb(id, vec vector_l2_ops)
+                WITH (vector_fields='{\"vec\":{\"quantization\":{\"layers\":[1,4]}}}', target_segment_count=1);").unwrap();
+        PgSearchRelation::open(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'metadata_vectors_idx'::regclass::oid")
+                .unwrap()
+                .unwrap(),
+        )
+    }
+
+    // Stored segment layers are independent of the field build target.
+    #[pg_test]
+    fn vector_metadata_is_independent_of_build_target() {
+        let indexrel = vector_metadata_fixture();
+        let mut settings: serde_json::Value = serde_json::from_slice(&unsafe {
+            MetaPage::open(&indexrel).settings_bytes().read_all()
+        })
+        .unwrap();
+        settings["vector_quantization"][0]["layers"]
+            .as_array_mut()
+            .unwrap()
+            .truncate(1);
+        let header = unsafe { LinkedBytesList::create_without_fsm(&indexrel) };
+        let mut writer = LinkedBytesList::open(&indexrel, header).writer();
+        unsafe {
+            writer
+                .write(&serde_json::to_vec(&settings).unwrap())
+                .unwrap();
+        }
+        writer.finalize_and_write().unwrap();
+        {
+            let mut bman = BufferManager::new(&indexrel);
+            let mut buffer = bman.get_buffer_mut(METAPAGE);
+            buffer
+                .page_mut()
+                .contents_mut::<MetaPageData>()
+                .settings_start = header;
+        }
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT layers=ARRAY[1] AND bytes_per_row=144 AND format_version=3
+            FROM paradedb.vector_config('metadata_vectors_idx','vec')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT bool_and(layers=ARRAY[1,4] AND bytes_per_row=668)
+            FROM paradedb.vector_info('metadata_vectors_idx','vec')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+    }
+
     #[pg_test]
     fn created_by_version_is_stamped_at_index_build() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();

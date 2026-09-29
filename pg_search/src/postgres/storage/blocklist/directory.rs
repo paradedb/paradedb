@@ -20,7 +20,7 @@
 //! ```text
 //! Header page
 //!   original 16-byte metadata -> data chain + compressed map chain
-//!   directory root: BDIR | version=3 | level | (logical start, block)...
+//!   directory root: BDIR | version=2 | level | (logical start, block)...
 //!
 //! Small: header root -> compressed map -> data
 //! Large: header root -> directory page -> ... -> compressed map -> data
@@ -47,17 +47,31 @@ use pgrx::pg_sys;
 use std::sync::Arc;
 
 const MAGIC: &[u8; 4] = b"BDIR";
-const VERSION: u32 = 3;
-const HEADER_SIZE: usize = 12;
-const ENTRY_SIZE: usize = 8;
+const VERSION: u32 = 2;
+const WORD_SIZE: usize = size_of::<u32>();
+const HEADER_SIZE: usize = MAGIC.len() + 2 * WORD_SIZE;
+const ENTRY_SIZE: usize = 2 * WORD_SIZE;
+// The root shares the component header page, leaving less room for entries
+// than a standalone directory page.
 pub(super) const ROOT_CAPACITY: usize =
     (bm25_max_free_space() - size_of::<LinkedListData>() - HEADER_SIZE) / ENTRY_SIZE;
 const PAGE_CAPACITY: usize = (bm25_max_free_space() - HEADER_SIZE) / ENTRY_SIZE;
+/// Maximum root level needed to cover all `u32` logical page numbers.
+/// A level-0 root covers `ROOT_CAPACITY` map pages; each extra level multiplies
+/// coverage by `PAGE_CAPACITY` (level 3 is enough with 8 KiB pages).
+pub(super) const MAX_LEVEL: u32 = {
+    let mut covered_pages = ROOT_CAPACITY as u64;
+    let mut level = 0;
+    while covered_pages <= u32::MAX as u64 {
+        covered_pages *= PAGE_CAPACITY as u64;
+        level += 1;
+    }
+    level
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Directory {
     pub(super) node: Arc<Node<u32, pg_sys::BlockNumber>>,
-    pub(super) legacy_end: Option<u32>,
 }
 
 impl Directory {
@@ -76,10 +90,13 @@ impl Directory {
             overflow = block;
             block
         });
+        assert!(
+            node.level <= MAX_LEVEL,
+            "block map directory exceeds addressable depth"
+        );
         (
             Self {
                 node: Arc::new(node),
-                legacy_end: None,
             },
             overflow,
         )
@@ -99,57 +116,41 @@ impl Directory {
     }
 
     pub(super) fn decode(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < HEADER_SIZE || bytes.len() > bm25_max_free_space() || &bytes[..4] != MAGIC
-        {
+        if bytes.len() > bm25_max_free_space() {
             return None;
         }
-        let word = |offset| {
-            bytes
-                .get(offset..offset + 4)
-                .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        let mut encoded = bytes.strip_prefix(MAGIC)?;
+        let next_word = |bytes: &mut &[u8]| {
+            let (word, remaining) = bytes.split_first_chunk::<WORD_SIZE>()?;
+            *bytes = remaining;
+            Some(u32::from_le_bytes(*word))
         };
-        let (level, header_size, legacy_end) = match word(4)? {
-            version @ (1 | 2) => {
-                let header_size = if version == 1 { 16 } else { 20 };
-                let count = word(8)? as usize;
-                if count == 0
-                    || count > (bm25_max_free_space() - header_size) / ENTRY_SIZE
-                    || bytes.len() != header_size + count * ENTRY_SIZE
-                {
-                    return None;
-                }
-                (
-                    if version == 1 { 0 } else { word(16)? },
-                    header_size,
-                    Some(word(12)?),
-                )
-            }
-            VERSION => (word(8)?, HEADER_SIZE, None),
-            _ => return None,
-        };
-        let encoded = bytes.get(header_size..)?;
-        if level > 3 || encoded.is_empty() || !encoded.len().is_multiple_of(ENTRY_SIZE) {
+        let version = next_word(&mut encoded)?;
+        let level = next_word(&mut encoded)?;
+        if version != VERSION || level > MAX_LEVEL {
+            return None;
+        }
+        if encoded.is_empty() || !encoded.len().is_multiple_of(ENTRY_SIZE) {
             return None;
         }
         let entries: Vec<_> = encoded
             .chunks_exact(ENTRY_SIZE)
             .map(|entry| Entry {
-                start: u32::from_le_bytes(entry[..4].try_into().unwrap()),
-                address: u32::from_le_bytes(entry[4..].try_into().unwrap()),
+                start: u32::from_le_bytes(entry[..WORD_SIZE].try_into().unwrap()),
+                address: u32::from_le_bytes(entry[WORD_SIZE..].try_into().unwrap()),
             })
             .collect();
-        if entries.iter().any(|entry| {
-            !block_number_is_valid(entry.address)
-                || legacy_end.is_some_and(|end| entry.start >= end)
-        }) || entries
-            .windows(2)
-            .any(|pair| pair[0].start >= pair[1].start)
+        if entries
+            .iter()
+            .any(|entry| !block_number_is_valid(entry.address))
+            || entries
+                .windows(2)
+                .any(|pair| pair[0].start >= pair[1].start)
         {
             return None;
         }
         Some(Self {
             node: Arc::new(Node { entries, level }),
-            legacy_end,
         })
     }
 

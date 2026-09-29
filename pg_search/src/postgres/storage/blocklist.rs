@@ -443,10 +443,7 @@ pub mod reader {
         pub fn with_directory(mut self, directory: Option<Directory>, end: Option<usize>) -> Self {
             self.directory = directory.and_then(|directory| {
                 let end = end.and_then(|end| u32::try_from(end).ok());
-                if end.is_some() && directory.legacy_end.is_some() && end != directory.legacy_end {
-                    return None;
-                }
-                TreeReader::new(directory.node, end.or(directory.legacy_end)).ok()
+                TreeReader::new(directory.node, end).ok()
             });
             self
         }
@@ -496,16 +493,10 @@ pub mod reader {
         fn read_node(
             &self,
             address: u32,
-            bounds: Bounds<u32>,
+            _bounds: Bounds<u32>,
         ) -> Result<Arc<Node<u32, u32>>, InvalidNode> {
             let buffer = self.0.get_buffer(address);
             let directory = Directory::decode(buffer.page().as_slice()).ok_or(InvalidNode)?;
-            if bounds.end.is_some()
-                && directory.legacy_end.is_some()
-                && bounds.end != directory.legacy_end
-            {
-                return Err(InvalidNode);
-            }
             Ok(directory.node)
         }
 
@@ -847,7 +838,6 @@ pub mod reader {
                         }],
                         level,
                     }),
-                    legacy_end: None,
                 };
             }
             let mut reader =
@@ -888,7 +878,7 @@ pub mod reader {
         #[pg_test]
         fn test_blocklist_directory_format() {
             use crate::postgres::storage::block::{LinkedListData, bm25_max_free_space};
-            use crate::postgres::storage::blocklist::directory::ROOT_CAPACITY;
+            use crate::postgres::storage::blocklist::directory::{MAX_LEVEL, ROOT_CAPACITY};
             use crate::postgres::storage::blocklist::tree::Entry;
             let directory = Directory {
                 node: Arc::new(Node {
@@ -904,48 +894,21 @@ pub mod reader {
                     ],
                     level: 0,
                 }),
-                legacy_end: None,
             };
             let prefix = vec![0u8; size_of::<LinkedListData>()];
             assert!(Directory::read(&prefix, 900).is_none());
-            for (version, level) in [(1u32, 0u32), (2, 0), (2, 1), (2, 2), (2, 3)] {
+            let mut expected = b"BDIR".to_vec();
+            for word in [2u32, 0, 0, 900, 100, 2700] {
+                expected.extend_from_slice(&word.to_le_bytes());
+            }
+            assert_eq!(directory.encode(), expected);
+            for version in [0u32, 1, 3, u32::MAX] {
                 let mut bytes = prefix.clone();
-                bytes.extend_from_slice(b"BDIR");
-                for word in [version, 2, 150] {
-                    bytes.extend_from_slice(&word.to_le_bytes());
-                }
-                if version == 2 {
-                    bytes.extend_from_slice(&level.to_le_bytes());
-                }
-                for word in [0u32, 900, 100, 2700] {
-                    bytes.extend_from_slice(&word.to_le_bytes());
-                }
-                let parsed = Directory::read(&bytes, 900).unwrap();
-                assert_eq!(parsed.node.entries, directory.node.entries);
-                assert_eq!(parsed.node.level, level);
-                assert_eq!(parsed.legacy_end, Some(150));
-                for len in prefix.len()..bytes.len() {
-                    assert!(Directory::read(&bytes[..len], 900).is_none());
-                }
-                if level == 0 {
-                    assert!(Directory::read(&bytes, 901).is_none());
-                }
+                bytes.extend_from_slice(&expected);
+                let version_offset = prefix.len() + 4;
+                bytes[version_offset..version_offset + 4].copy_from_slice(&version.to_le_bytes());
+                assert!(Directory::read(&bytes, 900).is_none());
             }
-            let legacy_count = ((bm25_max_free_space() - prefix.len() - 16) / 8) as u32;
-            let mut legacy = prefix.clone();
-            legacy.extend_from_slice(b"BDIR");
-            for word in [1u32, legacy_count, legacy_count] {
-                legacy.extend_from_slice(&word.to_le_bytes());
-            }
-            for i in 0..legacy_count {
-                legacy.extend_from_slice(&i.to_le_bytes());
-                legacy.extend_from_slice(&(i + 1).to_le_bytes());
-            }
-            assert_eq!(legacy.len(), bm25_max_free_space());
-            assert_eq!(
-                Directory::read(&legacy, 1).unwrap().node.entries.len(),
-                legacy_count as usize
-            );
 
             let largest = Directory {
                 node: Arc::new(Node {
@@ -957,31 +920,39 @@ pub mod reader {
                         .collect(),
                     level: 1,
                 }),
-                legacy_end: None,
             };
             let mut bytes = prefix.clone();
             bytes.extend_from_slice(&largest.encode());
             assert!(bytes.len() <= bm25_max_free_space());
             assert!(bm25_max_free_space() - bytes.len() < 8);
             assert_eq!(Directory::read(&bytes, 1), Some(largest));
-            for level in 0..=3 {
+            for level in 0..=MAX_LEVEL {
                 let node = Directory {
                     node: Arc::new(Node {
                         level,
                         ..(*directory.node).clone()
                     }),
-                    legacy_end: None,
                 };
                 let mut bytes = prefix.clone();
                 bytes.extend_from_slice(&node.encode());
                 assert_eq!(Directory::read(&bytes, 900), Some(node));
+                if level == 0 {
+                    assert!(Directory::read(&bytes, 901).is_none());
+                }
                 for len in prefix.len()..bytes.len() {
-                    // Whole-entry prefixes are valid in v3; pd_lower supplies the entry count.
+                    // Whole-entry prefixes are valid; pd_lower supplies the entry count.
                     if len < prefix.len() + 20 || !(len - prefix.len() - 12).is_multiple_of(8) {
                         assert!(Directory::read(&bytes[..len], 900).is_none());
                     }
                 }
-                for (offset, value) in [(16, 0), (20, 99), (24, 4), (28, 1), (32, 0), (36, 0)] {
+                for (offset, value) in [
+                    (16, 0),
+                    (20, 99),
+                    (24, MAX_LEVEL + 1),
+                    (28, 1),
+                    (32, 0),
+                    (36, 0),
+                ] {
                     let mut invalid = bytes.clone();
                     invalid[offset..offset + 4].copy_from_slice(&u32::to_le_bytes(value));
                     assert!(Directory::read(&invalid, 900).is_none());

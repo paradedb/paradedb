@@ -154,6 +154,7 @@ spec:
     shared_preload_libraries:
       - "pg_search"
     extensions:
+      # You can omit this if pgvector is already installed on your cluster
       - name: vector
         image:
           reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-18-trixie

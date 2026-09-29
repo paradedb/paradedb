@@ -44,6 +44,16 @@ pub fn register_tokenizers_into(
     tokenizer_manager: &TokenizerManager,
     search_tokenizers: Vec<SearchTokenizer>,
 ) {
+    // Names this call itself has claimed -- current-name registrations, and any legacy aliases
+    // already placed. `TokenizerManager::default()` pre-seeds built-ins ("raw", "default",
+    // "whitespace", "en_stem") before this ever runs, and a `trim`-affected tokenizer's legacy
+    // name can coincidentally match one of those (e.g. an empty-filter `pdb.whitespace` with
+    // `trim=true` legacy-aliases to plain "whitespace"). Those built-ins aren't real claims from
+    // this batch, so collision detection must check this set, not the manager's live state --
+    // otherwise the alias gets skipped and the field silently falls back to Tantivy's raw
+    // built-in analyzer (e.g. losing ParadeDB's default lowercasing) instead of its own.
+    let mut claimed_names = std::collections::HashSet::new();
+
     // (legacy_name, current_name) pairs to alias once every tokenizer's current name is registered.
     let mut legacy_aliases = Vec::new();
 
@@ -55,6 +65,7 @@ pub fn register_tokenizers_into(
         let current_name = search_tokenizer.name();
         debug!(tokenizer_name = &current_name, "registering tokenizer");
         tokenizer_manager.register(&current_name, text_analyzer);
+        claimed_names.insert(current_name.clone());
 
         if let Some(legacy_name) = search_tokenizer.legacy_name_before_trim_fix()
             && legacy_name != current_name
@@ -69,7 +80,7 @@ pub fn register_tokenizers_into(
     // other tokenizer in this batch already claims that name -- otherwise we'd silently
     // reintroduce the exact name collision this fix exists to prevent going forward.
     for (legacy_name, current_name) in legacy_aliases {
-        if tokenizer_manager.get(&legacy_name).is_some() {
+        if claimed_names.contains(&legacy_name) {
             continue;
         }
         if let Some(text_analyzer) = tokenizer_manager.get(&current_name) {
@@ -79,6 +90,7 @@ pub fn register_tokenizers_into(
                 "registering legacy pre-trim-fix tokenizer alias",
             );
             tokenizer_manager.register(&legacy_name, text_analyzer);
+            claimed_names.insert(legacy_name);
         }
     }
 }

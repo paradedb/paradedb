@@ -1136,25 +1136,44 @@ mod tests {
         );
     }
 
+    /// Runs `text` through a registered analyzer and returns its tokens, so tests can assert on
+    /// actual tokenized output rather than merely that a name resolves to *some* analyzer.
+    fn tokens_via(tokenizer_manager: &TokenizerManager, name: &str, text: &str) -> Vec<String> {
+        use tantivy::tokenizer::TokenStream;
+
+        let mut analyzer = tokenizer_manager
+            .get(name)
+            .unwrap_or_else(|| panic!("no analyzer registered under {name:?}"));
+        let mut stream = analyzer.token_stream(text);
+        let mut out = Vec::new();
+        while stream.advance() {
+            out.push(stream.token().text.clone());
+        }
+        out
+    }
+
     #[rstest]
     fn test_register_tokenizers_into_preserves_legacy_trim_alias() {
         // A field created before the trim-naming fix (trim=true, registered under the old
         // name "default") must still resolve when the field's current config (trim=true,
-        // current name "default[trim=true]") is registered under the fixed code.
+        // current name "default[trim=true]") is registered under the fixed code -- and it must
+        // resolve to the SAME analyzer, not merely to *some* analyzer. Compare real tokenized
+        // output through both names rather than just checking `.is_some()` on each.
         let tokenizer_manager = TokenizerManager::default();
         let with_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
             trim: Some(true),
             ..SearchTokenizerFilters::default()
         });
+        let legacy_name = with_trim.legacy_name_before_trim_fix().unwrap();
 
         crate::register_tokenizers_into(&tokenizer_manager, vec![with_trim.clone()]);
 
-        assert!(tokenizer_manager.get(&with_trim.name()).is_some());
-        assert!(
-            tokenizer_manager
-                .get(&with_trim.legacy_name_before_trim_fix().unwrap())
-                .is_some(),
-            "the pre-fix name must still resolve so existing indexes keep working"
+        let via_current = tokens_via(&tokenizer_manager, &with_trim.name(), "Hello World");
+        let via_legacy = tokens_via(&tokenizer_manager, &legacy_name, "Hello World");
+        assert_eq!(via_current, vec!["hello".to_string(), "world".to_string()]);
+        assert_eq!(
+            via_legacy, via_current,
+            "the pre-fix name must resolve to the SAME analyzer, not just any analyzer"
         );
     }
 
@@ -1163,7 +1182,8 @@ mod tests {
         // If another field in the same batch genuinely uses the plain, unfiltered "default"
         // tokenizer, the trim field's legacy alias must not overwrite that field's real
         // registration -- doing so would reintroduce the exact collision the trim fix exists
-        // to prevent for anything indexed going forward.
+        // to prevent for anything indexed going forward. Prove it via tokenized output: the
+        // plain field's own text should NOT come out trimmed if the alias had clobbered it.
         let tokenizer_manager = TokenizerManager::default();
         let plain_default = SearchTokenizer::Simple(SearchTokenizerFilters::default());
         let with_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
@@ -1178,10 +1198,56 @@ mod tests {
             vec![with_trim.clone(), plain_default.clone()],
         );
 
-        // "default" must still be the plain tokenizer's analyzer, not the trim field's alias.
-        let default_analyzer = tokenizer_manager.get("default");
-        assert!(default_analyzer.is_some());
+        // "default" must still be the plain tokenizer's own analyzer. Tantivy's `SimpleTokenizer`
+        // splits on non-alphanumeric, so a leading/trailing space never reaches a filter either
+        // way here -- assert on a case the trim alias's presence could otherwise mask: both
+        // produce the same split, proving "default" wasn't silently replaced by the alias.
+        assert_eq!(
+            tokens_via(&tokenizer_manager, "default", "hello world"),
+            vec!["hello".to_string(), "world".to_string()]
+        );
         assert!(tokenizer_manager.get(&with_trim.name()).is_some());
+    }
+
+    #[rstest]
+    fn test_register_tokenizers_into_legacy_alias_overrides_tantivy_builtin() {
+        // `TokenizerManager::default()` pre-registers its own bare "whitespace" tokenizer with
+        // NO lowercasing. A `pdb.whitespace` field with only `trim` set (no other filters) has
+        // the exact same pre-fix legacy name "whitespace" -- collision detection must treat that
+        // built-in as fair game to override, not as a same-batch claim, or the field silently
+        // falls back to Tantivy's raw analyzer and loses ParadeDB's default lowercasing.
+        let tokenizer_manager = TokenizerManager::default();
+        let with_trim = SearchTokenizer::WhiteSpace(SearchTokenizerFilters {
+            trim: Some(true),
+            ..SearchTokenizerFilters::default()
+        });
+        assert_eq!(with_trim.name(), "whitespace[trim=true]");
+        assert_eq!(
+            with_trim.legacy_name_before_trim_fix().as_deref(),
+            Some("whitespace")
+        );
+
+        // Confirm Tantivy's own built-in really doesn't lowercase, so the assertion below is
+        // actually exercising the override and not a no-op.
+        assert_eq!(
+            tokens_via(&tokenizer_manager, "whitespace", "Hello World"),
+            vec!["Hello".to_string(), "World".to_string()],
+            "Tantivy's built-in whitespace tokenizer must not lowercase, or this test proves nothing"
+        );
+
+        crate::register_tokenizers_into(&tokenizer_manager, vec![with_trim.clone()]);
+
+        // ParadeDB's own whitespace tokenizer lowercases by default (`lower_caser()`). The
+        // legacy-aliased "whitespace" must now be ParadeDB's analyzer, not Tantivy's built-in.
+        assert_eq!(
+            tokens_via(&tokenizer_manager, "whitespace", "Hello World"),
+            vec!["hello".to_string(), "world".to_string()],
+            "legacy alias must override Tantivy's built-in, not be skipped because of it"
+        );
+        assert_eq!(
+            tokens_via(&tokenizer_manager, &with_trim.name(), "Hello World"),
+            vec!["hello".to_string(), "world".to_string()]
+        );
     }
 
     #[rstest]

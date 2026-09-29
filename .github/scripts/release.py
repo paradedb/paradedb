@@ -622,7 +622,6 @@ def update_upgrading_version(repo_root, clean_ver):
     patterns = [
         rf"(The latest version of `pg_search` is `){semver}(?=`)",
         rf"(docker pull paradedb/paradedb:){semver}",
-        rf"(The latest version of the Docker image should be `){semver}(?=`)",
         rf"(ALTER EXTENSION pg_search UPDATE TO '){semver}(?=';)",
     ]
     content = upgrading_file.read_text(encoding="utf-8")

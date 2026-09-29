@@ -27,7 +27,6 @@ class UpgradeDocumentationTests(unittest.TestCase):
             updated = target.read_text()
             self.assertIn('`pg_search` is `0.26.0`', updated)
             self.assertIn('docker pull paradedb/paradedb:0.26.0', updated)
-            self.assertIn('Docker image should be `0.26.0`', updated)
             self.assertIn("ALTER EXTENSION pg_search UPDATE TO '0.26.0';", updated)
             self.assertIn('Historical version: 0.24.2', updated)
             RELEASE.update_version_snippet(root, '0.26.0')

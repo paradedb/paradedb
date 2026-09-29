@@ -13,7 +13,7 @@ Both ParadeDB Community and Enterprise can be deployed on Kubernetes. There are 
 
 ## Deploy with the Helm Chart
 
-The [ParadeDB Helm Chart](https://github.com/paradedb/charts) is based on [CloudNativePG](https://cloudnative-pg.io/).
+The [ParadeDB Helm Chart](https://github.com/paradedb/charts) is based on [CloudNativePG](https://cloudnative-pg.io/) and is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
 
 ### Prerequisites
 
@@ -77,6 +77,9 @@ cluster:
   instances: 1
   storage:
     size: 1Gi
+  walStorage:
+    enabled: true
+    size: 1Gi
 
 monitoring:
   grafanaDashboard:
@@ -90,6 +93,9 @@ mode: standalone
 cluster:
   instances: 3
   storage:
+    size: 1Gi
+  walStorage:
+    enabled: true
     size: 1Gi
 
 monitoring:

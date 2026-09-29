@@ -132,11 +132,25 @@ The dashboard will be accessible at `localhost:3000` under username `admin` and 
 
 ## Use the Extension Image with CloudNativePG
 
-Use the ParadeDB extension image to add ParadeDB to an existing CloudNativePG cluster without rebuilding your Postgres image. This requires Postgres 18+ and Kubernetes support for image volumes. See the [CloudNativePG extension image guide](https://cloudnative-pg.io/docs/1.28/imagevolume_extensions/) for requirements and configuration details.
+Use the ParadeDB extension image to add ParadeDB to an existing CloudNativePG cluster without rebuilding your Postgres image.
+
+### Prerequisites
+
+This requires Postgres 18+ and Kubernetes support for image volumes. See the [CloudNativePG extension image guide](https://cloudnative-pg.io/docs/1.28/imagevolume_extensions/) for requirements and configuration details.
+
+If you are using ParadeDB Enterprise, create a Kubernetes secret with the registry credentials provided by ParadeDB to pull the Enterprise image. If you are using Community, you can skip this step. Use your cluster's namespace in place of `paradedb` if it differs.
+
+```bash ParadeDB Enterprise
+kubectl create secret docker-registry paradedb-enterprise-registry-cred \
+--namespace paradedb \
+--docker-server="https://index.docker.io/v1/" \
+--docker-username="<username>" \
+--docker-password="<access_token>"
+```
+
+### Configure the Extension Image
 
 `pg_search` requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource:
-
-For Enterprise, create the registry secret described in [Start the ParadeDB Cluster](#start-the-paradedb-cluster) in your cluster's namespace before applying the manifest.
 
 <CodeGroup>
 
@@ -224,4 +238,12 @@ spec:
       version: "0.25.10"
 ```
 
-Save the examples as `cluster.yaml` and `database.yaml`, then apply them with `kubectl apply -f cluster.yaml -f database.yaml` in your cluster's namespace. Once the cluster is ready, connect to the `app` database as usual; CloudNativePG enables `vector` and `pg_search` automatically, so you do not need to run `CREATE EXTENSION`.
+### Install the Extension Image
+
+Save the examples as `cluster.yaml` and `database.yaml`, then apply them in your cluster's namespace:
+
+```bash
+kubectl apply --namespace paradedb -f cluster.yaml -f database.yaml
+```
+
+Replace `paradedb` with your cluster's namespace if it differs. Once the cluster is ready, connect to the `app` database as usual. CloudNativePG enables `vector` and `pg_search` automatically, so you do not need to run `CREATE EXTENSION`.

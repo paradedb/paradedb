@@ -54,23 +54,23 @@ DROP INDEX idx_jieba;
 -- chinese_convert rejected by simple
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.simple('chinese_convert=t2s')));
-ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, pnorms, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- chinese_convert rejected by ngram
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.ngram(2, 4, 'chinese_convert=t2s')));
-ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, max, min, normalizer, positions, prefix_only, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, max, min, normalizer, pnorms, positions, prefix_only, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- chinese_convert rejected by whitespace
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.whitespace('chinese_convert=t2s')));
-ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, pnorms, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- min/max rejected by simple (positional integer not allowed at position 0)
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.simple('min=2')));
-ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, pnorms, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- language rejected by simple
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.simple('language=chinese')));
-ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, pnorms, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- pattern rejected by simple (positional regex not allowed at position 0)
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.simple('[a-z]+')));
@@ -78,15 +78,15 @@ ERROR:  Option '[a-z]+' is not allowed at position 0
 -- prefix_only rejected by jieba
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.jieba('prefix_only=true')));
-ERROR:  Invalid option: 'prefix_only'. Allowed options: alias, alpha_num_only, ascii_folding, b, chinese_convert, columnar, fieldnorms, k1, lowercase, normalizer, remove_long, remove_short, search_mode, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'prefix_only'. Allowed options: alias, alpha_num_only, ascii_folding, b, chinese_convert, columnar, fieldnorms, k1, lowercase, normalizer, pnorms, remove_long, remove_short, search_mode, stemmer, stopwords, stopwords_language, trim.
 -- language rejected by ngram
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.ngram(2, 4, 'language=chinese')));
-ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, max, min, normalizer, positions, prefix_only, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, max, min, normalizer, pnorms, positions, prefix_only, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- min/max rejected by lindera (positional integer not expected)
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING paradedb (id, (content::pdb.lindera('chinese', 'min=2')));
-ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, keep_whitespace, language, lowercase, nfkc, normalizer, reading_form, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, keep_whitespace, language, lowercase, nfkc, normalizer, pnorms, reading_form, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -------------------------------------------------------------
 -- Cleanup
 -------------------------------------------------------------

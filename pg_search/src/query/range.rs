@@ -39,7 +39,8 @@ const LOWER_UNBOUNDED_KEY: &str = "lower_unbounded";
 const UPPER_UNBOUNDED_KEY: &str = "upper_unbounded";
 // Always false for range fields
 const EXPAND_DOTS: bool = false;
-const RECORD: IndexRecordOption = IndexRecordOption::WithFreqsAndPositions;
+// Range term queries are boolean exact-match predicates and only require docids.
+const RECORD: IndexRecordOption = IndexRecordOption::Basic;
 
 #[derive(Clone, Debug)]
 pub struct RangeField {

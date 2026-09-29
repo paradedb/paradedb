@@ -19,11 +19,12 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::buffile::{BufFileReleaseGuard, create_temp_buffile};
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    FileEntry, MVCCEntry, STATS_EXT, SegmentMetaEntry, SegmentMetaEntryContent,
+    CTID_MAP_EXT, FileEntry, MVCCEntry, STATS_EXT, SegmentMetaEntry, SegmentMetaEntryContent,
     SegmentMetaEntryImmutable, SegmentMetaEntryMutable, bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
@@ -64,13 +65,17 @@ pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXT
 /// immutable segment-component map.
 struct PgTempFile {
     file: *mut pg_sys::BufFile,
+    release_guard: Arc<BufFileReleaseGuard>,
 }
 
 impl PgTempFile {
     fn create() -> Self {
-        let file = unsafe { pg_sys::BufFileCreateTemp(false) };
-        assert!(!file.is_null(), "BufFileCreateTemp returned null");
-        Self { file }
+        let release_guard = BufFileReleaseGuard::register();
+        let file = unsafe { create_temp_buffile() };
+        Self {
+            file,
+            release_guard,
+        }
     }
 }
 
@@ -120,7 +125,9 @@ impl Seek for PgTempFile {
 
 impl Drop for PgTempFile {
     fn drop(&mut self) {
-        unsafe { pg_sys::BufFileClose(self.file) }
+        if self.release_guard.may_close() {
+            unsafe { pg_sys::BufFileClose(self.file) }
+        }
     }
 }
 
@@ -514,9 +521,11 @@ impl MVCCDirectory {
                 directory,
                 ..
             } => {
-                // A mutable segment is indexed without the stats plugin, so it never has
-                // `.stats`. Answer here rather than materialize the whole segment for a probe.
-                if path.extension().and_then(|ext| ext.to_str()) == Some(STATS_EXT) {
+                // Mutable segments have neither plugin component; avoid materializing them for a probe.
+                if matches!(
+                    path.extension().and_then(|ext| ext.to_str()),
+                    Some(STATS_EXT | CTID_MAP_EXT)
+                ) {
                     return Err(TantivyError::OpenDirectoryError(
                         OpenDirectoryError::DoesNotExist(path.to_path_buf()),
                     ));
@@ -662,7 +671,7 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(
+                            SegmentComponentReader::new_uncommitted(
                                 &self.indexrel,
                                 file_entry,
                                 path.extension()
@@ -1126,6 +1135,7 @@ pub fn index_memory_segment(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use tantivy::postings::Postings;
 
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::rel::PgSearchRelation;
@@ -1134,10 +1144,22 @@ mod tests {
     use pgrx::prelude::*;
 
     #[pg_test]
+    #[should_panic(expected = "temporary file size exceeds")]
+    fn test_temp_file_drop_preserves_write_error() {
+        Spi::run("SET LOCAL temp_file_limit = '1kB'").unwrap();
+        let mut file = PgTempFile::create();
+        file.write_all(&[0u8; pg_sys::BLCKSZ as usize * 2]).unwrap();
+    }
+
+    #[pg_test]
     unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        Spi::run(
+            "CREATE INDEX t_idx ON t USING paradedb \
+             (id, data, (data::pdb.simple('alias=with_pnorms', 'pnorms=true')))",
+        )
+        .unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -1151,11 +1173,32 @@ mod tests {
             todo!("test_list_meta_entries");
         };
         assert!(entry.field_norms.is_some());
+        assert!(entry.posting_norms.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());
         assert!(entry.positions.is_some());
         assert!(entry.terms.is_some());
         assert!(entry.delete.is_none());
+
+        let reader = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).unwrap();
+        for segment in reader.segment_readers() {
+            let schema = segment.schema();
+            let plain = schema.get_field("data").unwrap();
+            let enabled = schema.get_field("with_pnorms").unwrap();
+            for (field, pnorms) in [(plain, false), (enabled, true)] {
+                let postings = segment
+                    .inverted_index(field)
+                    .unwrap()
+                    .read_postings(
+                        &tantivy::Term::from_field_text(field, "test"),
+                        tantivy::schema::IndexRecordOption::WithFreqs,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(postings.fieldnorm_id().is_some(), pnorms);
+            }
+            assert!(segment.get_fieldnorms_reader(enabled).is_ok());
+        }
     }
 
     /// A reader replaying a [`SegmentView`] must expose the view's ordinal order and, for a

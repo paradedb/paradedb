@@ -398,7 +398,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
 
 -- Test 7.2: EXPLAIN ANALYZE VERBOSE (planning + execution)
-EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, BUFFERS OFF, SUMMARY OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
+EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
 
 -- Test 7.3: Verify EXPLAIN without VERBOSE does NOT show estimates
 EXPLAIN (COSTS OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';

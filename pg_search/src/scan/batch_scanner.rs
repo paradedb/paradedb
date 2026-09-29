@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{
-    FFHelper, FFType, WhichFastField, ords_to_bytes_array, ords_to_string_array,
+    FFHelper, FFType, FieldCardinality, FieldDelivery, WhichFastField, list_item_field,
+    ords_to_bytes_array, ords_to_string_array,
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
@@ -85,21 +86,21 @@ fn ensure_column_fetched(
         return;
     }
     match &which_fast_fields[ff_index] {
-        WhichFastField::Named(_, search_field_type)
-        | WhichFastField::Deferred(_, search_field_type) => {
-            memoized_columns[ff_index] = Some(
-                ffhelper
-                    .column(segment_ord, ff_index)
-                    .fetch_values_or_ords_to_arrow(ids, *search_field_type),
-            );
-        }
-        // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
-        WhichFastField::Array(_, search_field_type) => {
-            memoized_columns[ff_index] = Some(
-                ffhelper
-                    .column(segment_ord, ff_index)
-                    .fetch_array_values_or_ords_to_arrow(ids, *search_field_type),
-            );
+        WhichFastField::Named {
+            field_type: search_field_type,
+            cardinality,
+            ..
+        } => {
+            let column = ffhelper.column(segment_ord, ff_index);
+            memoized_columns[ff_index] = Some(match cardinality {
+                FieldCardinality::Scalar => {
+                    column.fetch_values_or_ords_to_arrow(ids, *search_field_type)
+                }
+                // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+                FieldCardinality::List => {
+                    column.fetch_array_values_or_ords_to_arrow(ids, *search_field_type)
+                }
+            });
         }
         WhichFastField::Score
         | WhichFastField::Ctid
@@ -276,13 +277,11 @@ impl Scanner {
         let all_strings_deferred = !which_fast_fields.iter().any(|wff| {
             matches!(
                 wff,
-                WhichFastField::Named(_, field_type) | WhichFastField::Array(_, field_type) if matches!(
-                    field_type.arrow_data_type(),
-                    arrow_schema::DataType::Utf8View
-                        | arrow_schema::DataType::BinaryView
-                        | arrow_schema::DataType::LargeUtf8
-                        | arrow_schema::DataType::LargeBinary
-                )
+                WhichFastField::Named {
+                    field_type,
+                    delivery: FieldDelivery::Eager,
+                    ..
+                } if field_type.is_dictionary_storage()
             )
         });
 
@@ -323,7 +322,11 @@ impl Scanner {
     /// still in doc order, so only their dictionary decode is deferred.
     pub fn fetch_ordinals_in_scan(&mut self, field_names: &[String]) {
         for (ff_index, wff) in self.which_fast_fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, _) = wff
+            if let WhichFastField::Named {
+                name,
+                delivery: FieldDelivery::Deferred,
+                ..
+            } = wff
                 && field_names.contains(name)
             {
                 self.fetch_ordinals_in_scan[ff_index] = true;
@@ -521,9 +524,10 @@ impl Scanner {
         // Batch lookup the ctids and visibility check them.
         // When defer_visibility is true, we skip visibility checking entirely —
         // VisibilityFilterExec will handle it in batch after the join.
-        // The `ctids_builder` here is used only for:
-        //   1. Visibility masking (compacting invisible rows out of `ids` and `memoized_columns`).
-        //   2. The `WhichFastField::Ctid` Arrow output column.
+        // When the segment is all-visible (determined via `for_segment`), per-row visibility
+        // checks and compaction are skipped; CTIDs are only fetched from fast fields if
+        // `WhichFastField::Ctid` is explicitly requested.
+        // Otherwise, `check_segment_docs` is run to filter invisible rows and build `ctids_array`.
         let ctids_array: Option<ArrayRef> = if self.defer_visibility {
             // defer_visibility=true always uses DeferredCtid, never WhichFastField::Ctid.
             // A physical Ctid column in this path indicates a planning bug.
@@ -541,37 +545,59 @@ impl Scanner {
                 visibility.set_ffhelper(Arc::clone(ffhelper));
             }
 
-            // Filter out invisible rows and resolve ctids.
-            self.visibility_results.resize(ids.len(), None);
-            visibility.check_segment_docs(segment_ord, &ids, &mut self.visibility_results);
+            let need_ctid = self
+                .which_fast_fields
+                .iter()
+                .any(|f| matches!(f, WhichFastField::Ctid));
 
-            let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
-            let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
-            for maybe_visible_ctid in self.visibility_results.drain(..) {
-                if let Some(visible_ctid) = maybe_visible_ctid {
-                    visibility_mask_builder.append_value(true);
-                    ctids_builder.append_value(visible_ctid);
+            if let Some(checker) = visibility
+                .for_segment(segment_ord)
+                .expect("failed to check segment visibility")
+            {
+                // Filter out invisible rows and resolve ctids.
+                self.visibility_results.resize(ids.len(), None);
+                checker.check_segment_docs(segment_ord, &ids, &mut self.visibility_results);
+
+                let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
+                let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
+                for maybe_visible_ctid in self.visibility_results.drain(..) {
+                    if let Some(visible_ctid) = maybe_visible_ctid {
+                        visibility_mask_builder.append_value(true);
+                        ctids_builder.append_value(visible_ctid);
+                    } else {
+                        visibility_mask_builder.append_value(false);
+                    }
+                }
+                // Then filter the remaining columns using the mask.
+                compact_with_mask(
+                    &mut ids,
+                    &mut memoized_columns,
+                    &visibility_mask_builder.finish(),
+                );
+                Some(Arc::new(ctids_builder.finish()) as ArrayRef)
+            } else {
+                // Segment is all visible: skip visibility checks and compaction.
+                if need_ctid {
+                    let mut ctids_scratch = std::mem::take(&mut self.visibility_results);
+                    ctids_scratch.resize(ids.len(), None);
+                    ffhelper.ctid(segment_ord).as_u64s(&ids, &mut ctids_scratch);
+                    let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
+                    for ctid in ctids_scratch.drain(..) {
+                        ctids_builder
+                            .append_value(ctid.expect("ctid must be present for valid doc"));
+                    }
+                    self.visibility_results = ctids_scratch;
+                    Some(Arc::new(ctids_builder.finish()) as ArrayRef)
                 } else {
-                    visibility_mask_builder.append_value(false);
+                    None
                 }
             }
-            // Then filter the remaining columns using the mask.
-            compact_with_mask(
-                &mut ids,
-                &mut memoized_columns,
-                &visibility_mask_builder.finish(),
-            );
-            Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         };
 
-        // Pre-fetch any Named or Array columns that weren't already fetched by pre-filters,
+        // Pre-fetch any eager named columns that weren't already fetched by pre-filters,
         // plus the deferred columns whose ordinals are fetched here rather than above.
         for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
-            if matches!(
-                which_ff,
-                WhichFastField::Named(_, _) | WhichFastField::Array(_, _)
-            ) || self.fetch_ordinals_in_scan[ff_index]
-            {
+            if which_ff.is_eager_named() || self.fetch_ordinals_in_scan[ff_index] {
                 ensure_column_fetched(
                     &mut memoized_columns,
                     &self.which_fast_fields,
@@ -600,7 +626,11 @@ impl Scanner {
                     Some(Arc::new(builder.finish()) as ArrayRef)
                 }
                 WhichFastField::Junk(_) => None,
-                WhichFastField::Named(_, _) => {
+                WhichFastField::Named {
+                    delivery: FieldDelivery::Eager,
+                    cardinality: FieldCardinality::Scalar,
+                    ..
+                } => {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
 
                     match ffhelper.column(segment_ord, ff_index) {
@@ -629,7 +659,11 @@ impl Scanner {
                         _ => Some(col_array),
                     }
                 }
-                WhichFastField::Array(_, _) => {
+                WhichFastField::Named {
+                    delivery: FieldDelivery::Eager,
+                    cardinality: FieldCardinality::List,
+                    ..
+                } => {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
                     match ffhelper.column(segment_ord, ff_index) {
                         FFType::Junk => None,
@@ -645,11 +679,7 @@ impl Scanner {
                                 .expect("Expected UInt64Array for inner ordinals");
                             let string_views = ords_to_string_array(str_column.clone(), ords_array)
                                 .expect("Failed to lookup ordinals");
-                            let field = Arc::new(arrow_schema::Field::new(
-                                "item",
-                                arrow_schema::DataType::Utf8View,
-                                true,
-                            ));
+                            let field = list_item_field(arrow_schema::DataType::Utf8View);
                             let final_list = arrow_array::ListArray::try_new(
                                 field,
                                 list_array.offsets().clone(),
@@ -671,11 +701,7 @@ impl Scanner {
                                 .expect("Expected UInt64Array for inner ordinals");
                             let byte_views = ords_to_bytes_array(bytes_column.clone(), ords_array)
                                 .expect("Failed to lookup ordinals");
-                            let field = Arc::new(arrow_schema::Field::new(
-                                "item",
-                                arrow_schema::DataType::BinaryView,
-                                true,
-                            ));
+                            let field = list_item_field(arrow_schema::DataType::BinaryView);
                             let final_list = arrow_array::ListArray::try_new(
                                 field,
                                 list_array.offsets().clone(),
@@ -694,7 +720,10 @@ impl Scanner {
                 WhichFastField::DeferredCtid(_) => Some(Arc::new(
                     crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
                 ) as ArrayRef),
-                WhichFastField::Deferred(_, _field_type) => match &memoized_columns[ff_index] {
+                WhichFastField::Named {
+                    delivery: FieldDelivery::Deferred,
+                    ..
+                } => match &memoized_columns[ff_index] {
                     Some(_) if matches!(ffhelper.column(segment_ord, ff_index), FFType::Junk) => {
                         None
                     }

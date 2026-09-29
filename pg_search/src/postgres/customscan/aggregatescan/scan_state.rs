@@ -28,6 +28,7 @@ use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
+use crate::postgres::heap::VisibilityStats;
 use crate::query::tid_bitmap_stream::BitmapCell;
 
 use arrow_array::RecordBatch;
@@ -130,6 +131,7 @@ pub struct WrappedAggregateProjection {
 
 #[derive(Default)]
 pub struct AggregateScanState {
+    pub visibility_stats: VisibilityStats,
     pub state: ExecutionState,
     pub indexrelid: pg_sys::Oid,
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,

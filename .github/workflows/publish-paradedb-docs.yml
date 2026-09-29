@@ -1,9 +1,7 @@
 # workflows/publish-paradedb-docs.yml
 #
 # Publish ParadeDB (Docs)
-# Build and publish the documentation stored in /docs to our Mintlify documentation
-# site. This workflow is triggered on creation of a GitHub Tag, but beta releases get
-# filtered out by the `if` condition of the job.
+# Publish the documentation to our Mintlify documentation site.
 
 name: Publish ParadeDB (Docs)
 
@@ -27,12 +25,15 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Publish Docs to Mintlify
+        env:
+          SECRETS_MINTLIFY_PROJECT_ID: ${{ secrets.MINTLIFY_PROJECT_ID }}
+          SECRETS_MINTLIFY_API_KEY: ${{ secrets.MINTLIFY_API_KEY }}
         run: |
           # Capture the response body and HTTP status separately so a failed deploy
           # surfaces Mintlify's error message instead of just an opaque curl exit code.
           http_code=$(curl -sS -o response.txt -w "%{http_code}" -X POST \
-            https://api.mintlify.com/v1/project/update/${{ secrets.MINTLIFY_PROJECT_ID }} \
-            -H "Authorization: Bearer ${{ secrets.MINTLIFY_API_KEY }}" \
+            "https://api.mintlify.com/v1/project/update/${SECRETS_MINTLIFY_PROJECT_ID}" \
+            -H "Authorization: Bearer ${SECRETS_MINTLIFY_API_KEY}" \
             -H "Content-Type: application/json")
 
           echo "HTTP status: ${http_code}"

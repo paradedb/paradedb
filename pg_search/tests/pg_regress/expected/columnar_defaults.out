@@ -45,6 +45,21 @@ FROM generate_series(1, 1000) i;
 DROP INDEX IF EXISTS records_no_fast_idx;
 CREATE INDEX records_no_fast_idx ON data_records
 USING paradedb (id, (title::pdb.simple), (category::pdb.literal), price, in_stock, created_at, valid_period, quantity_range, (tags::pdb.literal));
+SELECT * FROM paradedb.schema('records_no_fast_idx') ORDER BY name;
+      name      | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         |  record  | normalizer 
+----------------+------------+--------+---------+------+------------+-------------+--------------------------+----------+------------
+ category       | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic    | raw
+ created_at     | I64        | f      | t       | t    | f          |             |                          |          | 
+ ctid           | U64        | f      | t       | t    | f          |             |                          |          | 
+ id             | I64        | f      | t       | t    | f          |             |                          |          | 
+ in_stock       | Bool       | f      | t       | t    | f          |             |                          |          | 
+ price          | Other      | f      | t       | t    | f          |             |                          |          | 
+ quantity_range | JsonObject | f      | t       | t    | f          | f           | raw                      | basic    | raw
+ tags           | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic    | raw
+ title          | Str        | f      | t       | f    | t          |             | default                  | position | 
+ valid_period   | JsonObject | f      | t       | t    | f          | f           | raw                      | basic    | raw
+(10 rows)
+
 -- 'Test 1: ORDER BY title with LIMIT should use NormalScanExecState'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category

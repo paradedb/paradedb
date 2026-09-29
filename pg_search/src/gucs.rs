@@ -35,6 +35,20 @@ pub enum PlannerWarnings {
     Error,
 }
 
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum DisjunctionPruning {
+    #[default]
+    #[name = c"auto"]
+    Auto,
+    #[name = c"wand"]
+    Wand,
+    #[name = c"maxscore"]
+    MaxScore,
+}
+
+static DISJUNCTION_PRUNING: GucSetting<DisjunctionPruning> =
+    GucSetting::<DisjunctionPruning>::new(DisjunctionPruning::Auto);
+
 /// Spill DataFusion sorts and aggregates (and the join operators DataFusion can spill) to
 /// a `BufFile` temp file on `work_mem` overflow, instead of erroring. Off by default.
 static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -47,6 +61,9 @@ static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(tr
 
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows visibility proofs from segment bounds and heap-block document ranges.
+static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
@@ -363,6 +380,15 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_visibility_map_shortcuts",
+        c"Enable visibility-map shortcuts for segments and document ranges",
+        c"When disabled, fetch each matching document's CTID and use per-row visibility checks",
+        &ENABLE_VISIBILITY_MAP_SHORTCUTS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_enum_guc(
         c"paradedb.planner_warnings",
         c"Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used",
@@ -370,6 +396,15 @@ pub fn init() {
           scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
           an error instead. When set to 'off', suppresses checks and warnings.",
         &PLANNER_WARNINGS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.disjunction_pruning",
+        c"Pruning algorithm for scored term disjunctions",
+        c"'auto' selects per segment; 'wand' or 'maxscore' overrides the automatic cutoffs for eligible score-ordered top-k disjunctions. Other query paths are unchanged.",
+        &DISJUNCTION_PRUNING,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -874,12 +909,24 @@ pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
 }
 
+pub fn enable_visibility_map_shortcuts() -> bool {
+    ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
+}
+
 pub fn enable_bitmap_intersection() -> bool {
     ENABLE_BITMAP_INTERSECTION.get()
 }
 
 pub fn planner_warnings() -> PlannerWarnings {
     PLANNER_WARNINGS.get()
+}
+
+pub fn disjunction_pruning() -> tantivy::query::DisjunctionPruning {
+    match DISJUNCTION_PRUNING.get() {
+        DisjunctionPruning::Auto => tantivy::query::DisjunctionPruning::Auto,
+        DisjunctionPruning::Wand => tantivy::query::DisjunctionPruning::BlockWand,
+        DisjunctionPruning::MaxScore => tantivy::query::DisjunctionPruning::BlockMaxScore,
+    }
 }
 
 pub fn enable_join_custom_scan() -> bool {

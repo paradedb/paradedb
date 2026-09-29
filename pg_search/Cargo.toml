@@ -55,6 +55,7 @@ serde_json = { version = "1.0.149", features = [
 ] }
 serde_cbor = "0.11.2"
 tantivy.workspace = true
+tantivy-common.workspace = true
 thiserror = "2.0.18"
 ordered-float = "5.3.0"
 uuid = "1.23.1"
@@ -94,7 +95,7 @@ bytes = { version = "1", features = ["serde"] }
 # both point to the same datafusion ref.
 datafusion = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
 datafusion-proto = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", tag = "snapshot-main-2026-09-19-045947", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", tag = "snapshot-main-2026-09-28-172238", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

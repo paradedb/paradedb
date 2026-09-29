@@ -43,7 +43,7 @@ When you're ready to deploy, get started on [ParadeDB Cloud](https://www.paraded
 
 ## What is ParadeDB?
 
-[ParadeDB](https://paradedb.com) upgrades Postgres with a custom index for fast full-text and vector search, BM25 scoring, filters, facets, aggregations, and joins. Built as a Postgres extension, it keeps your application data and search engine in one database with standard SQL and ACID transactions.
+[ParadeDB](https://paradedb.com) upgrades Postgres with a custom index for fast full-text and vector search, BM25 scoring, filters, facets, aggregations, and joins. Built as a Postgres extension, it keeps these workloads alongside your application data, with standard SQL and ACID transactions.
 
 - [x] [Full-Text Search](https://www.paradedb.com/docs/concepts/full-text/overview)
   - [x] [BM25 Scoring](https://www.paradedb.com/docs/reference/full-text/score)

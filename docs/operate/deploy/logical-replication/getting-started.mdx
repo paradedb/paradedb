@@ -25,8 +25,8 @@ For self-hosted Postgres, we recommend [installing the extension directly](/oper
 <Warning>
   Logical replication copies row changes, not schema changes or indexes. The
   published tables must already exist on ParadeDB, and any DDL must be applied
-  on both sides. For ongoing operations, see the [Logical Replication
-  Operational Guide](/operate/deploy/logical-replication/operational-guide).
+  on both sides. For safe DDL rollout steps, see [Schema
+  Changes](/operate/deploy/logical-replication/schema-changes).
 </Warning>
 
 Follow your provider's guide to enable logical replication, using your managed Postgres database as the **publisher** and ParadeDB as the **subscriber**:
@@ -37,3 +37,5 @@ Follow your provider's guide to enable logical replication, using your managed P
 - [Azure Database for PostgreSQL](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-logical)
 - [Supabase](https://supabase.com/docs/guides/database/postgres/setup-replication-external)
 - [Neon](https://neon.com/docs/guides/logical-replication-guide)
+
+After configuring replication, continue to [Bootstrapping Your Logical Replica](/operate/deploy/logical-replication/bootstrapping).

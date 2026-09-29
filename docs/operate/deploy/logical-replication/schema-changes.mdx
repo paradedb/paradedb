@@ -1,61 +1,91 @@
 ---
 title: Schema Changes
-description: Handle DDL/schema changes when running ParadeDB as a logical replica
+description: Add replicated tables and safely apply schema changes
 canonical: https://www.paradedb.com/docs/operate/deploy/logical-replication/schema-changes
 ---
 
-<Note>
-  This section assumes that you have successfully completed the [getting
-  started](/operate/deploy/logical-replication/getting-started) guide and
-  reviewed the [Logical Replication Operational
-  Guide](/operate/deploy/logical-replication/operational-guide).
-</Note>
+Postgres logical replication copies row changes, not schema changes. Apply DDL on both the publisher and ParadeDB, and create or rebuild ParadeDB indexes locally on the subscriber.
 
-## Schema Changes
+## Adding New Tables
 
-Postgres logical replication copies row changes, not DDL. That means schema
-changes on the publisher are not applied automatically on ParadeDB.
+When you want ParadeDB to index a new table:
 
-Keep these rules in mind:
+1. Apply the new table DDL on the publisher
+2. Apply the same DDL on ParadeDB
+3. Make sure the publication includes the table
+4. Refresh the subscription
+5. Build a ParadeDB index on ParadeDB if the table should be searchable
 
-- Existing replicated tables must stay schema-compatible on both sides
-- New tables must exist on ParadeDB before they can replicate there
-- ParadeDB indexes are local to ParadeDB and must be created or rebuilt there
-- Publication membership still controls whether a new table is replicated at all
-
-```sql
--- On Publisher
-ALTER TABLE mock_items ADD COLUMN num_stock int;
-INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating, num_stock)
-VALUES ('Green running shoes', 'Footwear', true, '14:00:00', '2024-07-09', '{}', '2024-07-09 14:00:00', 2, 900);
-
--- On Subscriber
-ERROR: logical replication target relation "public.mock_items" is missing some replicated columns
-```
-
-For the safe rollout sequence, including subscriber-first additive DDL and how
-to handle non-additive changes, see [Roll Out DDL
-Safely](/operate/deploy/logical-replication/operational-guide#roll-out-ddl-safely).
-
-If replication is already failing because the schemas diverged or because a
-conflict stopped the apply worker, see [Troubleshoot Apply
-Failures](/operate/deploy/logical-replication/operational-guide#troubleshoot-apply-failures).
-
-If you want a new table to replicate to ParadeDB, that table must be included
-in the publication. Publications created with `FOR ALL TABLES` include new
-tables automatically, and publications created with `FOR TABLES IN SCHEMA ...`
-include new tables created in those schemas automatically. If your publication
-was created from an explicit table list, new tables will not replicate until
-you add them manually. If you do not want a table replicated to ParadeDB, leave
-it out of the publication.
-
-For the full sequence for adding a replicated searchable table, see [Add New
-Tables](/operate/deploy/logical-replication/operational-guide#add-new-tables).
+Whether step 3 is manual depends on how the publication was defined. If the
+publication uses `FOR ALL TABLES`, the new table is included automatically. If
+it uses `FOR TABLES IN SCHEMA ...`, new tables in those schemas are included
+automatically. If it was created from an explicit table list, add the table
+manually. If you do not want the table on ParadeDB, do not include it in the
+publication.
 
 ```sql
--- On Publisher
-ALTER PUBLICATION marketplace_pub ADD TABLE newly_added_table;
+-- On the publisher
+ALTER PUBLICATION app_search_pub ADD TABLE public.new_table;
 
--- On Subscriber
-ALTER SUBSCRIPTION marketplace_sub REFRESH PUBLICATION;
+-- On ParadeDB
+ALTER SUBSCRIPTION app_search_sub REFRESH PUBLICATION;
 ```
+
+## Changing Indexed Columns
+
+If you add or remove a column that is part of a ParadeDB index:
+
+1. Apply the table change on both the publisher and ParadeDB
+2. Let replication catch up again
+3. Rebuild the ParadeDB index on ParadeDB
+
+See [Reindexing](/operate/index-maintenance/reindexing) for the ParadeDB index rebuild
+workflow.
+
+## Rolling Out DDL Safely
+
+In practice, most teams do this through their existing migration runner or
+framework tooling, whether that is Rails migrations, Django migrations, Prisma
+Migrate, or another migration system.
+
+For additive changes such as `ADD COLUMN`, the safest rollout is usually:
+
+1. Apply the additive DDL on ParadeDB first
+2. Apply the same DDL on the publisher
+3. Let replication continue normally
+4. Rebuild any ParadeDB indexes whose indexed column list changed
+
+This follows Postgres's recommendation to apply additive schema changes on the
+subscriber first whenever possible, which avoids intermittent apply failures.
+Logical replication can tolerate extra columns on the subscriber, so adding a
+column on ParadeDB first will not stop replication by itself. Those extra
+subscriber-only columns use their local default value, or `NULL` if no default
+is defined, until the publisher starts sending that column.
+
+If the new column must be `NOT NULL`, give it a compatible default on both
+sides or use a coordinated maintenance window. Otherwise replicated `INSERT`
+operations can fail before the publisher-side change is in place.
+
+If the change is not additive, such as a column rename, drop, or incompatible
+type change, use a short maintenance window, pause writes to the affected
+tables if possible, and coordinate both sides explicitly:
+
+```sql
+-- On Subscriber
+ALTER SUBSCRIPTION marketplace_sub DISABLE;
+ALTER TABLE mock_items RENAME COLUMN category TO product_category;
+
+-- On Publisher
+ALTER TABLE mock_items RENAME COLUMN category TO product_category;
+
+-- Back on Subscriber
+ALTER SUBSCRIPTION marketplace_sub ENABLE;
+```
+
+<Warning>
+  Do not leave a disabled subscription in place longer than necessary. The
+  logical slot on the publisher can continue retaining WAL while the subscriber
+  is disabled.
+</Warning>
+
+If schema drift has already stopped replication, see [Troubleshooting Apply Failures](/operate/deploy/logical-replication/monitoring-and-troubleshooting#troubleshooting-apply-failures).

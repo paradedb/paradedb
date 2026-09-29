@@ -273,8 +273,10 @@
                     "group": "Logical Replication",
                     "pages": [
                       "operate/deploy/logical-replication/getting-started",
-                      "operate/deploy/logical-replication/operational-guide",
+                      "operate/deploy/logical-replication/bootstrapping",
+                      "operate/deploy/logical-replication/configuration",
                       "operate/deploy/logical-replication/schema-changes",
+                      "operate/deploy/logical-replication/monitoring-and-troubleshooting",
                       "operate/deploy/logical-replication/multi-database"
                     ]
                   }

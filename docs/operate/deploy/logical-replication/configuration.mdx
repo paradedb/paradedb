@@ -1,0 +1,67 @@
+---
+title: Replication Configuration
+description: Configure publication boundaries, replication capacity, and replica identity
+canonical: https://www.paradedb.com/docs/operate/deploy/logical-replication/configuration
+---
+
+Configure your publisher and subscriber for the tables and subscriptions you plan to replicate.
+
+## Choosing Publication and Subscription Boundaries
+
+For large or high-churn production tables, use one publication and one
+subscription per large table, or group only small related tables together.
+
+This gives each subscription its own apply worker and replication slot.
+In normal steady-state replication, Postgres does not parallelize ordinary
+change application across tables within a single subscription, so one hot table
+can delay other tables that share that apply worker. A publication per table
+alone does not provide that isolation unless it also has its own subscription.
+
+If you split replication this way, allow enough slots and workers for all your
+subscriptions, including extra capacity during the initial copy.
+
+**On the publisher:**
+
+- `max_replication_slots`: Allow one slot per subscription, plus extra slots
+  for table synchronization during bootstrap. With the default settings, each
+  bootstrapping subscription can use up to two extra slots.
+- `max_wal_senders`: Allow enough senders for those replication slots, plus
+  any physical replicas.
+
+**On the subscriber:**
+
+- `max_replication_slots` and `max_logical_replication_workers`: Allow capacity
+  for every subscription, plus extra capacity for table synchronization.
+- `max_worker_processes`: Allow enough processes for the logical replication
+  workers and any other background workers.
+- On Postgres 18+, also size `max_active_replication_origins` for replication
+  origin tracking.
+
+**Initial-copy parallelism:**
+
+`max_sync_workers_per_subscription` controls how many tables a subscription
+can copy at once when it is created or refreshed. The default is `2`. Raising
+it lets multi-table subscriptions copy more tables at once, but requires more
+slots and workers.
+
+## Handling Tables Without Primary Keys
+
+Postgres needs a replica identity to replicate `UPDATE` and `DELETE`
+operations. A primary key is best. Another suitable unique index can also be
+used as the replica identity. If a table has no suitable key, you can use the
+per-table fallback:
+
+```sql
+ALTER TABLE public.events REPLICA IDENTITY FULL;
+```
+
+Do not think of this as a server-wide setting. `REPLICA IDENTITY FULL` is set
+per published table and should be treated as a fallback rather than the default
+design.
+
+Postgres explicitly warns that subscriber-side `UPDATE` and `DELETE` can
+become very inefficient under `FULL`, because the subscriber must locate the
+matching row using the entire old row image rather than a compact key.
+`FULL` also increases WAL volume and replication traffic on the publisher,
+since every `UPDATE` and `DELETE` writes the full before-image of the row
+into WAL instead of just the key columns.

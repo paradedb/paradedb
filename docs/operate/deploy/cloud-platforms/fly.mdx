@@ -22,8 +22,6 @@ fly launch \
   --no-deploy
 ```
 
-import { version } from "/snippets/version.mdx";
-
 The command prompts for an app name and a primary region, then writes a `fly.toml` in the current directory.
 
 ## Create a Persistent Volume
@@ -44,9 +42,9 @@ Store `POSTGRES_PASSWORD` as a Fly.io secret to keep it out of your configuratio
 fly secrets set POSTGRES_PASSWORD=<YOUR_STRONG_PASSWORD>
 ```
 
-## Finish `fly.toml`
+## Deploy ParadeDB
 
-Open the generated `fly.toml` and add the `[env]` block (Postgres init variables) and a `[[mounts]]` block that attaches the volume you just created. The `[build]`, `[[services]]`, and `[[vm]]` sections were written by `fly launch`:
+Add the database settings and persistent volume mount to your `fly.toml`:
 
 ```toml
 [env]
@@ -59,32 +57,36 @@ Open the generated `fly.toml` and add the `[env]` block (Postgres init variables
   destination = "/var/lib/postgresql"
 ```
 
-## Deploy
+Then deploy the app:
 
 ```bash
 fly deploy
 ```
 
-Fly.io pulls the ParadeDB image, mounts the volume, and starts the machine.
+Fly.io starts ParadeDB with the configured database settings and persistent storage.
 
-## Connect to ParadeDB
+## Connecting to ParadeDB
 
-Fly.io machines are only reachable via WireGuard or Fly's proxy by default. Use `fly proxy` to open a local tunnel:
+### From Your Local Machine
+
+Open a local connection to ParadeDB through Fly.io's proxy:
 
 ```bash
 fly proxy 5432
 ```
 
-Then connect with `psql` from another terminal:
+Keep the proxy running and connect with `psql` from another terminal:
 
 ```bash
 psql "postgres://postgres:<YOUR_STRONG_PASSWORD>@localhost:5432/paradedb"
 ```
 
-To expose ParadeDB publicly, allocate a dedicated IPv4 address (the `[[services]]` block from `fly launch` already accepts external traffic on port 5432):
+### Public Connections
+
+To make ParadeDB accessible over the internet, configure a TCP service on port 5432 in `fly.toml` and allocate a dedicated IPv4 address:
 
 ```bash
 fly ips allocate-v4
 ```
 
-Public exposure means anyone on the internet can attempt to reach port 5432 — make sure `POSTGRES_PASSWORD` is strong and consider adding [Fly.io's per-service firewall rules](https://fly.io/docs/networking/services/).
+Use a strong password for public connections. See [Fly.io's networking documentation](https://fly.io/docs/networking/services/) for service configuration details.

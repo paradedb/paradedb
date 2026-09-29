@@ -147,7 +147,7 @@ production systems that cannot tolerate temporarily blocked writes.
 Although `CREATE INDEX CONCURRENTLY` and `REINDEX CONCURRENTLY` run in the background, Postgres requires that the
 session that is executing the command remain open. If the session is closed,
 Postgres will cancel the operation. This is relevant if you are using a
-connection pooler like pgBouncer, which may terminate
+connection pooler like PgBouncer, which may terminate
 sessions after a certain idle timeout is reached.
 
 If `REINDEX CONCURRENTLY` fails or is cancelled, an invalid transient index will be left behind that must be dropped manually.

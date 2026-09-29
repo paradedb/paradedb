@@ -15,7 +15,7 @@ As of `0.25.0`, `pg_search` relies on [`pgvector`](https://github.com/pgvector/p
 extension. Follow the [`pgvector` installation instructions](https://github.com/pgvector/pgvector?tab=readme-ov-file#installation)
 to install it on the server before installing `pg_search`.
 
-## Install the ParadeDB Postgres Extension
+## Installing the ParadeDB Postgres Extension
 
 ParadeDB provides prebuilt binaries of our extension for Postgres 15+ on:
 
@@ -111,7 +111,7 @@ sudo installer -pkg ~/Downloads/pg_search.pkg -target /
 
 </Tabs>
 
-## Update `postgresql.conf`
+## Updating `postgresql.conf`
 
 Next, add the extension to `shared_preload_libraries` in `postgresql.conf`.
 
@@ -121,7 +121,7 @@ shared_preload_libraries = 'pg_search'
 
 Restart the Postgres server for these changes to take effect.
 
-## Load the Extension
+## Loading the Extension
 
 Finally, connect to your Postgres database and run the following command:
 

@@ -11,7 +11,7 @@ canonical: https://www.paradedb.com/docs/operate/deploy/cloud-platforms/digitalo
 1. A DigitalOcean account
 2. Your local machine's public IPv4 address (used to restrict access to the Droplet)
 
-## Create a Droplet
+## Creating a Droplet
 
 1. In the DigitalOcean console, create a new Droplet
 2. Select **Ubuntu 26.04 (LTS) x64** as the image
@@ -19,13 +19,13 @@ canonical: https://www.paradedb.com/docs/operate/deploy/cloud-platforms/digitalo
 
 Once the Droplet is running, SSH into it to complete the remaining steps.
 
-## Install Docker
+## Installing Docker
 
 ```bash
 curl -fsSL https://get.docker.com | sh
 ```
 
-## Install ParadeDB
+## Installing ParadeDB
 
 The `tag` query parameter pins the ParadeDB version. See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags.
 
@@ -41,7 +41,7 @@ To ensure the container restarts automatically if the Droplet reboots:
 docker update --restart unless-stopped paradedb
 ```
 
-## Configure the Firewall
+## Configuring the Firewall
 
 In the DigitalOcean console, navigate to **Networking → Firewalls** and create a firewall with the following inbound rule:
 
@@ -51,7 +51,7 @@ In the DigitalOcean console, navigate to **Networking → Firewalls** and create
 
 Replace `<YOUR_IP_ADDRESS>` with your local machine's public IPv4 address (not the Droplet IP). To allow access from any IP, use `0.0.0.0/0` instead. Apply the firewall to your Droplet.
 
-## Connect to ParadeDB
+## Connecting to ParadeDB
 
 From your local machine:
 

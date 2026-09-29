@@ -100,7 +100,7 @@ modelBuilder.Entity<MockItem>()
   index to continue serving queries while the new index is being built.
 </Note>
 
-From another psql session, you can use `pg_stat_progress_create_index` to [track the progress](/reference/indexing/create-index#track-create-index-progress) of the new index.
+From another psql session, you can use `pg_stat_progress_create_index` to [track the progress](/reference/indexing/create-index#tracking-create-index-progress) of the new index.
 
 Once the new index is done building, confirm that it is valid:
 

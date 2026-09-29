@@ -13,13 +13,13 @@ canonical: https://www.paradedb.com/docs/operate/deploy/cloud-platforms/dokku
 
 Run all `dokku ...` commands from the host, either directly on the host over SSH or via `ssh dokku@<HOST> <command>` from your local machine.
 
-## Create the App
+## Creating the App
 
 ```bash
 dokku apps:create paradedb
 ```
 
-## Attach Persistent Storage
+## Attaching Persistent Storage
 
 ParadeDB stores its data under `/var/lib/postgresql`. Create a host directory and mount it into the app so the database survives container rebuilds:
 
@@ -28,7 +28,7 @@ dokku storage:ensure-directory paradedb
 dokku storage:mount paradedb /var/lib/dokku/data/storage/paradedb:/var/lib/postgresql
 ```
 
-## Set the Postgres Password
+## Setting the Postgres Password
 
 Set the database password as a Dokku config var so it never lives in a Docker image or a `git` history:
 
@@ -39,7 +39,7 @@ dokku config:set paradedb \
   POSTGRES_DB=paradedb
 ```
 
-## Expose Port 5432
+## Exposing Port 5432
 
 Postgres speaks TCP on port 5432. Tell Dokku to forward that port through its proxy layer:
 
@@ -47,7 +47,7 @@ Postgres speaks TCP on port 5432. Tell Dokku to forward that port through its pr
 dokku ports:add paradedb tcp:5432:5432
 ```
 
-## Deploy from Docker Hub
+## Deploying from Docker Hub
 
 Point Dokku at the ParadeDB Community image registry:
 
@@ -57,7 +57,7 @@ dokku git:from-image paradedb paradedb/paradedb:latest
 
 See [Docker Hub](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags.
 
-## Connect to ParadeDB
+## Connecting to ParadeDB
 
 From any machine that can reach your Dokku host on port 5432:
 

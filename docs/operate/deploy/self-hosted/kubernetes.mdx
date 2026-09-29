@@ -6,12 +6,12 @@ canonical: https://www.paradedb.com/docs/operate/deploy/self-hosted/kubernetes
 
 Both ParadeDB Community and Enterprise can be deployed on Kubernetes. There are two deployment options:
 
-- **If you don't already use CloudNativePG**, follow the [ParadeDB Helm Chart setup](#deploy-with-the-helm-chart) to install CloudNativePG and deploy your ParadeDB cluster.
-- **If you already use CloudNativePG**, use the [ParadeDB extension image](#use-the-extension-image-with-cloudnativepg) to add ParadeDB to your existing cluster.
+- **If you don't already use CloudNativePG**, follow the [ParadeDB Helm Chart setup](#deploying-with-the-helm-chart) to install CloudNativePG and deploy your ParadeDB cluster.
+- **If you already use CloudNativePG**, use the [ParadeDB extension image](#using-the-extension-image-with-cloudnativepg) to add ParadeDB to your existing cluster.
 
 ---
 
-## Deploy with the Helm Chart
+## Deploying with the Helm Chart
 
 The [ParadeDB Helm Chart](https://github.com/paradedb/charts) is based on [CloudNativePG](https://cloudnative-pg.io/) and is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
 
@@ -36,7 +36,7 @@ kubectl create secret docker-registry paradedb-enterprise-registry-cred \
 --docker-password="<access_token>"
 ```
 
-### Install the Prometheus Stack
+### Installing the Prometheus Stack
 
 The ParadeDB Helm chart supports monitoring via Prometheus and Grafana. To enable this, you need to have the Prometheus CRDs installed before installing the CloudNativePG operator. If you do not yet have the Prometheus CRDs installed on your Kubernetes cluster, you can install them with:
 
@@ -49,7 +49,7 @@ helm upgrade --atomic --install prometheus-community \
 prometheus-community/kube-prometheus-stack
 ```
 
-### Install the CloudNativePG Operator
+### Installing the CloudNativePG Operator
 
 Skip this step if the CloudNativePG operator is already installed in your cluster. If you do not wish to monitor your cluster, omit the `--set` commands.
 
@@ -63,7 +63,7 @@ helm upgrade --atomic --install cnpg \
 cnpg/cloudnative-pg
 ```
 
-### Start the ParadeDB Cluster
+### Starting the ParadeDB Cluster
 
 Create a `values.yaml` and configure it to your requirements. See the chart's [default `values.yaml`](https://github.com/paradedb/charts/blob/dev/charts/paradedb/values.yaml) for available configuration options and their defaults. Here is a basic example:
 
@@ -116,7 +116,7 @@ helm upgrade --atomic --install paradedb \
 paradedb/paradedb
 ```
 
-### Connect to the Cluster
+### Connecting to the Cluster
 
 Connect to the cluster via `kubectl exec`:
 
@@ -124,7 +124,7 @@ Connect to the cluster via `kubectl exec`:
 kubectl exec service/paradedb-rw -n paradedb -it -- psql
 ```
 
-### Connect to the Grafana Dashboard
+### Connecting to the Grafana Dashboard
 
 The ParadeDB Helm Chart includes a Grafana dashboard to help you monitor your cluster. To access the dashboard, forward the Grafana service to localhost:
 
@@ -136,7 +136,7 @@ The dashboard will be accessible at `localhost:3000` under username `admin` and 
 
 ---
 
-## Use the Extension Image with CloudNativePG
+## Using the Extension Image with CloudNativePG
 
 The ParadeDB extension image uses CloudNativePG's [image volume support](https://cloudnative-pg.io/docs/1.28/imagevolume_extensions/) to load ParadeDB into your existing Postgres cluster.
 
@@ -154,7 +154,7 @@ kubectl create secret docker-registry paradedb-enterprise-registry-cred \
 --docker-password="<access_token>"
 ```
 
-### Configure the Extension Image
+### Configuring the Extension Image
 
 The `pg_search` extension requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource and save it as `cluster.yaml`:
 
@@ -245,7 +245,7 @@ spec:
       version: "0.25.10"
 ```
 
-### Install the Extension Image
+### Installing the Extension Image
 
 Apply the resources in your cluster's namespace:
 

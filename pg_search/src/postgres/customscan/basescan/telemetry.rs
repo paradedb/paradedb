@@ -263,6 +263,39 @@ mod tests {
         assert_eq!(value["termination"], "second");
     }
 
+    // Read counters and owned-word fallbacks sum independently across repeated collections.
+    #[test]
+    fn vector_io_counters_accumulate_for_each_layer_and_rerank() {
+        let id = SegmentId::from_bytes([3; 16]);
+        let mut names = vec![
+            "rerank_reads".to_string(),
+            "rerank_bytes_read".to_string(),
+            "rerank_storage_blocks".to_string(),
+        ];
+        for layer in 0..3 {
+            for suffix in [
+                "reads",
+                "bytes_read",
+                "storage_blocks",
+                "sign_word_fallbacks",
+            ] {
+                names.push(format!("layer{layer}_{suffix}"));
+            }
+        }
+        let mut telemetry = ScanTelemetry::default();
+        for count in [2, 3] {
+            let fields = names
+                .iter()
+                .map(|name| (name.clone(), json!(count)))
+                .collect();
+            telemetry.accumulate_segment_info(segment_info(id, serde_json::Value::Object(fields)));
+        }
+        for name in names {
+            assert_eq!(telemetry.segment_info()[&id][&name], 5, "{name}");
+        }
+        assert_eq!(telemetry.stage_elapsed_ns(), 0);
+    }
+
     #[test]
     fn segment_metrics_remain_per_segment() {
         let first = SegmentId::from_bytes([1; 16]);

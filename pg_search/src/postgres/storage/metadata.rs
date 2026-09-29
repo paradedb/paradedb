@@ -473,6 +473,48 @@ mod tests {
         );
     }
 
+    // Unsupported storage reports the affected index and the rebuild action.
+    #[pg_test]
+    fn unsupported_vector_storage_names_index_and_reindex() {
+        use crate::index::mvcc::MvccSatisfies;
+        use crate::index::reader::index::SearchIndexReader;
+        use crate::postgres::storage::block::{LinkedListData, SegmentMetaEntryContent};
+        let indexrel = vector_metadata_fixture();
+        let entries = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) };
+        let file = entries
+            .iter()
+            .find_map(|entry| match entry.content {
+                SegmentMetaEntryContent::Immutable(content) => content.vec,
+                _ => None,
+            })
+            .expect("fixture has a vector file");
+        {
+            let mut bman = BufferManager::new(&indexrel);
+            let block = bman
+                .get_buffer(file.starting_block)
+                .page()
+                .contents::<LinkedListData>()
+                .start_blockno;
+            let mut buffer = bman.get_buffer_mut(block);
+            *buffer.page_mut().contents_mut::<u32>() = 3u32.to_le();
+        }
+        let error = pgrx::PgTryBuilder::new(std::panic::AssertUnwindSafe(|| {
+            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).unwrap();
+            None
+        }))
+        .catch_others(|caught| match caught {
+            pgrx::pg_sys::panic::CaughtError::ErrorReport(report) => Some((
+                report.message().to_string(),
+                report.hint().unwrap_or_default().to_string(),
+            )),
+            other => other.rethrow(),
+        })
+        .execute()
+        .expect("unsupported vector storage must raise a Postgres error");
+        assert!(error.0.contains("metadata_vectors_idx"), "{}", error.0);
+        assert!(error.1.contains("REINDEX"), "{}", error.1);
+    }
+
     #[pg_test]
     fn created_by_version_is_stamped_at_index_build() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();

@@ -240,6 +240,7 @@
             "tab": "Operate",
             "icon": "server",
             "pages": [
+              "operate/deploy/enterprise",
               {
                 "group": "Deployment",
                 "pages": [
@@ -259,10 +260,6 @@
                     ]
                   }
                 ]
-              },
-              {
-                "group": "Enterprise",
-                "pages": ["operate/deploy/enterprise"]
               },
               {
                 "group": "Replication",

@@ -35,7 +35,7 @@ Create indexes and query them with SQL. Full-text search, vector retrieval, hybr
 
 ### Built for Demanding Queries
 
-ParadeDB indexes serve lexical search, vector retrieval, ranking, filtering, and aggregations from the same index. ParadeDB is fast because these workloads push down into a single wide index, instead of being stitched together across scans, indexes, or systems. You get the capabilities and performance of a standalone search engine without giving up Postgres transactions and ACID guarantees.
+ParadeDB indexes serve lexical search, vector retrieval, ranking, filtering, and aggregations from a single wide index. Queries run faster because these operations execute together on dense data structures, rather than combining results from separate scans, indexes, or systems. You get the capabilities and performance of a standalone search engine without giving up Postgres transactions and ACID guarantees.
 
 See how ParadeDB compares to [the alternatives](/start/alternatives).
 

@@ -15,11 +15,11 @@ ParadeDB accelerates these queries with a custom index, delivered through the `p
 
 ## Who is ParadeDB for?
 
-You're likely a good fit for ParadeDB if any of the following sound like you:
+You're likely a good fit for ParadeDB if:
 
-1. You're **combining transactional workloads with search**: semantic search, full-text search, vector retrieval, lexical ranking, or hybrid search need to run against your source of truth data.
-2. You've **outgrown Postgres full-text search or pgvector** and are frustrated with performance bottlenecks, missing features, or a clunky developer experience.
-3. You're **evaluating a search engine like Elasticsearch or a vector store like Pinecone**, but don't want to run and continuously sync additional systems with your database.
+- **You're outgrowing Postgres full-text search or pgvector.** Your queries are getting slower, you're hitting feature limits, or tuning performance is taking too much time.
+- **You're building an application that needs both transactions and search.** You want user-facing search, RAG, or live dashboards without managing multiple databases and the pipelines that keep them in sync.
+- **You're already syncing Postgres with an external search engine like Elasticsearch.** You're spending too much time on reindexing, data pipelines, and denormalization, and want to keep Postgres JOINs and transactional guarantees.
 
 ## Why ParadeDB?
 

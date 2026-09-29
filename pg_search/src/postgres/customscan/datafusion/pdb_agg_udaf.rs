@@ -38,10 +38,11 @@ use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::common::ScalarValue;
 use datafusion::error::{DataFusionError, Result};
+use datafusion::logical_expr::expr::AggregateFunctionParams;
 use datafusion::logical_expr::function::{AccumulatorArgs, StateFieldsArgs};
 use datafusion::logical_expr::{
     Accumulator, Aggregate, AggregateUDF, AggregateUDFImpl, EmitTo, Expr, GroupsAccumulator,
-    Signature, Volatility, lit,
+    Signature, Volatility, lit, udaf_default_human_display,
 };
 use datafusion::physical_expr::aggregate::{AggregateExprBuilder, AggregateFunctionExpr};
 use datafusion::physical_plan::aggregates::group_values::{GroupValues, new_group_values};
@@ -54,7 +55,7 @@ use crate::postgres::customscan::aggregatescan::datafusion_exec::{
     make_plan_position_col, pdb_key_expr, pdb_metric_call,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::{
-    PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, assemble_pdb_agg_rows,
+    PdbAggColumn, PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, assemble_pdb_agg_rows,
 };
 use crate::postgres::customscan::joinscan::build::RelNode;
 
@@ -91,6 +92,9 @@ pub fn json_document_to_datum(
     Ok(pgrx::JsonB(document).into_datum())
 }
 
+/// [`request_plan`] leaves these out, so the plan's columns hold none.
+const NO_ROOT_COLUMNS: &str = "a lone request has no SQL group keys or standard aggregates";
+
 /// The layout of a lone request: no SQL group keys and no standard aggregates.
 /// The call and its accumulator both derive the argument order from it. The
 /// entry index only identifies a `FILTER`, which this path does not take.
@@ -111,7 +115,11 @@ fn request_literal(request: &PdbAggRequest) -> Result<Expr> {
 }
 
 fn request_from_args(args: &AccumulatorArgs) -> Result<PdbAggRequest> {
-    let bytes = match literal_arg(args, 0, PDB_AGG_NAME, "request")? {
+    request_from_literal(literal_arg(args, 0, PDB_AGG_NAME, "request")?)
+}
+
+fn request_from_literal(literal: &ScalarValue) -> Result<PdbAggRequest> {
+    let bytes = match literal {
         ScalarValue::Dictionary(_, inner) => match inner.as_ref() {
             ScalarValue::Binary(Some(bytes)) => bytes,
             other => {
@@ -334,36 +342,33 @@ impl PdbAggAccumulator {
     }
 
     /// The buckets of every level as the rows the aggregate scan's grouping-set
-    /// plan produces, in the column order [`PdbAggPlan`] documents: the grouping
-    /// id when the spec groups, then the keys, then the metrics. A column a
-    /// level does not have is NULL on its rows.
+    /// plan produces, in the column order of the plan. A column a level does
+    /// not have is NULL on its rows.
     fn bucket_rows(&mut self) -> Result<RecordBatch> {
-        let grouping_id = self.plan.has_grouping_sets();
-        let num_keys = self.key_fields.len();
-        let mut fields: Vec<FieldRef> = Vec::new();
-        if grouping_id {
-            fields.push(Arc::new(Field::new(
-                Aggregate::INTERNAL_GROUPING_ID,
-                DataType::UInt64,
-                false,
-            )));
-        }
-        fields.extend(
-            self.key_fields
-                .iter()
-                .map(|field| Arc::new(field.as_ref().clone().with_nullable(true))),
-        );
-        fields.extend(
-            self.metrics
-                .iter()
-                .map(|metric| Arc::new(metric.expr.field().as_ref().clone().with_nullable(true))),
-        );
-        let first_key = usize::from(grouping_id);
-        let first_metric = first_key + num_keys;
+        let nullable =
+            |field: &FieldRef| -> FieldRef { Arc::new(field.as_ref().clone().with_nullable(true)) };
+        let layout: Vec<PdbAggColumn> = self.plan.columns().collect();
+        let fields: Vec<FieldRef> = layout
+            .iter()
+            .map(|column| match column {
+                PdbAggColumn::GroupingId => Arc::new(Field::new(
+                    Aggregate::INTERNAL_GROUPING_ID,
+                    DataType::UInt64,
+                    false,
+                )),
+                PdbAggColumn::Key(key) => nullable(&self.key_fields[*key]),
+                PdbAggColumn::Metric(metric) => nullable(&self.metrics[*metric].expr.field()),
+                PdbAggColumn::GroupKey(_) | PdbAggColumn::StdAgg(_) => {
+                    unreachable!("{NO_ROOT_COLUMNS}")
+                }
+            })
+            .collect();
 
         let grouping_ids: Vec<u64> = (0..self.plan.levels.len())
             .map(|level| self.plan.grouping_id_for_level(level))
             .collect();
+        let num_keys = self.key_fields.len();
+        let num_metrics = self.metrics.len();
         let mut columns: Vec<Vec<ArrayRef>> = vec![Vec::new(); fields.len()];
         let mut num_rows = 0;
         for (level, state) in self.levels() {
@@ -372,21 +377,27 @@ impl PdbAggAccumulator {
                 continue;
             }
             num_rows += rows;
-            let mut level_columns: Vec<Option<ArrayRef>> = vec![None; fields.len()];
-            if grouping_id {
-                level_columns[0] = Some(Arc::new(UInt64Array::from(vec![
-                    grouping_ids[*level];
-                    rows
-                ])));
+            let mut keys: Vec<Option<ArrayRef>> = vec![None; num_keys];
+            let emitted = state.emit_keys()?;
+            for (&key, values) in state.keys.iter().zip(emitted) {
+                keys[key] = Some(values);
             }
-            let keys = state.emit_keys()?;
-            for (&key, values) in state.keys.iter().zip(keys) {
-                level_columns[first_key + key] = Some(values);
-            }
+            let mut metrics: Vec<Option<ArrayRef>> = vec![None; num_metrics];
             for (metric, accumulator) in &mut state.metrics {
-                level_columns[first_metric + *metric] = Some(accumulator.evaluate(EmitTo::All)?);
+                metrics[*metric] = Some(accumulator.evaluate(EmitTo::All)?);
             }
-            for ((column, values), field) in columns.iter_mut().zip(level_columns).zip(&fields) {
+            for ((column, holds), field) in columns.iter_mut().zip(&layout).zip(&fields) {
+                let values =
+                    match holds {
+                        PdbAggColumn::GroupingId => Some(Arc::new(UInt64Array::from(
+                            vec![grouping_ids[*level]; rows],
+                        )) as ArrayRef),
+                        PdbAggColumn::Key(key) => keys[*key].take(),
+                        PdbAggColumn::Metric(metric) => metrics[*metric].take(),
+                        PdbAggColumn::GroupKey(_) | PdbAggColumn::StdAgg(_) => {
+                            unreachable!("{NO_ROOT_COLUMNS}")
+                        }
+                    };
                 column.push(match values {
                     Some(values) if values.data_type() == field.data_type() => values,
                     Some(values) => cast(&values, field.data_type())?,
@@ -617,6 +628,19 @@ impl AggregateUDFImpl for PdbAgg {
 
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
         Ok(document_type())
+    }
+
+    /// EXPLAIN shows the spec, the way the other renderings of `pdb.agg()` do.
+    /// The arguments are the serialized request, which prints as the first
+    /// bytes of a binary literal, and columns the spec already names.
+    fn human_display(&self, params: &AggregateFunctionParams) -> Result<String> {
+        match params.args.first() {
+            Some(Expr::Literal(literal, _)) => {
+                let request = request_from_literal(literal)?;
+                Ok(format!("{PDB_AGG_NAME}({})", request.agg_json))
+            }
+            _ => udaf_default_human_display(self, params),
+        }
     }
 
     fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {

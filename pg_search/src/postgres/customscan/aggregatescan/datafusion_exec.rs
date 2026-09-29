@@ -26,7 +26,7 @@
 
 use super::join_targetlist::{AggOrderByEntry, GroupingTransform};
 use super::pdb_agg::{
-    PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricSpec, PdbStat,
+    PdbAggColumn, PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricSpec, PdbStat,
 };
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -669,9 +669,10 @@ fn apply_pdb_aggregate(
     }
 
     // The aggregate lays its output out as group expressions, `__grouping_id`
-    // when there are grouping sets, then aggregates. Read it back by position:
-    // a group key can be a call rather than a column, so it cannot be named
-    // again here, and the CSE pass renames aggregates later.
+    // when there are grouping sets, then aggregates. Read it back by position,
+    // into the order the plan lays out: a group key can be a call rather than a
+    // column, so it cannot be named again here, and the CSE pass renames
+    // aggregates later.
     let output: Vec<Expr> = df
         .schema()
         .columns()
@@ -681,12 +682,19 @@ fn apply_pdb_aggregate(
     let num_group = group_exprs.len();
     let num_keys = pdb_plan.keys.len();
     let aggs_start = output.len() - num_std_aggs - pdb_plan.metrics.len();
-    let mut select = Vec::with_capacity(output.len());
-    select.extend_from_slice(&output[..num_group]);
-    select.extend_from_slice(&output[aggs_start..aggs_start + num_std_aggs]);
-    select.extend_from_slice(&output[num_group + num_keys..aggs_start]);
-    select.extend_from_slice(&output[num_group..num_group + num_keys]);
-    select.extend_from_slice(&output[aggs_start + num_std_aggs..]);
+    let select: Vec<Expr> = pdb_plan
+        .columns()
+        .map(|column| {
+            let position = match column {
+                PdbAggColumn::GroupKey(i) => i,
+                PdbAggColumn::Key(i) => num_group + i,
+                PdbAggColumn::GroupingId => num_group + num_keys,
+                PdbAggColumn::StdAgg(i) => aggs_start + i,
+                PdbAggColumn::Metric(i) => aggs_start + num_std_aggs + i,
+            };
+            output[position].clone()
+        })
+        .collect();
     df.select(select)
 }
 

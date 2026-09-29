@@ -1,16 +1,8 @@
 ---
-title: Extension
-sidebarTitle: Install into Existing Postgres
+title: Self-Hosted PostgreSQL
 description: How to install ParadeDB as an extension inside an existing self-managed Postgres
 canonical: https://www.paradedb.com/docs/operate/deploy/self-hosted/extension
 ---
-
-<Note>
-  ParadeDB Community can run as a single-node extension install. Use [ParadeDB
-  Enterprise](/operate/deploy/enterprise) when ParadeDB indexes need physical
-  replication for high availability, failover, or read replicas that can serve
-  ParadeDB queries.
-</Note>
 
 If you already self-manage Postgres, you may prefer to install ParadeDB directly within your self-managed
 Postgres instead of deploying the ParadeDB Helm chart.
@@ -104,7 +96,7 @@ sudo installer -pkg ~/Downloads/pg_search.pkg -target /
 
 ### ParadeDB Enterprise
 
-If you are a [ParadeDB Enterprise](/operate/deploy/enterprise) user, you should have received a copy of the enterprise binaries. Please [contact sales](mailto:sales@paradedb.com) for access.
+[ParadeDB Cloud](/operate/deploy/cloud) deploys the [ParadeDB Enterprise](/operate/deploy/enterprise) image. To self-host ParadeDB Enterprise as an extension, please [contact sales](mailto:sales@paradedb.com) for the enterprise binaries.
 
 ## Update `postgresql.conf`
 

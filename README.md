@@ -34,7 +34,7 @@
 
 ## Installation
 
-[ParadeDB Cloud](https://auth.paradedb.com/sign-up) is now available in private preview. Sign up to use ParadeDB without managing infrastructure.
+[ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud) is now available in private preview. [Sign up](https://auth.paradedb.com/sign-up) to use ParadeDB without managing infrastructure.
 
 To install ParadeDB locally in a fresh Docker container and drop straight into a `psql` session:
 
@@ -42,7 +42,7 @@ To install ParadeDB locally in a fresh Docker container and drop straight into a
 curl -fsSL https://paradedb.com/install.sh | sh
 ```
 
-When you're ready to deploy, check out our [hosting options](https://www.paradedb.com/docs/operate/deploy/overview).
+When you're ready to deploy, check out our [deployment options](https://www.paradedb.com/docs/operate/deploy/overview).
 
 ## What is ParadeDB?
 
@@ -93,7 +93,7 @@ ParadeDB integrates with the tools you already use, with more on the way.
 - [MCP Integration](https://www.paradedb.com/docs/start/ai-agents)
 - [Cursor Plugin](https://cursor.com/marketplace/parade-db)
 
-### PaaS & Cloud Platforms
+### PaaS Providers
 
 - [Railway](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/railway)
 - [Render](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/render)
@@ -114,4 +114,4 @@ We welcome contributions of all sizes! Check out our [good first issues](https:/
 
 ## License
 
-ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE). For [ParadeDB Enterprise](https://www.paradedb.com/docs/operate/deploy/enterprise) licensing, contact [sales@paradedb.com](mailto:sales@paradedb.com).
+ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE). [ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud) deploys the [ParadeDB Enterprise](https://www.paradedb.com/docs/operate/deploy/enterprise) image. To self-host ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.com).

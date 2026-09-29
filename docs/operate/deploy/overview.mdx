@@ -1,39 +1,17 @@
 ---
-title: Deploying ParadeDB
+title: Deployment Options
 description: Explore the different ways to deploy ParadeDB into production
 canonical: https://www.paradedb.com/docs/operate/deploy/overview
 ---
 
-<Note>
-  ParadeDB Community supports single-node deployments. Use ParadeDB Enterprise
-  when ParadeDB indexes need physical replication for high availability,
-  failover, or read replicas that can serve ParadeDB queries. [Contact
-  us](mailto:hello@paradedb.com) for access.
-</Note>
-
-Pick the deployment path that matches where your data lives today.
+Choose the deployment option that works best for you.
 
 <CardGroup cols={2}>
-  <Card
-    title="ParadeDB Cloud"
-    icon="cloud"
-    href="https://auth.paradedb.com/sign-up"
-  >
+  <Card title="ParadeDB Cloud" icon="cloud" href="/operate/deploy/cloud">
     Build on ParadeDB Cloud, our fully managed platform for ParadeDB.
   </Card>
-  <Card
-    title="PaaS Providers"
-    icon="cloud"
-    href="/operate/deploy/cloud-platforms/railway"
-  >
-    Run ParadeDB Community on Railway, Render, Fly.io, DigitalOcean, or Dokku.
-  </Card>
-  <Card
-    title="Self-Hosted PostgreSQL"
-    icon="database"
-    href="/operate/deploy/self-hosted/extension"
-  >
-    Install the extension into a Postgres cluster you already control.
+  <Card title="ParadeDB BYOC" icon="cloud" href="/operate/deploy/byoc">
+    Run ParadeDB in your own cloud environment with managed infrastructure.
   </Card>
   <Card
     title="Kubernetes"
@@ -42,28 +20,18 @@ Pick the deployment path that matches where your data lives today.
   >
     Run ParadeDB in a Kubernetes cluster with CloudNativePG.
   </Card>
+  <Card
+    title="Self-Hosted PostgreSQL"
+    icon="database"
+    href="/operate/deploy/self-hosted/extension"
+  >
+    Install the ParadeDB Postgres extension into a cluster you already control.
+  </Card>
+  <Card
+    title="PaaS Providers"
+    icon="cloud"
+    href="/operate/deploy/cloud-platforms/railway"
+  >
+    Run ParadeDB Community on Railway, Render, Fly.io, DigitalOcean, or Dokku.
+  </Card>
 </CardGroup>
-
-## ParadeDB Cloud
-
-ParadeDB Cloud is fully managed ParadeDB: first-class search from Postgres, with a developer experience to match. It's now available in private preview. [Sign up](https://auth.paradedb.com/sign-up) to get started.
-
-## Cloud Platforms
-
-The following guides and integrations deploy ParadeDB Community using our Docker image, which bundles Postgres and `pg_search`, with persistent storage:
-
-- [Railway](/operate/deploy/cloud-platforms/railway) — One-click deploy to Railway
-- [Render](/operate/deploy/cloud-platforms/render) — One-click deploy to Render
-- [Fly.io](/operate/deploy/cloud-platforms/fly) — Deploy on Fly.io
-- [DigitalOcean](/operate/deploy/cloud-platforms/digitalocean) — Deploy on a DigitalOcean Droplet
-- [Dokku](/operate/deploy/cloud-platforms/dokku) — Deploy with Dokku
-
-For managed Kubernetes services such as Amazon EKS, Google GKE, and Azure AKS, or platforms that support custom Helm charts such as Red Hat OpenShift, Rancher, Porter, and Qovery, start with the [Kubernetes deployment guide](/operate/deploy/self-hosted/kubernetes).
-
-## Self-Hosted ParadeDB
-
-ParadeDB can be deployed as an [extension](/operate/deploy/self-hosted/extension) inside an existing self-hosted Postgres or via our [Kubernetes Helm chart](/operate/deploy/self-hosted/kubernetes), which is based on the [CloudNativePG](https://cloudnative-pg.io/) Helm chart. If a self-hosted production deployment needs failover or read replicas for ParadeDB queries, use ParadeDB Enterprise and configure [high availability](/operate/deploy/self-hosted/high-availability).
-
-## ParadeDB BYOC
-
-[ParadeDB BYOC (Bring Your Own Cloud)](/operate/deploy/byoc) is a managed deployment of ParadeDB Enterprise inside your AWS or GCP account. Please [contact sales](mailto:sales@paradedb.com) for access.

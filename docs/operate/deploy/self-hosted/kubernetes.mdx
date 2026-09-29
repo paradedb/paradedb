@@ -6,14 +6,6 @@ canonical: https://www.paradedb.com/docs/operate/deploy/self-hosted/kubernetes
 
 For Kubernetes deployments, we recommend running ParadeDB with [CloudNativePG](https://cloudnative-pg.io/). Both ParadeDB Community and Enterprise binaries can be deployed on Kubernetes.
 
-<Note>
-  ParadeDB Community can run on Kubernetes as a single-node deployment. Use
-  [ParadeDB Enterprise](/operate/deploy/enterprise) when ParadeDB indexes need
-  physical replication for [high
-  availability](/operate/deploy/self-hosted/high-availability), failover, or
-  read replicas that can serve ParadeDB queries.
-</Note>
-
 This guide uses the [ParadeDB Helm Chart](https://github.com/paradedb/charts). The chart is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
 
 ## Prerequisites
@@ -87,7 +79,7 @@ Next, create a namespace for this step or use an existing namespace. The namespa
 kubectl create namespace <your-namespace>
 ```
 
-For ParadeDB Enterprise, you should have received an enterprise Docker username and personal access token. The following step passes these
+To self-host ParadeDB Enterprise on Kubernetes, please [contact sales](mailto:sales@paradedb.com) for an enterprise Docker username and personal access token. The following step passes these
 credentials to Kubernetes and should be skipped if you are deploying ParadeDB Community.
 
 ```bash ParadeDB Enterprise

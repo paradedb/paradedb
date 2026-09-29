@@ -244,10 +244,12 @@
                 "group": "Deployment",
                 "pages": [
                   "operate/deploy/overview",
-                  "operate/deploy/self-hosted/extension",
+                  "operate/deploy/cloud",
+                  "operate/deploy/byoc",
                   "operate/deploy/self-hosted/kubernetes",
+                  "operate/deploy/self-hosted/extension",
                   {
-                    "group": "Cloud Platforms",
+                    "group": "PaaS Providers",
                     "pages": [
                       "operate/deploy/cloud-platforms/railway",
                       "operate/deploy/cloud-platforms/render",
@@ -256,6 +258,13 @@
                       "operate/deploy/cloud-platforms/dokku"
                     ]
                   },
+                  "operate/deploy/enterprise"
+                ]
+              },
+              {
+                "group": "Replication",
+                "pages": [
+                  "operate/deploy/self-hosted/high-availability",
                   {
                     "group": "Logical Replication",
                     "pages": [
@@ -264,10 +273,7 @@
                       "operate/deploy/logical-replication/configuration",
                       "operate/deploy/logical-replication/multi-database"
                     ]
-                  },
-                  "operate/deploy/self-hosted/high-availability",
-                  "operate/deploy/byoc",
-                  "operate/deploy/enterprise"
+                  }
                 ]
               },
               {
@@ -545,17 +551,14 @@
   "navbar": {
     "links": [
       {
-        "label": "Sign Up",
-        "href": "https://auth.paradedb.com/sign-up"
-      },
-      {
-        "label": "Community",
-        "href": "https://paradedb.com/slack"
+        "type": "github",
+        "href": "https://github.com/paradedb/paradedb"
       }
     ],
     "primary": {
-      "type": "github",
-      "href": "https://github.com/paradedb/paradedb"
+      "type": "button",
+      "label": "Sign Up",
+      "href": "https://auth.paradedb.com/sign-up"
     }
   },
   "contextual": {
@@ -591,8 +594,9 @@
   "footer": {
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
-      "slack": "https://paradedb.com/slack",
-      "twitter": "https://x.com/paradedb"
+      "twitter": "https://x.com/paradedb",
+      "linkedin": "https://www.linkedin.com/company/paradedb",
+      "slack": "https://paradedb.com/slack"
     }
   },
   "integrations": {

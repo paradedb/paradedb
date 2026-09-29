@@ -11,7 +11,7 @@ Postgres enough room to do the work.
 
 ## Production Checklist
 
-1. Choose the deployment model that matches your primary database.
+1. Choose the deployment option that works best for you.
 2. Load representative data, not only the small `mock_items` table.
 3. Design indexes around real query patterns.
 4. Tune index creation, reads, and writes with production-sized data.
@@ -29,18 +29,19 @@ the full details.
 [ParadeDB Enterprise](/operate/deploy/enterprise) adds commercial licensing,
 support, and physical replication for ParadeDB indexes. Physical replication is
 what enables high availability, failover, and read replicas that can serve
-ParadeDB queries.
+ParadeDB queries. [ParadeDB Cloud](/operate/deploy/cloud) deploys the Enterprise image. To self-host
+ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.com).
 
 ## Deployment
 
 <CardGroup cols={2}>
   <Card
-    title="Deployment Overview"
+    title="Deployment Options"
     icon="server"
     href="/operate/deploy/overview"
   >
-    Compare extension, self-hosted, logical replication, cloud platform, BYOC,
-    and Enterprise options.
+    Compare ParadeDB Cloud, BYOC, Kubernetes, self-hosted PostgreSQL, and PaaS
+    providers.
   </Card>
   <Card
     title="Install as an Extension"

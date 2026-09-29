@@ -46,8 +46,7 @@ Create the `paradedb` namespace. Skip this step if it already exists.
 kubectl create namespace paradedb
 ```
 
-To self-host ParadeDB Enterprise on Kubernetes, please [contact sales](mailto:sales@paradedb.com) for an enterprise Docker username and personal access token. The following step passes these
-credentials to Kubernetes and should be skipped if you are deploying ParadeDB Community.
+If you are using ParadeDB Enterprise, create a Kubernetes secret with your registry credentials to pull the Enterprise image.
 
 ```bash ParadeDB Enterprise
 kubectl create secret docker-registry paradedb-enterprise-registry-cred \

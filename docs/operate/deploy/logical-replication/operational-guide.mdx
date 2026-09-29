@@ -30,7 +30,7 @@ OLTP traffic.
 
 ### 1. Wait for the Initial Copy to Finish
 
-Let Postgres finish copying the base table data before you build ParadeDB indexes.
+By default, logical replication starts with an initial copy of the existing data. Let Postgres finish copying the base table data before you build ParadeDB indexes.
 This avoids extra indexing work during the bootstrap phase.
 
 On ParadeDB, you can check whether the initial copy is still running with:

@@ -461,7 +461,11 @@
   },
   {
     "source": "/deploy/citus",
-    "destination": "/operate/deploy/citus"
+    "destination": "/reference/sharding/citus"
+  },
+  {
+    "source": "/operate/deploy/citus",
+    "destination": "/reference/sharding/citus"
   },
   {
     "source": "/deploy/ci/github-actions",

@@ -213,6 +213,12 @@
                 ]
               },
               {
+                "group": "Sharding",
+                "pages": [
+                  "reference/sharding/citus"
+                ]
+              },
+              {
                 "group": "Cheatsheets",
                 "pages": [
                   "reference/operators-and-functions",
@@ -296,8 +302,7 @@
                 "group": "Administration",
                 "pages": [
                   "operate/deploy/upgrading",
-                  "operate/deploy/third-party-extensions",
-                  "operate/deploy/citus"
+                  "operate/deploy/third-party-extensions"
                 ]
               },
               {

@@ -65,10 +65,4 @@ From any machine that can reach your Dokku host on port 5432:
 psql "postgres://postgres:<PASSWORD>@<DOKKU_HOST>:5432/paradedb"
 ```
 
-Replace `<DOKKU_HOST>` with your Dokku host's IP or hostname.
-
-<Note>
-  By default the port is exposed on every interface. If the host is on the public internet, restrict inbound
-  traffic to trusted IPs with your firewall (e.g. `ufw allow from <YOUR_IP> to any port 5432 proto tcp`) and make
-  sure `POSTGRES_PASSWORD` is strong.
-</Note>
+Replace `<DOKKU_HOST>` with your Dokku host's IP or hostname. By default the port is exposed on every interface. If the host is on the public internet, restrict inbound traffic to trusted IPs with your firewall (e.g. `ufw allow from <YOUR_IP> to any port 5432 proto tcp`).

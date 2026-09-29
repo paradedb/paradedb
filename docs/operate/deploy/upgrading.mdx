@@ -107,7 +107,7 @@ To upgrade the extension running in a self-managed Postgres:
 
 ## Upgrading the PostgreSQL Catalog
 
-After ParadeDB has been upgraded, connect to it and run the following command in all databases that `pg_search` is installed in. This step is required regardless of the environment that ParadeDB is installed in (Helm, Docker, or self-managed Postgres).
+After the ParadeDB binary has been upgraded, connect to it and run the following command in all databases that `pg_search` is installed in. This step is required regardless of the environment that ParadeDB is installed in (Helm, Docker, or self-managed Postgres).
 
 ```sql
 ALTER EXTENSION pg_search UPDATE TO '0.25.11';

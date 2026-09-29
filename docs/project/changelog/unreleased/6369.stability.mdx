@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Filters that compare a `NUMERIC(p, s)` column with `p` of 18 or less to a literal carrying more decimal places than `s`, such as `price = 10.005` on a `numeric(10,2)` column, now return the same rows as PostgreSQL. The pushed-down query used to round the literal to the column's scale first, so equality and range filters could match the wrong rows.

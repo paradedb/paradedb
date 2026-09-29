@@ -15,7 +15,7 @@ In a highly available configuration, ParadeDB deploys as a cluster of Postgres i
 
 If the primary server goes down, a standby server is promoted to become the new primary server. This process is called failover.
 
-## Synchronous Replication
+## Standby Configuration
 
 ParadeDB requires the following settings on standby instances to prevent query cancellations while the primary reorganizes index data. Our [Helm Chart](/operate/deploy/self-hosted/kubernetes#deploy-with-the-helm-chart) configures these settings automatically.
 

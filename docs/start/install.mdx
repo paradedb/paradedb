@@ -61,15 +61,13 @@ shared_preload_libraries = 'pg_search'
 
 If other libraries are already listed, keep them and append `pg_search` to the comma-separated list. Stop and start the Postgres server to apply the change.
 
-Double-click a database to open a new `psql` session, then create your tutorial database and enable ParadeDB:
+Connect to your database via `psql` and enable ParadeDB:
 
 ```sql
-CREATE DATABASE paradedb;
-\c paradedb
 CREATE EXTENSION pg_search CASCADE;
 ```
 
-Postgres.app includes pgvector, which `CASCADE` enables automatically. When connecting your app, use `localhost:5432`, database `paradedb`, your macOS username, and no password by default.
+Postgres.app includes pgvector, which `CASCADE` enables automatically. When connecting your app, use your database name and connection credentials.
 
 </Tab>
 </Tabs>

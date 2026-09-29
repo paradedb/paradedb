@@ -17,7 +17,7 @@ If the primary server goes down, a standby server is promoted to become the new 
 
 ## Synchronous Replication
 
-Between physical replicas, ParadeDB requires the use of a few settings (which are automatically set by our [Helm Chart](/operate/deploy/self-hosted/kubernetes#deploy-with-the-helm-chart)) in order to avoid query cancellation due to ongoing reorganization of the data on the primary replica.
+ParadeDB requires the following settings on standby instances to prevent query cancellations while the primary reorganizes index data. Our [Helm Chart](/operate/deploy/self-hosted/kubernetes#deploy-with-the-helm-chart) configures these settings automatically.
 
 - `hot_standby_feedback=on` — The [`hot_standby_feedback`](https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-HOT-STANDBY-FEEDBACK) setting controls whether nodes acting as `hot_standby`s (the replicas in physical replication) send feedback to the leader about their current transaction status. ParadeDB uses this transaction status to determine when it is safe for the primary to garbage collect its segments.
 - `primary_slot_name=$something` — The [`primary_slot_name`](https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-PRIMARY-SLOT-NAME) setting declares the name of the replication slot that a replica should use when it connects to the primary. In order for `hot_standby_feedback` to be used and persistent, a replication slot must be used.

@@ -63,7 +63,7 @@ The initial copy is complete when every replicated table is in state `r`
 Once the replicated tables are caught up, create ParadeDB indexes locally on the ParadeDB logical replica:
 
 ```sql
-CREATE INDEX mock_items_bm25_idx ON public.mock_items
+CREATE INDEX mock_items_search_idx ON public.mock_items
 USING paradedb (id, description, category, rating)
 WITH (key_field='id');
 ```

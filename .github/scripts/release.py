@@ -607,6 +607,7 @@ def update_version_snippet(repo_root, clean_ver):
         f.write(content)
     print(f"✅ Updated {snippet_file} with version '{clean_ver}'")
     update_installation_version(repo_root, clean_ver)
+    update_kubernetes_version(repo_root, clean_ver)
 
 
 def update_installation_version(repo_root, clean_ver):
@@ -626,6 +627,25 @@ def update_installation_version(repo_root, clean_ver):
         content,
     )
     install_file.write_text(content, encoding="utf-8")
+
+
+def update_kubernetes_version(repo_root, clean_ver):
+    """Update ParadeDB extension image examples without changing pgvector."""
+    kubernetes_file = repo_root / "docs/operate/deploy/self-hosted/kubernetes.mdx"
+    if not kubernetes_file.exists():
+        return
+
+    semver = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
+    patterns = [
+        rf"(paradedb/paradedb-extension:){semver}",
+        rf'(- name: pg_search\s+version: "){semver}',
+        rf"(For example, use `){semver}(?=-\d+-trixie`)",
+        rf"(for ParadeDB `){semver}(?=`)",
+    ]
+    content = kubernetes_file.read_text(encoding="utf-8")
+    for pattern in patterns:
+        content = re.sub(pattern, lambda match: match[1] + clean_ver, content)
+    kubernetes_file.write_text(content, encoding="utf-8")
 
 
 def assemble_changelog_files(

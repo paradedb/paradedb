@@ -136,8 +136,6 @@ Use the ParadeDB extension image to add ParadeDB to an existing CloudNativePG cl
 
 `pg_search` requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource:
 
-import { version } from "/snippets/version.mdx";
-
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -160,7 +158,7 @@ spec:
           reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-18-trixie
       - name: pg_search
         image:
-          reference: docker.io/paradedb/paradedb-extension:{version}-18-trixie
+          reference: docker.io/paradedb/paradedb-extension:0.25.10-18-trixie
         extension_control_path:
           - share
         dynamic_library_path:
@@ -184,8 +182,8 @@ spec:
   extensions:
     - name: vector
     - name: pg_search
-      version: "{version}"
+      version: "0.25.10"
 ```
 
 The extension image tag format is `<paradedb-version>-<postgres-major>-trixie`.
-For example, use `{version}-18-trixie` for ParadeDB `{version}` on Postgres 18.
+For example, use `0.25.10-18-trixie` for ParadeDB `0.25.10` on Postgres 18.

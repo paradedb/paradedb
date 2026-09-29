@@ -33,7 +33,9 @@ use pgrx::pg_sys;
 
 use crate::api::FieldName;
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::stats::persisted_split_points;
+use crate::index::stats::{
+    SegmentBox, box_edges, cut_docs, persisted_segment_boxes, persisted_split_points,
+};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::range_partitioning::RangeSplitPoints;
@@ -532,6 +534,13 @@ fn named_field_arrow_type(
 
 /// Computes shared split points for two tables joining on matching types.
 /// Returns `None` if types don't match or neither side has split points.
+///
+/// When both sides have boxes, the join cuts on the edges that land inside the fewest
+/// documents per cut, over both sides. One side's edges leave that side whole, so the cost is
+/// what they cut on the other side, and a side whose boxes are nested (a `partition_by` with
+/// the join key first) is cheap to cut around even when it is the larger scan. The cost is an
+/// average over every edge because the task count, which picks the edges that become cuts,
+/// is not known until the plan is scaled.
 fn compute_shared_points(
     l_provider: &PgSearchTableProvider,
     l_field: &FieldName,
@@ -548,19 +557,44 @@ fn compute_shared_points(
         return Ok(None);
     }
 
-    let points = match (
-        side_split_points(l_provider, l_field)?,
-        side_split_points(r_provider, r_field)?,
-    ) {
+    let l_boxes = side_segment_boxes(l_provider, l_field)?;
+    let r_boxes = side_segment_boxes(r_provider, r_field)?;
+    let edges = |boxes: &Option<Vec<SegmentBox>>| {
+        boxes
+            .as_deref()
+            .map(box_edges)
+            .filter(|points| !points.is_empty())
+    };
+    let points = match (edges(&l_boxes), edges(&r_boxes)) {
         (Some(l_points), Some(r_points)) => {
+            let boxes = || l_boxes.iter().chain(r_boxes.iter()).flatten();
+            // Documents cut per edge, compared without the division: l/|l| < r/|r|.
+            let l_cut = u128::from(cut_docs(boxes(), &l_points)) * r_points.len() as u128;
+            let r_cut = u128::from(cut_docs(boxes(), &r_points)) * l_points.len() as u128;
             let l_rows = l_provider.scan_info.estimate.as_planner_estimate();
             let r_rows = r_provider.scan_info.estimate.as_planner_estimate();
-            if r_rows > l_rows { r_points } else { l_points }
+            // At a tie, the larger side keeps its segments whole.
+            if r_cut < l_cut || (r_cut == l_cut && r_rows > l_rows) {
+                r_points
+            } else {
+                l_points
+            }
         }
         (Some(points), None) | (None, Some(points)) => points,
         (None, None) => return Ok(None),
     };
     Ok(Some(points))
+}
+
+/// The boxes a partitioned build stamped on the side's segments, projected onto
+/// `partition_by`, or `None` for an index without any.
+fn side_segment_boxes(
+    provider: &PgSearchTableProvider,
+    partition_by: &FieldName,
+) -> Result<Option<Vec<SegmentBox>>> {
+    let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
+    persisted_segment_boxes(&index_rel, partition_by.as_ref())
+        .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))
 }
 
 /// The split points a partitioned build stamped on the side's segments, sorted ascending, or

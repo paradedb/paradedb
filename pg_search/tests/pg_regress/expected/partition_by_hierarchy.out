@@ -3,7 +3,9 @@
 -- each later field inside the ranges of the fields before it. A range
 -- co-partitioned join on the first field therefore reaches whole segments
 -- only (`partial=0`), while a join on a later field still crosses segment
--- boxes. A `field=N` count fixes how many ranges a field is cut into.
+-- boxes. The join cuts on whichever side's edges land inside the fewest
+-- documents, not on the larger side's. A `field=N` count fixes how many
+-- ranges a field is cut into.
 -- =====================================================================
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_join_custom_scan TO on;
@@ -32,8 +34,11 @@ ANALYZE pbh_comments;
 CREATE INDEX pbh_users_idx ON pbh_users USING paradedb (id, display_name)
 WITH (partition_by = 'id', target_segment_count = 4);
 WARNING:  only 0 parallel workers were available for index build
+-- Comments segments are half the size of posts segments, so cutting on a posts
+-- edge, which lands inside one comments segment, is cheaper than cutting on a
+-- comments edge, which lands inside one or more posts segments.
 CREATE INDEX pbh_comments_idx ON pbh_comments USING paradedb (id, post_id, body)
-WITH (partition_by = 'post_id', target_segment_count = 4);
+WITH (partition_by = 'post_id', target_segment_count = 8);
 WARNING:  only 0 parallel workers were available for index build
 -- =====================================================================
 -- Default layout: `id` is cut into four global ranges, `owner_user_id`
@@ -50,11 +55,12 @@ SELECT count(*) AS segments FROM paradedb.index_info('pbh_posts_idx');
 
 SET max_parallel_workers_per_gather TO 3;
 -- A join on the first field: every posts segment is whole in its task. The
--- posts side is the larger scan, so the join takes its split points.
+-- comments scan is the larger one, but its edges would land inside the posts
+-- boxes, so the join cuts on the posts edges and comments takes the partials.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
                                                                                                                                                            QUERY PLAN                                                                                                                                                           
@@ -72,37 +78,37 @@ LIMIT 10;
      : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 1 ── tasks=3, partitions=3
-     :   │ SortExec: TopK(fetch=10), expr=[post_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │ SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[p, c]
-     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(post_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, post_id@1, id@2]
+     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, post_id@1)]
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=2, pruned=1}, partition=post_id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t1: PgSearchScan: table=c, segments={partial=2, included=0, pruned=2}, partition=post_id[8001..12001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t2: PgSearchScan: table=c, segments={partial=1, included=0, pruned=3}, partition=post_id[12001..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=4, pruned=4}, partition=id[-∞..8001), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=0, included=2, pruned=6}, partition=id[8001..12001), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=0, included=2, pruned=6}, partition=id[12001..∞), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=4, pruned=4}, partition=id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t1: PgSearchScan: table=p, segments={partial=0, included=2, pruned=6}, partition=id[8001..12001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t2: PgSearchScan: table=p, segments={partial=0, included=2, pruned=6}, partition=id[12001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=4, pruned=3}, partition=post_id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=c, segments={partial=2, included=1, pruned=5}, partition=post_id[8001..12001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=c, segments={partial=1, included=1, pruned=6}, partition=post_id[12001..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
 (25 rows)
 
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
  id |  id  
 ----+------
-  2 | 3369
   3 | 6738
   6 |  845
-  7 | 4214
-  8 | 7583
- 11 | 1690
  12 | 5059
- 16 | 2535
- 17 | 5904
- 20 |   11
+ 21 | 3380
+ 27 | 7594
+ 30 | 1701
+ 36 | 5915
+ 39 |   22
+ 45 | 4236
+ 54 | 2557
 (10 rows)
 
 -- A join on the second field: its ranges differ from one `id` range to the
@@ -178,7 +184,7 @@ SELECT count(*) AS segments FROM paradedb.index_info('pbh_posts_idx');
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
                                                                                                                                                            QUERY PLAN                                                                                                                                                           
@@ -196,37 +202,37 @@ LIMIT 10;
      : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 1 ── tasks=3, partitions=3
-     :   │ SortExec: TopK(fetch=10), expr=[post_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │ SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[p, c]
-     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(post_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, post_id@1, id@2]
+     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, post_id@1)]
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=1, pruned=2}, partition=post_id[-∞..6001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t1: PgSearchScan: table=c, segments={partial=2, included=0, pruned=2}, partition=post_id[6001..10001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t2: PgSearchScan: table=c, segments={partial=1, included=1, pruned=2}, partition=post_id[10001..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=3, pruned=5}, partition=id[-∞..6001), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=0, included=2, pruned=6}, partition=id[6001..10001), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=0, included=3, pruned=5}, partition=id[10001..∞), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=3, pruned=5}, partition=id[-∞..6001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t1: PgSearchScan: table=p, segments={partial=0, included=2, pruned=6}, partition=id[6001..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t2: PgSearchScan: table=p, segments={partial=0, included=3, pruned=5}, partition=id[10001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=3, pruned=4}, partition=post_id[-∞..6001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=c, segments={partial=2, included=1, pruned=5}, partition=post_id[6001..10001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=c, segments={partial=1, included=2, pruned=5}, partition=post_id[10001..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
 (25 rows)
 
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
  id |  id  
 ----+------
-  2 | 3369
   3 | 6738
   6 |  845
-  7 | 4214
-  8 | 7583
- 11 | 1690
  12 | 5059
- 16 | 2535
- 17 | 5904
- 20 |   11
+ 21 | 3380
+ 27 | 7594
+ 30 | 1701
+ 36 | 5915
+ 39 |   22
+ 45 | 4236
+ 54 | 2557
 (10 rows)
 
 -- =====================================================================
@@ -246,7 +252,7 @@ SELECT count(*) AS segments FROM paradedb.index_info('pbh_posts_idx');
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
                                                                                                                                                          QUERY PLAN                                                                                                                                                          
@@ -264,35 +270,35 @@ LIMIT 10;
      : │     [Stage 1] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 1 ── tasks=2, partitions=2
-     :   │ SortExec: TopK(fetch=10), expr=[post_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │ SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[p, c]
-     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(post_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, post_id@1, id@2]
+     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, post_id@1)]
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=2, pruned=1}, partition=post_id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t1: PgSearchScan: table=c, segments={partial=1, included=1, pruned=2}, partition=post_id[8001..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=4, pruned=4}, partition=id[-∞..8001), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=0, included=4, pruned=4}, partition=id[8001..∞), query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=4, pruned=4}, partition=id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t1: PgSearchScan: table=p, segments={partial=0, included=4, pruned=4}, partition=id[8001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=4, pruned=3}, partition=post_id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=c, segments={partial=1, included=3, pruned=4}, partition=post_id[8001..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
 (23 rows)
 
 SELECT p.id, c.id
 FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
-WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
  id |  id  
 ----+------
-  2 | 3369
   3 | 6738
   6 |  845
-  7 | 4214
-  8 | 7583
- 11 | 1690
  12 | 5059
- 16 | 2535
- 17 | 5904
- 20 |   11
+ 21 | 3380
+ 27 | 7594
+ 30 | 1701
+ 36 | 5915
+ 39 |   22
+ 45 | 4236
+ 54 | 2557
 (10 rows)
 
 -- =====================================================================

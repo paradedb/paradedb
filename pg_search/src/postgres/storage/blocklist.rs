@@ -453,7 +453,7 @@ pub mod reader {
         }
 
         fn read_next_page(&mut self, bman: &BufferManager) {
-            let block = bman.get_buffer(self.next_blockno);
+            let block = read_map_page(bman, self.next_blockno);
             let page = block.page();
             let mut bytes = page.as_slice();
             while !bytes.is_empty() {
@@ -489,6 +489,15 @@ pub mod reader {
         }
     }
 
+    fn read_map_page(
+        bman: &BufferManager,
+        block: pg_sys::BlockNumber,
+    ) -> crate::postgres::storage::buffer::Buffer {
+        #[cfg(feature = "io_stats")]
+        let _scope = crate::index::reader::io_stats::trace::block_map();
+        bman.get_buffer(block)
+    }
+
     struct MappingReader<'a>(&'a BufferManager);
 
     impl PageReader<u32, u32> for MappingReader<'_> {
@@ -499,13 +508,13 @@ pub mod reader {
             address: u32,
             _bounds: Bounds<u32>,
         ) -> Result<Arc<Node<u32, u32>>, InvalidNode> {
-            let buffer = self.0.get_buffer(address);
+            let buffer = read_map_page(self.0, address);
             let directory = Directory::decode(buffer.page().as_slice()).ok_or(InvalidNode)?;
             Ok(directory.node)
         }
 
         fn read_leaf(&self, address: u32, bounds: Bounds<u32>) -> Result<MappingPage, InvalidNode> {
-            let buffer = self.0.get_buffer(address);
+            let buffer = read_map_page(self.0, address);
             let mapping =
                 MappingPage::new(bounds.start as usize, buffer.page().as_slice().to_vec());
             if bounds

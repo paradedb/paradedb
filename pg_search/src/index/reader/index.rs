@@ -80,6 +80,7 @@ pub struct DocsEstimate {
     pub matching_docs: usize,
     pub total_docs: u64,
     pub query_cost: u64,
+    pub total_segments: usize,
 }
 
 /// A count-only summary of the pruning proof for this reader's execution snapshot.
@@ -1848,6 +1849,7 @@ impl SearchIndexReader {
                     matching_docs: 0,
                     total_docs: 0,
                     query_cost: 0,
+                    total_segments: self.total_segment_count,
                 };
             }
             x => {
@@ -1858,19 +1860,26 @@ impl SearchIndexReader {
             }
         }
         let largest_reader = self.searcher.segment_reader(0);
-        let weight = self.weight();
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("counting docs in the largest segment should not fail");
-
-        // investigate the size_hint.  it will often give us a good enough value
-        let mut count = scorer.size_hint() as usize;
-        let mut cost = scorer.cost();
-        if count == 0 {
-            // but when it doesn't, we need to do a full count
-            count = scorer.count_including_deleted() as usize;
-            cost = cost.max(count as u64);
-        }
+        let (count, mut cost) = match self
+            .query
+            .estimate_docs(largest_reader)
+            .expect("estimating docs from term metadata should not fail")
+        {
+            Some((count, cost)) => (count as usize, cost),
+            None => {
+                let weight = self.weight();
+                let mut scorer = weight
+                    .scorer(largest_reader, 1.0)
+                    .expect("counting docs in the largest segment should not fail");
+                let mut count = scorer.size_hint() as usize;
+                let mut cost = scorer.cost();
+                if count == 0 {
+                    count = scorer.count_including_deleted() as usize;
+                    cost = cost.max(count as u64);
+                }
+                (count, cost)
+            }
+        };
         if let Some(shortest_posting_list) = self.shortest_posting_list(largest_reader) {
             cost = cost.max(shortest_posting_list);
         }
@@ -1888,6 +1897,7 @@ impl SearchIndexReader {
                 as usize,
             total_docs,
             query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
+            total_segments: self.total_segment_count,
         }
     }
 

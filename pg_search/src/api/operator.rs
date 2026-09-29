@@ -74,6 +74,7 @@ mod eqeqeq;
 pub(crate) mod fuzzy;
 mod hashhashhash;
 mod ororor;
+pub(crate) mod planning;
 mod proximity;
 mod rewrite;
 mod searchqueryinput;
@@ -665,20 +666,17 @@ fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<DocsEstimate> {
-    let heap_rel = indexrel
-        .heap_relation()
-        .expect("indexrel should be an index");
-    let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
+    planning::estimate(indexrel.oid(), search_query_input, |query| {
+        let heap_rel = indexrel
+            .heap_relation()
+            .expect("indexrel should be an index");
+        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
-    let search_reader = SearchIndexReader::open(
-        indexrel,
-        search_query_input,
-        false,
-        MvccSatisfies::LargestSegment,
-    )
-    .ok()?;
+        let search_reader =
+            SearchIndexReader::open(indexrel, query, false, MvccSatisfies::LargestSegment).ok()?;
 
-    Some(search_reader.estimate_docs(row_estimate))
+        Some(search_reader.estimate_docs(row_estimate))
+    })
 }
 
 /// One index open, both planning answers: selectivity (matching/total docs) and the

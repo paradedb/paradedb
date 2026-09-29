@@ -25,21 +25,6 @@ The Blueprint automatically:
 2. Attaches a 10 GB persistent disk for your database data, mounted at `/var/lib/postgresql`.
 3. Sets up `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` environment variables.
 
-## Manual Setup
-
-If you prefer to configure the deployment yourself:
-
-1. Click **Use this template** at the top of the [render-blueprint](https://github.com/paradedb/render-blueprint) repository to create your own copy (or fork it).
-2. In the Render dashboard, create a new **Private Service** using the **Existing Image** runtime, pointing at `docker.io/paradedb/paradedb:latest` (or your preferred [tag](https://hub.docker.com/r/paradedb/paradedb/tags)).
-3. Attach a **Disk** of at least 10 GB mounted at `/var/lib/postgresql`.
-4. Set the following environment variables:
-
-| Variable            | Description       | Default        |
-| ------------------- | ----------------- | -------------- |
-| `POSTGRES_USER`     | Database user     | `postgres`     |
-| `POSTGRES_PASSWORD` | Database password | Auto-generated |
-| `POSTGRES_DB`       | Database name     | `paradedb`     |
-
 ## Connecting to ParadeDB
 
 ParadeDB runs as a **private service** on Render, which means it is not exposed to the public internet.

@@ -103,16 +103,10 @@ paradedb/paradedb
 
 ## Connect to the Cluster
 
-The command to connect to the primary instance of the cluster will be printed in your terminal. If you do not modify any settings, it will be:
+Connect to the cluster via `kubectl exec`:
 
 ```bash
-kubectl --namespace paradedb exec --stdin --tty services/paradedb-rw -- bash
-```
-
-This will launch a Bash shell inside the instance. You can connect to the ParadeDB database via `psql` with:
-
-```bash
-psql -d paradedb
+kubectl exec service/paradedb-rw -n paradedb -it -- psql
 ```
 
 ## Connect to the Grafana Dashboard

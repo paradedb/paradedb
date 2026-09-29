@@ -132,13 +132,9 @@ The dashboard will be accessible at `localhost:3000` under username `admin` and 
 
 ## Use the Extension Image with CloudNativePG
 
-If you already run a CloudNativePG cluster and want to add ParadeDB to an
-existing Postgres image, use the ParadeDB extension image instead of the full
-`paradedb/paradedb` image. Extension images require Postgres 18+ because they
-depend on `extension_control_path`.
+Use the ParadeDB extension image to add ParadeDB to an existing CloudNativePG cluster without rebuilding your Postgres image. This requires Postgres 18+ and Kubernetes support for image volumes. See the [CloudNativePG extension image guide](https://cloudnative-pg.io/docs/1.28/imagevolume_extensions/) for requirements and configuration details.
 
-Add the `pg_search` extension image to the `postgresql.extensions` section of
-your CloudNativePG `Cluster` resource:
+Add the `pg_search` extension image to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource:
 
 import { version } from "/snippets/version.mdx";
 
@@ -167,7 +163,7 @@ spec:
           - /lib
 ```
 
-Then enable the extension in a database:
+Then enable `pg_search` in your database using a `Database` resource:
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1

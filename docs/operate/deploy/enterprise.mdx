@@ -22,49 +22,33 @@ ParadeDB Enterprise adds commercial licensing, support, and physical replication
 
 ## Feature Comparison
 
-| Feature                                              | ParadeDB Community | ParadeDB Enterprise |
-| ---                                                  | ---                | ---                 |
-| **Index Configuration**                              |                    |                     |
-| Support for most Postgres types                      | ✅                  | ✅                   |
-| Direct indexing of text columns                      | ✅                  | ✅                   |
-| Columnar indexing                                    | ✅                  | ✅                   |
-| Partial and expression indexes                       | ✅                  | ✅                   |
-| **Text Analysis**                                    |                    |                     |
-| Configurable tokenizers and filters                  | ✅                  | ✅                   |
-| Multiple tokenizers per field                        | ✅                  | ✅                   |
-| Multilingual tokenization                            | ✅                  | ✅                   |
-| [Stemming](/reference/token-filters/stemming)        | ✅                  | ✅                   |
-| Stop word removal                                    | ✅                  | ✅                   |
-| Case and accent normalization                        | ✅                  | ✅                   |
-| **Search**                                           |                    |                     |
-| Full-text search with BM25                           | ✅                  | ✅                   |
-| Boolean queries (AND, OR, NOT)                       | ✅                  | ✅                   |
-| Phrase and proximity search                          | ✅                  | ✅                   |
-| Fuzzy and regex search                               | ✅                  | ✅                   |
-| Relevance tuning and boosting                        | ✅                  | ✅                   |
-| Highlighting and snippets                            | ✅                  | ✅                   |
-| Query string parsing                                 | ✅                  | ✅                   |
-| Vector search                                        | ✅                  | ✅                   |
-| Hybrid search                                        | ✅                  | ✅                   |
-| Sorting and Top K                                    | ✅                  | ✅                   |
-| Filtering                                            | ✅                  | ✅                   |
-| Join pushdown                                        | ✅                  | ✅                   |
-| Aggregates and facets                                | ✅                  | ✅                   |
-| **Concurrency and Consistency**                      |                    |                     |
-| Postgres MVCC-safe<sup>1</sup>                       | ✅                  | ✅                   |
-| Concurrent, non-blocking writes                      | ✅                  | ✅                   |
-| Block storage integration                            | ✅                  | ✅                   |
-| Buffer cache integration<sup>2</sup>                 | ✅                  | ✅                   |
-| **Deployment <sup>3</sup>**                          |                    |                     |
-| Logical replication ingestion                        | ✅                  | ✅                   |
-| Crash recovery                                       | ✅                  | ✅                   |
-| Point-in-time recovery                               | ✅                  | ✅                   |
-| Physical replication of ParadeDB indexes<sup>4</sup> | ❌                  | ✅                   |
-| High availability and failover for ParadeDB indexes  | ❌                  | ✅                   |
-| Read replicas for ParadeDB queries                   | ❌                  | ✅                   |
-| **Licensing and Support**                            |                    |                     |
-| Commercial licensing                                 | ❌                  | ✅                   |
-| Enterprise support                                   | ❌                  | ✅                   |
+| Feature                                         | ParadeDB Community | ParadeDB Enterprise |
+| ----------------------------------------------- | ------------------ | ------------------- |
+| **Index Configuration**                         |                    |                     |
+| Support for most Postgres types                 | ✅                  | ✅                   |
+| Custom tokenizers and filters                   | ✅                  | ✅                   |
+| Multiple tokenizers per field                   | ✅                  | ✅                   |
+| Stemming and multilingual text analysis         | ✅                  | ✅                   |
+| Columnar, partial, and expression indexes       | ✅                  | ✅                   |
+| **Search**                                      |                    |                     |
+| Full-text search with BM25                      | ✅                  | ✅                   |
+| Fuzzy, phrase, proximity, and regex search      | ✅                  | ✅                   |
+| Relevance tuning and highlighting               | ✅                  | ✅                   |
+| Vector search                                   | ✅                  | ✅                   |
+| Hybrid search                                   | ✅                  | ✅                   |
+| Sorting and Top K                               | ✅                  | ✅                   |
+| Filtering                                       | ✅                  | ✅                   |
+| Join pushdown                                   | ✅                  | ✅                   |
+| Aggregates and facets                           | ✅                  | ✅                   |
+| **Concurrency and Consistency**                 |                    |                     |
+| Postgres MVCC-safe<sup>1</sup>                  | ✅                  | ✅                   |
+| Concurrent, non-blocking writes                 | ✅                  | ✅                   |
+| Block storage integration                       | ✅                  | ✅                   |
+| Buffer cache integration<sup>2</sup>            | ✅                  | ✅                   |
+| **Deployment <sup>3</sup>**                     |                    |                     |
+| Crash recovery                                  | ✅                  | ✅                   |
+| Point-in-time recovery                          | ✅                  | ✅                   |
+| High availability and read replicas<sup>4</sup> | ❌                  | ✅                   |
 
 <Info>
 **Footnotes**

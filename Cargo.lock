@@ -2109,7 +2109,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "4.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-09-19-045947#3e711f71eeb266824619f27aef7d1a60b6a704ee"
+source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-09-28-172238#1e87c8d6bd266594ec9210f42ed783d8847aedeb"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2127,7 +2127,6 @@ dependencies = [
  "log",
  "moka",
  "num-traits",
- "object_store",
  "pin-project",
  "prost",
  "rand 0.9.5",

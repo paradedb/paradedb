@@ -26,62 +26,89 @@ ParadeDB provides prebuilt binaries of our extension for Postgres 15+ on:
 
 The prebuilt releases can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases). To request access to prebuilt binaries for ParadeDB Enterprise, [contact sales](mailto:sales@paradedb.com).
 
-<Note>
-  The commands below use the current ParadeDB release. Adjust the ParadeDB version,
-  Postgres major version, and CPU architecture in the download URL to match your setup.
-</Note>
+<Tabs>
+
+<Tab title="Debian">
+
+Packages are available for `amd64` and `arm64`. The examples use `amd64`; for ARM, replace it with `arm64` in the download URL. The examples use the current ParadeDB release and Postgres 18; adjust these versions in the download URL to match your setup.
 
 <CodeGroup>
 
 ```bash Debian 12
-# Available arch versions are amd64, arm64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash Debian 13
-# Available arch versions are amd64, arm64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-trixie_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
+</CodeGroup>
+
+</Tab>
+
+<Tab title="Ubuntu">
+
+Packages are available for `amd64` and `arm64`. The examples use `amd64`; for ARM, replace it with `arm64` in the download URL. The examples use the current ParadeDB release and Postgres 18; adjust these versions in the download URL to match your setup.
+
+<CodeGroup>
+
 ```bash Ubuntu 24.04
-# Available arch versions are amd64, arm64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-noble_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash Ubuntu 26.04
-# Available arch versions are amd64, arm64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/postgresql-18-pg-search_0.25.10-1PARADEDB-resolute_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
+</CodeGroup>
+
+</Tab>
+
+<Tab title="RHEL">
+
+Packages are available for `x86_64` and `aarch64`. The examples use `x86_64`; for ARM, replace it with `aarch64` in the download URL. The examples use the current ParadeDB release and Postgres 18; adjust these versions in the download URL to match your setup.
+
+<CodeGroup>
+
 ```bash RHEL 9
-# Available arch versions are x86_64, aarch64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_search_18-0.25.10-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_search.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 
 ```bash RHEL 10
-# Available arch versions are x86_64, aarch64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_search_18-0.25.10-1PARADEDB.el10.x86_64.rpm" -o /tmp/pg_search.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 
+</CodeGroup>
+
+</Tab>
+
+<Tab title="macOS">
+
+Packages are available for Apple Silicon (`arm64`) only. The examples use the current ParadeDB release and Postgres 18; adjust these versions in the download URL to match your setup.
+
+<CodeGroup>
+
 ```bash macOS 15 (Sequoia)
-# Available arch version is arm64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_search@18--0.25.10.arm64_sequoia.pkg" -o ~/Downloads/pg_search.pkg
 sudo installer -pkg ~/Downloads/pg_search.pkg -target /
 ```
 
 ```bash macOS 26 (Tahoe)
-# Available arch version is arm64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.25.10/pg_search@18--0.25.10.arm64_tahoe.pkg" -o ~/Downloads/pg_search.pkg
 sudo installer -pkg ~/Downloads/pg_search.pkg -target /
 ```
 
 </CodeGroup>
+
+</Tab>
+
+</Tabs>
 
 ## Update `postgresql.conf`
 

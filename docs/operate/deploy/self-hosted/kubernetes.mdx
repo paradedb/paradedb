@@ -138,7 +138,7 @@ The dashboard will be accessible at `localhost:3000` under username `admin` and 
 
 ## Use the Extension Image with CloudNativePG
 
-Use the ParadeDB extension image to add ParadeDB to an existing CloudNativePG cluster without rebuilding your Postgres image.
+The ParadeDB extension image uses CloudNativePG's [image volume support](https://cloudnative-pg.io/docs/1.28/imagevolume_extensions/) to load ParadeDB into your Postgres cluster.
 
 ### Prerequisites
 

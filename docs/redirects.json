@@ -468,10 +468,6 @@
     "destination": "/operate/deploy/upgrading"
   },
   {
-    "source": "/deploy/third-party-extensions",
-    "destination": "/operate/deploy/third-party-extensions"
-  },
-  {
     "source": "/deploy/citus",
     "destination": "/reference/sharding/citus"
   },

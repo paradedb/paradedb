@@ -302,8 +302,7 @@
               {
                 "group": "Administration",
                 "pages": [
-                  "operate/deploy/upgrading",
-                  "operate/deploy/third-party-extensions"
+                  "operate/deploy/upgrading"
                 ]
               },
               {

@@ -10,7 +10,7 @@
 </h1>
 
 <p align="center">
-  <b>Just use Postgres</b><br/>
+  <b>Just use Postgres.</b><br/>
   One Postgres for your application data, full-text search, vector retrieval, and aggregations.
 </p>
 

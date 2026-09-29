@@ -16,8 +16,6 @@ to install it on the server before installing `pg_search`.
 
 ## Install the ParadeDB Postgres Extension
 
-### ParadeDB Community
-
 ParadeDB provides prebuilt binaries of our extension for Postgres 15+ on:
 
 - Debian 12 (Bookworm) and 13 (Trixie)
@@ -26,9 +24,9 @@ ParadeDB provides prebuilt binaries of our extension for Postgres 15+ on:
 - macOS 15 (Sequoia) and 26 (Tahoe)
 - macOS via [Postgres.app](https://postgresapp.com/extensions/) (Postgres 18)
 
-If you are using a different version of Postgres or a different operating system, you will need to build the extension from source.
-
 The prebuilt releases can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases).
+
+To request access to prebuilt binaries for ParadeDB Enterprise, [contact sales](mailto:sales@paradedb.com).
 
 <Note>
   The commands below use the current release. You can substitute another
@@ -86,10 +84,6 @@ sudo installer -pkg ~/Downloads/pg_search.pkg -target /
 ```
 
 </CodeGroup>
-
-### ParadeDB Enterprise
-
-[ParadeDB Cloud](/operate/deploy/cloud) deploys the [ParadeDB Enterprise](/operate/deploy/enterprise) image. To self-host ParadeDB Enterprise as an extension, please [contact sales](mailto:sales@paradedb.com) for the enterprise binaries.
 
 ## Update `postgresql.conf`
 

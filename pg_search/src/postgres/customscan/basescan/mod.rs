@@ -85,6 +85,7 @@ use crate::postgres::customscan::{
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::serializable::predicate_lock_read;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
     filter_implied_predicates, is_unnest_func, missing_partial_index_predicate,
@@ -123,6 +124,12 @@ impl BaseScan {
         let wrapper_start = std::time::Instant::now();
         let executor_scan_init_ns =
             std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
+        // The read starts here, not at node init: a node that is initialized and never executed
+        // (`LIMIT 0`, an unreached inner side) reads nothing and owes SSI nothing.
+        predicate_lock_read(state.custom_state().heaprel(), unsafe {
+            (*state.csstate.ss.ps.state).es_snapshot
+        });
+
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
         state

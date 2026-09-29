@@ -12,13 +12,11 @@ canonical: https://www.paradedb.com/docs/operate/deploy/logical-replication/gett
 
 Logical replication lets you deploy ParadeDB alongside your existing Postgres infrastructure, including managed Postgres services like AWS RDS, Google Cloud SQL, and others. Your application continues writing to your primary database while ParadeDB receives those changes and serves search and analytics queries. This provides a way to get started without changing your current setup, with the option to migrate to ParadeDB Cloud later.
 
-This deployment model is useful when:
+This deployment approach lets you:
 
-- Your primary Postgres runs on a managed service such as AWS RDS, Aurora,
-  Cloud SQL, AlloyDB, or Azure Database for PostgreSQL
-- You want search and analytics queries to run away from your OLTP workload
-- You want to keep Postgres as the system of record and add ParadeDB as a
-  dedicated read and search node
+- **Add search without migrating.** Run ParadeDB alongside an existing Postgres service, such as AWS RDS, while your application continues writing to its current database.
+- **Keep indexing off your OLTP write path.** With asynchronous logical replication, transactions commit without waiting for ParadeDB to index the changes. Search results are eventually consistent with your primary database.
+- **Start alongside your existing infrastructure and consolidate later.** Evaluate ParadeDB at scale before choosing to bring your transactional and search workloads together in a single Postgres cluster.
 
 <Warning>
   Logical replication copies row changes, not schema changes or indexes. The

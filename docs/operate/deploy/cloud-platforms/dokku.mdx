@@ -34,7 +34,7 @@ Set the database password as a Dokku config var so it never lives in a Docker im
 
 ```bash
 dokku config:set paradedb \
-  POSTGRES_PASSWORD=<YOUR_STRONG_PASSWORD> \
+  POSTGRES_PASSWORD=<PASSWORD> \
   POSTGRES_USER=postgres \
   POSTGRES_DB=paradedb
 ```
@@ -64,7 +64,7 @@ See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for a
 From any machine that can reach your Dokku host on port 5432:
 
 ```bash
-psql "postgres://postgres:<YOUR_STRONG_PASSWORD>@<DOKKU_HOST>:5432/paradedb"
+psql "postgres://postgres:<PASSWORD>@<DOKKU_HOST>:5432/paradedb"
 ```
 
 Replace `<DOKKU_HOST>` with your Dokku host's IP or hostname.

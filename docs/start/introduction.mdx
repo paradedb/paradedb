@@ -7,7 +7,7 @@ canonical: https://www.paradedb.com/docs/start/introduction
 
 import { Architecture } from "/snippets/architecture.jsx";
 
-When Postgres queries get too slow, developers usually reach for systems like Elasticsearch. ParadeDB makes text and vector search, filters, facets, and joins fast in Postgres, so it can keep scaling with you.
+When Postgres queries get too slow, developers usually reach for systems like Elasticsearch. ParadeDB makes text and vector search, filters, facets, and joins fast in Postgres, so you can keep scaling with it.
 
 ParadeDB accelerates these queries with a custom index, delivered through the `pg_search` extension. It runs inside standard Postgres, with no fork or sidecar process.
 
@@ -27,7 +27,7 @@ Keep scaling with Postgres as your queries and workloads grow more demanding.
 
 ### No Second System
 
-External search engines and vector stores make you own sync jobs, duplicated schemas, freshness checks, and cross-system failures. ParadeDB keeps these workloads in Postgres, so index updates happen with your writes and queries run against your source of truth data.
+With external search engines and vector stores, you have to manage sync jobs, duplicated schemas, freshness checks, and failures across systems. ParadeDB keeps these workloads in Postgres, so index updates happen with your writes and queries run directly against your application data.
 
 ### Postgres-Native Developer Experience
 

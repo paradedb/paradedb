@@ -537,6 +537,7 @@
                 "group": "Resources",
                 "pages": [
                   "project/support",
+                  "project/resources/slack",
                   "project/resources/blog",
                   "project/resources/learn"
                 ]

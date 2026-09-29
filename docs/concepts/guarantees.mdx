@@ -18,7 +18,7 @@ whereas writes can be improved by increasing [per-statement memory](/operate/per
 
 ### Correctness vs. Performance
 
-By default, ParadeDB favors correctness, even when it comes at the cost of slower query execution. For [facets](/reference/aggregates/facets), transaction visibility filtering is enabled by default. If your workload can tolerate potentially stale aggregate results, you can skip it with `visibility => 'raw'` to improve performance, or let the query's size decide with `visibility => 'threshold'`.
+By default, ParadeDB favors correctness, even when it comes at the cost of slower query execution. For [facets](/reference/aggregates/facets), transaction visibility filtering is enabled by default. If your workload can tolerate potentially stale aggregate results, you can skip it with `visibility => 'raw'` to improve performance, or let the query's size determine whether to apply visibility filtering with `visibility => 'threshold'`.
 
 ### Replication Safety
 

@@ -553,6 +553,10 @@
       {
         "type": "github",
         "href": "https://github.com/paradedb/paradedb"
+      },
+      {
+        "label": "Log In",
+        "href": "https://app.paradedb.com"
       }
     ],
     "primary": {

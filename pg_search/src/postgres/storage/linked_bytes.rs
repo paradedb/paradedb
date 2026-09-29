@@ -198,16 +198,14 @@ impl LinkedBytesListWriter {
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.last_blockno = self.last_blockno;
 
-        if let Some(blockno) = self.blocklist_builder.finish(&mut self.list.bman) {
+        if let Some((blockno, directory, overflow)) =
+            self.blocklist_builder.finish(&mut self.list.bman)
+        {
             metadata.blocklist_start = blockno;
-            if let Some((directory, overflow)) =
-                blocklist::Directory::build(&mut self.list.bman, blockno)
-            {
-                assert!(header_page.append_bytes(&directory.encode()));
-                header_page
-                    .special_mut::<BM25PageSpecialData>()
-                    .next_blockno = overflow;
-            }
+            assert!(header_page.append_bytes(&directory.encode()));
+            header_page
+                .special_mut::<BM25PageSpecialData>()
+                .next_blockno = overflow;
         }
         Ok(self.list)
     }
@@ -580,7 +578,7 @@ mod tests {
         for &block in &blocks {
             builder.push(block);
         }
-        let start = builder.finish(&mut list.bman).unwrap();
+        let (start, directory, overflow) = builder.finish(&mut list.bman).unwrap();
         {
             let mut header = list.bman.get_buffer_mut(list.header_blockno);
             header
@@ -600,8 +598,7 @@ mod tests {
         let header_blockno = list.header_blockno;
         assert_eq!(list.freeable_blocks().collect::<Vec<_>>(), expected);
 
-        let mut list = LinkedBytesList::open(&indexrel, header_blockno);
-        let (directory, overflow) = blocklist::Directory::build(&mut list.bman, start).unwrap();
+        let list = LinkedBytesList::open(&indexrel, header_blockno);
         assert_eq!(overflow, pg_sys::InvalidBlockNumber);
         {
             let mut bman = list.bman.clone();

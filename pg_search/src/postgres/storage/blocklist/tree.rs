@@ -39,10 +39,14 @@
 //! Only root, B, and leaf c are visited. A and the other leaf pages stay unloaded.
 //! Level 0 points to leaf data; higher levels point to lower directory nodes.
 //!
-//! Building groups sorted entries into pages, adding parents until the root fits.
-//! If all entries fit in the root, it points straight to the leaf pages. Visited
-//! pages are cached for later lookups. The caller supplies page sizes, reads,
-//! writes, and leaf data; this module has no Postgres-specific code.
+//! Add a layer whenever the root would need more pointers than it can hold.
+//! With room for two pointers in every node:
+//!
+//! - 1–2 leaf pages: root -> leaves.
+//! - 3–4 leaf pages: root -> nodes -> leaves (as above).
+//! - 5–8 leaf pages: root -> nodes -> nodes -> leaves.
+//!
+//! The caller sets the actual capacities, which can differ for the root and other nodes.
 
 use std::sync::Arc;
 

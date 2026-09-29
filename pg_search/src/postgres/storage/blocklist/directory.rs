@@ -38,7 +38,6 @@
 //! Existing data/map chains stay unchanged. Old formats remain readable, and a
 //! missing or unsupported directory falls back to walking the original map.
 
-use super::chunk_size;
 use super::tree::{Entry, Node};
 use crate::postgres::storage::block::{
     BM25PageSpecialData, LinkedListData, block_number_is_valid, bm25_max_free_space,
@@ -62,31 +61,10 @@ pub struct Directory {
 }
 
 impl Directory {
-    pub fn build(
+    pub(super) fn build(
         bman: &mut BufferManager,
-        mut block: pg_sys::BlockNumber,
-    ) -> Option<(Self, pg_sys::BlockNumber)> {
-        let mut entries = Vec::new();
-        let mut ordinal = 0u32;
-        while block != pg_sys::InvalidBlockNumber {
-            pgrx::check_for_interrupts!();
-            entries.push(Entry {
-                start: ordinal,
-                address: block,
-            });
-            let buffer = bman.get_buffer(block);
-            let page = buffer.page();
-            let mut bytes = page.as_slice();
-            while !bytes.is_empty() {
-                let (count, len) = chunk_size(bytes);
-                ordinal = ordinal.checked_add(count.try_into().ok()?)?;
-                bytes = &bytes[len..];
-            }
-            block = page.next_blockno();
-        }
-        if entries.is_empty() {
-            return None;
-        }
+        entries: Vec<Entry<u32, pg_sys::BlockNumber>>,
+    ) -> (Self, pg_sys::BlockNumber) {
         let mut overflow = pg_sys::InvalidBlockNumber;
         let node = Node::build(entries, ROOT_CAPACITY, PAGE_CAPACITY, |node| {
             pgrx::check_for_interrupts!();
@@ -98,13 +76,13 @@ impl Directory {
             overflow = block;
             block
         });
-        Some((
+        (
             Self {
                 node: Arc::new(node),
                 legacy_end: None,
             },
             overflow,
-        ))
+        )
     }
 
     pub fn read(bytes: &[u8], first_block: pg_sys::BlockNumber) -> Option<Self> {

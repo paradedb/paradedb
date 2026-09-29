@@ -6,7 +6,7 @@ canonical: https://www.paradedb.com/docs/concepts/limitations
 
 ## Distributed Workloads
 
-ParadeDB is designed to scale vertically on a single Postgres primary, and many production deployments comfortably operate in the 1–20TB range. Enterprise deployments can add read replicas for ParadeDB queries. The largest single ParadeDB database we’ve seen in production is 20TB.
+ParadeDB is designed to scale vertically on a single Postgres primary, and many production deployments comfortably operate in the 1–10TB range. Enterprise deployments can add read replicas for ParadeDB queries. The largest single ParadeDB database we’ve seen in production is 20TB.
 
 For datasets that significantly exceed this scale, ParadeDB supports partitioned tables and sharded Postgres deployments with [Citus](/reference/sharding/citus) or [PgDog](https://pgdog.dev). If you're working with very large datasets, please [reach out to us](mailto:support@paradedb.com). We'd be happy to provide guidance and share our roadmap for [future distributed query support](/project/roadmap#cloud-platform).
 

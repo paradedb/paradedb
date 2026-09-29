@@ -1,0 +1,319 @@
+-- =====================================================================
+-- A multi-field `partition_by` cuts its first field into global ranges and
+-- each later field inside the ranges of the fields before it. A range
+-- co-partitioned join on the first field therefore reaches whole segments
+-- only (`partial=0`), while a join on a later field still crosses segment
+-- boxes. A `field=N` count fixes how many ranges a field is cut into.
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_range_partitioned_join TO on;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET max_parallel_maintenance_workers TO 0;
+CREATE TABLE pbh_users (id bigserial PRIMARY KEY, display_name text);
+CREATE TABLE pbh_posts (id bigserial PRIMARY KEY, owner_user_id bigint, title text);
+CREATE TABLE pbh_comments (id bigserial PRIMARY KEY, post_id bigint, body text);
+INSERT INTO pbh_users (display_name)
+SELECT 'user_' || g FROM generate_series(1, 4000) g;
+INSERT INTO pbh_posts (owner_user_id, title)
+-- Owners drift upward with `id`, the way early users post early, so the
+-- `owner_user_id` ranges differ from one `id` range to the next.
+SELECT 1 + ((g * 7919) % (2000 + g / 8)), CASE WHEN g % 3 = 0 THEN 'error in build ' ELSE 'note ' END || g
+FROM generate_series(1, 16000) g;
+INSERT INTO pbh_comments (post_id, body)
+SELECT 1 + ((g * 104729) % 16000), 'question ' || g
+FROM generate_series(1, 8000) g;
+ANALYZE pbh_users;
+ANALYZE pbh_posts;
+ANALYZE pbh_comments;
+CREATE INDEX pbh_users_idx ON pbh_users USING paradedb (id, display_name)
+WITH (partition_by = 'id', target_segment_count = 4);
+WARNING:  only 0 parallel workers were available for index build
+CREATE INDEX pbh_comments_idx ON pbh_comments USING paradedb (id, post_id, body)
+WITH (partition_by = 'post_id', target_segment_count = 4);
+WARNING:  only 0 parallel workers were available for index build
+-- =====================================================================
+-- Default layout: `id` is cut into four global ranges, `owner_user_id`
+-- into two inside each of them.
+-- =====================================================================
+CREATE INDEX pbh_posts_idx ON pbh_posts USING paradedb (id, owner_user_id, title)
+WITH (partition_by = 'id, owner_user_id', target_segment_count = 8);
+WARNING:  only 0 parallel workers were available for index build
+SELECT count(*) AS segments FROM paradedb.index_info('pbh_posts_idx');
+ segments 
+----------
+        8
+(1 row)
+
+SET max_parallel_workers_per_gather TO 3;
+-- A join on the first field: every posts segment is whole in its task. The
+-- posts side is the larger scan, so the join takes its split points.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, c.id
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+ORDER BY p.id, c.id
+LIMIT 10;
+                                                                                                                                                           QUERY PLAN                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, c.id
+   Relation Tree: p INNER c
+   Join Cond: c.post_id = p.id
+   Limit: 10
+   Order By: c.post_id asc, c.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [post_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], fetch=10
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   │ SortExec: TopK(fetch=10), expr=[post_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[p, c]
+     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(post_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, post_id@1, id@2]
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=2, pruned=1}, partition=post_id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=c, segments={partial=2, included=0, pruned=2}, partition=post_id[8001..12001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=c, segments={partial=1, included=0, pruned=3}, partition=post_id[12001..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=4, pruned=4}, partition=id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=0, included=2, pruned=6}, partition=id[8001..12001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=0, included=2, pruned=6}, partition=id[12001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   └──────────────────────────────────────────────────
+(25 rows)
+
+SELECT p.id, c.id
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+ORDER BY p.id, c.id
+LIMIT 10;
+ id |  id  
+----+------
+  2 | 3369
+  3 | 6738
+  6 |  845
+  7 | 4214
+  8 | 7583
+ 11 | 1690
+ 12 | 5059
+ 16 | 2535
+ 17 | 5904
+ 20 |   11
+(10 rows)
+
+-- A join on the second field: its ranges differ from one `id` range to the
+-- next, so the tasks reach into partial segments.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT u.id, p.id
+FROM pbh_users u JOIN pbh_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error'
+ORDER BY u.id, p.id
+LIMIT 10;
+                                                                                                                                                            QUERY PLAN                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: u.id, p.id
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.owner_user_id
+   Limit: 10
+   Order By: u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], fetch=10
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   │ SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[u, p]
+     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, owner_user_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1356), query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1356..1601), query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1601..∞), query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=p, segments={partial=3, included=2, pruned=3}, partition=owner_user_id[-∞..1356), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=4, included=0, pruned=4}, partition=owner_user_id[1356..1601), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=3, included=2, pruned=3}, partition=owner_user_id[1601..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   └──────────────────────────────────────────────────
+(25 rows)
+
+SELECT u.id, p.id
+FROM pbh_users u JOIN pbh_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error'
+ORDER BY u.id, p.id
+LIMIT 10;
+ id |  id   
+----+-------
+  1 |  9597
+  1 |  9600
+  1 | 15996
+  3 |  5190
+  4 |  5082
+  4 | 12942
+  6 |  2685
+  7 |  4764
+  8 |   861
+  8 |  5688
+(10 rows)
+
+-- =====================================================================
+-- `id=8` spends every segment on `id`: each task takes whole segments and
+-- `owner_user_id` is never cut.
+-- =====================================================================
+DROP INDEX pbh_posts_idx;
+CREATE INDEX pbh_posts_idx ON pbh_posts USING paradedb (id, owner_user_id, title)
+WITH (partition_by = 'id=8, owner_user_id', target_segment_count = 8);
+WARNING:  only 0 parallel workers were available for index build
+SELECT count(*) AS segments FROM paradedb.index_info('pbh_posts_idx');
+ segments 
+----------
+        8
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, c.id
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+ORDER BY p.id, c.id
+LIMIT 10;
+                                                                                                                                                           QUERY PLAN                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, c.id
+   Relation Tree: p INNER c
+   Join Cond: c.post_id = p.id
+   Limit: 10
+   Order By: c.post_id asc, c.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [post_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], fetch=10
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   │ SortExec: TopK(fetch=10), expr=[post_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[p, c]
+     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(post_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, post_id@1, id@2]
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=1, pruned=2}, partition=post_id[-∞..6001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=c, segments={partial=2, included=0, pruned=2}, partition=post_id[6001..10001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=c, segments={partial=1, included=1, pruned=2}, partition=post_id[10001..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=3, pruned=5}, partition=id[-∞..6001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=0, included=2, pruned=6}, partition=id[6001..10001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=0, included=3, pruned=5}, partition=id[10001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   └──────────────────────────────────────────────────
+(25 rows)
+
+SELECT p.id, c.id
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+ORDER BY p.id, c.id
+LIMIT 10;
+ id |  id  
+----+------
+  2 | 3369
+  3 | 6738
+  6 |  845
+  7 | 4214
+  8 | 7583
+ 11 | 1690
+ 12 | 5059
+ 16 | 2535
+ 17 | 5904
+ 20 |   11
+(10 rows)
+
+-- =====================================================================
+-- `id=2, owner_user_id=4` favors the second field: a join on `id` can only
+-- split into the two `id` ranges.
+-- =====================================================================
+DROP INDEX pbh_posts_idx;
+CREATE INDEX pbh_posts_idx ON pbh_posts USING paradedb (id, owner_user_id, title)
+WITH (partition_by = 'id=2, owner_user_id=4', target_segment_count = 8);
+WARNING:  only 0 parallel workers were available for index build
+SELECT count(*) AS segments FROM paradedb.index_info('pbh_posts_idx');
+ segments 
+----------
+        8
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, c.id
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+ORDER BY p.id, c.id
+LIMIT 10;
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, c.id
+   Relation Tree: p INNER c
+   Join Cond: c.post_id = p.id
+   Limit: 10
+   Order By: c.post_id asc, c.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [post_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], fetch=10
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=2, partitions=2
+     :   │ SortExec: TopK(fetch=10), expr=[post_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[p, c]
+     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(post_id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, post_id@1, id@2]
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=2, pruned=1}, partition=post_id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=c, segments={partial=1, included=1, pruned=2}, partition=post_id[8001..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"body","value":"question","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=p, segments={partial=0, included=4, pruned=4}, partition=id[-∞..8001), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=0, included=4, pruned=4}, partition=id[8001..∞), dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   └──────────────────────────────────────────────────
+(23 rows)
+
+SELECT p.id, c.id
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.id @@@ pdb.all() AND c.body ||| 'question'
+ORDER BY p.id, c.id
+LIMIT 10;
+ id |  id  
+----+------
+  2 | 3369
+  3 | 6738
+  6 |  845
+  7 | 4214
+  8 | 7583
+ 11 | 1690
+ 12 | 5059
+ 16 | 2535
+ 17 | 5904
+ 20 |   11
+(10 rows)
+
+-- =====================================================================
+-- Invalid counts.
+-- =====================================================================
+CREATE INDEX pbh_bad_idx ON pbh_posts USING paradedb (id, owner_user_id, title)
+WITH (partition_by = 'id=0, owner_user_id');
+ERROR:  invalid partition_by value: expected a positive number of ranges after '=' in: id=0
+CREATE INDEX pbh_bad_idx ON pbh_posts USING paradedb (id, owner_user_id, title)
+WITH (partition_by = 'id=eight, owner_user_id');
+ERROR:  invalid partition_by value: expected a positive number of ranges after '=' in: id=eight
+CREATE INDEX pbh_bad_idx ON pbh_posts USING paradedb (id, owner_user_id, title)
+WITH (partition_by = 'id=, owner_user_id');
+ERROR:  invalid partition_by value: expected a positive number of ranges after '=' in: id=
+CREATE INDEX pbh_bad_idx ON pbh_posts USING paradedb (id, owner_user_id, title)
+WITH (partition_by = '=4, owner_user_id');
+ERROR:  invalid partition_by value: empty field name in: =4
+-- The counts multiply past the target.
+CREATE INDEX pbh_bad_idx ON pbh_posts USING paradedb (id, owner_user_id, title)
+WITH (partition_by = 'id=4, owner_user_id=4', target_segment_count = 8);
+ERROR:  partition_by asks for 16 partitions, but target_segment_count is 8
+DROP TABLE pbh_users;
+DROP TABLE pbh_posts;
+DROP TABLE pbh_comments;

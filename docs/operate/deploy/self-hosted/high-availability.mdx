@@ -25,13 +25,9 @@ Without these settings, ParadeDB physical replicas will see much more frequent q
 
 ## Asynchronous vs. Synchronous Replication
 
-By default, ParadeDB ships with asynchronous replication, meaning transactions on the primary **do not** wait for confirmation from
-the standby instances before committing.
+ParadeDB follows your Postgres cluster's replication configuration. You can use asynchronous or synchronous replication depending on your durability and latency requirements.
 
-**Quorum-based synchronous replication** ensures that a transaction is successfully written to standbys before it completes.
-Please consult the [CloudNativePG Replication documentation](https://cloudnative-pg.io/docs/1.30/replication#synchronous-replication) for details.
+- **Asynchronous replication** lets transactions commit without waiting for standby confirmation. This avoids replication-related commit delays, but recent commits may be lost if the primary fails before they reach the promoted standby.
+- **Synchronous replication** makes transactions wait for confirmation from the configured number of standbys before committing. This provides stronger durability guarantees at the cost of commit latency and can block writes if too few standbys are available.
 
-## Backup and Disaster Recovery
-
-ParadeDB supports backups to cloud object stores (e.g. S3, GCS, etc.) and point-in-time-recovery
-via [Barman](https://pgbarman.org/). To configure the frequency and location of backups, please consult the [CloudNativePG Backup documentation](https://cloudnative-pg.io/docs/1.30/backup).
+The confirmation required from standbys depends on `synchronous_commit`, while `synchronous_standby_names` determines which standbys participate and how many must respond. See the [Postgres synchronous replication documentation](https://www.postgresql.org/docs/current/warm-standby.html#SYNCHRONOUS-REPLICATION) for configuration details.

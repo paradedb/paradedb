@@ -4,7 +4,7 @@
 Unified release artifact assembler for ParadeDB:
 - Assembles unreleased SQL migration fragments into pg_search--<prev>--<target>.sql
 - Assembles unreleased changelog fragments into docs/project/changelog/<version>.mdx
-- Registers new versions in docs/docs.json and docs/snippets/version.mdx
+- Registers new versions in docs navigation, snippets, and installation examples
 """
 
 # pylint: disable=too-many-lines,fixme
@@ -599,13 +599,33 @@ def update_docs_json(docs_json_path, new_version, is_latest=True, repo_root=None
 
 
 def update_version_snippet(repo_root, clean_ver):
-    """Update exported version variable in docs/snippets/version.mdx."""
+    """Update the shared version snippet and current installation examples."""
     snippet_file = repo_root / "docs" / "snippets" / "version.mdx"
     snippet_file.parent.mkdir(parents=True, exist_ok=True)
     content = f'export const version = "{clean_ver}";\n'
     with open(snippet_file, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"✅ Updated {snippet_file} with version '{clean_ver}'")
+    update_installation_version(repo_root, clean_ver)
+
+
+def update_installation_version(repo_root, clean_ver):
+    """Keep release tags and package versions aligned in installation URLs."""
+    install_file = repo_root / "docs/operate/deploy/self-hosted/extension.mdx"
+    if not install_file.exists():
+        return
+
+    def replace_version(match):
+        return match.group(0).replace(match.group(1), clean_ver)
+
+    content = install_file.read_text(encoding="utf-8")
+    content = re.sub(
+        r'https://github\.com/paradedb/paradedb/releases/download/v'
+        r'(\d+\.\d+\.\d+(?:-rc\.\d+)?)/[^\s"<>]+',
+        replace_version,
+        content,
+    )
+    install_file.write_text(content, encoding="utf-8")
 
 
 def assemble_changelog_files(
@@ -1259,7 +1279,7 @@ def build_parser():
     cl_parser.add_argument(
         "--register-only",
         action="store_true",
-        help="Only update docs.json and version.mdx",
+        help="Only update docs navigation, version snippet, and installation examples",
     )
     cl_parser.add_argument(
         "--is-latest",

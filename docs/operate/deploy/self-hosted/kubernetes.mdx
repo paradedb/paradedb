@@ -46,7 +46,7 @@ Create the `paradedb` namespace. Skip this step if it already exists.
 kubectl create namespace paradedb
 ```
 
-If you are using ParadeDB Enterprise, create a Kubernetes secret with the registry credentials provided by ParadeDB to pull the Enterprise image.
+If you are using ParadeDB Enterprise, create a Kubernetes secret with the registry credentials provided by ParadeDB to pull the Enterprise image. If you are using Community, you can skip this step.
 
 ```bash ParadeDB Enterprise
 kubectl create secret docker-registry paradedb-enterprise-registry-cred \

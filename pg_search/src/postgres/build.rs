@@ -231,6 +231,19 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     for partition_field in options.partition_by() {
         check_single_valued(&partition_field, "partition_by");
     }
+    // The range counts multiply into leaves the target has to afford, or the build would cut
+    // the last counted field short without saying so.
+    let counted_partitions: usize = options
+        .partition_by_fields()
+        .iter()
+        .filter_map(|field| field.ranges)
+        .product();
+    let target_segment_count = options.target_segment_count();
+    if counted_partitions > target_segment_count {
+        panic!(
+            "partition_by asks for {counted_partitions} partitions, but target_segment_count is {target_segment_count}"
+        );
+    }
     // The stored schema does not exist yet, so the checks read the one this build will write.
     let schema = planned_schema(index_relation);
     let partition_by = options.partition_by();

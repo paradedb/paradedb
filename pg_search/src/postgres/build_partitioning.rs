@@ -78,21 +78,26 @@ pub(super) fn plan_partition_boundaries(
     snapshot: pg_sys::Snapshot,
     target_partitions: usize,
 ) -> anyhow::Result<Option<KdTree>> {
-    let partition_by = indexrel.options().partition_by();
-    if partition_by.is_empty() {
+    let fields = indexrel.options().partition_by_fields();
+    if fields.is_empty() {
         return Ok(None);
     }
+    let (partition_by, ranges): (Vec<FieldName>, Vec<Option<usize>>) = fields
+        .into_iter()
+        .map(|field| (field.field_name, field.ranges))
+        .unzip();
     if target_partitions <= 1 {
         return Ok(Some(KdTree::unpartitioned(partition_by)));
     }
 
     let sample = unsafe { sample_partition_fields(heaprel, indexrel, snapshot, &partition_by)? };
     pgrx::debug1!(
-        "plan_partition_boundaries: sampled {} rows for partition_by={partition_by:?}, target_partitions={target_partitions}",
+        "plan_partition_boundaries: sampled {} rows for partition_by={partition_by:?}, ranges={ranges:?}, target_partitions={target_partitions}",
         sample.len()
     );
     Ok(Some(KdTree::from_sample(
         partition_by,
+        &ranges,
         sample,
         target_partitions,
     )))

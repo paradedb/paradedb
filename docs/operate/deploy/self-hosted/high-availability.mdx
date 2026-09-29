@@ -15,8 +15,6 @@ In a highly available configuration, ParadeDB deploys as a cluster of Postgres i
 
 If the primary server goes down, a standby server is promoted to become the new primary server. This process is called failover.
 
-For a thorough architecture overview, please consult the [CloudNativePG Architecture documentation](https://cloudnative-pg.io/docs/1.30/architecture).
-
 ## Enable High Availability
 
 Prior to starting the CNPG cluster, modify the `values.yaml` file to increase the number of instances.

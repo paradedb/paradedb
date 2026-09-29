@@ -1245,6 +1245,13 @@ impl ExecutionPlan for VisibilityFilterExec {
         vec![&self.input]
     }
 
+    // Invisible rows are dropped batch by batch and the rest keep their order, as the
+    // equivalence properties copied from the input already claim. Without this, a `SortExec`
+    // below this node looks unnecessary to `EnforceSorting` and is removed.
+    fn maintains_input_order(&self) -> Vec<bool> {
+        vec![true]
+    }
+
     fn apply_expressions(
         &self,
         _f: &mut dyn FnMut(

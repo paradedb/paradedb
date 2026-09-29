@@ -68,6 +68,10 @@ cluster:
   instances: 1
   storage:
     size: 256Mi
+
+monitoring:
+  grafanaDashboard:
+    create: true
 ```
 
 ```yaml ParadeDB Enterprise
@@ -78,6 +82,10 @@ cluster:
   instances: 3
   storage:
     size: 256Mi
+
+monitoring:
+  grafanaDashboard:
+    create: true
 ```
 
 </CodeGroup>
@@ -109,7 +117,9 @@ psql -d paradedb
 
 ## Connect to the Grafana Dashboard
 
-To connect to the Grafana dashboard for your cluster, we suggested port forwarding the Kubernetes service running Grafana to localhost:
+The ParadeDB Helm Chart includes a Grafana dashboard to help you monitor your cluster. The examples above enable it; to disable it, set `monitoring.grafanaDashboard.create` to `false` in `values.yaml`.
+
+To access the dashboard, forward the Grafana service to localhost:
 
 ```bash
 kubectl --namespace prometheus-community port-forward svc/prometheus-community-grafana 3000:80

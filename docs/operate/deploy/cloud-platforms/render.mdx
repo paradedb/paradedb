@@ -21,7 +21,7 @@ Deploy ParadeDB to your Render account with our Blueprint. You can customize the
 
 The Blueprint automatically:
 
-1. Creates a private service named `paradedb` running the [official ParadeDB Community Docker image](https://hub.docker.com/r/paradedb/paradedb).
+1. Creates a private service named `paradedb` running `paradedb/paradedb:latest`.
 2. Attaches a 10 GB persistent disk for your database data, mounted at `/var/lib/postgresql`.
 3. Sets up `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` environment variables.
 

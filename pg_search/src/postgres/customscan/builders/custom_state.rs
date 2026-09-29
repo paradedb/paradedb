@@ -16,12 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::CustomScan;
-<<<<<<< HEAD
-use pgrx::{pg_sys, PgList, PgMemoryContexts};
-=======
 use crate::postgres::utils::PgMemoryContextsExt;
-use pgrx::{PgList, PgMemoryContexts, pg_sys};
->>>>>>> 4917fb13f (fix: Fix a crash when a search scan is cancelled or terminated (#6479))
+use pgrx::{pg_sys, PgList, PgMemoryContexts};
 use std::fmt::{Debug, Formatter};
 use std::ptr::addr_of_mut;
 
@@ -117,23 +113,14 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
     }
 
     pub fn build(self) -> *mut CustomScanStateWrapper<CS> {
-<<<<<<< HEAD
         unsafe {
-            PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(CustomScanStateWrapper {
+            let wrapper = CustomScanStateWrapper {
                 csstate: pg_sys::CustomScanState {
                     ss: pg_sys::ScanState {
                         ps: pg_sys::PlanState {
                             type_: pg_sys::NodeTag::T_CustomScanState,
                             ..Default::default()
                         },
-=======
-        let flags = unsafe { (*self.args.cscan).flags };
-        let wrapper = CustomScanStateWrapper {
-            csstate: pg_sys::CustomScanState {
-                ss: pg_sys::ScanState {
-                    ps: pg_sys::PlanState {
-                        type_: pg_sys::NodeTag::T_CustomScanState,
->>>>>>> 4917fb13f (fix: Fix a crash when a search scan is cancelled or terminated (#6479))
                         ..Default::default()
                     },
                     flags: (*self.args.cscan).flags,
@@ -143,23 +130,10 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
                     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
                     slotOps: std::ptr::null_mut(),
                 },
-<<<<<<< HEAD
                 custom_state: self.custom_state,
                 runtime_context: std::ptr::null_mut(),
-            })
+            };
+            PgMemoryContexts::CurrentMemoryContext.leak_and_drop_unless_exiting(wrapper)
         }
-=======
-                flags,
-                custom_ps: std::ptr::null_mut(),
-                pscan_len: 0,
-                methods: CS::custom_exec_methods(),
-                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-                slotOps: std::ptr::null_mut(),
-            },
-            custom_state: self.custom_state,
-            runtime_context: std::ptr::null_mut(),
-        };
-        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_unless_exiting(wrapper)
->>>>>>> 4917fb13f (fix: Fix a crash when a search scan is cancelled or terminated (#6479))
     }
 }

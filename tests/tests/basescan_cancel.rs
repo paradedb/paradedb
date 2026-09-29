@@ -24,7 +24,7 @@
 
 use anyhow::Result;
 use rstest::*;
-use sqlx::{AssertSqlSafe, Executor, PgConnection};
+use sqlx::{Executor, PgConnection};
 use std::time::{Duration, Instant};
 use tests::fixtures::*;
 use tokio::time::sleep;
@@ -76,7 +76,8 @@ static CASES: [Case; 4] = [
     Case {
         name: "regex",
         gucs: PARALLEL_GUCS,
-        query: "SELECT grp FROM bs_cancel WHERE id @@@ paradedb.regex('body', '.*q.*z.*') AND grp = 1",
+        query:
+            "SELECT grp FROM bs_cancel WHERE id @@@ paradedb.regex('body', '.*q.*z.*') AND grp = 1",
         plan_contains: &[
             "Parallel Custom Scan (ParadeDB Base Scan)",
             "ColumnarExecState",
@@ -106,7 +107,8 @@ static CASES: [Case; 4] = [
     Case {
         name: "serial_heapfilter_sleep",
         gucs: SERIAL_GUCS,
-        query: "SELECT count(*) FROM bs_cancel WHERE id @@@ paradedb.all() AND bs_cancel_sleepy(extra)",
+        query:
+            "SELECT count(*) FROM bs_cancel WHERE id @@@ paradedb.all() AND bs_cancel_sleepy(extra)",
         plan_contains: &[
             "Custom Scan (ParadeDB Base Scan)",
             "NormalScanExecState",
@@ -153,12 +155,10 @@ impl Signal {
 
 async fn assert_plan(conn: &mut PgConnection, case: &Case) -> Result<()> {
     conn.execute(case.gucs).await?;
-    let rows: Vec<(String,)> = sqlx::query_as(AssertSqlSafe(format!(
-        "EXPLAIN (COSTS OFF, VERBOSE) {}",
-        case.query
-    )))
-    .fetch_all(&mut *conn)
-    .await?;
+    let rows: Vec<(String,)> =
+        sqlx::query_as(&format!("EXPLAIN (COSTS OFF, VERBOSE) {}", case.query))
+            .fetch_all(&mut *conn)
+            .await?;
     let explain = rows
         .into_iter()
         .map(|(line,)| line)
@@ -203,9 +203,9 @@ async fn signal_until_stopped(
             sleep(SIGNAL_DELAY).await;
             // The backend may have exited during the wait; signalling it only while it's still
             // listed avoids a "not a PostgreSQL backend process" warning.
-            sqlx::query(AssertSqlSafe(format!(
+            sqlx::query(&format!(
                 "SELECT {signal_fn}(pid) FROM pg_stat_activity WHERE pid = $1"
-            )))
+            ))
             .bind(pid)
             .execute(&mut *signaller)
             .await?;
@@ -224,9 +224,7 @@ async fn run_until_signalled(
     signal: Signal,
 ) -> Result<()> {
     target
-        .execute(AssertSqlSafe(format!(
-            "SET application_name = '{app_name}';"
-        )))
+        .execute(format!("SET application_name = '{app_name}';").as_str())
         .await?;
     target.execute(case.gucs).await?;
 

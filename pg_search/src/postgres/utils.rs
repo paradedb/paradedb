@@ -122,7 +122,7 @@ pub(crate) trait PgMemoryContextsExt {
     /// TODO(#6530): we don't know which of the values inside the state need `impl_safe_drop!`, so
     /// the whole state is skipped. Revisit this skip once #6530 has found and marked them.
     ///
-    /// The body mirrors pgrx 0.19.2's `leak_and_drop_on_delete` (`memcxt.rs`) plus the
+    /// The body mirrors pgrx 0.19.0's `leak_and_drop_on_delete` (`memcxt.rs`) plus the
     /// `proc_exit` check; keep it in sync when bumping pgrx.
     fn leak_and_drop_unless_exiting<T>(&mut self, v: T) -> *mut T;
 }

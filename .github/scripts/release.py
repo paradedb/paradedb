@@ -639,8 +639,6 @@ def update_kubernetes_version(repo_root, clean_ver):
     patterns = [
         rf"(paradedb/paradedb-extension:){semver}",
         rf'(- name: pg_search\s+version: "){semver}',
-        rf"(For example, use `){semver}(?=-\d+-trixie`)",
-        rf"(for ParadeDB `){semver}(?=`)",
     ]
     content = kubernetes_file.read_text(encoding="utf-8")
     for pattern in patterns:

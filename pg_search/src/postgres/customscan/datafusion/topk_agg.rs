@@ -133,10 +133,10 @@ impl AggregateUDFImpl for TopKAgg {
         let n = payload.len();
 
         let k = match literal_arg(&acc_args, n, name, "k")? {
-            ScalarValue::UInt64(Some(k)) if *k > 0 => *k as usize,
+            ScalarValue::UInt64(Some(k)) => *k as usize,
             other => {
                 return Err(DataFusionError::Internal(format!(
-                    "{name} k must be a positive UInt64 literal, got {other}"
+                    "{name} k must be a UInt64 literal, got {other}"
                 )));
             }
         };
@@ -391,6 +391,10 @@ impl FusedTopK {
     }
 
     fn absorb(&mut self, columns: &[ArrayRef]) -> Result<()> {
+        if self.k == 0 {
+            return Ok(());
+        }
+
         // Encode only the sort keys for the whole batch. Without an ORDER BY the
         // prefix is empty and every row ties: the prefilter admits all of them,
         // and the map keeps the first k arrivals, or the first k distinct groups
@@ -447,6 +451,23 @@ impl FusedTopK {
             }
         }
         let keys = self.key.convert_columns(&key_arrays)?;
+
+        // find which keys would be admitted, then only decode those payloads and admit them.
+
+        // for (j, &i) in survivors.iter().enumerate() {
+        //     let key = keys.row(j).as_ref().to_vec();
+        //     if self.entries.len() >= self.k
+        //         && self
+        //             .entries
+        //             .last_key_value()
+        //             .is_some_and(|(worst, _)| key.as_slice() > worst.as_slice())
+        //     {
+        //         continue;
+        //     }
+        //
+        // }
+        //
+
         let payloads = self.payload.convert_columns(&taken)?;
 
         // Admit one row at a time. Survivors were chosen against the worst entry
@@ -691,6 +712,21 @@ mod tests {
             rows_of(&acc.evaluate().unwrap()),
             vec![(Some(5), 1), (Some(5), 1), (Some(5), 1)]
         );
+    }
+
+    /// A `k` of zero admits nothing: the empty map counts as full, so the
+    /// prefilter drops every row, with sort keys and without, and the result is
+    /// an empty list rather than an error.
+    #[test]
+    fn zero_k_keeps_nothing() {
+        let no_order_by =
+            FusedTopK::new(schema(), vec![], Suffix::Arrival { next: 0 }, vec![], 0).unwrap();
+        for mut acc in [accumulator(0), no_order_by] {
+            acc.update_batch(batch(&[(Some(5), 1), (None, 2)]).columns())
+                .unwrap();
+            acc.update_batch(batch(&[(Some(9), 3)]).columns()).unwrap();
+            assert_eq!(rows_of(&acc.evaluate().unwrap()), Vec::<Row>::new());
+        }
     }
 
     #[test]

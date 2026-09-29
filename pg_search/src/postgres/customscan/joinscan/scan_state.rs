@@ -58,7 +58,6 @@ use crate::postgres::customscan::datafusion::topk_agg::{TOPK_AGG_ROWS_COL_NAME, 
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
-use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -877,7 +876,7 @@ fn build_clause_df<'a>(
         // When disabled, use apply_distinct_group_by
         let (df, distinct_col_map) = if gucs::joinscan_force_topk_as_agg()
             // The Top-K aggregate needs a known k
-            && let Some(k) = topk_as_agg_limit(join_clause.limit_offset.as_ref())
+            && let Some(k) = join_clause.limit_offset.as_ref().and_then(|lo| lo.static_fetch())
         {
             apply_topk_as_agg(df, join_clause, &private_data.output_columns, k)?
         } else {
@@ -912,21 +911,6 @@ fn build_clause_df<'a>(
     f.boxed_local()
 }
 
-fn topk_as_agg_limit(limit_offset: Option<&LimitOffset>) -> Option<usize> {
-    if let Some(lo) = limit_offset {
-        if let (Some(fetch), Some(skip)) = (lo.static_limit(), lo.static_offset()) {
-            Some(
-                skip.checked_add(fetch)
-                    .expect("invalid limit of OFFSET {skip} + {fetch}"),
-            )
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-
 /// DISTINCT and non-distinct topk function mostly the same way and take the same path. The only
 /// difference is the entry requirement into topk, which is gated by join_clause.has_distinct.
 ///
@@ -938,8 +922,6 @@ fn apply_topk_as_agg(
     output_columns: &[OutputColumnInfo],
     k: usize,
 ) -> Result<(DataFrame, DistinctColMap)> {
-    let (df, k) = empty_input_for_zero_k(df, k)?;
-
     let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause, true)?
     else {
         return Err(DataFusionError::Internal(
@@ -1022,17 +1004,6 @@ fn apply_topk_as_agg(
         }))
         .collect();
     Ok((df.select(name_restoration_exprs)?, distinct_col_map))
-}
-
-/// The accumulator rejects a k of 0. Empty the input instead and keep one row,
-/// which the LIMIT stage drops, so the schema the sort and output projection
-/// expect stays intact.
-fn empty_input_for_zero_k(df: DataFrame, k: usize) -> Result<(DataFrame, usize)> {
-    if k == 0 {
-        Ok((df.limit(0, Some(0))?, 1))
-    } else {
-        Ok((df, k))
-    }
 }
 
 /// Translate every clause in `custom_exprs` (a Postgres `List*`) into a

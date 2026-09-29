@@ -214,8 +214,9 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
         12,
     );
 
-    // LIMIT 0 on the DISTINCT form: the aggregate runs over an emptied input
-    // rather than being skipped, so the sort still finds its `col_N` keys.
+    // LIMIT 0 on the DISTINCT form: the aggregate still runs, with a k of zero
+    // that admits no rows, rather than being skipped, so the sort above still
+    // finds its `col_N` keys.
     assert_paths_agree::<(i32, Option<i32>)>(
         &mut conn,
         r#"

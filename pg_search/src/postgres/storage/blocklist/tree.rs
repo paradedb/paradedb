@@ -48,6 +48,7 @@
 //!
 //! The caller sets the actual capacities, which can differ for the root and other nodes.
 
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,19 +109,40 @@ impl<K: Ord + Copy, A: Copy> Node<K, A> {
         }
         node
     }
+}
+
+pub trait ReadNode<K: Ord + Copy, A: Copy> {
+    fn level(&self) -> u32;
+    fn len(&self) -> usize;
+    fn entry(&self, index: usize) -> Entry<K, A>;
+    fn partition_point(&self, key: K) -> usize;
 
     fn valid_for(&self, bounds: Bounds<K>) -> bool {
-        self.entries
-            .first()
-            .is_some_and(|entry| entry.start == bounds.start)
-            && self
-                .entries
-                .iter()
-                .all(|entry| bounds.contains(entry.start))
-            && self
-                .entries
-                .windows(2)
-                .all(|pair| pair[0].start < pair[1].start)
+        if self.len() == 0 || self.entry(0).start != bounds.start {
+            return false;
+        }
+        let mut previous = None;
+        (0..self.len()).all(|i| {
+            let start = self.entry(i).start;
+            let valid = bounds.contains(start) && previous.is_none_or(|prev| prev < start);
+            previous = Some(start);
+            valid
+        })
+    }
+}
+
+impl<K: Ord + Copy, A: Copy> ReadNode<K, A> for Arc<Node<K, A>> {
+    fn level(&self) -> u32 {
+        self.level
+    }
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+    fn entry(&self, index: usize) -> Entry<K, A> {
+        self.entries[index]
+    }
+    fn partition_point(&self, key: K) -> usize {
+        self.entries.partition_point(|entry| entry.start <= key)
     }
 }
 
@@ -128,46 +150,55 @@ impl<K: Ord + Copy, A: Copy> Node<K, A> {
 pub struct InvalidNode;
 
 /// Supplies immutable pages. `read_leaf` validates any known bounds before caching the leaf.
-pub trait PageReader<K, A> {
+pub trait PageReader<K: Ord + Copy, A: Copy> {
+    type Node: ReadNode<K, A>;
     type Leaf;
 
-    fn read_node(&self, address: A, bounds: Bounds<K>) -> Result<Arc<Node<K, A>>, InvalidNode>;
+    fn read_node(&self, address: A, bounds: Bounds<K>) -> Result<Self::Node, InvalidNode>;
     fn read_leaf(&self, address: A, bounds: Bounds<K>) -> Result<Self::Leaf, InvalidNode>;
 }
 
+type CachedChild<K, A, L, N> = Option<Box<Child<K, A, L, N>>>;
+
 #[derive(Debug)]
-pub struct TreeReader<K, A, L> {
-    node: Arc<Node<K, A>>,
+pub struct TreeReader<K, A, L, N = Arc<Node<K, A>>> {
+    node: N,
+    address: PhantomData<A>,
     bounds: Bounds<K>,
-    children: Vec<Option<Box<Child<K, A, L>>>>,
+    children: Vec<CachedChild<K, A, L, N>>,
     current: Option<(usize, Bounds<K>)>,
 }
 
 #[derive(Debug)]
-enum Child<K, A, L> {
-    Node(TreeReader<K, A, L>),
+enum Child<K, A, L, N> {
+    Node(TreeReader<K, A, L, N>),
     Leaf(L),
 }
 
-impl<K: Ord + Copy, A: Copy, L> TreeReader<K, A, L> {
-    pub fn new(node: Arc<Node<K, A>>, end: Option<K>) -> Result<Self, InvalidNode> {
+impl<K: Ord + Copy, A: Copy, L, N: ReadNode<K, A>> TreeReader<K, A, L, N> {
+    pub fn new(node: N, end: Option<K>) -> Result<Self, InvalidNode> {
         let bounds = Bounds {
-            start: node.entries.first().ok_or(InvalidNode)?.start,
+            start: if node.len() == 0 {
+                return Err(InvalidNode);
+            } else {
+                node.entry(0).start
+            },
             end,
         };
         if !node.valid_for(bounds) {
             return Err(InvalidNode);
         }
-        let children = (0..node.entries.len()).map(|_| None).collect();
+        let children = (0..node.len()).map(|_| None).collect();
         Ok(Self {
             node,
+            address: PhantomData,
             bounds,
             children,
             current: None,
         })
     }
 
-    pub fn get<R: PageReader<K, A, Leaf = L>>(
+    pub fn get<R: PageReader<K, A, Node = N, Leaf = L>>(
         &mut self,
         reader: &R,
         key: K,
@@ -178,30 +209,28 @@ impl<K: Ord + Copy, A: Copy, L> TreeReader<K, A, L> {
         let (pos, bounds) = match self.current {
             Some(current) if current.1.contains(key) => current,
             _ => {
-                let pos = self
-                    .node
-                    .entries
-                    .partition_point(|entry| entry.start <= key)
-                    - 1;
+                let pos = self.node.partition_point(key) - 1;
                 let bounds = Bounds {
-                    start: self.node.entries[pos].start,
-                    end: self
-                        .node
-                        .entries
-                        .get(pos + 1)
-                        .map(|entry| entry.start)
-                        .or(self.bounds.end),
+                    start: self.node.entry(pos).start,
+                    end: if pos + 1 < self.node.len() {
+                        Some(self.node.entry(pos + 1).start)
+                    } else {
+                        self.bounds.end
+                    },
                 };
                 (pos, bounds)
             }
         };
         if self.children[pos].is_none() {
-            let address = self.node.entries[pos].address;
-            let child = if self.node.level == 0 {
+            let address = self.node.entry(pos).address;
+            let child = if self.node.level() == 0 {
                 Child::Leaf(reader.read_leaf(address, bounds)?)
             } else {
                 let node = reader.read_node(address, bounds)?;
-                if node.level != self.node.level - 1 || !node.valid_for(bounds) {
+                if node.level() != self.node.level() - 1
+                    || node.len() == 0
+                    || node.entry(0).start != bounds.start
+                {
                     return Err(InvalidNode);
                 }
                 Child::Node(Self::new(node, bounds.end)?)
@@ -229,6 +258,7 @@ mod tests {
     }
 
     impl PageReader<u32, usize> for MemoryPages {
+        type Node = Arc<Node<u32, usize>>;
         type Leaf = Range<u32>;
 
         fn read_node(

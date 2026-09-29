@@ -8,7 +8,7 @@ canonical: https://www.paradedb.com/docs/concepts/limitations
 
 ParadeDB is designed to scale vertically on a single Postgres primary, and many production deployments comfortably operate in the 1–20TB range. Enterprise deployments can add read replicas for ParadeDB queries. The largest single ParadeDB database we’ve seen in production is 20TB.
 
-For datasets that significantly exceed this scale, ParadeDB supports partitioned tables and can be deployed in sharded Postgres configurations. ParadeDB is fully compatible with [Citus](https://github.com/citusdata/citus) for distributed search workloads — you can create ParadeDB indexes on distributed tables and run search queries across shards. See our [Citus deployment guide](/operate/deploy/citus) for more details.
+For datasets that significantly exceed this scale, ParadeDB supports partitioned tables and sharded Postgres deployments with [Citus](https://github.com/citusdata/citus) or PgDog. With Citus, you can create ParadeDB indexes on distributed tables and run search queries across shards. See our [Citus deployment guide](/operate/deploy/citus) for more details.
 
 If you're working with very large datasets, please [reach out to us](mailto:support@paradedb.com). We'd be happy to provide guidance and share our roadmap for future distributed query support.
 

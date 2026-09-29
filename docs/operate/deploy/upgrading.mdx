@@ -40,7 +40,7 @@ If `pg_extension` is greater than `paradedb.version_info()`, it means that the e
 
 The latest version of `pg_search` is `0.25.11`. The list of available `pg_search` versions can be found on our [GitHub releases page](https://github.com/paradedb/paradedb/releases).
 
-## Updating ParadeDB
+## Upgrading the ParadeDB Binary
 
 <Tabs>
 <Tab title="Kubernetes">
@@ -78,9 +78,6 @@ helm upgrade paradedb paradedb/paradedb \
 Replace `<chart_version>` and `<paradedb_version>` with your chosen versions.
 Use your existing release name and namespace if they differ from `paradedb`.
 
-After the cluster has finished updating, continue to [Alter Extension](#alter-extension)
-to update the Postgres catalog in each database that uses `pg_search`.
-
 </Tab>
 <Tab title="Docker">
 
@@ -94,7 +91,7 @@ To upgrade the ParadeDB Docker image while preserving your data volume:
 docker pull paradedb/paradedb:0.25.11
 ```
 
-3. Start the new ParadeDB Docker image via `docker run paradedb`, then continue to [Alter Extension](#alter-extension) to update the Postgres catalog in each database that uses `pg_search`.
+3. Start the new ParadeDB Docker image via `docker run paradedb`.
 
 </Tab>
 <Tab title="Self-Hosted PostgreSQL">
@@ -108,7 +105,7 @@ To upgrade the extension running in a self-managed Postgres:
 </Tab>
 </Tabs>
 
-## Alter Extension
+## Upgrading the PostgreSQL Catalog
 
 After ParadeDB has been upgraded, connect to it and run the following command in all databases that `pg_search` is installed in. This step is required regardless of the environment that ParadeDB is installed in (Helm, Docker, or self-managed Postgres).
 

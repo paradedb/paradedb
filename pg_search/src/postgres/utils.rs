@@ -53,7 +53,7 @@ extern "C-unwind" {
     pub fn IsTransactionState() -> bool;
 }
 
-/// Implements Drop that skips cleanup during panic unwinding.
+/// Implements Drop that skips cleanup during panic unwinding or process exit.
 ///
 /// Because panics are used to propagate PostgreSQL errors via pgrx, it is almost never
 /// safe to interact with PostgreSQL APIs during Drop - doing so can cause a double-panic
@@ -61,6 +61,11 @@ extern "C-unwind" {
 ///
 /// PostgreSQL's transaction abort mechanism will clean up resources (buffers, relations, etc.)
 /// when the transaction is aborted due to the error.
+///
+/// Cleanup is also skipped once `proc_exit` has started: a FATAL doesn't unwind, so `panicking()`
+/// can't see it, and the abort that `proc_exit` runs releases those resources too. Skipping the body
+/// doesn't stop Rust dropping the fields afterwards; values whose fields a FATAL can leave mid-use
+/// are handled where they are leaked, see `PgMemoryContextsExt::leak_and_drop_unless_exiting`.
 ///
 /// # Example
 /// ```ignore
@@ -77,13 +82,86 @@ macro_rules! impl_safe_drop {
     ($ty:ty, |$self:ident| $body:block) => {
         impl Drop for $ty {
             fn drop(&mut $self) {
-                if std::thread::panicking() {
+                if std::thread::panicking() || $crate::postgres::utils::proc_exit_in_progress() {
                     return;
                 }
                 $body
             }
         }
     };
+}
+
+/// Adds `leak_and_drop_unless_exiting` to pgrx's `PgMemoryContexts`.
+pub(crate) trait PgMemoryContextsExt {
+    /// pgrx's `leak_and_drop_on_delete`, except the drop is skipped once `proc_exit` has started.
+    ///
+    /// For the scan states that go with a query's memory: each custom scan's
+    /// (`CustomScanStateWrapper`) and the index AM's (`IndexScanDesc::opaque`). A FATAL can stop
+    /// any call into them, and a `Drop` on the state can't cover that: it skips only its own body, and
+    /// Rust still drops the fields:
+    ///
+    /// 1. A FATAL (e.g. from `pg_terminate_backend`) is raised at a `CHECK_FOR_INTERRUPTS()`, which
+    ///    can be deep inside a Rust call. Postgres calls `proc_exit` right there instead of
+    ///    unwinding, so that call never returns and `panicking()` is false.
+    /// 2. `proc_exit` aborts the transaction, which frees the query's memory. The callback on that
+    ///    memory drops the scan state, including values the interrupted call was still using.
+    /// 3. A value left mid-use panics when dropped: std's `OnceLock` while `get_or_init` is
+    ///    running (the readers hold many, in `FFHelper`, `LinkedBytesList`, `DeferredScorer` and
+    ///    tantivy's `SegmentReader`), tokio's `Runtime` while `block_on` holds its core, and the
+    ///    columnar scan's DataFusion stream mid-poll, which frees memory it doesn't own. A Rust
+    ///    panic can't pass through the C callback, so pgrx raises it as a Postgres ERROR.
+    /// 4. Postgres turns an ERROR raised during `proc_exit` into a FATAL, which calls `proc_exit`
+    ///    again. That nested exit skips the rest of the first abort, so the process exits still
+    ///    holding its buffer pins and locks.
+    ///
+    /// Skipping the drop lets the abort finish and release them. Nothing is lost: the abort also
+    /// releases the snapshots and temp files the state holds, and the `Box` goes with the process.
+    /// After a plain ERROR the drop still runs, since the backend keeps going and the state would
+    /// otherwise leak.
+    ///
+    /// TODO(#6530): we don't know which of the values inside the state need `impl_safe_drop!`, so
+    /// the whole state is skipped. Revisit this skip once #6530 has found and marked them.
+    ///
+    /// The body mirrors pgrx 0.19.0's `leak_and_drop_on_delete` (`memcxt.rs`) plus the
+    /// `proc_exit` check; keep it in sync when bumping pgrx.
+    fn leak_and_drop_unless_exiting<T>(&mut self, v: T) -> *mut T;
+}
+
+impl PgMemoryContextsExt for PgMemoryContexts {
+    fn leak_and_drop_unless_exiting<T>(&mut self, v: T) -> *mut T {
+        #[pg_guard]
+        unsafe extern "C-unwind" fn drop_unless_exiting<T>(ptr: *mut std::ffi::c_void) {
+            if proc_exit_in_progress() {
+                return;
+            }
+            // SAFETY: `ptr` came from the `Box::leak` below, and Postgres runs a reset callback
+            // once.
+            drop(unsafe { Box::from_raw(ptr.cast::<T>()) });
+        }
+
+        let leaked = Box::leak(Box::new(v));
+        unsafe {
+            // SAFETY: the callback struct is plain pointers, all set before it is registered.
+            let callback = self.palloc_struct::<pg_sys::MemoryContextCallback>();
+            (*callback).func = Some(drop_unless_exiting::<T>);
+            (*callback).arg = (leaked as *mut T).cast();
+            pg_sys::MemoryContextRegisterResetCallback(self.value(), callback);
+        }
+        leaked
+    }
+}
+
+/// Whether this backend is running `proc_exit`, where a FATAL may have left Rust state mid-use.
+#[cfg(not(test))]
+pub(crate) fn proc_exit_in_progress() -> bool {
+    // SAFETY: plain read of a backend-local flag on the backend thread.
+    unsafe { pgrx::pg_sys::proc_exit_inprogress }
+}
+
+/// The lib-test binary doesn't link the PG globals, and no test runs `proc_exit`.
+#[cfg(test)]
+pub(crate) fn proc_exit_in_progress() -> bool {
+    false
 }
 
 /// RAII guard for PostgreSQL standalone expression context

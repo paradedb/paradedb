@@ -28,13 +28,13 @@ The command prompts for an app name and a primary region, then writes a `fly.tom
 
 ## Create a Persistent Volume
 
-ParadeDB stores its data under `/var/lib/postgresql`. Create a Fly.io volume in the same region as the app so data survives restarts and redeploys:
+Create a Fly.io volume in the same region as the app so data survives restarts and redeploys:
 
 ```bash
 fly volumes create paradedb_data --region <REGION> --size 10
 ```
 
-Replace `<REGION>` with the region you chose during `fly launch` (see [Fly.io regions](https://fly.io/docs/reference/regions/)).
+Replace `<REGION>` with the region you chose during `fly launch`.
 
 ## Set the Postgres Password
 

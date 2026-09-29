@@ -536,12 +536,11 @@
               {
                 "group": "Resources",
                 "pages": [
-                  "project/resources/learn",
+                  "project/support",
                   "project/resources/blog",
-                  "project/resources/customers"
+                  "project/resources/learn"
                 ]
-              },
-              "project/support"
+              }
             ]
           }
         ]

@@ -254,8 +254,8 @@
                       "operate/deploy/cloud-platforms/railway",
                       "operate/deploy/cloud-platforms/render",
                       "operate/deploy/cloud-platforms/fly",
-                      "operate/deploy/cloud-platforms/digitalocean",
-                      "operate/deploy/cloud-platforms/dokku"
+                      "operate/deploy/cloud-platforms/dokku",
+                      "operate/deploy/cloud-platforms/digitalocean"
                     ]
                   }
                 ]

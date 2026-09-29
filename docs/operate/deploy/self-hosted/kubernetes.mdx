@@ -40,6 +40,23 @@ cnpg/cloudnative-pg
 
 ## Start the ParadeDB Cluster
 
+Create the `paradedb` namespace. Skip this step if it already exists.
+
+```bash
+kubectl create namespace paradedb
+```
+
+To self-host ParadeDB Enterprise on Kubernetes, please [contact sales](mailto:sales@paradedb.com) for an enterprise Docker username and personal access token. The following step passes these
+credentials to Kubernetes and should be skipped if you are deploying ParadeDB Community.
+
+```bash ParadeDB Enterprise
+kubectl create secret docker-registry paradedb-enterprise-registry-cred \
+--namespace paradedb \
+--docker-server="https://index.docker.io/v1/" \
+--docker-username="<enterprise_docker_username>" \
+--docker-password="<enterprise_docker_access_token>"
+```
+
 Create a `values.yaml` and configure it to your requirements. See the chart's [default `values.yaml`](https://github.com/paradedb/charts/blob/dev/charts/paradedb/values.yaml) for available configuration options and their defaults. Here is a basic example:
 
 <CodeGroup>
@@ -65,23 +82,6 @@ cluster:
 ```
 
 </CodeGroup>
-
-Next, create the `paradedb` namespace. Skip this step if it already exists.
-
-```bash
-kubectl create namespace paradedb
-```
-
-To self-host ParadeDB Enterprise on Kubernetes, please [contact sales](mailto:sales@paradedb.com) for an enterprise Docker username and personal access token. The following step passes these
-credentials to Kubernetes and should be skipped if you are deploying ParadeDB Community.
-
-```bash ParadeDB Enterprise
-kubectl create secret docker-registry paradedb-enterprise-registry-cred \
---namespace paradedb \
---docker-server="https://index.docker.io/v1/" \
---docker-username="<enterprise_docker_username>" \
---docker-password="<enterprise_docker_access_token>"
-```
 
 Finally, launch the ParadeDB cluster.
 

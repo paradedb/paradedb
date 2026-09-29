@@ -380,6 +380,7 @@ def render_changelog(version, headers_map, grouped, extras):
         "---",
         f'title: "{version}"',
         f'description: "ParadeDB release notes for {version}"',
+        "noindex: true",
         "---",
         "",
         f"See GitHub release: [v{version}]({release_url})",
@@ -481,7 +482,7 @@ def _promote_new_active_group(changelog_pages, older_pages, target_group, target
             new_group = {
                 "group": target_group,
                 "pages": [target_page],
-                "expanded": True,
+                "expanded": False,
             }
             changelog_pages.insert(idx, new_group)
             return True
@@ -517,7 +518,7 @@ def _insert_into_tabs(versions, target_page):
     new_group = {
         "group": target_group,
         "pages": [target_page],
-        "expanded": True,
+        "expanded": False,
     }
     changelog_pages.append(new_group)
     return True

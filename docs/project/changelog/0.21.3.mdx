@@ -4,6 +4,8 @@ description: "ParadeDB release notes for 0.21.3"
 noindex: true
 ---
 
+See GitHub release: [v0.21.3](https://github.com/paradedb/paradedb/releases/tag/v0.21.3)
+
 ## Stability Improvements 💪
 
 - Fixed an issue where merging would take too many locks, causing merges to get blocked
@@ -11,9 +13,7 @@ noindex: true
 - Fixed a missing upgrade script for `pdb.icu`
 - Fixed an issue where JSON fields cast to a tokenizer would get indexed as text, not JSON
 
-## New Features 🎉
+## New Features ✨
 
 - [Positions](/reference/tokenizers/available-tokenizers/ngrams#phrase-and-proximity-queries-with-ngram) are supported for some ngram tokenizers
 - `= ANY()` pushdown is supported for text array fields that have been indexed with `pdb.literal`
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.21.3).

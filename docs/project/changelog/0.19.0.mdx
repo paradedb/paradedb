@@ -4,13 +4,15 @@ description: "ParadeDB release notes for 0.19.0"
 noindex: true
 ---
 
+See GitHub release: [v0.19.0](https://github.com/paradedb/paradedb/releases/tag/v0.19.0)
+
 <Note>
   `0.19.0` contains breaking changes to a few query functions: `paradedb.score`,
   `paradeb.snippet`, and `paradedb.more_like_this`. These functions have been
   renamed to `pdb.score`, `pdb.snippet`, and `pdb.more_like_this`.
 </Note>
 
-## New Features 🎉
+## New Features ✨
 
 ### Broadened Aggregate Pushdown Support
 
@@ -67,5 +69,3 @@ serializing, and flushing an immutable segment is now completely gone for these 
 
 The second is a new [free space map data structure](https://github.com/paradedb/paradedb/pull/3252), backed by an AVL tree. This data structure was designed to minimize lock contention
 during heavy, concurrent writes.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.19.0).

@@ -22,7 +22,6 @@
             "icon": "rocket",
             "pages": [
               "start/introduction",
-              "start/alternatives",
               {
                 "group": "Getting Started",
                 "pages": [

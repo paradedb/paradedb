@@ -184,3 +184,5 @@ spec:
     - name: pg_search
       version: "0.25.10"
 ```
+
+Save the examples as `cluster.yaml` and `database.yaml`, then apply them with `kubectl apply -f cluster.yaml -f database.yaml` in your cluster's namespace. Once the cluster is ready, connect to the `app` database as usual; CloudNativePG enables `vector` and `pg_search` automatically, so you do not need to run `CREATE EXTENSION`.

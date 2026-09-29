@@ -39,7 +39,7 @@ query patterns, and volume of data.
 <Note>
   If all `max_parallel_workers` are in use, Postgres will still execute
   additional queries, but those queries will run without parallelism. This means
-  that queries do not fail — they just may run slower due to lack of
+  that queries do not fail, but they may run slower due to lack of
   parallelism.
 </Note>
 

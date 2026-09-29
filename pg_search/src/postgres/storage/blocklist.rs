@@ -82,6 +82,7 @@ fn chunk_size(bytes: &[u8]) -> (ChunkBlockCount, ChunkByteLength) {
     (count, len)
 }
 
+/// Builds compressed block-to-logical-ordinal mapping pages and an optional directory tree index.
 pub mod builder {
     use super::tree::Entry;
     use super::{Directory, chunk_size};
@@ -204,6 +205,7 @@ pub mod builder {
         }
     }
 
+    /// Accumulates block numbers and writes compressed mapping pages with an index directory.
     pub struct BlockList {
         chunks: Vec<ChunkStyle>,
         queue: Vec<pg_sys::BlockNumber>,
@@ -230,6 +232,7 @@ pub mod builder {
     }
 
     impl BlockList {
+        /// Appends a block number to the builder, deduplicating identical consecutive blocks.
         pub fn push(&mut self, block_number: pg_sys::BlockNumber) {
             assert!(block_number != 0, "cannot add block 0 to the blocklist");
 
@@ -252,6 +255,7 @@ pub mod builder {
             self.queue.push(block_number);
         }
 
+        /// Finalizes bitpacked chunks and writes mapping pages, returning `(first_map_block, directory, overflow_block)`.
         pub fn finish(
             &mut self,
             bman: &mut BufferManager,
@@ -417,6 +421,7 @@ pub mod builder {
     }
 }
 
+/// Reads compressed block-to-logical-ordinal mapping chains, optionally accelerated by directory trees.
 pub mod reader {
     use super::{ChunkStyleTag, Directory, chunk_size};
     use crate::postgres::storage::blocklist::tree::{Bounds, InvalidNode, PageReader, TreeReader};
@@ -426,6 +431,7 @@ pub mod reader {
     use std::ops::Range;
     use tantivy::directory::OwnedBytes;
 
+    /// Reads block numbers from a compressed mapping chain, optionally accelerated by a directory tree.
     #[derive(Debug)]
     pub struct BlockList {
         blocks: Vec<pg_sys::BlockNumber>,
@@ -434,6 +440,7 @@ pub mod reader {
     }
 
     impl BlockList {
+        /// Creates a new reader starting at the first mapping page.
         pub fn new(starting_block: pg_sys::BlockNumber) -> Self {
             Self {
                 blocks: Vec::new(),
@@ -442,6 +449,7 @@ pub mod reader {
             }
         }
 
+        /// Attaches an optional directory tree root covering up to `end` logical blocks.
         pub fn with_directory(mut self, directory: Option<Directory>, end: Option<usize>) -> Self {
             self.directory = directory.and_then(|directory| {
                 let end = end.and_then(|end| u32::try_from(end).ok());
@@ -455,12 +463,16 @@ pub mod reader {
             let page = block.page();
             let mut bytes = page.as_slice();
             while !bytes.is_empty() {
-                let consumed = decode_chunk(bytes, &mut self.blocks);
+                let (count, _) = chunk_size(bytes);
+                let start = self.blocks.len();
+                self.blocks.resize(start + count, 0);
+                let consumed = decode_chunk(bytes, &mut self.blocks[start..]);
                 bytes = &bytes[consumed..];
             }
             self.next_blockno = page.next_blockno();
         }
 
+        /// Looks up the block number at ordinal index `i`.
         pub fn get(&mut self, bman: &BufferManager, i: usize) -> Option<pg_sys::BlockNumber> {
             if let Some(directory) = &mut self.directory {
                 let ordinal = u32::try_from(i).ok()?;
@@ -475,6 +487,7 @@ pub mod reader {
             self.blocks.get(i).copied()
         }
 
+        /// Consumes the reader and returns an iterator over all mapped block numbers in order.
         pub fn into_blocks(
             mut self,
             bman: &BufferManager,
@@ -502,8 +515,9 @@ pub mod reader {
 
         fn read_leaf(&self, address: u32, bounds: Bounds<u32>) -> Result<MappingPage, InvalidNode> {
             let buffer = self.0.get_buffer(address);
-            let mapping =
-                MappingPage::new(bounds.start as usize, buffer.page().as_slice().to_vec());
+            // Published mapping pages are immutable for the component's lifetime.
+            let bytes = OwnedBytes::new(unsafe { buffer.into_immutable_page() });
+            let mapping = MappingPage::new(bounds.start as usize, bytes);
             if bounds
                 .end
                 .is_some_and(|end| mapping.ordinals.end != end as usize)
@@ -517,7 +531,7 @@ pub mod reader {
     #[derive(Debug)]
     struct MappingPage {
         ordinals: Range<usize>,
-        bytes: Vec<u8>,
+        bytes: OwnedBytes,
         chunks: Vec<MappingChunk>,
         current_chunk: Option<usize>,
         #[cfg(any(test, feature = "pg_test"))]
@@ -532,7 +546,7 @@ pub mod reader {
     }
 
     impl MappingPage {
-        fn new(first_ordinal: usize, bytes: Vec<u8>) -> Self {
+        fn new(first_ordinal: usize, bytes: OwnedBytes) -> Self {
             let mut chunks = Vec::new();
             let mut ordinal = first_ordinal;
             let mut offset = 0;
@@ -560,10 +574,11 @@ pub mod reader {
             if !self.ordinals.contains(&ordinal) {
                 return None;
             }
-            if let Some(chunk) = self.current_chunk {
-                let chunk = &self.chunks[chunk];
+            if let Some(chunk_idx) = self.current_chunk {
+                let chunk = &self.chunks[chunk_idx];
                 if ordinal >= chunk.start
-                    && let Some(block) = chunk.decoded.as_ref()?.get(ordinal - chunk.start)
+                    && let Some(decoded) = &chunk.decoded
+                    && let Some(block) = decoded.get(ordinal - chunk.start)
                 {
                     return Some(*block);
                 }
@@ -575,21 +590,23 @@ pub mod reader {
             let entry = &mut self.chunks[chunk];
             let decoded = entry.decoded.get_or_insert_with(|| {
                 let bytes = &self.bytes[entry.offset..];
-                let mut decoded = Vec::with_capacity(chunk_size(bytes).0);
+                let (count, _) = chunk_size(bytes);
+                let mut decoded = vec![0; count].into_boxed_slice();
                 decode_chunk(bytes, &mut decoded);
                 #[cfg(any(test, feature = "pg_test"))]
                 {
                     self.chunk_decodes += 1;
                 }
-                decoded.into_boxed_slice()
+                decoded
             });
             self.current_chunk = Some(chunk);
             decoded.get(ordinal - entry.start).copied()
         }
     }
 
-    fn decode_chunk(slice: &[u8], blocks: &mut Vec<pg_sys::BlockNumber>) -> usize {
-        let (_, expected) = chunk_size(slice);
+    fn decode_chunk(slice: &[u8], blocks: &mut [pg_sys::BlockNumber]) -> usize {
+        let (expected_count, expected_len) = chunk_size(slice);
+        assert_eq!(blocks.len(), expected_count);
         let mut offset = 0;
         let tag = ChunkStyleTag::from(slice[offset]);
         offset += 1;
@@ -609,59 +626,52 @@ pub mod reader {
                         .unwrap(),
                 );
                 offset += size_of::<pg_sys::BlockNumber>();
-                let end = blocks.len();
                 match tag {
                     ChunkStyleTag::Sorted1x => {
-                        blocks.extend_from_slice(&[0; BitPacker1x::BLOCK_LEN]);
                         offset += BitPacker1x::new().decompress_sorted(
                             initial,
                             &slice[offset..],
-                            &mut blocks[end..],
+                            blocks,
                             num_bits,
                         );
                     }
                     ChunkStyleTag::Sorted4x => {
-                        blocks.extend_from_slice(&[0; BitPacker4x::BLOCK_LEN]);
                         offset += BitPacker4x::new().decompress_sorted(
                             initial,
                             &slice[offset..],
-                            &mut blocks[end..],
+                            blocks,
                             num_bits,
                         );
                     }
                     ChunkStyleTag::Sorted8x => {
-                        blocks.extend_from_slice(&[0; BitPacker8x::BLOCK_LEN]);
                         offset += BitPacker8x::new().decompress_sorted(
                             initial,
                             &slice[offset..],
-                            &mut blocks[end..],
+                            blocks,
                             num_bits,
                         );
                     }
                     ChunkStyleTag::StrictlySorted1x => {
-                        blocks.extend_from_slice(&[0; BitPacker1x::BLOCK_LEN]);
                         offset += BitPacker1x::new().decompress_strictly_sorted(
                             (initial != 0).then_some(initial),
                             &slice[offset..],
-                            &mut blocks[end..],
+                            blocks,
                             num_bits,
                         );
                     }
                     ChunkStyleTag::StrictlySorted4x => {
-                        blocks.extend_from_slice(&[0; BitPacker4x::BLOCK_LEN]);
                         offset += BitPacker4x::new().decompress_strictly_sorted(
                             (initial != 0).then_some(initial),
                             &slice[offset..],
-                            &mut blocks[end..],
+                            blocks,
                             num_bits,
                         );
                     }
                     ChunkStyleTag::StrictlySorted8x => {
-                        blocks.extend_from_slice(&[0; BitPacker8x::BLOCK_LEN]);
                         offset += BitPacker8x::new().decompress_strictly_sorted(
                             (initial != 0).then_some(initial),
                             &slice[offset..],
-                            &mut blocks[end..],
+                            blocks,
                             num_bits,
                         );
                     }
@@ -672,15 +682,14 @@ pub mod reader {
                 let len = slice[offset] as usize;
                 offset += 1;
                 let mut tmp = [0u8; size_of::<pg_sys::BlockNumber>()];
-                for _ in 0..len {
+                for block in blocks.iter_mut().take(len) {
                     tmp.copy_from_slice(&slice[offset..offset + size_of::<pg_sys::BlockNumber>()]);
                     offset += size_of::<pg_sys::BlockNumber>();
-                    let value = u32::from_le_bytes(tmp);
-                    blocks.push(value);
+                    *block = u32::from_le_bytes(tmp);
                 }
             }
         }
-        assert_eq!(offset, expected);
+        assert_eq!(offset, expected_len);
         offset
     }
 
@@ -926,7 +935,7 @@ pub mod reader {
                 level: 1,
             });
             let mut bytes = prefix.clone();
-            bytes.extend_from_slice(&largest.encode());
+            bytes.extend_from_slice(largest.encode());
             assert!(bytes.len() <= bm25_max_free_space());
             assert!(bm25_max_free_space() - bytes.len() < 8);
             assert_eq!(
@@ -939,7 +948,7 @@ pub mod reader {
                     entries: (0..directory.len()).map(|i| directory.entry(i)).collect(),
                 });
                 let mut bytes = prefix.clone();
-                bytes.extend_from_slice(&node.encode());
+                bytes.extend_from_slice(node.encode());
                 assert_eq!(
                     Directory::read(OwnedBytes::new(bytes.clone()), 900),
                     Some(node)
@@ -991,22 +1000,22 @@ pub mod reader {
                 bytes.extend_from_slice(&encoded);
             }
             assert!(bytes.len() <= crate::postgres::storage::block::bm25_max_free_space());
-            let mut page = MappingPage::new(FIRST, bytes.clone());
+            let mut page = MappingPage::new(FIRST, OwnedBytes::new(bytes.clone()));
             assert_eq!(page.chunk_decodes, 0);
             for round in 0..ROUNDS {
                 for stream in 0..STREAMS {
                     let offset = stream * BitPacker4x::BLOCK_LEN + round;
                     assert_eq!(page.get(FIRST + offset), Some((offset as u32 + 1) * 3));
                 }
-                assert_eq!(page.chunk_decodes, STREAMS);
             }
+            assert_eq!(page.chunk_decodes, STREAMS);
             pgrx::notice!(
                 "{} interleaved lookups, {} chunk decodes",
                 STREAMS * ROUNDS,
                 page.chunk_decodes
             );
 
-            let mut sparse = MappingPage::new(FIRST, bytes);
+            let mut sparse = MappingPage::new(FIRST, OwnedBytes::new(bytes.clone()));
             let last = STREAMS * BitPacker4x::BLOCK_LEN - 1;
             for offset in [last, 0, last, 1, last - 1] {
                 assert_eq!(sparse.get(FIRST + offset), Some((offset as u32 + 1) * 3));
@@ -1022,6 +1031,15 @@ pub mod reader {
                     .count(),
                 2
             );
+
+            let mut sequential = MappingPage::new(FIRST, OwnedBytes::new(bytes));
+            for offset in 0..BitPacker4x::BLOCK_LEN {
+                assert_eq!(
+                    sequential.get(FIRST + offset),
+                    Some((offset as u32 + 1) * 3)
+                );
+            }
+            assert_eq!(sequential.chunk_decodes, 1);
         }
 
         #[pg_test]
@@ -1063,7 +1081,7 @@ pub mod reader {
                             let mut bytes = vec![if strict { $strict } else { $sorted }, bits];
                             bytes.extend_from_slice(&initial.unwrap_or(0).to_le_bytes());
                             bytes.extend_from_slice(&encoded);
-                            let mut page = MappingPage::new(1000, bytes);
+                            let mut page = MappingPage::new(1000, OwnedBytes::new(bytes));
                             for (i, value) in values.iter().enumerate().rev() {
                                 assert_eq!(page.get(1000 + i), Some(*value));
                             }
@@ -1080,7 +1098,7 @@ pub mod reader {
             for n in [19u32, 2, 73] {
                 bytes.extend_from_slice(&n.to_le_bytes());
             }
-            let mut page = MappingPage::new(0, bytes);
+            let mut page = MappingPage::new(0, OwnedBytes::new(bytes));
             assert_eq!(page.get(2), Some(73));
             assert_eq!(page.get(0), Some(19));
             assert_eq!(page.get(3), None);

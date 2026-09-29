@@ -51,15 +51,21 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+/// An entry mapping a starting key to a child node or leaf page address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Entry<K, A> {
+    /// Starting key covered by this child entry.
     pub start: K,
+    /// Storage address of the child node or leaf page.
     pub address: A,
 }
 
+/// Half-open key interval `[start, end)` covered by a node or leaf.
 #[derive(Debug, Clone, Copy)]
 pub struct Bounds<K> {
+    /// Inclusive lower bound of keys covered.
     pub start: K,
+    /// Optional exclusive upper bound of keys covered.
     pub end: Option<K>,
 }
 
@@ -77,6 +83,7 @@ pub struct Node<K, A> {
 }
 
 impl<K: Ord + Copy, A: Copy> Node<K, A> {
+    /// Builds a tree bottom-up from sorted entries, spilling full nodes via `write`.
     pub fn build(
         entries: Vec<Entry<K, A>>,
         root_capacity: usize,
@@ -111,12 +118,18 @@ impl<K: Ord + Copy, A: Copy> Node<K, A> {
     }
 }
 
+/// Interface for reading node entries and levels, whether from memory or pinned pages.
 pub trait ReadNode<K: Ord + Copy, A: Copy> {
+    /// Returns the tree level of this node (0 points to leaves).
     fn level(&self) -> u32;
+    /// Returns the number of entries in this node.
     fn len(&self) -> usize;
+    /// Returns the entry at the given index.
     fn entry(&self, index: usize) -> Entry<K, A>;
+    /// Returns the partition point for `key`, identifying the child covering `key`.
     fn partition_point(&self, key: K) -> usize;
 
+    /// Verifies that this node's entries are monotonic and satisfy the expected `bounds`.
     fn valid_for(&self, bounds: Bounds<K>) -> bool {
         if self.len() == 0 || self.entry(0).start != bounds.start {
             return false;
@@ -146,6 +159,7 @@ impl<K: Ord + Copy, A: Copy> ReadNode<K, A> for Arc<Node<K, A>> {
     }
 }
 
+/// Error returned when a tree node fails structural or boundary validation.
 #[derive(Debug)]
 pub struct InvalidNode;
 
@@ -154,12 +168,15 @@ pub trait PageReader<K: Ord + Copy, A: Copy> {
     type Node: ReadNode<K, A>;
     type Leaf;
 
+    /// Reads and validates a directory node at `address`.
     fn read_node(&self, address: A, bounds: Bounds<K>) -> Result<Self::Node, InvalidNode>;
+    /// Reads and validates a leaf page at `address`.
     fn read_leaf(&self, address: A, bounds: Bounds<K>) -> Result<Self::Leaf, InvalidNode>;
 }
 
 type CachedChild<K, A, L, N> = Option<Box<Child<K, A, L, N>>>;
 
+/// Lazily traverses an immutable B+ tree, caching loaded child nodes and leaves.
 #[derive(Debug)]
 pub struct TreeReader<K, A, L, N = Arc<Node<K, A>>> {
     node: N,
@@ -176,6 +193,7 @@ enum Child<K, A, L, N> {
 }
 
 impl<K: Ord + Copy, A: Copy, L, N: ReadNode<K, A>> TreeReader<K, A, L, N> {
+    /// Creates a reader rooted at `node` covering keys up to `end`.
     pub fn new(node: N, end: Option<K>) -> Result<Self, InvalidNode> {
         let bounds = Bounds {
             start: if node.len() == 0 {
@@ -198,6 +216,7 @@ impl<K: Ord + Copy, A: Copy, L, N: ReadNode<K, A>> TreeReader<K, A, L, N> {
         })
     }
 
+    /// Traverses the tree to find and return the leaf containing `key`, loading nodes on demand.
     pub fn get<R: PageReader<K, A, Node = N, Leaf = L>>(
         &mut self,
         reader: &R,

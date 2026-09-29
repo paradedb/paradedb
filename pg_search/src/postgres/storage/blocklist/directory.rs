@@ -64,12 +64,6 @@ struct DirectoryEntry {
     block: pg_sys::BlockNumber,
 }
 
-/// Borrows the encoded entries directly from the pinned page.
-struct DirectoryNode<'a> {
-    header: &'a DirectoryHeader,
-    entries: &'a [DirectoryEntry],
-}
-
 const HEADER_SIZE: usize = size_of::<DirectoryHeader>();
 const ENTRY_SIZE: usize = size_of::<DirectoryEntry>();
 // The root shares the component header page, leaving less room for entries
@@ -120,6 +114,7 @@ impl Directory {
         (Self::from(node), overflow)
     }
 
+    /// Reads and validates a directory root from bytes stored on the component header page.
     pub fn read(bytes: OwnedBytes, first_block: pg_sys::BlockNumber) -> Option<Self> {
         if bytes.len() > bm25_max_free_space() {
             return None;
@@ -160,13 +155,15 @@ impl Directory {
         Some(Self { bytes })
     }
 
-    fn view(&self) -> DirectoryNode<'_> {
-        DirectoryNode {
-            header: bytemuck::from_bytes(&self.bytes[..HEADER_SIZE]),
-            entries: bytemuck::cast_slice(&self.bytes[HEADER_SIZE..]),
-        }
+    fn header(&self) -> &DirectoryHeader {
+        bytemuck::from_bytes(&self.bytes[..HEADER_SIZE])
     }
 
+    fn entries(&self) -> &[DirectoryEntry] {
+        bytemuck::cast_slice(&self.bytes[HEADER_SIZE..])
+    }
+
+    /// Returns the raw encoded directory bytes stored in the root.
     pub fn encode(&self) -> &[u8] {
         &self.bytes
     }
@@ -186,27 +183,33 @@ impl Directory {
 
 impl ReadNode<u32, pg_sys::BlockNumber> for Directory {
     fn level(&self) -> u32 {
-        u32::from_le(self.view().header.level)
+        u32::from_le(self.header().level)
     }
+
     fn len(&self) -> usize {
-        self.view().entries.len()
+        self.entries().len()
     }
+
     fn entry(&self, index: usize) -> Entry<u32, pg_sys::BlockNumber> {
-        let entry = &self.view().entries[index];
+        let entry = &self.entries()[index];
         Entry {
             start: u32::from_le(entry.start),
             address: u32::from_le(entry.block),
         }
     }
+
     fn valid_for(&self, bounds: Bounds<u32>) -> bool {
-        self.entry(0).start == bounds.start
-            && bounds
-                .end
-                .is_none_or(|end| self.entry(self.len() - 1).start < end)
+        let entries = self.entries();
+        let Some(first) = entries.first() else {
+            return false;
+        };
+        let last = entries.last().unwrap();
+        u32::from_le(first.start) == bounds.start
+            && bounds.end.is_none_or(|end| u32::from_le(last.start) < end)
     }
+
     fn partition_point(&self, key: u32) -> usize {
-        self.view()
-            .entries
+        self.entries()
             .partition_point(|entry| u32::from_le(entry.start) <= key)
     }
 }

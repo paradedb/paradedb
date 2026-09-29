@@ -134,7 +134,7 @@ The dashboard will be accessible at `localhost:3000` under username `admin` and 
 
 Use the ParadeDB extension image to add ParadeDB to an existing CloudNativePG cluster without rebuilding your Postgres image. This requires Postgres 18+ and Kubernetes support for image volumes. See the [CloudNativePG extension image guide](https://cloudnative-pg.io/docs/1.28/imagevolume_extensions/) for requirements and configuration details.
 
-Add the `pg_search` extension image to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource:
+`pg_search` requires [pgvector](https://github.com/pgvector/pgvector), which is not bundled in the ParadeDB extension image. Add both extension images to `spec.postgresql.extensions` in your CloudNativePG `Cluster` resource:
 
 import { version } from "/snippets/version.mdx";
 
@@ -154,28 +154,34 @@ spec:
     shared_preload_libraries:
       - "pg_search"
     extensions:
+      - name: vector
+        image:
+          reference: ghcr.io/cloudnative-pg/pgvector:0.8.6-18-trixie
       - name: pg_search
         image:
           reference: docker.io/paradedb/paradedb-extension:{version}-18-trixie
         extension_control_path:
-          - /share
+          - share
         dynamic_library_path:
-          - /lib
+          - lib
+        ld_library_path:
+          - system
 ```
 
-Then enable `pg_search` in your database using a `Database` resource:
+Then enable pgvector (named `vector` in Postgres) and `pg_search` in your database using a `Database` resource:
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
-  name: paradedb-app
+  name: paradedb
 spec:
   name: app
   owner: app
   cluster:
     name: paradedb
   extensions:
+    - name: vector
     - name: pg_search
       version: "{version}"
 ```

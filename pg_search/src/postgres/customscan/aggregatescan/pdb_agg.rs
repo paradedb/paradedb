@@ -456,10 +456,25 @@ struct PdbAggEntryLayout {
     datetime_fields: HashSet<String>,
 }
 
+/// What one column of a [`PdbAggPlan`]'s output holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PdbAggColumn {
+    /// A SQL group key, by its position among them.
+    GroupKey(usize),
+    /// A standard aggregate, by its position among them.
+    StdAgg(usize),
+    /// `__grouping_id`, present when any spec groups.
+    GroupingId,
+    /// A terms key, by its position in `keys`.
+    Key(usize),
+    /// A metric, by its position in `metrics`.
+    Metric(usize),
+}
+
 /// The grouping-set plan for every `pdb.agg()` in a query, plus where each piece
-/// lands in the final DataFusion output. The output column order is:
-/// SQL group keys, standard aggregates, `__grouping_id` (when any spec groups),
-/// interned terms keys, interned metrics.
+/// lands in the final DataFusion output. [`PdbAggPlan::columns`] is the output
+/// column order: SQL group keys, standard aggregates, `__grouping_id` (when any
+/// spec groups), interned terms keys, interned metrics.
 #[derive(Debug, Clone)]
 pub struct PdbAggPlan {
     pub keys: Vec<PdbKeySpec>,
@@ -700,17 +715,41 @@ impl PdbAggPlan {
         }
     }
 
+    /// The output columns, in order. Whatever lays rows out for the assembler
+    /// goes by this, and so does every column position below.
+    pub fn columns(&self) -> impl Iterator<Item = PdbAggColumn> + '_ {
+        (0..self.num_outer_group_cols)
+            .map(PdbAggColumn::GroupKey)
+            .chain((0..self.num_std_aggs).map(PdbAggColumn::StdAgg))
+            .chain(self.has_grouping_sets().then_some(PdbAggColumn::GroupingId))
+            .chain((0..self.keys.len()).map(PdbAggColumn::Key))
+            .chain((0..self.metrics.len()).map(PdbAggColumn::Metric))
+    }
+
+    fn column_of(&self, column: PdbAggColumn) -> Option<usize> {
+        self.columns().position(|c| c == column)
+    }
+
     pub fn grouping_id_col(&self) -> Option<usize> {
-        self.has_grouping_sets().then_some(self.num_root_cols())
+        self.column_of(PdbAggColumn::GroupingId)
     }
 
     fn key_col(&self, key_idx: usize) -> usize {
-        self.num_root_cols() + 1 + key_idx
+        self.column_of(PdbAggColumn::Key(key_idx))
+            .unwrap_or_else(|| panic!("BUG: the plan has no key {key_idx}"))
     }
 
     fn metric_col(&self, metric_idx: usize) -> usize {
-        let grouping_id = usize::from(self.has_grouping_sets());
-        self.num_root_cols() + grouping_id + self.keys.len() + metric_idx
+        self.column_of(PdbAggColumn::Metric(metric_idx))
+            .unwrap_or_else(|| panic!("BUG: the plan has no metric {metric_idx}"))
+    }
+
+    /// The metric an output column holds.
+    fn metric_at(&self, col: usize) -> usize {
+        match self.columns().nth(col) {
+            Some(PdbAggColumn::Metric(metric_idx)) => metric_idx,
+            other => panic!("BUG: output column {col} holds {other:?}, not a metric"),
+        }
     }
 
     /// The `__grouping_id` DataFusion assigns to a level: one bit per grouping
@@ -747,7 +786,6 @@ impl PdbAggPlan {
         parent_level: usize,
         by_level: &mut [Vec<usize>],
     ) {
-        let first_metric_col = self.metric_col(0);
         match node {
             PdbAggNodeLayout::Terms {
                 level,
@@ -755,7 +793,7 @@ impl PdbAggPlan {
                 sub,
                 ..
             } => {
-                by_level[*level].push(doc_count_col - first_metric_col);
+                by_level[*level].push(self.metric_at(*doc_count_col));
                 for (_, sub) in sub {
                     self.collect_metrics_by_level(sub, *level, by_level);
                 }
@@ -769,7 +807,7 @@ impl PdbAggPlan {
                     count_col
                         .iter()
                         .chain(value_col)
-                        .map(|col| col - first_metric_col),
+                        .map(|col| self.metric_at(*col)),
                 );
             }
         }

@@ -39,7 +39,7 @@ Replace `<REGION>` with the region you chose during `fly launch`.
 Store `POSTGRES_PASSWORD` as a Fly.io secret to keep it out of your configuration file.
 
 ```bash
-fly secrets set POSTGRES_PASSWORD=<YOUR_STRONG_PASSWORD>
+fly secrets set POSTGRES_PASSWORD=<PASSWORD>
 ```
 
 ## Deploy ParadeDB
@@ -78,7 +78,7 @@ fly proxy 5432
 Keep the proxy running and connect with `psql` from another terminal:
 
 ```bash
-psql "postgres://postgres:<YOUR_STRONG_PASSWORD>@localhost:5432/paradedb"
+psql "postgres://postgres:<PASSWORD>@localhost:5432/paradedb"
 ```
 
 ### Public Connections

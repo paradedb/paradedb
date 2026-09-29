@@ -6,15 +6,15 @@ canonical: https://www.paradedb.com/docs/operate/deploy/upgrading
 
 ## Overview
 
+ParadeDB ships its functionality packaged as a Postgres extension, `pg_search`. To upgrade, first install the new extension binary, then update the extension in the Postgres catalog.
+
 <Note>
-  ParadeDB depends on `pgvector` for its vector types, which are used by [native
-  vector search](/reference/vector/overview). This extension is not managed by
+  ParadeDB uses `pgvector`'s vector types for [native vector
+  search](/reference/vector/overview). This extension is not managed by
   ParadeDB. Please refer to the [pgvector
   documentation](https://github.com/pgvector/pgvector?tab=readme-ov-file#upgrading)
   for instructions on how to upgrade it.
 </Note>
-
-ParadeDB ships its functionality packaged as a Postgres extension, `pg_search`. To upgrade, first install the new extension binary, then update the extension in the Postgres catalog.
 
 ## Getting the Current Version
 

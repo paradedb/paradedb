@@ -15,15 +15,7 @@ rank, filter, and aggregate inside Postgres using ParadeDB. To go to production,
 4. Create and [tune](/operate/performance-tuning/overview) your indexes for production scale.
 5. Confirm queries use ParadeDB with [`EXPLAIN`](/concepts/architecture#custom-scan).
 6. Review the [upgrade](/operate/deploy/upgrading) and maintenance guides.
-
-## Operational Readiness
-
-Before cutting over traffic, verify the important paths:
-
-- Run representative queries with `EXPLAIN` and confirm that ParadeDB is used.
-- Test writes and updates against indexed tables.
-- Check backup, restore, and upgrade procedures.
-- Set monitoring around slow queries, index size, and segment growth.
+7. Set up [monitoring](/operate/index-maintenance/verify-index) for query performance and index growth.
 
 When something does not look right, compare the query plan with the relevant
 query reference page and the [Read Throughput](/operate/performance-tuning/reads)

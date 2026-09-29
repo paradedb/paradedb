@@ -70,11 +70,12 @@ pub enum SearchFieldType {
     Json(pg_sys::Oid),
     Date(pg_sys::Oid),
     Range(pg_sys::Oid),
-    /// NUMERIC with precision <= 18: stored as I64 with fixed-point scaling.
-    /// The i16 is the scale (number of decimal places).
+    /// NUMERIC with precision <= 18 and a scale in -18..=18: stored as I64 with fixed-point
+    /// scaling. The i16 is the scale (number of decimal places).
     Numeric64(pg_sys::Oid, i16),
-    /// NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes.
-    /// The `Option<i16>` is the scale (number of decimal places), or None for unlimited precision.
+    /// Any other NUMERIC, including unlimited precision: stored as lexicographically sortable
+    /// bytes. The `Option<i16>` is the scale (number of decimal places), or None for unlimited
+    /// precision.
     NumericBytes(pg_sys::Oid, Option<i16>),
     /// Dense vector field (pgvector type). The usize is the number of dimensions,
     /// and `VectorMetric` is the distance metric (default L2).
@@ -273,6 +274,7 @@ fn derive_field_type_from_schema(
     // For most types, the tantivy schema matches what we computed.
     // The exceptions are:
     // - NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
+    // - NUMERIC with a scale outside -18..=18, which older indexes stored as I64.
     // - TIMESTAMP, TIMESTAMPTZ, TIME, TIMETZ, DATE, where legacy indexes used Date but new code computes I64
     match (field_entry.field_type(), computed_type) {
         // If computed type was Numeric64/NumericBytes but stored type is F64,
@@ -284,6 +286,15 @@ fn derive_field_type_from_schema(
         // legacy index - use Date.
         (FieldType::Date(_), SearchFieldType::I64(oid)) if is_datetime_type(oid) => {
             SearchFieldType::Date(oid)
+        }
+        // BACKWARDS COMPATIBILITY (#6387): an index built before NUMERIC routing bounded the
+        // scale can store an out-of-range scale such as `numeric(3,20)` as `I64`. Keep that
+        // layout until `REINDEX`, or the first value indexed as bytes breaks the index.
+        //
+        // TODO: remove this arm, and the `numeric_scale` upgrade test case, once every
+        // deployment has rebuilt its indexes on a release that includes #6387.
+        (FieldType::I64(_), SearchFieldType::NumericBytes(oid, Some(scale))) => {
+            SearchFieldType::Numeric64(oid, scale)
         }
         _ => {
             // For all other types, the computed type is correct
@@ -340,25 +351,9 @@ impl SearchFieldType {
                     Ok(SearchFieldType::F64((*builtin).into()))
                 }
                 PgBuiltInOids::NUMERICOID => {
-                    // Route NUMERIC based on what `Decimal64NoScale` can actually encode:
-                    // - precision <= 18 and |scale| <= 18 -> Numeric64 (I64 fixed-point)
-                    // - anything else, or unlimited        -> NumericBytes (lexicographic bytes)
-                    //
-                    // The 18-digit precision threshold comes from
-                    // decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION, the maximum number of
-                    // decimal digits that fit in an i64 without overflow (i64::MAX =
-                    // 9,223,372,036,854,775,807, which has 19 digits, but we need headroom for
-                    // the scaled representation).
-                    //
-                    // The scale is bounded separately by MAX_DECIMAL64_NO_SCALE_SCALE. PostgreSQL
-                    // accepts a much wider scale range than the encoder does, so checking only the
-                    // precision let types such as `numeric(3,20)` select Numeric64 and then fail
-                    // at index time — `CREATE INDEX` on a populated table, or the first search
-                    // after an empty index was populated. This mirrors the encoder's own check so
-                    // the two cannot drift apart.
-                    //
-                    // Note: Numeric64 fields support aggregate pushdown (SUM, AVG, MIN, MAX),
-                    // while NumericBytes fields do not (Tantivy cannot aggregate on bytes columns).
+                    // `Decimal64NoScale` holds at most 18 digits and a scale in -18..=18. Postgres
+                    // allows a much wider scale, e.g. `numeric(3,20)`, so bound both with the
+                    // encoder's own constants and let the rest fall back to `NumericBytes`.
                     let (precision, scale) = extract_numeric_precision_scale(typmod);
                     if let Some(scale) = scale
                         && precision > 0

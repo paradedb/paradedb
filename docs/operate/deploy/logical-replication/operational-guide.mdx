@@ -73,16 +73,18 @@ keep the ParadeDB index current automatically.
 
 ### 3. Query ParadeDB
 
-Your application can now issue search queries to ParadeDB without adding search
+Your application can now issue queries to ParadeDB without adding
 indexes to the primary database:
 
 ```sql
-SELECT id, description, pdb.score(id) AS score
+SELECT description, pdb.score(id)
 FROM mock_items
-WHERE description @@@ 'running shoes'
+WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY score DESC
-LIMIT 10;
+LIMIT 5;
 ```
+
+For more query examples, see [Run Your First Queries](/start/run-queries).
 
 ## Day-2 Operations
 

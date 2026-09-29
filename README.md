@@ -114,4 +114,6 @@ We welcome contributions of all sizes! Check out our [good first issues](https:/
 
 ## License
 
-ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE). [ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud) deploys the [ParadeDB Enterprise](https://www.paradedb.com/docs/operate/deploy/enterprise) image. To self-host ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.com).
+ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+[ParadeDB Enterprise](https://www.paradedb.com/docs/operate/deploy/enterprise) is commercially licensed and included with [ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud). To self-host ParadeDB Enterprise, [contact sales](mailto:sales@paradedb.com).

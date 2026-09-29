@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::utils::PgMemoryContextsExt;
 use pgrx::{PgList, PgMemoryContexts, pg_sys};
 use std::fmt::{Debug, Formatter};
 use std::ptr::addr_of_mut;
@@ -113,7 +114,7 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
 
     pub fn build(self) -> *mut CustomScanStateWrapper<CS> {
         let flags = unsafe { (*self.args.cscan).flags };
-        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(CustomScanStateWrapper {
+        let wrapper = CustomScanStateWrapper {
             csstate: pg_sys::CustomScanState {
                 ss: pg_sys::ScanState {
                     ps: pg_sys::PlanState {
@@ -131,6 +132,7 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
             },
             custom_state: self.custom_state,
             runtime_context: std::ptr::null_mut(),
-        })
+        };
+        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_unless_exiting(wrapper)
     }
 }

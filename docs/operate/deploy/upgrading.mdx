@@ -38,38 +38,50 @@ If `pg_extension` is greater than `paradedb.version_info()`, it means that the e
 
 ## Getting the Latest Version
 
-The latest version of `pg_search` is `0.25.11`. Please refer to the [releases](https://github.com/paradedb/paradedb/releases) page for all available versions of `pg_search`.
+The latest version of `pg_search` is `0.25.11`. The list of available `pg_search` versions can be found [here](https://github.com/paradedb/paradedb/releases).
 
 ## Updating ParadeDB
 
 <Tabs>
 <Tab title="Kubernetes">
 
-To upgrade the ParadeDB Helm chart:
+To upgrade `pg_search` in a cluster deployed with the ParadeDB Helm chart:
 
-1. Update the `paradedb` chart to the latest version.
-
-```bash
-helm repo update
-```
-
-2. Get the latest version of the `paradedb` chart.
+1. Refresh the local chart repository index.
 
 ```bash
-helm search repo paradedb
+helm repo update paradedb
 ```
 
-3. Get the latest version of the ParadeDB extension, which is the value of `version.paradedb` in the chart [README](https://github.com/paradedb/charts/tree/main/charts/paradedb#values).
-
-4. Run `helm upgrade` with the latest version of the chart and the latest version of the extension.
+2. List the available chart versions.
 
 ```bash
-helm upgrade paradedb paradedb/paradedb --namespace paradedb --reuse-values --version <helm_version> --set version.paradedb=<paradedb_version> --atomic
+helm search repo paradedb/paradedb --versions
 ```
 
-Replace `<helm_version>` with the latest version of the chart and `<paradedb_version>` with the latest version of the extension.
+3. Choose a chart version and a ParadeDB extension version. The chart version
+   and extension version are separate: `--version` selects the Helm chart,
+   while `version.paradedb` selects the ParadeDB version deployed by that chart.
+   See [Getting the Latest Version](#getting-the-latest-version) for the latest
+   extension release.
 
-5. If you are using [ParadeDB BYOC](/operate/deploy/byoc), an automatic rollout will begin. One by one, the pods will be restarted to apply the new version of the extension.
+4. Upgrade the existing Helm release, preserving its configured values and
+   setting the new ParadeDB version.
+
+```bash
+helm upgrade paradedb paradedb/paradedb \
+  --namespace paradedb \
+  --reuse-values \
+  --version <chart_version> \
+  --set-string version.paradedb=<paradedb_version> \
+  --atomic
+```
+
+Replace `<chart_version>` and `<paradedb_version>` with your chosen versions.
+Use your existing release name and namespace if they differ from `paradedb`.
+
+After the cluster has finished updating, continue to [Alter Extension](#alter-extension)
+to update the Postgres catalog in each database that uses `pg_search`.
 
 </Tab>
 <Tab title="Docker">

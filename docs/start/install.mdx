@@ -1,7 +1,7 @@
 ---
 title: Install ParadeDB
 sidebarTitle: Install ParadeDB
-description: Run the ParadeDB Docker image
+description: Run ParadeDB locally
 canonical: https://www.paradedb.com/docs/start/install
 ---
 
@@ -9,7 +9,7 @@ canonical: https://www.paradedb.com/docs/start/install
   For a fully managed experience, get started with [ParadeDB Cloud](/operate/deploy/cloud).
 </Note>
 
-Get started locally with the ParadeDB image using our Curlbash installer or via Docker directly.
+Get started locally with our Curlbash installer, Docker, or Postgres.app.
 
 <Tabs>
 <Tab title="Curlbash">
@@ -46,6 +46,29 @@ Replace `mygoodpassword` with your chosen password and adjust the username and d
 ```bash
 docker exec -it paradedb psql -U postgres -d paradedb -W
 ```
+
+</Tab>
+<Tab title="Postgres.app (macOS)">
+
+1. Install [Postgres.app](https://postgresapp.com/) with PostgreSQL 18, open it, and click **Initialize** to create a server.
+2. Download the `pg_search` installer from the [Postgres.app extensions page](https://postgresapp.com/extensions/) and double-click the package to install it.
+3. Double-click a database in Postgres.app to open `psql`. Run `SHOW config_file;` to locate `postgresql.conf`, then add `pg_search` to `shared_preload_libraries`:
+
+```ini
+shared_preload_libraries = 'pg_search'
+```
+
+If other libraries are already listed, keep them and append `pg_search` to the comma-separated list. Stop and start the server in Postgres.app to apply the change.
+
+Double-click a database to open a new `psql` session, then create your tutorial database and enable ParadeDB:
+
+```sql
+CREATE DATABASE paradedb;
+\c paradedb
+CREATE EXTENSION pg_search CASCADE;
+```
+
+Postgres.app includes pgvector, which `CASCADE` enables automatically. When connecting your app, use `localhost:5432`, database `paradedb`, your macOS username, and no password by default.
 
 </Tab>
 </Tabs>

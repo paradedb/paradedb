@@ -38,7 +38,7 @@ Replace `<REGION>` with the region you chose during `fly launch`.
 
 ## Set the Postgres Password
 
-Set the `POSTGRES_PASSWORD` as a Fly.io secret so it is never committed to `fly.toml`:
+Store `POSTGRES_PASSWORD` as a Fly.io secret to keep it out of your configuration file.
 
 ```bash
 fly secrets set POSTGRES_PASSWORD=<YOUR_STRONG_PASSWORD>

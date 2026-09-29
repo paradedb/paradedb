@@ -316,6 +316,14 @@
             "pages": [
               "project/roadmap",
               {
+                "group": "Resources",
+                "pages": [
+                  "project/resources/learn",
+                  "project/resources/blog",
+                  "project/resources/customers"
+                ]
+              },
+              {
                 "group": "Changelog",
                 "pages": [
                   "project/changelog",

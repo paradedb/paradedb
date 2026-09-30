@@ -1,0 +1,20 @@
+---
+title: ParadeDB BYOC
+description: Run ParadeDB in your cloud, managed by our team
+canonical: https://www.paradedb.com/docs/operate/deploy/byoc
+---
+
+ParadeDB BYOC (Bring Your Own Cloud) is a managed deployment of ParadeDB within your cloud environment.
+It combines the benefits of a managed platform with the security posture of a self-hosted deployment.
+
+Our BYOC module is supported on GCP and AWS, including GovCloud regions and airgapped environments.
+To request access or ask about support for another cloud provider, please [contact sales](mailto:sales@paradedb.com).
+
+## How BYOC Works
+
+ParadeDB BYOC provisions a Kubernetes cluster in your cloud environment with [high availability](/operate/deploy/self-hosted/high-availability) preconfigured.
+It also configures [logical replication](/operate/deploy/logical-replication/getting-started) with your primary Postgres, backups, connection pooling, monitoring, access control, and audit logging.
+
+The architecture below illustrates a typical ParadeDB BYOC deployment.
+
+![ParadeDB BYOC Topology](/images/topology.png)

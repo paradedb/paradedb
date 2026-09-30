@@ -4,7 +4,7 @@
 Unified release artifact assembler for ParadeDB:
 - Assembles unreleased SQL migration fragments into pg_search--<prev>--<target>.sql
 - Assembles unreleased changelog fragments into docs/project/changelog/<version>.mdx
-- Registers new versions in docs/docs.json and docs/snippets/version.mdx
+- Registers new versions in docs navigation, snippets, and installation examples
 """
 
 # pylint: disable=too-many-lines,fixme
@@ -380,6 +380,7 @@ def render_changelog(version, headers_map, grouped, extras):
         "---",
         f'title: "{version}"',
         f'description: "ParadeDB release notes for {version}"',
+        "noindex: true",
         "---",
         "",
         f"See GitHub release: [v{version}]({release_url})",
@@ -481,7 +482,7 @@ def _promote_new_active_group(changelog_pages, older_pages, target_group, target
             new_group = {
                 "group": target_group,
                 "pages": [target_page],
-                "expanded": True,
+                "expanded": False,
             }
             changelog_pages.insert(idx, new_group)
             return True
@@ -517,7 +518,7 @@ def _insert_into_tabs(versions, target_page):
     new_group = {
         "group": target_group,
         "pages": [target_page],
-        "expanded": True,
+        "expanded": False,
     }
     changelog_pages.append(new_group)
     return True
@@ -598,7 +599,7 @@ def update_docs_json(docs_json_path, new_version, is_latest=True, repo_root=None
 
 
 def update_version_snippet(repo_root, clean_ver):
-    """Update exported version variable in docs/snippets/version.mdx."""
+    """Update the shared version snippet and current installation examples."""
     snippet_file = repo_root / "docs" / "snippets" / "version.mdx"
     snippet_file.parent.mkdir(parents=True, exist_ok=True)
     content = dedent(
@@ -611,6 +612,80 @@ def update_version_snippet(repo_root, clean_ver):
     with open(snippet_file, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"✅ Updated {snippet_file} with version '{clean_ver}'")
+    update_installation_version(repo_root, clean_ver)
+    update_kubernetes_version(repo_root, clean_ver)
+    update_digitalocean_version(repo_root, clean_ver)
+    update_upgrading_version(repo_root, clean_ver)
+
+
+def update_upgrading_version(repo_root, clean_ver):
+    """Update literal versions in upgrade prose and executable examples."""
+    upgrading_file = repo_root / "docs/operate/deploy/upgrading.mdx"
+    if not upgrading_file.exists():
+        return
+
+    semver = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
+    patterns = [
+        rf"(The latest version of `pg_search` is `){semver}(?=`)",
+        rf"(docker pull paradedb/paradedb:){semver}",
+        rf"(ALTER EXTENSION pg_search UPDATE TO '){semver}(?=';)",
+    ]
+    content = upgrading_file.read_text(encoding="utf-8")
+    for pattern in patterns:
+        content = re.sub(pattern, lambda match: match[1] + clean_ver, content)
+    upgrading_file.write_text(content, encoding="utf-8")
+
+
+def update_installation_version(repo_root, clean_ver):
+    """Keep release tags and package versions aligned in installation URLs."""
+    install_file = repo_root / "docs/operate/deploy/self-hosted/extension.mdx"
+    if not install_file.exists():
+        return
+
+    def replace_version(match):
+        return match.group(0).replace(match.group(1), clean_ver)
+
+    content = install_file.read_text(encoding="utf-8")
+    content = re.sub(
+        r'https://github\.com/paradedb/paradedb/releases/download/v'
+        r'(\d+\.\d+\.\d+(?:-rc\.\d+)?)/[^\s"<>]+',
+        replace_version,
+        content,
+    )
+    install_file.write_text(content, encoding="utf-8")
+
+
+def update_kubernetes_version(repo_root, clean_ver):
+    """Update ParadeDB extension image examples without changing pgvector."""
+    kubernetes_file = repo_root / "docs/operate/deploy/self-hosted/kubernetes.mdx"
+    if not kubernetes_file.exists():
+        return
+
+    semver = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
+    patterns = [
+        rf"(paradedb/paradedb(?:-enterprise)?-extension:){semver}",
+        rf'(- name: pg_search\s+version: "){semver}',
+    ]
+    content = kubernetes_file.read_text(encoding="utf-8")
+    for pattern in patterns:
+        content = re.sub(pattern, lambda match: match[1] + clean_ver, content)
+    kubernetes_file.write_text(content, encoding="utf-8")
+
+
+def update_digitalocean_version(repo_root, clean_ver):
+    """Keep the DigitalOcean installer tag aligned with the latest release."""
+    install_file = repo_root / "docs/operate/deploy/cloud-platforms/digitalocean.mdx"
+    if not install_file.exists():
+        return
+
+    content = install_file.read_text(encoding="utf-8")
+    content = re.sub(
+        r"(https://paradedb\.com/install\.sh\?tag=)"
+        r"\d+\.\d+\.\d+(?:-rc\.\d+)?(?=-pg\d+)",
+        lambda match: match[1] + clean_ver,
+        content,
+    )
+    install_file.write_text(content, encoding="utf-8")
 
 
 def assemble_changelog_files(
@@ -1264,7 +1339,7 @@ def build_parser():
     cl_parser.add_argument(
         "--register-only",
         action="store_true",
-        help="Only update docs.json and version.mdx",
+        help="Only update docs navigation, version snippet, and installation examples",
     )
     cl_parser.add_argument(
         "--is-latest",

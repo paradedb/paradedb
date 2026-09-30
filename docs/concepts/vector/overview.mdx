@@ -1,0 +1,32 @@
+---
+title: How Vector Search Works
+description: Understand how ParadeDB natively supports vector search
+canonical: https://www.paradedb.com/docs/concepts/vector/overview
+---
+
+<Note>This is a beta feature available in versions `0.25.0` and above.</Note>
+
+Vector search finds rows whose embeddings are closest to a query vector. It is
+useful when relevance depends on semantic similarity rather than exact token
+matches.
+
+Today, many Postgres applications use the
+[pgvector](https://github.com/pgvector/pgvector) extension for similarity
+search. pgvector works well for many use cases, but separate vector indexes can
+struggle when a query also needs selective filters, text predicates, or frequent
+updates.
+
+The ParadeDB index supports pgvector's `vector` type inside the same index that
+stores text and columnar data. This lets ParadeDB evaluate vector similarity,
+full-text predicates, filters, and ranking from one index-backed query path.
+
+ParadeDB vectors use ParadeDB-built index structures designed for fast
+nearest-neighbor retrieval at scale. They are independent from pgvector's HNSW
+and IVFFlat indexes, while still using pgvector's `vector` type.
+
+Because vectors live in the same index as text and filters, vector search can be
+combined with [text search](/concepts/full-text/overview) into a single ranking.
+See [How Hybrid Search Works](/concepts/hybrid/overview).
+
+For indexing, query syntax, and tuning options, see the [Vector / Semantic Search
+reference](/reference/vector/overview).

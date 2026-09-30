@@ -1,0 +1,132 @@
+---
+title: Configuration Reference
+description: Runtime settings for ParadeDB and pg_search
+canonical: https://www.paradedb.com/docs/reference/configuration
+---
+
+ParadeDB exposes runtime configuration through Postgres settings, also known as GUCs. Most settings can be changed per session:
+
+```sql
+SHOW paradedb.enable_custom_scan;
+SET paradedb.enable_custom_scan = off;
+RESET paradedb.enable_custom_scan;
+```
+
+For persistent configuration, use normal Postgres mechanisms such as `ALTER DATABASE`, `ALTER ROLE`, or `ALTER SYSTEM`.
+
+```sql
+ALTER DATABASE app SET paradedb.max_topk_chunk_size = 200000;
+ALTER ROLE app_user SET paradedb.vector_cluster_max_probe = 0.05;
+```
+
+<Warning>
+  Planner and execution settings can change query plans, memory use, latency, or
+  recall. Change them deliberately and prefer session-level `SET` while testing.
+</Warning>
+
+## Query Planning
+
+These settings control whether ParadeDB proposes custom plans for eligible queries.
+
+| Setting                                        | Default       | Context | Description                                                                                                                |
+| ---------------------------------------------- | ------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `paradedb.enable_custom_scan`                  | `on`          | user    | Enables ParadeDB's base custom scan, which replaces table scans with ParadeDB index scans.                                 |
+| `paradedb.enable_aggregate_custom_scan`        | `on`          | user    | Enables the aggregate custom scan for eligible `pdb.agg` and `GROUP BY` queries.                                           |
+| `paradedb.enable_join_custom_scan`             | `on`          | user    | Enables the join custom scan, which pushes eligible joins into the ParadeDB executor.                                      |
+| `paradedb.enable_custom_scan_without_operator` | `off`         | user    | Allows custom scans without a ParadeDB search operator when the whole `WHERE` clause can push down.                        |
+| `paradedb.enable_filter_pushdown`              | `on`          | user    | Allows non-indexed predicates to use heap filtering after the ParadeDB scan.                                               |
+| `paradedb.enable_range_partitioned_join`       | `off`         | user    | Enables range co-partitioned joins and asymmetric range alignment for MPP joins on indexes configured with `partition_by`. |
+| `paradedb.enable_heuristic_selectivity`        | `on`          | user    | Uses cheap planner selectivity estimates for expensive fuzzy, regex, and range query shapes.                               |
+| `paradedb.per_tuple_cost`                      | `100000000.0` | user    | Planner cost multiplier that discourages using ParadeDB operators outside a supported index plan.                          |
+| `paradedb.explain_recursive_estimates`         | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                     |
+
+## Top K
+
+These settings affect queries that combine a ParadeDB predicate with `ORDER BY ... LIMIT`. See [Top K](/reference/full-text/top-k).
+
+| Setting                                | Default  | Context | Description                                                                                  |
+| -------------------------------------- | -------- | ------- | -------------------------------------------------------------------------------------------- |
+| `paradedb.limit_fetch_multiplier`      | `1.0`    | user    | Multiplies the query `LIMIT` to choose the initial Top K fetch size.                         |
+| `paradedb.topk_retry_scale_factor`     | `2`      | user    | Multiplies the fetch size on retries when the first Top K pass does not collect enough rows. |
+| `paradedb.max_topk_chunk_size`         | `100000` | user    | Maximum chunk size for Top K collection.                                                     |
+| `paradedb.check_topk_scan`             | `on`     | user    | Logs a warning when a `LIMIT` query expected to use Top K cannot use it.                     |
+| `paradedb.enable_segmented_topk`       | `on`     | user    | Enables segmented Top K pruning for late-materialized string and byte columns.               |
+| `paradedb.expensive_query_cost_factor` | `25.0`   | user    | Scales planner cost estimates for fuzzy, regex, and more-like-this queries.                  |
+
+## Aggregates
+
+These settings affect `pdb.agg`, `GROUP BY`, and faceted search. See [Aggregate Syntax](/reference/aggregates/overview).
+
+| Setting                                        | Default   | Context | Description                                                                               |
+| ---------------------------------------------- | --------- | ------- | ----------------------------------------------------------------------------------------- |
+| `paradedb.max_term_agg_buckets`                | `65000`   | user    | Maximum number of terms aggregation buckets or groups before ParadeDB errors.             |
+| `paradedb.max_window_aggregate_response_bytes` | `1048576` | user    | Maximum serialized response size for a window aggregate during a parallel scan, in bytes. |
+| `paradedb.check_aggregate_scan`                | `on`      | user    | Logs a warning when a query expected to use aggregate scan cannot use it.                 |
+| `paradedb.add_doc_count_to_aggs`               | `off`     | user    | Internal testing setting for aggregate null-handling compatibility.                       |
+
+## Vector Search
+
+These settings affect vector queries over `pgvector`'s `vector` type. See [Indexing Vectors](/reference/indexing/indexing-vectors) and [Tuning Recall and Latency](/reference/vector/tuning).
+
+| Setting                                 | Default         | Context | Description                                                                                  |
+| --------------------------------------- | --------------- | ------- | -------------------------------------------------------------------------------------------- |
+| `paradedb.vector_cluster_max_probe`     | `0.02`          | user    | Maximum fraction of each segment's vector clusters that a vector `ORDER BY` query may probe. |
+| `paradedb.vector_clustering_threshold`  | `500`           | user    | Segment document-count threshold at which merged vector storage switches from flat to IVF.   |
+| `paradedb.vector_fixed_probe_cost_rows` | Tantivy default | user    | Fixed per-probe cost used by the IVF probe-budget model; mainly for testing and calibration. |
+| `paradedb.vector_stats`                 | `off`           | user    | Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`; for diagnostics.   |
+
+## Parallel Execution
+
+These settings control ParadeDB's parallel execution and MPP paths.
+
+| Setting                             | Default  | Context | Description                                                                                           |
+| ----------------------------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------- |
+| `paradedb.min_rows_per_worker`      | `300000` | user    | Minimum estimated rows per parallel worker. Set to `0` to use segment-based parallelism only.         |
+| `paradedb.mpp_min_rows`             | `500000` | user    | Minimum estimated source row count before MPP execution can engage. Set to `0` to disable the gate.   |
+| `paradedb.mpp_queue_size`           | `8MB`    | user    | Per-inbox ring size for MPP shuffles. Accepts Postgres byte units.                                    |
+| `paradedb.mpp_request_timeout`      | `300s`   | user    | Maximum time an MPP worker fragment waits for another partition request. Set to `0` to disable.       |
+| `paradedb.mpp_debug`                | `off`    | user    | Emits verbose MPP runtime diagnostics to the Postgres server log.                                     |
+| `paradedb.mpp_trace`                | `off`    | user    | Emits MPP setup timing diagnostics to the Postgres server log.                                        |
+| `paradedb.mpp_test_panic_in_worker` | `off`    | user    | Debug-build testing hook that intentionally panics in an MPP worker. Not available in release builds. |
+
+## Columnar Execution
+
+These settings control how ParadeDB reads columnar data from the index.
+
+| Setting                                   | Default | Context | Description                                                                                              |
+| ----------------------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `paradedb.enable_fast_field_exec`         | `on`    | user    | Enables optimized columnar executors for narrow projections.                                             |
+| `paradedb.enable_columnar_exec`           | `on`    | user    | Enables the columnar executor for multi-column string and numeric projections.                           |
+| `paradedb.columnar_exec_column_threshold` | `3`     | user    | Number of projected index columns below which the columnar executor is used instead of normal row fetch. |
+
+## Term Set Pushdown
+
+These settings affect pushed-down `IN`, `ANY`, and term-set queries.
+
+| Setting                                                  | Default    | Context | Description                                                                                        |
+| -------------------------------------------------------- | ---------- | ------- | -------------------------------------------------------------------------------------------------- |
+| `paradedb.hash_join_inlist_pushdown_max_size`            | `16777216` | user    | Maximum byte size of an `IN` list that can be pushed down to a `TermSet` query.                    |
+| `paradedb.hash_join_inlist_pushdown_max_distinct_values` | `20000`    | user    | Maximum number of distinct values in a pushed-down `IN` list. Set to `0` to disable this pushdown. |
+| `paradedb.term_set_gallop_enabled`                       | `on`       | user    | Enables galloping execution for term-set queries on sorted columnar segments.                      |
+| `paradedb.term_set_bitset_max_density_unique`            | `0.0005`   | user    | Density threshold for selecting bitset execution on unique-valued columns.                         |
+| `paradedb.term_set_bitset_max_density_multi`             | `0.005`    | user    | Density threshold for selecting bitset execution on columns where multiple rows share a value.     |
+| `paradedb.dynamic_filter_batch_size`                     | `0`        | user    | Caps scanner batch size during dynamic filter pushdown. `0` uses the scanner default.              |
+
+## Index Maintenance
+
+These settings affect segment layout and background merging.
+
+| Setting                                     | Default | Context | Description                                                                           |
+| ------------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------- |
+| `paradedb.global_target_segment_count`      | `0`     | sighup  | Overrides every index's `target_segment_count` when non-zero. Requires config reload. |
+| `paradedb.global_enable_background_merging` | `on`    | sighup  | Enables background segment merging globally. Requires config reload.                  |
+| `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Overrides every index's `mutable_segment_rows` when set to a non-negative value.      |
+
+## Related Postgres Settings
+
+ParadeDB also relies on standard Postgres memory settings:
+
+| Setting                | Used for                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `maintenance_work_mem` | Index builds and index maintenance. Each parallel worker needs at least 15MB.    |
+| `work_mem`             | Query execution memory; ParadeDB clamps the effective Tantivy budget internally. |

@@ -10,16 +10,16 @@
 </h1>
 
 <p align="center">
-  <b>Search without a second system.</b><br/>
+  <b>Just use Postgres.</b><br/>
   One Postgres for your application data, full-text search, vector retrieval, and aggregations.
 </p>
 
 <h3 align="center">
   <a href="https://paradedb.com">Website</a> &bull;
-  <a href="https://www.paradedb.com/docs">Docs</a> &bull;
+  <a href="https://www.paradedb.com/docs/start/introduction">Docs</a> &bull;
   <a href="https://paradedb.com/slack">Community</a> &bull;
   <a href="https://paradedb.com/blog/">Blog</a> &bull;
-  <a href="https://www.paradedb.com/docs/changelog/">Changelog</a>
+  <a href="https://www.paradedb.com/docs/project/changelog">Changelog</a>
 </h3>
 
 <p align="center">
@@ -33,45 +33,43 @@
 
 ## Installation
 
-To install ParadeDB locally in a fresh Docker container and drop straight into a `psql` session:
+To run ParadeDB locally with Docker and open a `psql` session:
 
 ```bash
 curl -fsSL https://paradedb.com/install.sh | sh
 ```
 
-When you're ready to deploy, check out our [hosting options](https://www.paradedb.com/docs/deploy/overview).
+When you're ready to deploy, get started on [ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud) for a fully managed experience, or explore our [self-hosted deployment options](https://www.paradedb.com/docs/operate/deploy/overview).
 
 ## What is ParadeDB?
 
-[ParadeDB](https://paradedb.com) adds Elastic-quality full-text search, vector retrieval, and aggregations to Postgres with the `pg_search` extension. Your application data and your search engine live in one database, with no second system to deploy and nothing to sync.
+[ParadeDB](https://paradedb.com) upgrades Postgres with a custom index for fast full-text and vector search, BM25 scoring, filters, facets, aggregations, and joins. Built as a Postgres extension, it keeps your application data and search engine in one database with standard SQL and ACID transactions.
 
-Vectors are currently indexed using the [pgvector](https://github.com/pgvector/pgvector) extension, but native vector support is coming to our search index soon.
+- [x] [Full-Text Search](https://www.paradedb.com/docs/concepts/full-text/overview)
+  - [x] [BM25 Scoring](https://www.paradedb.com/docs/reference/full-text/score)
+  - [x] [Top K](https://www.paradedb.com/docs/reference/full-text/top-k)
+  - [x] [Highlighting](https://www.paradedb.com/docs/reference/full-text/highlight)
+  - [x] [Tokenizers & Token Filters](https://www.paradedb.com/docs/reference/tokenizers/overview)
+- [x] [Vector Search](https://www.paradedb.com/docs/reference/vector/overview)
+- [x] [Hybrid Search](https://www.paradedb.com/docs/reference/hybrid/overview)
+- [x] [Filtering](https://www.paradedb.com/docs/reference/filtering/overview)
+- [x] [Aggregates](https://www.paradedb.com/docs/reference/aggregates/overview)
+  - [x] [Columnar Storage](https://www.paradedb.com/docs/reference/indexing/columnar)
+  - [x] [Bucket & Metrics](https://www.paradedb.com/docs/reference/aggregates/overview)
+  - [x] [Facets](https://www.paradedb.com/docs/reference/aggregates/facets)
+- [x] [JOINs](https://www.paradedb.com/docs/reference/joins/overview)
 
-- [x] [Full-Text Search](https://www.paradedb.com/docs/documentation/full-text/overview)
-  - [x] [BM25 Scoring](https://www.paradedb.com/docs/documentation/sorting/score)
-  - [x] [Top K](https://www.paradedb.com/docs/documentation/sorting/topk)
-  - [x] [Highlighting](https://www.paradedb.com/docs/documentation/full-text/highlight)
-  - [x] [Tokenizers & Token Filters](https://www.paradedb.com/docs/documentation/tokenizers/overview)
-- [x] [Filtering](https://www.paradedb.com/docs/documentation/filtering)
-- [x] [Aggregates](https://www.paradedb.com/docs/documentation/aggregates/overview)
-  - [x] [Columnar Storage](https://www.paradedb.com/docs/documentation/indexing/columnar)
-  - [x] [Bucket & Metrics](https://www.paradedb.com/docs/documentation/aggregates/overview)
-  - [x] [Facets](https://www.paradedb.com/docs/documentation/aggregates/facets)
-- [x] [JOINs](https://www.paradedb.com/docs/documentation/joins/overview)
-- [ ] Native Vector Search (coming soon)
-- [ ] Native Hybrid Search (coming soon)
-
-Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://www.paradedb.com/docs/welcome/roadmap).
+Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://www.paradedb.com/docs/project/roadmap).
 
 ## How It Works
 
 ParadeDB integrates battle-tested Rust libraries for search and analytics inside Postgres, contributing upstream whenever possible. Our primary dependencies are:
 
 - [pgrx](https://github.com/pgcentralfoundation/pgrx) — bridges Postgres and Rust
-- [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text search
+- [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text and vector search
 - [Apache DataFusion](https://github.com/apache/datafusion) — handles OLAP processing
 
-For a deeper dive, see our [architecture docs](https://www.paradedb.com/docs/welcome/architecture) or [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).
+For a deeper dive, see our [architecture docs](https://www.paradedb.com/docs/concepts/architecture) or [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).
 
 ## Integrations
 
@@ -89,15 +87,16 @@ ParadeDB integrates with the tools you already use, with more on the way.
 ### AI Agents
 
 - [Agent Skills](https://github.com/paradedb/agent-skills)
-- [MCP Integration](https://www.paradedb.com/docs/documentation/getting-started/ai-agents)
+- [MCP Integration](https://www.paradedb.com/docs/start/ai-agents)
 - [Cursor Plugin](https://cursor.com/marketplace/parade-db)
 
-### PaaS & Cloud Platforms
+### PaaS Providers
 
-- [Railway](https://www.paradedb.com/docs/deploy/cloud-platforms/railway)
-- [Render](https://www.paradedb.com/docs/deploy/cloud-platforms/render)
-- [DigitalOcean](https://www.paradedb.com/docs/deploy/cloud-platforms/digitalocean)
-- More coming (Heroku, and others)
+- [Railway](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/railway)
+- [Render](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/render)
+- [Fly.io](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/fly)
+- [Dokku](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/dokku)
+- [DigitalOcean](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/digitalocean)
 
 ## Community & Support
 
@@ -112,4 +111,6 @@ We welcome contributions of all sizes! Check out our [good first issues](https:/
 
 ## License
 
-ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE). For [ParadeDB Enterprise](https://www.paradedb.com/docs/deploy/enterprise) licensing, contact [sales@paradedb.com](mailto:sales@paradedb.com).
+ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+[ParadeDB Enterprise](https://www.paradedb.com/docs/operate/deploy/enterprise) is commercially licensed and included with [ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud). To self-host ParadeDB Enterprise, [contact sales](mailto:sales@paradedb.com).

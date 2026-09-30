@@ -22,7 +22,7 @@ use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
 use pgrx::pg_sys::BuiltinOid;
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::spi::{OwnedPreparedStatement, Query, SpiClient, SpiResult};
+use pgrx::spi::{OwnedPreparedStatement, Query};
 use pgrx::{
     Array, PgLogLevel, PgOid, PgSqlErrorCode, PgXactCallbackEvent, Spi, extension_sql,
     function_name, pg_extern, pg_sys, register_xact_callback,
@@ -518,23 +518,6 @@ struct StmtHolder(OwnedPreparedStatement);
 unsafe impl Send for StmtHolder {}
 unsafe impl Sync for StmtHolder {}
 
-/// The statement kept in `cell`, prepared and kept on first use.
-///
-/// It is prepared before it goes into `cell`, so a call back into the caller while preparing
-/// doesn't wait on `cell` being filled; if such a call stored a statement first, that one is used.
-fn kept_statement<'a>(
-    cell: &'a OnceLock<StmtHolder>,
-    client: &SpiClient<'_>,
-    sql: &str,
-    arg_type: BuiltinOid,
-) -> SpiResult<&'a OwnedPreparedStatement> {
-    if let Some(stmt) = cell.get() {
-        return Ok(&stmt.0);
-    }
-    let stmt = client.prepare(sql, &[PgOid::BuiltIn(arg_type)])?.keep();
-    Ok(&cell.get_or_init(|| StmtHolder(stmt)).0)
-}
-
 pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
     static CACHE: OnceLock<Mutex<crate::api::HashMap<i32, ParsedTypmod>>> = OnceLock::new();
 
@@ -552,15 +535,21 @@ pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
     let parsed_typmod = ParsedTypmod::try_from(
         Spi::connect(|client| {
             static STMT: OnceLock<StmtHolder> = OnceLock::new();
-            let stmt = kept_statement(
-                &STMT,
-                client,
-                "SELECT typmod FROM paradedb._typmod_cache WHERE id = $1",
-                BuiltinOid::INT4OID,
-            )?;
+
+            let prepared = STMT.get_or_init(|| {
+                StmtHolder(
+                    client
+                        .prepare(
+                            "SELECT typmod FROM paradedb._typmod_cache WHERE id = $1",
+                            &[PgOid::BuiltIn(BuiltinOid::INT4OID)],
+                        )
+                        .expect("failed to prepare statement")
+                        .keep(),
+                )
+            });
 
             let datum = unsafe { [DatumWithOid::new(typmod, pg_sys::INT4OID)] };
-            let rows = stmt.execute(client, None, &datum)?;
+            let rows = (&prepared.0).execute(client, None, &datum)?;
             if rows.is_empty() {
                 return Ok(None);
             }
@@ -596,14 +585,20 @@ pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result
 
     let id = Spi::connect(|client| {
         static STMT: OnceLock<StmtHolder> = OnceLock::new();
-        let stmt = kept_statement(
-            &STMT,
-            client,
-            "SELECT id FROM paradedb._typmod_cache WHERE typmod = $1",
-            BuiltinOid::TEXTARRAYOID,
-        )?;
 
-        let rows = stmt.execute(client, None, &datum)?;
+        let prepared = STMT.get_or_init(|| {
+            StmtHolder(
+                client
+                    .prepare(
+                        "SELECT id FROM paradedb._typmod_cache WHERE typmod = $1",
+                        &[PgOid::BuiltIn(BuiltinOid::TEXTARRAYOID)],
+                    )
+                    .expect("failed to prepare statement")
+                    .keep(),
+            )
+        });
+
+        let rows = (&prepared.0).execute(client, None, &datum)?;
         if rows.is_empty() {
             return Ok(None);
         }

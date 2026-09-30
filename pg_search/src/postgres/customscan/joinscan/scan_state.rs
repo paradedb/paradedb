@@ -870,8 +870,11 @@ fn build_clause_df<'a>(
         let df = apply_window_functions(df, join_clause)?;
 
         // 4. DISTINCT + Top-(offset + K). When enabled, rows come
-        // back as (offset + k) rows, not necessarily in order, and the sort, limit
+        // back as (offset + k) rows, and the sort, limit
         // and output projection below resolve through `distinct_col_map` as before.
+        //
+        // The rows do come back in sorted order, but we can't tell the planner that, so the below
+        // sort is still necessary.
         //
         // When disabled, use apply_distinct_group_by
         let (df, distinct_col_map) = if gucs::joinscan_force_topk_as_agg()

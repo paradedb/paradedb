@@ -311,8 +311,10 @@ mod tests {
         assert_eq!(RouterKind::from(VectorRouter::Ivf), RouterKind::Stacked);
     }
 
-    /// The router is fixed per index: setting it twice with the same kind is
-    /// idempotent, so opening the same `Index` through several paths is safe.
+    /// An opened `Index` builds new segments with a single router: setting the
+    /// same kind again is idempotent, so opening the same `Index` through
+    /// several paths is safe, while a different kind is rejected. Existing
+    /// segments open under the router persisted in their `.centroids` file.
     #[test]
     fn set_ivf_router_is_idempotent() {
         use tantivy::schema::Schema;

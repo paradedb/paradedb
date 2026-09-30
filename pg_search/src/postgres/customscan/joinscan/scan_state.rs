@@ -1069,7 +1069,7 @@ fn distinct_key_exprs(
 ) -> Result<Option<(Vec<Expr>, DistinctColMap)>> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
-    if !bypass_distinct_clause && !join_clause.has_distinct {
+    if !(bypass_distinct_clause || join_clause.has_distinct) {
         return Ok(None);
     }
     let Some(projection) = &join_clause.output_projection else {

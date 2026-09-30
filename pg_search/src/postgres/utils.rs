@@ -771,7 +771,7 @@ pub unsafe fn extract_field_attributes(
                     typmod = pg_sys::exprTypmod(node);
 
                     let parsed_typmod =
-                        UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
+                        UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
                     let vars = node.collect_nodes::<pg_sys::Var>();
 
                     normalizer = parsed_typmod.normalizer();
@@ -835,7 +835,7 @@ pub unsafe fn extract_field_attributes(
 
                             // use the alias name as the field name instead of the heap attribute name
                             let alias_typmod =
-                                AliasTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
+                                AliasTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
                             attname = alias_typmod.alias();
                         }
                     }

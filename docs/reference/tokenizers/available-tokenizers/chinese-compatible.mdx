@@ -26,11 +26,10 @@ SELECT 'Hello world! 你好!'::pdb.chinese_compatible::text[];
 (1 row)
 ```
 
-## Chinese Conversion
+## Convert Between Traditional and Simplified
 
-Set `chinese_convert` to convert between Traditional and Simplified Chinese before tokenization.
-This is useful when documents and queries mix both character sets and should be matched
-interchangeably.
+Use `chinese_convert` to convert Traditional and Simplified Chinese to the same form
+before tokenization, so queries can match documents written in either form.
 
 ```sql
 CREATE INDEX search_idx ON mock_items

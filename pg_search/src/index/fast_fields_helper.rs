@@ -831,11 +831,17 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
 
     let mut buffer = Vec::new();
     let mut bytes = Vec::new();
-    let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_block_addr = str_ff
+        .dictionary()
+        .sstable_index
+        .get_block_with_ord(0)
+        .map_err(|e| {
+            DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+        })?;
     let mut current_sstable_delta_reader = str_ff
         .dictionary()
         .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
+        .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
     let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
     for (row_idx, ord) in term_ords {
@@ -862,7 +868,13 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
         // This is a new term ordinal: decode it and append it to the builder.
         assert!(ord >= current_ordinal);
         // check if block changed for new term_ord
-        let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        let new_block_addr = str_ff
+            .dictionary()
+            .sstable_index
+            .get_block_with_ord(ord)
+            .map_err(|e| {
+                DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+            })?;
         if new_block_addr != current_block_addr {
             current_block_addr = new_block_addr;
             current_ordinal = current_block_addr.first_ordinal;
@@ -953,11 +965,17 @@ pub(crate) fn ords_to_bytes_array(
 
     let mut buffer = Vec::new();
     let mut bytes = Vec::new();
-    let mut current_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_block_addr = bytes_ff
+        .dictionary()
+        .sstable_index
+        .get_block_with_ord(0)
+        .map_err(|e| {
+            DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+        })?;
     let mut current_sstable_delta_reader = bytes_ff
         .dictionary()
         .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
+        .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
     let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
     for (row_idx, ord) in term_ords {
@@ -984,7 +1002,13 @@ pub(crate) fn ords_to_bytes_array(
         // This is a new term ordinal: decode it and append it to the builder.
         assert!(ord >= current_ordinal);
         // check if block changed for new term_ord
-        let new_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        let new_block_addr = bytes_ff
+            .dictionary()
+            .sstable_index
+            .get_block_with_ord(ord)
+            .map_err(|e| {
+                DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+            })?;
         if new_block_addr != current_block_addr {
             current_block_addr = new_block_addr;
             current_ordinal = current_block_addr.first_ordinal;

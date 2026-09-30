@@ -31,10 +31,13 @@
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::UInt64Type;
-use arrow_array::{Array, ArrayRef, RecordBatch, StructArray, UInt32Array, UInt64Array};
+use arrow_array::{Array, ArrayRef, BooleanArray, RecordBatch, Scalar, StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaRef, SortOptions};
+use arrow_select::concat::concat_batches;
+use arrow_select::filter::filter_record_batch;
+use arrow_select::interleave::interleave_record_batch;
 use arrow_select::take::take;
-use datafusion::arrow::row::{OwnedRow, RowConverter, SortField};
+use datafusion::arrow::compute::SortColumn;
 use datafusion::common::utils::SingleRowListArrayBuilder;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::expr::AggregateFunction;
@@ -45,8 +48,6 @@ use datafusion::logical_expr::{
 };
 use datafusion::prelude::{Expr, lit};
 use datafusion::scalar::ScalarValue;
-use std::collections::BTreeMap;
-use std::collections::btree_map::Entry as MapEntry;
 use std::sync::{Arc, LazyLock};
 
 use super::literal_arg;
@@ -148,14 +149,14 @@ impl AggregateUDFImpl for TopKAgg {
 
         // Only the payload columns reach update_batch, so each sort key must be one
         // of them; rebase the ORDER BY onto payload positions.
-        let sort: Vec<(usize, SortOptions)> = acc_args
+        let mut sort: Vec<(usize, Option<SortOptions>)> = acc_args
             .order_bys
             .iter()
             .map(|s| {
                 acc_args.exprs[..n]
                     .iter()
                     .position(|e| e.as_ref() == s.expr.as_ref())
-                    .map(|i| (i, s.options))
+                    .map(|i| (i, Some(s.options)))
                     .ok_or_else(|| {
                         DataFusionError::Internal(format!(
                             "{name} ORDER BY {} is not one of its arguments",
@@ -165,7 +166,7 @@ impl AggregateUDFImpl for TopKAgg {
             })
             .collect::<Result<_>>()?;
 
-        let (suffix, ctid_positions) = if acc_args.is_distinct {
+        let (sort, ctid_positions) = if acc_args.is_distinct {
             let ctids = positions_arg(&acc_args, n + 1, name, "ctid positions", n)?;
             if let Some((p, _)) = sort.iter().find(|(p, _)| ctids.contains(p)) {
                 return Err(DataFusionError::Internal(format!(
@@ -180,23 +181,25 @@ impl AggregateUDFImpl for TopKAgg {
                     "{name} ctid position {p} is not a UInt64 column"
                 )));
             }
-            let rest = (0..n)
+            let rest: Vec<(usize, Option<SortOptions>)> = (0..n)
                 .filter(|p| {
                     // Distinct Suffix keys are all non-ctid and non-orderby positions
                     !ctids.iter().any(|ctidp| ctidp == p) && !sort.iter().any(|(s, _)| s == p)
                 })
+                .map(|p| (p, None))
                 .collect();
-            (Suffix::Distinct { positions: rest }, ctids)
+            sort.extend(rest);
+            (sort, ctids)
         } else {
-            (Suffix::Arrival { next: 0 }, Vec::new())
+            (sort, Vec::new())
         };
 
         Ok(Box::new(FusedTopK::new(
             schema,
             sort,
-            suffix,
             ctid_positions,
             k,
+            acc_args.is_distinct,
         )?))
     }
 }
@@ -292,26 +295,6 @@ fn row_schema(return_field: &Field) -> Result<SchemaRef> {
     )))
 }
 
-/// What follows the sort keys in an entry's key.
-enum Suffix {
-    /// The remaining distinct columns, so equal rows collide.
-    Distinct { positions: Vec<usize> },
-    /// An arrival counter, so nothing collides. Counters never leave the
-    /// accumulator: a merging side assigns its own as it re-inserts rows.
-    Arrival { next: u64 },
-}
-
-struct Entry {
-    /// Length of the sort-key prefix inside the map key, so the worst entry's
-    /// prefix can be compared against candidates without re-encoding it.
-    prefix_len: usize,
-    payload: OwnedRow,
-    /// Element-wise minimum of the group's ctids, one per `ctid_positions`
-    /// entry; empty in arrival mode. Written over the payload's ctid columns at
-    /// drain time.
-    ctids: Vec<Option<u64>>,
-}
-
 /// The K best rows under an ORDER BY, as a bounded ordered map. The map key is
 /// the row-format encoding of the sort keys with their sort options, followed by
 /// the suffix; row-format bytes are the concatenation of per-column encodings,
@@ -320,25 +303,21 @@ struct Entry {
 struct FusedTopK {
     schema: SchemaRef,
     k: usize,
-    sort_positions: Vec<usize>,
-    suffix: Suffix,
+    sort: Vec<(usize, Option<SortOptions>)>,
     ctid_positions: Vec<usize>,
-    /// Sort keys with their options.
-    prefix: RowConverter,
-    /// Sort keys followed by the suffix columns.
-    key: RowConverter,
-    /// A whole payload row, for storage and emit.
-    payload: RowConverter,
-    entries: BTreeMap<Vec<u8>, Entry>,
+    distinct: bool,
+    /// a key-sorted batch K rows
+    entries: RecordBatch,
 }
 
 impl std::fmt::Debug for FusedTopK {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FusedTopK")
             .field("k", &self.k)
-            .field("sort_positions", &self.sort_positions)
-            .field("distinct", &matches!(self.suffix, Suffix::Distinct { .. }))
-            .field("entries", &self.entries.len())
+            .field("sort", &self.sort)
+            .field("distinct", &self.distinct)
+            .field("entries", &self.entries.num_rows())
+            .field("ctid_positions", &self.ctid_positions)
             .finish_non_exhaustive()
     }
 }
@@ -346,212 +325,275 @@ impl std::fmt::Debug for FusedTopK {
 impl FusedTopK {
     fn new(
         schema: SchemaRef,
-        sort: Vec<(usize, SortOptions)>,
-        suffix: Suffix,
+        sort: Vec<(usize, Option<SortOptions>)>,
         ctid_positions: Vec<usize>,
         k: usize,
+        distinct: bool,
     ) -> Result<Self> {
-        let sort_fields: Vec<SortField> = sort
-            .iter()
-            .map(|&(p, options)| {
-                SortField::new_with_options(schema.field(p).data_type().clone(), options)
-            })
-            .collect();
-        let mut key_fields = sort_fields.clone();
-        match &suffix {
-            Suffix::Distinct { positions } => key_fields.extend(
-                positions
-                    .iter()
-                    .map(|&p| SortField::new(schema.field(p).data_type().clone())),
-            ),
-            Suffix::Arrival { .. } => key_fields.push(SortField::new(DataType::UInt64)),
-        }
-        let payload_fields = schema
-            .fields()
-            .iter()
-            .map(|f| SortField::new(f.data_type().clone()))
-            .collect();
         Ok(Self {
-            prefix: RowConverter::new(sort_fields)?,
-            key: RowConverter::new(key_fields)?,
-            payload: RowConverter::new(payload_fields)?,
-            entries: BTreeMap::new(),
-            sort_positions: sort.into_iter().map(|(p, _)| p).collect(),
+            entries: RecordBatch::new_empty(Arc::clone(&schema)),
+            sort,
             schema,
-            suffix,
             ctid_positions,
             k,
+            distinct,
         })
     }
 
-    fn worst_prefix(&self) -> Option<&[u8]> {
-        self.entries
-            .last_key_value()
-            .map(|(key, e)| &key[..e.prefix_len])
+    fn worst_prefix(&self) -> Option<Vec<ArrayRef>> {
+        if self.entries.num_rows() < self.k {
+            None
+        } else {
+            let last = self.entries.num_rows() - 1;
+            let worst = self
+                .sort
+                .iter()
+                .map(|(p, _)| self.entries.column(*p).slice(last, 1))
+                .collect();
+            Some(worst)
+        }
     }
 
-    fn absorb(&mut self, columns: &[ArrayRef]) -> Result<()> {
+    fn could_enter(&self, batch: &RecordBatch) -> Result<BooleanArray> {
+        use datafusion::arrow::compute::kernels::cmp::not_distinct;
+        use datafusion::arrow::compute::{and, or};
+
+        let Some(worst) = self.worst_prefix() else {
+            return Ok(BooleanArray::from(vec![true; batch.num_rows()]));
+        };
+
+        let mut survivors = BooleanArray::from(vec![false; batch.num_rows()]);
+        // all row equal to the threshold so far
+        let mut ties = BooleanArray::from(vec![true; batch.num_rows()]);
+
+        // 2) for each sort col:
+        for ((idx, opts), wcol) in self.sort.iter().zip(worst.iter()) {
+            let col = batch.column(*idx);
+            // find all that sort before for this column
+            let opts = (*opts).unwrap_or(SortOptions::default());
+            let before = sorts_before(col, wcol, &opts)?;
+            // AND before with ties to find those that weren't before but are now, and OR
+            // that into the survivors
+            survivors = or(&survivors, &and(&ties, &before)?)?;
+            // ties now becomes all points where the comparison is equal (not_distinct = same value or both null)
+            ties = and(&ties, &not_distinct(col, &Scalar::new(wcol))?)?;
+            if ties.true_count() == 0 {
+                // nothing left to decide
+                break;
+            }
+        }
+        // 3) Any remaining ties could enter, so OR them into the survivors
+        survivors = or(&survivors, &ties)?;
+
+        Ok(survivors)
+    }
+
+    fn concatenated_sort_columns(&self, batch: &RecordBatch) -> Result<Vec<SortColumn>> {
+        use datafusion::arrow::compute::concat;
+
+        let sort_keys = self.sort.iter().map(|(idx, opts)| {
+            let values = concat(&[self.entries.column(*idx), batch.column(*idx)])?;
+            Ok(SortColumn {
+                values,
+                options: *opts,
+            })
+        });
+        sort_keys.collect()
+    }
+
+    fn pick_indices_from_sorted_concat(&self, i: u32) -> (usize, usize) {
+        let i = i as usize;
+        let n = self.entries.num_rows();
+        if i < n { (0, i) } else { (1, i - n) }
+    }
+
+    /// `batch` must be the same RecordBatch that was provided to `concatenated_sort_columns`
+    fn new_batch_from_sorted(
+        &self,
+        order: &UInt32Array,
+        batch: &RecordBatch,
+    ) -> Result<RecordBatch> {
+        let picks: Vec<_> = order
+            .values()
+            .iter()
+            .map(|i| self.pick_indices_from_sorted_concat(*i))
+            .collect();
+        let new_batch = interleave_record_batch(&[&self.entries, batch], &picks)?;
+        Ok(new_batch)
+    }
+
+    fn absorb(&mut self, batch: &RecordBatch) -> Result<()> {
+        use datafusion::arrow::compute::concat;
+        use datafusion::arrow::compute::{lexsort_to_indices, partition};
+
         if self.k == 0 {
             return Ok(());
         }
 
-        // Encode only the sort keys for the whole batch. Without an ORDER BY the
-        // prefix is empty and every row ties: the prefilter admits all of them,
-        // and the map keeps the first k arrivals, or the first k distinct groups
-        // in key order.
-        let sort_arrays: Vec<ArrayRef> = self
-            .sort_positions
-            .iter()
-            .map(|&p| Arc::clone(&columns[p]))
-            .collect();
-        let prefixes = (!sort_arrays.is_empty())
-            .then(|| self.prefix.convert_columns(&sort_arrays))
-            .transpose()?;
-
-        // When full, drop every row that cannot beat the worst entry. A row of a
-        // group already in the map has its group's prefix, which is at or above
-        // the worst, so a duplicate is never hidden by this step.
-        let full = self.entries.len() >= self.k;
-        let worst = self.worst_prefix();
-        let survivors: Vec<u32> = (0..columns[0].len())
-            .filter(|&i| {
-                !full
-                    || worst.is_some_and(|w| match &prefixes {
-                        Some(prefixes) => prefixes.row(i).as_ref() <= w,
-                        None => true,
-                    })
-            })
-            .map(|i| i as u32)
-            .collect();
-        if survivors.is_empty() {
+        // if non-distinct with no sort keys (so arrival mode) and full, we can skip the entire
+        // batch.
+        if !self.distinct && self.sort.is_empty() && self.entries.num_rows() == self.k {
             return Ok(());
         }
 
-        // Encode full keys and payloads for the survivors only.
-        let indices = UInt32Array::from(survivors.clone());
-        let taken: Vec<ArrayRef> = columns
-            .iter()
-            .map(|c| take(c.as_ref(), &indices, None))
-            .collect::<std::result::Result<_, _>>()?;
-        let mut key_arrays: Vec<ArrayRef> = self
-            .sort_positions
-            .iter()
-            .map(|&p| Arc::clone(&taken[p]))
-            .collect();
-        match &mut self.suffix {
-            Suffix::Distinct { positions } => {
-                key_arrays.extend(positions.iter().map(|&p| Arc::clone(&taken[p])));
-            }
-            Suffix::Arrival { next } => {
-                let count = survivors.len() as u64;
-                key_arrays.push(Arc::new(UInt64Array::from_iter_values(
-                    *next..*next + count,
-                )));
-                *next += count;
-            }
+        // 1) kernel-based prefilter against worst_prefix
+        let survivors = filter_record_batch(batch, &self.could_enter(batch)?)?;
+        if survivors.num_rows() == 0 {
+            // nothing can enter
+            return Ok(());
         }
-        let keys = self.key.convert_columns(&key_arrays)?;
 
-        // find which keys would be admitted, then only decode those payloads and admit them.
-
-        // for (j, &i) in survivors.iter().enumerate() {
-        //     let key = keys.row(j).as_ref().to_vec();
-        //     if self.entries.len() >= self.k
-        //         && self
-        //             .entries
-        //             .last_key_value()
-        //             .is_some_and(|(worst, _)| key.as_slice() > worst.as_slice())
-        //     {
-        //         continue;
-        //     }
-        //
-        // }
-        //
-
-        let payloads = self.payload.convert_columns(&taken)?;
-
-        // Admit one row at a time. Survivors were chosen against the worst entry
-        // at batch start; the map re-checks against the current one.
-        for (j, &i) in survivors.iter().enumerate() {
-            let key = keys.row(j).as_ref().to_vec();
-            if self.entries.len() >= self.k
-                && self
-                    .entries
-                    .last_key_value()
-                    .is_some_and(|(worst, _)| key.as_slice() > worst.as_slice())
-            {
-                continue;
-            }
-            let row_ctids = |p: usize| {
-                let col = taken[p].as_primitive::<UInt64Type>();
-                col.is_valid(j).then(|| col.value(j))
-            };
-            match self.entries.entry(key) {
-                MapEntry::Occupied(mut occupied) => {
-                    // Distinct mode only: the same group again. The first row keeps
-                    // the group; its ctids take the element-wise minimum, NULLs
-                    // ignored, the way `min(ctid)` does.
-                    let entry = occupied.get_mut();
-                    for (slot, &p) in entry.ctids.iter_mut().zip(&self.ctid_positions) {
-                        if let Some(ctid) = row_ctids(p) {
-                            *slot = Some(slot.map_or(ctid, |cur| cur.min(ctid)));
-                        }
-                    }
-                }
-                MapEntry::Vacant(vacant) => {
-                    vacant.insert(Entry {
-                        prefix_len: prefixes
-                            .as_ref()
-                            .map_or(0, |prefixes| prefixes.row(i as usize).as_ref().len()),
-                        payload: payloads.row(j).owned(),
-                        ctids: self.ctid_positions.iter().map(|&p| row_ctids(p)).collect(),
-                    });
-                    if self.entries.len() > self.k {
-                        self.entries.pop_last();
-                    }
-                }
-            }
+        // 1a) if no sort columns present (which means we're not in DISTINCT mode and admission is
+        // in arrival order), just take enough survivors to fill k and call it good.
+        if self.sort.is_empty() {
+            let sk = (self.k - self.entries.num_rows()).min(survivors.num_rows());
+            let enough_survivors = survivors.slice(0, sk);
+            self.entries = concat_batches(&self.schema, [&self.entries, &enough_survivors])?;
+            return Ok(());
         }
-        Ok(())
+
+        // 2) Sort (state ++ survivors)
+        let sort_columns = self.concatenated_sort_columns(&survivors)?;
+        // DISTINCT may require dropping duplicates, so we must consider all survivors. Non-DISTINCT
+        // is purely sort order, so we only need the top-k candidates
+
+        let sort_limit = if self.distinct { None } else { Some(self.k) };
+        let order = lexsort_to_indices(&sort_columns, sort_limit)?;
+
+        if self.distinct {
+            // 3) materialize the distinct keys in sorted order, so that we can parition them to find groups of
+            // equivalent rows
+            let sorted_keys: Vec<_> = sort_columns
+                .iter()
+                .map(|c| Ok(take(c.values.as_ref(), &order, None)?))
+                .collect::<Result<_>>()?;
+            let ranges = partition(&sorted_keys)?.ranges();
+
+            // prep ctids in the same order
+            let ctids: Vec<_> = self
+                .ctid_positions
+                .iter()
+                .map(|idx| {
+                    Ok(take(
+                        &concat(&[self.entries.column(*idx), survivors.column(*idx)])?,
+                        &order,
+                        None,
+                    )?)
+                })
+                .collect::<Result<_>>()?;
+
+            // 4). For each group, find the row with the smallest ctid, and add that row to our set
+            //   of picks
+            let mut picks = Vec::with_capacity(self.k);
+            for range in ranges.iter().take(self.k) {
+                if range.len() == 1 || ctids.is_empty() {
+                    picks.push(self.pick_indices_from_sorted_concat(order.value(range.start)));
+                    continue;
+                }
+
+                // for each row, take the lowest "ctids" tuple. (range idx appended at the end in
+                // case a row is all null
+                let sorted_order_min_ctid_idx = range
+                    .clone()
+                    .min_by_key(|i| {
+                        let mut tuple: Vec<_> = ctids
+                            .iter()
+                            .map(|col| {
+                                let c = col.as_primitive::<UInt64Type>();
+                                if c.is_valid(*i) {
+                                    Some(c.value(*i))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        tuple.push(Some(*i as u64));
+                        tuple
+                    })
+                    .expect("should always produce a value since ctids.len() > 0");
+                picks.push(
+                    self.pick_indices_from_sorted_concat(order.value(sorted_order_min_ctid_idx)),
+                );
+            }
+
+            // 5. Construct the new record batch accordingly
+            self.entries = interleave_record_batch(&[&self.entries, &survivors], &picks)?;
+            Ok(())
+        } else {
+            // 3) Interleave the record batches based on order
+            // specify source batch based on index
+            self.entries = self.new_batch_from_sorted(&order, &survivors)?;
+            Ok(())
+        }
     }
 
-    /// The entries in map order, which is ORDER BY order, as one batch, with the
-    /// ctid minima written over the ctid columns. Empties the map.
-    fn drain(&mut self) -> Result<RecordBatch> {
-        if self.entries.is_empty() {
-            return Ok(RecordBatch::new_empty(Arc::clone(&self.schema)));
+    // return the existing record batch, and replace it with an empty one.
+    fn drain(&mut self) -> RecordBatch {
+        let mut res = RecordBatch::new_empty(Arc::clone(&self.schema));
+        std::mem::swap(&mut self.entries, &mut res);
+        res
+    }
+}
+
+fn sorts_before(col: &ArrayRef, refcol: &ArrayRef, opts: &SortOptions) -> Result<BooleanArray> {
+    use arrow_select::filter::prep_null_mask_filter;
+    use datafusion::arrow::compute::kernels::cmp::{gt, lt};
+    use datafusion::arrow::compute::or;
+    use datafusion::arrow::compute::{is_not_null, is_null};
+
+    // if refcol is null, then the result depends only on opts.null_first.
+    if refcol.is_null(0) {
+        if opts.nulls_first {
+            return Ok(BooleanArray::from(vec![false; col.len()]));
+        } else {
+            return Ok(is_not_null(col)?);
         }
-        let entries: Vec<Entry> = std::mem::take(&mut self.entries).into_values().collect();
-        let mut arrays = self
-            .payload
-            .convert_rows(entries.iter().map(|e| e.payload.row()))?;
-        for (i, &p) in self.ctid_positions.iter().enumerate() {
-            let ctids: Vec<Option<u64>> = entries.iter().map(|e| e.ctids[i]).collect();
-            arrays[p] = Arc::new(UInt64Array::from(ctids));
-        }
-        Ok(RecordBatch::try_new(Arc::clone(&self.schema), arrays)?)
+    }
+
+    // otherwise compare using sort direction
+    let refval = Scalar::new(refcol);
+    let cmp = if opts.descending {
+        gt(col, &refval)?
+    } else {
+        lt(col, &refval)?
+    };
+    // lt/gt comparisons with null will leave nulls in the boolean array, which are treated as
+    // "UNKOWN". This converts them to false, leaving cmp as an array containing everything that
+    // definitively sorts before the refcol when considering sort direction
+    let cmp = prep_null_mask_filter(&cmp);
+
+    // if nulls_first and the column has nulls, OR those into the result since they could feasiblsy
+    // sort before the non-null refcol
+    if opts.nulls_first && col.null_count() > 0 {
+        Ok(or(&cmp, &is_null(col)?)?)
+    } else {
+        Ok(cmp)
     }
 }
 
 impl Accumulator for FusedTopK {
     fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
         let n = self.schema.fields().len();
-        self.absorb(&values[..n])
+        let batch = RecordBatch::try_new(Arc::clone(&self.schema), values[..n].to_vec())?;
+        self.absorb(&batch)
     }
 
     /// Other partials' K rows. They go through the same admission, which is what
     /// deduplicates across workers in distinct mode.
     fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
+        let n = self.schema.fields().len();
         for rows in states[0].as_list::<i32>().iter().flatten() {
             if !rows.is_empty() {
-                self.absorb(rows.as_struct().columns())?;
+                let columns = rows.as_struct().columns();
+                let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns[..n].to_vec())?;
+                self.absorb(&batch)?;
             }
         }
         Ok(())
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
-        let batch = self.drain()?;
+        let batch = self.drain();
         Ok(SingleRowListArrayBuilder::new(Arc::new(StructArray::from(batch))).build_list_scalar())
     }
 
@@ -561,14 +603,9 @@ impl Accumulator for FusedTopK {
 
     fn size(&self) -> usize {
         size_of_val(self)
-            + self
-                .entries
-                .iter()
-                .map(|(key, e)| key.len() + e.payload.as_ref().len() + e.ctids.len() * 16 + 64)
-                .sum::<usize>()
-            + self.prefix.size()
-            + self.key.size()
-            + self.payload.size()
+            + self.entries.get_array_memory_size()
+            + self.sort.capacity() * size_of::<(usize, Option<SortOptions>)>()
+            + self.ctid_positions.capacity() * size_of::<usize>()
     }
 }
 
@@ -611,7 +648,7 @@ pub fn topk_as_agg(
 mod tests {
     use super::*;
     use arrow_array::types::Int64Type;
-    use arrow_array::{Int64Array, StringArray};
+    use arrow_array::{Int64Array, StringArray, UInt64Array};
     use datafusion::datasource::MemTable;
     use datafusion::physical_plan::displayable;
     use datafusion::prelude::{SessionConfig, SessionContext, col};
@@ -646,10 +683,10 @@ mod tests {
     fn accumulator(k: usize) -> FusedTopK {
         FusedTopK::new(
             schema(),
-            vec![(0, DESC_NULLS_FIRST), (1, ASC_NULLS_LAST)],
-            Suffix::Arrival { next: 0 },
+            vec![(0, Some(DESC_NULLS_FIRST)), (1, Some(ASC_NULLS_LAST))],
             vec![],
             k,
+            false,
         )
         .unwrap()
     }
@@ -690,8 +727,7 @@ mod tests {
     /// later can displace an earlier arrival.
     #[test]
     fn no_order_by_keeps_first_arrivals() {
-        let mut acc =
-            FusedTopK::new(schema(), vec![], Suffix::Arrival { next: 0 }, vec![], 2).unwrap();
+        let mut acc = FusedTopK::new(schema(), vec![], vec![], 2, false).unwrap();
         acc.update_batch(batch(&[(Some(5), 1), (None, 2), (Some(9), 3)]).columns())
             .unwrap();
         acc.update_batch(batch(&[(Some(7), 4)]).columns()).unwrap();
@@ -719,8 +755,7 @@ mod tests {
     /// an empty list rather than an error.
     #[test]
     fn zero_k_keeps_nothing() {
-        let no_order_by =
-            FusedTopK::new(schema(), vec![], Suffix::Arrival { next: 0 }, vec![], 0).unwrap();
+        let no_order_by = FusedTopK::new(schema(), vec![], vec![], 0, false).unwrap();
         for mut acc in [accumulator(0), no_order_by] {
             acc.update_batch(batch(&[(Some(5), 1), (None, 2)]).columns())
                 .unwrap();
@@ -791,10 +826,10 @@ mod tests {
     fn distinct_accumulator(k: usize) -> FusedTopK {
         FusedTopK::new(
             distinct_schema(),
-            vec![(0, DESC_NULLS_FIRST), (1, ASC_NULLS_LAST)],
-            Suffix::Distinct { positions: vec![] },
+            vec![(0, Some(DESC_NULLS_FIRST)), (1, Some(ASC_NULLS_LAST))],
             vec![2],
             k,
+            true,
         )
         .unwrap()
     }

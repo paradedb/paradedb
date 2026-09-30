@@ -38,7 +38,7 @@ SELECT paradedb.generic_typmod_out(2147483647);
 -- missing entry when a new session opens it.
 CREATE TABLE typmod_cache_deleted (id int PRIMARY KEY, body text);
 CREATE INDEX typmod_cache_deleted_idx ON typmod_cache_deleted
-    USING paradedb (id, (body::pdb.simple('alias=typmod_cache_deleted')));
+    USING paradedb (id, (body::pdb.simple('alias=typmod_cache_deleted'))) WITH (key_field = 'id');
 DELETE FROM paradedb._typmod_cache WHERE typmod = ARRAY['alias=typmod_cache_deleted'];
 \c
 SELECT count(*) FROM typmod_cache_deleted WHERE id @@@ pdb.all();

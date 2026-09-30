@@ -493,6 +493,7 @@ mod tests {
         let entries = unsafe { MetaPage::open(indexrel).segment_metas().list(None) };
         let file = entries
             .iter()
+            .filter(|entry| !entry.is_deleted())
             .find_map(|entry| match entry.content {
                 SegmentMetaEntryContent::Immutable(content) => content.vec,
                 _ => None,

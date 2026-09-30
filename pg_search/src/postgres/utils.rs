@@ -124,8 +124,9 @@ pub(crate) trait PgMemoryContextsExt {
     /// After a plain ERROR the drop still runs, since the backend keeps going and the state would
     /// otherwise leak.
     ///
-    /// TODO(#6530): we don't know which of the values inside the state need `impl_safe_drop!`, so
-    /// the whole state is skipped. Revisit this skip once #6530 has found and marked them.
+    /// The whole state is skipped, not just some of its values, because the values above are
+    /// std, tokio, tantivy and DataFusion types: there is no `Drop` of ours on them to put
+    /// `impl_safe_drop!` on. Our own `Drop`s are checked by `.github/scripts/check_impl_drop.py`.
     ///
     /// The body mirrors pgrx 0.19.2's `leak_and_drop_on_delete` (`memcxt.rs`) plus the
     /// `proc_exit` check; keep it in sync when bumping pgrx.

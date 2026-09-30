@@ -72,9 +72,13 @@ pub fn type_can_be_tokenized(oid: pg_sys::Oid) -> bool {
 #[inline]
 pub fn try_get_alias(oid: pg_sys::Oid, typmod: Typmod) -> Option<String> {
     if type_is_alias(oid) {
-        AliasTypmod::try_from(typmod).ok()?.alias()
+        AliasTypmod::try_from(typmod)
+            .unwrap_or_else(|e| e.report())
+            .alias()
     } else if type_is_tokenizer(oid) {
-        UncheckedTypmod::try_from(typmod).ok()?.alias()
+        UncheckedTypmod::try_from(typmod)
+            .unwrap_or_else(|e| e.report())
+            .alias()
     } else {
         None
     }
@@ -318,7 +322,7 @@ pub fn search_field_config_from_type(
 
     let normalizer = tokenizer.normalizer().unwrap_or_default();
 
-    let parsed_typmod = typmod::load_typmod(typmod).unwrap_or_default();
+    let parsed_typmod = typmod::load_typmod(typmod).unwrap_or_else(|e| e.report());
 
     let parsed_fieldnorms = parsed_typmod.get("fieldnorms").and_then(|p| p.as_bool());
     let pnorms = parsed_typmod
@@ -399,9 +403,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             positions,
             filters,
         } => {
-            let ngram_typmod = NgramTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let ngram_typmod = NgramTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *min_gram = ngram_typmod.min_gram;
             *max_gram = ngram_typmod.max_gram;
             *prefix_only = ngram_typmod.prefix_only;
@@ -414,26 +416,21 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             token_chars,
             filters,
         } => {
-            let edge_ngram_typmod = EdgeNgramTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let edge_ngram_typmod =
+                EdgeNgramTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *min_gram = edge_ngram_typmod.min_gram;
             *max_gram = edge_ngram_typmod.max_gram;
             *token_chars = edge_ngram_typmod.token_chars;
             *filters = edge_ngram_typmod.filters;
         }
         SearchTokenizer::RegexTokenizer { pattern, filters } => {
-            let regex_typmod = RegexTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let regex_typmod = RegexTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *pattern = regex_typmod.pattern.to_string();
             *filters = regex_typmod.filters;
         }
 
         SearchTokenizer::LinderaDeprecated(style, filters) => {
-            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *style = lindera_typmod.language;
             *filters = lindera_typmod.filters;
         }
@@ -444,9 +441,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             nfkc,
             reading_form,
         } => {
-            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *language = lindera_typmod.language;
             *filters = lindera_typmod.filters;
             *keep_whitespace = lindera_typmod.keep_whitespace;
@@ -466,9 +461,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             filters,
             keep_whitespace,
         } => {
-            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *filters = lindera_typmod.filters;
             *keep_whitespace = lindera_typmod.keep_whitespace;
         }
@@ -484,9 +477,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::JapaneseLinderaDeprecated(filters)
         | SearchTokenizer::KoreanLinderaDeprecated(filters) => {
             // | SearchTokenizer::Jieba(filters) =>  {
-            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *filters = generic_typmod.filters;
         }
 
@@ -495,18 +486,14 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             search_mode,
             filters,
         } => {
-            let jieba_typmod = JiebaTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let jieba_typmod = JiebaTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *filters = jieba_typmod.filters;
             *chinese_convert = jieba_typmod.chinese_convert;
             *search_mode = jieba_typmod.search_mode;
         }
 
         SearchTokenizer::ICUTokenizer(filters) => {
-            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *filters = generic_typmod.filters;
         }
 
@@ -518,9 +505,8 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             remove_emojis,
             filters,
         } => {
-            let unicode_typmod = UnicodeWordsTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let unicode_typmod =
+                UnicodeWordsTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *remove_emojis = unicode_typmod.remove_emojis;
             *filters = unicode_typmod.filters;
         }

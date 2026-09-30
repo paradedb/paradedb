@@ -369,7 +369,10 @@ pub enum SearchTokenizer {
         pattern: String,
         filters: SearchTokenizerFilters,
     },
-    ChineseCompatible(SearchTokenizerFilters),
+    ChineseCompatible {
+        chinese_convert: Option<ConvertMode>,
+        filters: SearchTokenizerFilters,
+    },
     SourceCode(SearchTokenizerFilters),
     Ngram {
         min_gram: usize,
@@ -444,6 +447,21 @@ impl Default for SearchTokenizer {
     }
 }
 
+/// Parses the `chinese_convert` field shared by the `jieba` and `chinese_compatible` JSON
+/// tokenizer configs. `tokenizer_name` is used only to name the tokenizer in the error message.
+fn parse_chinese_convert_json(
+    value: &serde_json::Value,
+    tokenizer_name: &str,
+) -> Result<Option<ConvertMode>, anyhow::Error> {
+    if value["chinese_convert"].is_null() {
+        return Ok(None);
+    }
+    let mode = serde_json::from_value(value["chinese_convert"].clone()).map_err(|_| {
+        anyhow::anyhow!("{tokenizer_name} tokenizer requires a string 'chinese_convert' field")
+    })?;
+    Ok(Some(mode))
+}
+
 impl SearchTokenizer {
     // This is only used by the v1 api (prior to v0.20.0)
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
@@ -471,7 +489,13 @@ impl SearchTokenizer {
                     })?;
                 Ok(SearchTokenizer::RegexTokenizer { pattern, filters })
             }
-            "chinese_compatible" => Ok(SearchTokenizer::ChineseCompatible(filters)),
+            "chinese_compatible" => {
+                let chinese_convert = parse_chinese_convert_json(value, "chinese_compatible")?;
+                Ok(SearchTokenizer::ChineseCompatible {
+                    chinese_convert,
+                    filters,
+                })
+            }
             "source_code" => Ok(SearchTokenizer::SourceCode(filters)),
             "ngram" => {
                 let min_gram: usize =
@@ -519,17 +543,7 @@ impl SearchTokenizer {
             "korean_lindera" => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => {
-                let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
-                    None
-                } else {
-                    Some(
-                        serde_json::from_value(value["chinese_convert"].clone()).map_err(|_| {
-                            anyhow::anyhow!(
-                                "jieba tokenizer requires a string 'chinese_convert' field"
-                            )
-                        })?,
-                    )
-                };
+                let chinese_convert = parse_chinese_convert_json(value, "jieba")?;
                 let search_mode = if value["search_mode"].is_null() {
                     true
                 } else {
@@ -620,8 +634,18 @@ impl SearchTokenizer {
                     filters
                 )
             }
-            SearchTokenizer::ChineseCompatible(filters) => {
-                add_filters!(ChineseTokenizer, filters)
+            SearchTokenizer::ChineseCompatible {
+                chinese_convert,
+                filters,
+            } => {
+                // If Chinese conversion is configured, perform the conversion before tokenization
+                if let Some(convert_mode) = chinese_convert {
+                    let convert_tokenizer =
+                        ChineseConvertTokenizer::new(ChineseTokenizer, *convert_mode);
+                    add_filters!(convert_tokenizer, filters)
+                } else {
+                    add_filters!(ChineseTokenizer, filters)
+                }
             }
             SearchTokenizer::SourceCode(filters) => {
                 // for backwards compatibility, the source_code tokenizer defaults to ascii_folding
@@ -753,7 +777,7 @@ impl SearchTokenizer {
             SearchTokenizer::LiteralNormalized(filters) => filters,
             SearchTokenizer::WhiteSpace(filters) => filters,
             SearchTokenizer::RegexTokenizer { filters, .. } => filters,
-            SearchTokenizer::ChineseCompatible(filters) => filters,
+            SearchTokenizer::ChineseCompatible { filters, .. } => filters,
             SearchTokenizer::SourceCode(filters) => filters,
             SearchTokenizer::Ngram { filters, .. } => filters,
             SearchTokenizer::EdgeNgram { filters, .. } => filters,
@@ -817,8 +841,15 @@ impl SearchTokenizer {
             }
             SearchTokenizer::WhiteSpace(_filters) => format!("whitespace{filters_suffix}"),
             SearchTokenizer::RegexTokenizer { .. } => format!("regex{filters_suffix}"),
-            SearchTokenizer::ChineseCompatible(_filters) => {
-                format!("chinese_compatible{filters_suffix}")
+            SearchTokenizer::ChineseCompatible {
+                chinese_convert,
+                filters: _,
+            } => {
+                if let Some(chinese_convert) = chinese_convert {
+                    format!("chinese_compatible{chinese_convert:?}{filters_suffix}")
+                } else {
+                    format!("chinese_compatible{filters_suffix}")
+                }
             }
             SearchTokenizer::SourceCode(_filters) => format!("source_code{filters_suffix}"),
             SearchTokenizer::Ngram {
@@ -1090,6 +1121,53 @@ mod tests {
         )
         .unwrap();
         assert_ne!(default_mode.name(), disabled_mode.name());
+    }
+
+    #[rstest]
+    fn test_chinese_compatible_with_chinese_convert() {
+        use tantivy::tokenizer::TokenStream;
+
+        fn tokens(json: &str, text: &str) -> Vec<String> {
+            let tokenizer =
+                SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+            let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+            let mut stream = analyzer.token_stream(text);
+            let mut out = Vec::new();
+            while stream.advance() {
+                out.push(stream.token().text.clone());
+            }
+            out
+        }
+
+        // Without chinese_convert, Traditional input tokenizes as-is.
+        let plain = tokens(r#"{"type": "chinese_compatible"}"#, "繁體中文測試");
+        assert!(plain.iter().any(|t| t.contains('繁')));
+
+        // With chinese_convert=T2S, the Traditional input is converted to Simplified
+        // before tokenization -- mirrors the same option already supported by pdb.jieba.
+        // Note: the JSON tagged API (used here) deserializes ConvertMode via its plain
+        // derive, so it expects the Rust variant name ("T2S"); the typmod-string path
+        // (e.g. pdb.chinese_compatible('chinese_convert=t2s')) lowercases and matches
+        // separately -- same asymmetry already present for pdb.jieba.
+        let converted = tokens(
+            r#"{"type": "chinese_compatible", "chinese_convert": "T2S"}"#,
+            "繁體中文測試",
+        );
+        let converted_text = converted.join("");
+        assert!(converted_text.contains("繁体") || converted_text.contains("测试"));
+        assert_ne!(plain, converted);
+
+        // The two configurations must not share a registered analyzer.
+        let default_mode = SearchTokenizer::from_json_value(
+            &serde_json::from_str(r#"{"type": "chinese_compatible"}"#).unwrap(),
+        )
+        .unwrap();
+        let t2s_mode = SearchTokenizer::from_json_value(
+            &serde_json::from_str(r#"{"type": "chinese_compatible", "chinese_convert": "T2S"}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_ne!(default_mode.name(), t2s_mode.name());
     }
 
     #[rstest]

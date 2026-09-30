@@ -68,25 +68,28 @@ jobs:
         if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-stressgres')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
+          gh pr edit "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --remove-label benchmarks \
             --remove-label benchmark-stressgres || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
+        env:
+          INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
           # If a specific commit was provided via workflow_dispatch, use that.
           # For pull_request events, benchmark the PR merge commit (github.sha),
           # which exists in the base repo even for forks.
           # Otherwise, default to main.
-          if [ -n "${{ inputs.commit }}" ]; then
-            echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from workflow_dispatch input: ${{ inputs.commit }}"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "Determined ref from pull_request event: ${{ github.sha }}"
+          if [ -n "${INPUTS_COMMIT}" ]; then
+            echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from workflow_dispatch input: ${INPUTS_COMMIT}"
+          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from pull_request event: ${GITHUB_SHA}"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
             echo "Determined ref as default: main"
@@ -96,7 +99,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
@@ -190,7 +193,9 @@ jobs:
               : ref;
 
       - name: Running for ${{ steps.pr_label.outputs.result }}
-        run: echo ${{ steps.pr_label.outputs.result }}
+        env:
+          STEP_PR_LABEL_RESULT: ${{ steps.pr_label.outputs.result }}
+        run: echo "${STEP_PR_LABEL_RESULT}"
 
       - name: Set Up pg_search Build Environment
         uses: ./.github/actions/setup-pg-search-build-environment
@@ -262,9 +267,6 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Print Crashdump Stacktrace
         if: always()

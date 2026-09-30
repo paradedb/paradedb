@@ -513,7 +513,7 @@ impl PgSearchRelation {
         })?;
         // Throwaway materializations do not need the stats plugin.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
-        set_ivf_router(&mut index)?;
+        set_ivf_router(&mut index, self.options())?;
         if schema.has_vector_field() {
             set_ivf_clusterer(&mut index, self.options());
         }

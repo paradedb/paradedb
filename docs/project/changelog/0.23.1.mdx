@@ -4,7 +4,9 @@ description: "ParadeDB release notes for 0.23.1"
 noindex: true
 ---
 
-## New Features 🎉
+See GitHub release: [v0.23.1](https://github.com/paradedb/paradedb/releases/tag/v0.23.1)
+
+## New Features ✨
 
 - Inline tokenizers can now be chained into relevance tuning casts (`pdb.boost`, `pdb.const`, `pdb.fuzzy`, `pdb.slop`). For example:
 
@@ -24,5 +26,3 @@ noindex: true
 - Return parameterized selectivity for non-`Const` BM25 operator arguments, improving plans for prepared statements.
 - Fix a panic in `terms` aggregations that could occur when a `missing` key was combined with an `include`/`exclude` filter on certain segments.
 - Correctly handle the missing sentinel in `terms` aggregations when combining `exclude` with `missing` on columns with zero unique values.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.23.1).

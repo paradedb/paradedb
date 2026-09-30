@@ -52,7 +52,7 @@ use super::window_func::{
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::gucs;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::datafusion::topk_agg::{TOPK_AGG_ROWS_COL_NAME, topk_as_agg};
 use crate::postgres::customscan::joinscan::build::{
@@ -173,9 +173,11 @@ fn numeric_fast_field_type(
         let mapped = source.map_var(rti, attno)?;
         let field_info = source.scan_info.fields.iter().find(|f| f.attno == mapped)?;
         match &field_info.field {
-            WhichFastField::Named(_, ft) | WhichFastField::Deferred(_, ft) if ft.is_numeric() => {
-                Some(*ft)
-            }
+            WhichFastField::Named {
+                field_type: ft,
+                cardinality: FieldCardinality::Scalar,
+                ..
+            } if ft.is_numeric() => Some(*ft),
             _ => None,
         }
     })

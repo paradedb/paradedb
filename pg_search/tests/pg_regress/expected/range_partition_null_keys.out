@@ -57,29 +57,21 @@ WHERE p.title @@@ 'error';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
      : │   CoalescePartitionsExec
-     : │     [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 3 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=3, partitions=3
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
      :   │   HashJoinExec: mode=Partitioned, join_type=Left, on=[(owner_user_id@0, id@0)], projection=[id@1]
-     :   │     [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
-     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments={partial=0, included=3, pruned=2}, partition=owner_user_id[-∞..10001), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t1: PgSearchScan: table=p, segments={partial=0, included=1, pruned=4}, partition=owner_user_id[10001..15001), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=0, included=1, pruned=4}, partition=owner_user_id[15001..∞), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=u, segments={partial=0, included=2, pruned=2}, partition=id[-∞..10001), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t1: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[10001..15001), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t2: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[15001..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 1 ── tasks=3, partitions=9
-     :     │ RepartitionExec: partitioning=Hash([owner_user_id@0], 9), input_partitions=1
-     :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=p, segments={partial=0, included=3, pruned=2}, partition=owner_user_id[-∞..10001), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :     │     t1: PgSearchScan: table=p, segments={partial=0, included=1, pruned=4}, partition=owner_user_id[10001..15001), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :     │     t2: PgSearchScan: table=p, segments={partial=0, included=1, pruned=4}, partition=owner_user_id[15001..∞), visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     :     └──────────────────────────────────────────────────
-     :     ┌───── Stage 2 ── tasks=3, partitions=9
-     :     │ RepartitionExec: partitioning=Hash([id@0], 9), input_partitions=1
-     :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=u, segments={partial=0, included=2, pruned=2}, partition=id[-∞..10001), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :     │     t1: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[10001..15001), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :     │     t2: PgSearchScan: table=u, segments={partial=0, included=1, pruned=3}, partition=id[15001..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :     └──────────────────────────────────────────────────
-(31 rows)
+(23 rows)
 
 SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
 FROM rpn_posts p LEFT JOIN rpn_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()

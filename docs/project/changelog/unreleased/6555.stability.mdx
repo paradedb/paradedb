@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+A prepared statement whose `LIMIT` is a parameter no longer gets rows out of `ORDER BY` order from the join scan. Once Postgres switched the statement to a generic plan, the join scan could return the first rows in join order instead of the sorted ones.

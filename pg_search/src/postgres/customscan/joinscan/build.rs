@@ -493,6 +493,7 @@ impl JoinSourceCandidate {
             NonNull::new(expr_context.as_ptr()),
             None,
             needs_tokenizer_manager,
+            None,
         )
         .expect("Failed to open index reader for estimation");
 

@@ -18,7 +18,7 @@ canonical: https://www.paradedb.com/docs/reference/indexing/indexing-vectors
 The ParadeDB index can index pgvector's `vector` type alongside your text and other columns. This lets you combine vector search with full text search and filters in a single index,
 which can significantly improve latency/recall for selective queries.
 
-## Create the Index
+## Creating the Index
 
 The `mock_items` table comes with an `embedding` column of type `vector(8)` populated with sample embeddings.
 In this example, `embedding` is added to the ParadeDB index with cosine similarity as the distance function.

@@ -149,7 +149,7 @@ runs:
         gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
           -F body=@benchmark-alert.md
 
-    - name: Upload Benchmark Results to Slack (push only)
+    - name: Post Benchmark Results to Slack (push only)
       if: github.ref == 'refs/heads/main'
       uses: slackapi/slack-github-action@v4
       with:
@@ -158,5 +158,28 @@ runs:
         payload: |
           channel: ${{ inputs.slack_channel }}
           text: |
-            ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}` (${{ inputs.index }}, ${{ env.ROWS_LABEL }} rows)
-            <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.pr_label }}> @ <https://paradedb.github.io/${{ github.event.repository.name }}/benchmarks/>
+            ✅ Benchmark Results: `${{ inputs.dataset }}` (${{ inputs.index }}, ${{ env.ROWS_LABEL }} rows)
+          attachments:
+            - color: good
+              mrkdwn_in: [fields]
+              fields:
+                - title: Repository
+                  value: |
+                    ${{ github.repository }}
+                  short: true
+                - title: Workflow
+                  value: |
+                    ${{ github.workflow }}
+                  short: true
+                - title: Commit
+                  value: |
+                    <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.pr_label }}>
+                  short: false
+                - title: View Results
+                  value: |
+                    <https://paradedb.github.io/${{ github.event.repository.name }}/benchmarks/|Click here>
+                  short: true
+                - title: View Logs
+                  value: |
+                    <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>
+                  short: true

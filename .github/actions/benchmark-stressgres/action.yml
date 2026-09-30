@@ -186,17 +186,51 @@ runs:
         STEP_RESOLVE_REF_SHA: ${{ steps.resolve_ref.outputs.sha }}
       run: stressgres graph "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-${STEP_RESOLVE_REF_SHA}.log" "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-${STEP_RESOLVE_REF_SHA}.png"
 
-    - name: Upload Stressgres Results to Slack (push only)
+    - name: Post Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'
+      id: slack-results
+      uses: slackapi/slack-github-action@v4
+      with:
+        method: chat.postMessage
+        token: ${{ inputs.slack_oauth_token }}
+        payload: |
+          channel: ${{ inputs.slack_channel }}
+          text: |
+            ✅ Stressgres Results: `${{ inputs.test_file }}`
+          attachments:
+            - color: good
+              mrkdwn_in: [fields]
+              fields:
+                - title: Repository
+                  value: |
+                    ${{ github.repository }}
+                  short: true
+                - title: Workflow
+                  value: |
+                    ${{ github.workflow }}
+                  short: true
+                - title: Commit
+                  value: |
+                    <${{ github.server_url }}/${{ github.repository }}/commit/${{ steps.resolve_ref.outputs.sha }}|${{ inputs.pr_label }}>
+                  short: false
+                - title: View Results
+                  value: |
+                    <https://paradedb.github.io/${{ github.event.repository.name }}/stressgres/|Click here>
+                  short: true
+                - title: View Logs
+                  value: |
+                    <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>
+                  short: true
+
+    - name: Upload Stressgres Graph to Slack (push only)
+      if: github.event_name != 'pull_request' && steps.slack-results.outputs.ok == 'true'
       uses: slackapi/slack-github-action@v4
       with:
         method: files.uploadV2
         token: ${{ inputs.slack_oauth_token }}
         payload: |
           channel_id: ${{ inputs.slack_channel }}
-          initial_comment: |
-            ${{ github.repository }} Stressgres Results: `${{ inputs.test_file }}`
-            <${{ github.server_url }}/${{ github.repository }}/commit/${{ steps.resolve_ref.outputs.sha }}|${{ inputs.pr_label }}> @ <https://paradedb.github.io/${{ github.event.repository.name }}/stressgres/>
+          thread_ts: "${{ steps.slack-results.outputs.ts }}"
           file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
 

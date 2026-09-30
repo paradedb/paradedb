@@ -1,0 +1,172 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- A NUMERIC literal is compared with a Numeric64 column as PostgreSQL compares it, including a
+-- literal far below one step of the column's scale (1e-41 against NUMERIC(10,2), where dividing
+-- by 10^39 does not fit in an i128) and one with more significant digits than an i128 holds.
+-- Such a literal is not on the column's grid: an equality term matches nothing, and a range
+-- bound moves to the neighbouring grid point on the side the operator keeps.
+CREATE TABLE numeric64_high_precision (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC(10, 2)
+);
+INSERT INTO numeric64_high_precision (price) VALUES
+    (-0.01), (0.00), (0.01), (1.23), (1.24);
+CREATE INDEX numeric64_high_precision_idx ON numeric64_high_precision USING paradedb (
+    id, price
+);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price = 1e-41
+ORDER BY id;
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price
+   Sort Key: numeric64_high_precision.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_high_precision
+         Output: id, price
+         Table: numeric64_high_precision
+         Index: numeric64_high_precision_idx
+         Worker Selection: Cost model
+         Exec Method: ColumnarExecState
+         Columnar: id, price
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":"0.00000000000000000000000000000000000000001"}}]}}
+(12 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price > 1e-41
+ORDER BY id;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price
+   Sort Key: numeric64_high_precision.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_high_precision
+         Output: id, price
+         Table: numeric64_high_precision
+         Index: numeric64_high_precision_idx
+         Worker Selection: Cost model
+         Exec Method: ColumnarExecState
+         Columnar: id, price
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"excluded":"0.00000000000000000000000000000000000000001"},"upper_bound":null}}]}}
+(12 rows)
+
+-- Far below one step of the scale: no row equals it, and 0.00 < 1e-41 < 0.01.
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price = 1e-41 ORDER BY id;
+ id | price 
+----+-------
+(0 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price > 1e-41 ORDER BY id;
+ id | price 
+----+-------
+  3 |  0.01
+  4 |  1.23
+  5 |  1.24
+(3 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price >= 1e-41 ORDER BY id;
+ id | price 
+----+-------
+  3 |  0.01
+  4 |  1.23
+  5 |  1.24
+(3 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price < 1e-41 ORDER BY id;
+ id | price 
+----+-------
+  1 | -0.01
+  2 |  0.00
+(2 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price <= 1e-41 ORDER BY id;
+ id | price 
+----+-------
+  1 | -0.01
+  2 |  0.00
+(2 rows)
+
+-- The same on the negative side: -0.01 < -1e-41 < 0.00.
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price = -1e-41 ORDER BY id;
+ id | price 
+----+-------
+(0 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price >= -1e-41 ORDER BY id;
+ id | price 
+----+-------
+  2 |  0.00
+  3 |  0.01
+  4 |  1.23
+  5 |  1.24
+(4 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price < -1e-41 ORDER BY id;
+ id | price 
+----+-------
+  1 | -0.01
+(1 row)
+
+-- More significant digits than an i128 holds: 1.23 < literal < 1.24.
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price = 1.2300000000000000000000000000000000000000000000001
+ORDER BY id;
+ id | price 
+----+-------
+(0 rows)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price > 1.2300000000000000000000000000000000000000000000001
+ORDER BY id;
+ id | price 
+----+-------
+  5 |  1.24
+(1 row)
+
+SELECT id, price FROM numeric64_high_precision
+WHERE id @@@ paradedb.all() AND price <= 1.2300000000000000000000000000000000000000000000001
+ORDER BY id;
+ id | price 
+----+-------
+  1 | -0.01
+  2 |  0.00
+  3 |  0.01
+  4 |  1.23
+(4 rows)
+
+-- PostgreSQL's own answers, without the index, for comparison.
+SELECT
+    count(*) FILTER (WHERE price = 1e-41) AS eq,
+    count(*) FILTER (WHERE price > 1e-41) AS gt,
+    count(*) FILTER (WHERE price >= 1e-41) AS ge,
+    count(*) FILTER (WHERE price < 1e-41) AS lt,
+    count(*) FILTER (WHERE price <= 1e-41) AS le,
+    count(*) FILTER (WHERE price = -1e-41) AS eq_neg,
+    count(*) FILTER (WHERE price >= -1e-41) AS ge_neg,
+    count(*) FILTER (WHERE price < -1e-41) AS lt_neg,
+    count(*) FILTER (WHERE price = 1.2300000000000000000000000000000000000000000000001) AS eq_long,
+    count(*) FILTER (WHERE price > 1.2300000000000000000000000000000000000000000000001) AS gt_long,
+    count(*) FILTER (WHERE price <= 1.2300000000000000000000000000000000000000000000001) AS le_long
+FROM numeric64_high_precision;
+ eq | gt | ge | lt | le | eq_neg | ge_neg | lt_neg | eq_long | gt_long | le_long 
+----+----+----+----+----+--------+--------+--------+---------+---------+---------
+  0 |  3 |  3 |  2 |  2 |      0 |      4 |      1 |       0 |       1 |       4
+(1 row)
+
+DROP TABLE numeric64_high_precision;

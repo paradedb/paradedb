@@ -32,8 +32,8 @@ const SETUP_SQL: &str = r#"
 CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 CREATE TABLE typmod_die_a (id bigserial primary key, body text);
 CREATE TABLE typmod_die_b (id bigserial primary key, body text);
-CREATE INDEX typmod_die_a_idx ON typmod_die_a USING paradedb (id, (body::pdb.simple('alias=a')));
-CREATE INDEX typmod_die_b_idx ON typmod_die_b USING paradedb (id, (body::pdb.simple('alias=b')));
+CREATE INDEX typmod_die_a_idx ON typmod_die_a USING paradedb (id, (body::pdb.simple('alias=a'))) WITH (key_field = 'id');
+CREATE INDEX typmod_die_b_idx ON typmod_die_b USING paradedb (id, (body::pdb.simple('alias=b'))) WITH (key_field = 'id');
 INSERT INTO typmod_die_a (body) VALUES ('hello world');
 INSERT INTO typmod_die_b (body) VALUES ('hello world');
 -- Typmod lookups run SPI as the session's role, so row security applies to them. While the

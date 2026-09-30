@@ -190,13 +190,11 @@ async fn signal_until_stopped(
         }
         // Parallel workers inherit the leader's `application_name`, so pin to the client backend
         // to signal the leader; its abort is what sends SIGTERM to the workers.
-        let pid: Option<i32> = sqlx::query_scalar(
-            "SELECT pid FROM pg_stat_activity \
-             WHERE application_name = $1 AND backend_type = 'client backend' \
-             AND state = 'active' AND query LIKE '%FROM bs_cancel%'",
+        let pid = client_backend_pid(
+            signaller,
+            target_app,
+            "state = 'active' AND query LIKE '%FROM bs_cancel%'",
         )
-        .bind(target_app)
-        .fetch_optional(&mut *signaller)
         .await?;
 
         if let Some(pid) = pid {

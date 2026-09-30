@@ -279,6 +279,7 @@ jobs:
           set -euo pipefail
           make -f Makefile.${DATASET} index \
             BACKENDS=paradedb \
+            PARADEDB_INDEX_SQL="${GITHUB_WORKSPACE}/.github/scripts/benchmarker/${DATASET}.sql" \
             PARADEDB_IMAGE="${IMAGE_TAG}" \
             VOLUME_ROOT="${VOLUME_ROOT}" \
             MEMORY=64g

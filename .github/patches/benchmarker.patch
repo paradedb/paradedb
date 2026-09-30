@@ -1,8 +1,8 @@
 diff --git a/benchmarks/Makefile.common b/benchmarks/Makefile.common
-index 3e1e7c5..918ef18 100644
+index 3e1e7c5..bc7d566 100644
 --- a/benchmarks/Makefile.common
 +++ b/benchmarks/Makefile.common
-@@ -40,17 +40,25 @@ CPUS ?= 8
+@@ -40,17 +40,26 @@ CPUS ?= 8
  # Explicit MEMORY overrides apply to every target; only create defaults to 64g.
  ifeq ($(origin MEMORY),undefined)
  MEMORY := 32g
@@ -18,6 +18,7 @@ index 3e1e7c5..918ef18 100644
  BATCH_SIZE ?= 10000
 +# Override to test a custom ParadeDB image (e.g. source build in CI); defaults BUILD=0.
 +PARADEDB_IMAGE ?=
++PARADEDB_INDEX_SQL ?= $(CONFIG_DIR)/paradedb/post.sql
 +ifdef PARADEDB_IMAGE
 +BUILD ?= 0
 +else
@@ -29,13 +30,13 @@ index 3e1e7c5..918ef18 100644
  OUTPUT ?= live
  OUT_DIR ?= $(REPO_ROOT)/out/$(DATASET)-$(WORKLOAD)-$(QUERY_STYLE)
  LOADER := $(REPO_ROOT)/bin/loader
-@@ -62,19 +70,20 @@ export DATA_GZ DATA_CSV CHECKSUMS QUERIES WORKLOAD QUERY_STYLE BACKENDS
+@@ -62,19 +71,20 @@ export DATA_GZ DATA_CSV CHECKSUMS QUERIES WORKLOAD QUERY_STYLE BACKENDS
  export VUS DURATION PREWARM COOLDOWN SEED TOP_K CPUS MEMORY SHARED_BUFFERS POSTGRES_SHM_SIZE
  export UPDATES_PER_SECOND
  export MAINTENANCE_WORK_MEM MAX_PARALLEL_MAINTENANCE_WORKERS MAX_PARALLEL_WORKERS
 -export PARADEDB_PORT POSTGRES_PORT PG_TEXTSEARCH_PORT ELASTICSEARCH_PORT
 -export WORKERS BATCH_SIZE BUILD RECREATE OUTPUT OUT_DIR LOADER K6
-+export PARADEDB_PORT POSTGRES_PORT PG_TEXTSEARCH_PORT ELASTICSEARCH_PORT PARADEDB_IMAGE
++export PARADEDB_PORT POSTGRES_PORT PG_TEXTSEARCH_PORT ELASTICSEARCH_PORT PARADEDB_IMAGE PARADEDB_INDEX_SQL
 +export WORKERS BATCH_SIZE BUILD RECREATE LOAD_ONLY OUTPUT OUT_DIR LOADER K6
 
  COMPOSE = docker compose --project-name "$$COMPOSE_PROJECT" --file "$$CONFIG_DIR/compose.yml"
@@ -53,16 +54,17 @@ index 3e1e7c5..918ef18 100644
  	  'make -f Makefile.$(DATASET) run WORKLOAD=topk QUERY_STYLE=disjunction BACKENDS=paradedb,postgres' \
  	  'make -f Makefile.$(DATASET) copy BACKENDS=paradedb TARGET_VOLUME_ROOT=/tin/benchmarker' \
  	  '' \
-@@ -98,6 +107,8 @@ help:
+@@ -98,6 +108,9 @@ help:
  	  'Leave VOLUME_ROOT unset for Docker default storage; use the same value for create/run/clean.' \
  	  'copy reads VOLUME_ROOT (default: Docker storage) and requires TARGET_VOLUME_ROOT.' \
  	  'copy preserves completed data/indexes; run the copy by setting VOLUME_ROOT to its target.' \
 +	  'index builds indexes against existing/restored data volumes without requiring CSV parts.' \
++	  'PARADEDB_INDEX_SQL=<sql-path> overrides the ParadeDB index script used by index.' \
 +	  'LOAD_ONLY=1 halts create after loading table data, skipping index creation.' \
  	  'clean [BACKENDS=<names>] drops benchmark tables/indexes and clears their setup markers.' \
  	  'data streams data.csv.gz.part0000, part0001, ... through gzip into data.csv.' \
  	  'DATA_GZ=<archive-prefix> also accepts a single gzip file for local fixtures.' \
-@@ -109,7 +120,7 @@ validate:
+@@ -109,7 +122,7 @@ validate:
  	  command -v "$$dependency" >/dev/null || { echo "Missing dependency: $$dependency" >&2; exit 1; }
  	done
  	[[ "$$PROJECT" =~ ^[a-z0-9][a-z0-9_-]*$$ ]] || { echo 'Invalid PROJECT name' >&2; exit 1; }
@@ -71,7 +73,7 @@ index 3e1e7c5..918ef18 100644
  	backends=($${BACKENDS//,/ })
  	(($${#backends[@]} > 0)) || { echo 'BACKENDS must not be empty' >&2; exit 1; }
  	declare -A seen=()
-@@ -272,6 +283,11 @@ _create_backend:
+@@ -272,6 +285,11 @@ _create_backend:
  	    else
  	      echo "$$backend: CSV load already complete; resuming index creation"
  	    fi
@@ -83,7 +85,7 @@ index 3e1e7c5..918ef18 100644
  	    echo "$$backend: creating index and gathering statistics"
  	    $(COMPOSE) exec -T "$$backend" psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 < "$$CONFIG_DIR/$$backend/post.sql"
  	  fi
-@@ -279,6 +295,56 @@ _create_backend:
+@@ -279,6 +297,61 @@ _create_backend:
  	  echo "$$backend: complete"
  	} 2>&1 | tee "$$log"
 
@@ -114,6 +116,11 @@ index 3e1e7c5..918ef18 100644
 +	@source "$$CONFIG_DIR/volumes.sh"
 +	backend='$(BACKEND)'
 +	case "$$backend" in paradedb|pg_textsearch|postgres|elasticsearch) ;; *) exit 1;; esac
++	index_sql="$$CONFIG_DIR/$$backend/post.sql"
++	if [[ "$$backend" == paradedb ]]; then
++	  index_sql="$$PARADEDB_INDEX_SQL"
++	  [[ -f "$$index_sql" && -s "$$index_sql" && -r "$$index_sql" ]] || { echo "Missing, empty, or unreadable index SQL: $$index_sql" >&2; exit 1; }
++	fi
 +	check_volume_configuration
 +	state="$$STORAGE_STATE_DIR/$$backend"
 +	log="$$STORAGE_STATE_DIR/logs/$$(date -u +%Y%m%dT%H%M%S)-$$backend-index.log"
@@ -129,9 +136,9 @@ index 3e1e7c5..918ef18 100644
 +	    $(COMPOSE) exec -T "$$backend" psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
 +	      -c "DROP EXTENSION IF EXISTS pg_search CASCADE; CREATE EXTENSION pg_search CASCADE;"
 +	  fi
-+	  if [[ -f "$$CONFIG_DIR/$$backend/post.sql" ]]; then
-+	    echo "$$backend: creating index and gathering statistics"
-+	    $(COMPOSE) exec -T "$$backend" psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 < "$$CONFIG_DIR/$$backend/post.sql"
++	  if [[ -f "$$index_sql" ]]; then
++	    echo "$$backend: creating index and gathering statistics from $$index_sql"
++	    $(COMPOSE) exec -T "$$backend" psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 < "$$index_sql"
 +	  fi
 +	  date -u +%Y%m%dT%H%M%SZ > "$$state.done"
 +	  echo "$$backend: complete"

@@ -1,0 +1,492 @@
+-- =====================================================================
+-- A range co-partitioned join checks a partition's edges in the segments
+-- that cross them (`partial`). The check must only select rows: a NULL key
+-- belongs to the first partition only, every value lands in one partition,
+-- and a row scores the same as in a serial scan. A scan that a Top-K score
+-- threshold reaches checks the edges on the rows the query returns, so the
+-- threshold keeps pruning; EXPLAIN ANALYZE reports those rows as
+-- `partition_rows_pruned`.
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_range_partitioned_join TO on;
+SET paradedb.mpp_min_rows TO 0;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET max_parallel_maintenance_workers TO 0;
+CREATE TABLE pef_users (id bigserial PRIMARY KEY, display_name text);
+CREATE TABLE pef_posts (id bigserial PRIMARY KEY, owner_user_id bigint, owner_name text, title text);
+INSERT INTO pef_users (display_name)
+SELECT 'user_' || lpad(g::text, 4, '0') FROM generate_series(1, 4000) g;
+-- Owners drift upward with `id`, so the `owner_user_id` boxes of the posts
+-- segments overlap and a join on that key crosses them.
+INSERT INTO pef_posts (owner_user_id, owner_name, title)
+SELECT o, 'user_' || lpad(o::text, 4, '0'), CASE WHEN g % 3 = 0 THEN 'error in build ' ELSE 'note ' END || g
+FROM generate_series(1, 16000) g, LATERAL (SELECT 1 + ((g * 7919) % (2000 + g / 8)) AS o) owner;
+CREATE INDEX pef_users_idx ON pef_users USING paradedb (id, (display_name::pdb.literal))
+WITH (partition_by = 'id', target_segment_count = 4);
+WARNING:  only 0 parallel workers were available for index build
+CREATE INDEX pef_posts_idx ON pef_posts USING paradedb (id, owner_user_id, (owner_name::pdb.literal), title)
+WITH (partition_by = 'id, owner_user_id', target_segment_count = 8);
+WARNING:  only 0 parallel workers were available for index build
+-- One more segment whose keys span every partition and include NULLs, so it
+-- crosses every edge and its NULL rows must reach the first partition only.
+SET paradedb.global_mutable_segment_rows TO 0;
+INSERT INTO pef_posts (owner_user_id, owner_name, title)
+SELECT o, 'user_' || lpad(o::text, 4, '0'), 'error without owner ' || g
+FROM generate_series(1, 400) g, LATERAL (SELECT CASE WHEN g % 4 = 0 THEN NULL ELSE 1 + ((g * 7919) % 4000) END AS o) owner;
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE pef_users;
+ANALYZE pef_posts;
+CREATE FUNCTION pef_explain_analyze_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
+    RETURN NEXT r."QUERY PLAN";
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+-- Serial baselines.
+SET max_parallel_workers_per_gather TO 0;
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM pef_posts p LEFT JOIN pef_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error';
+ total | orphans 
+-------+---------
+  5733 |     100
+(1 row)
+
+SELECT count(*) AS owner_join_rows
+FROM pef_users u JOIN pef_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+ owner_join_rows 
+-----------------
+            5633
+(1 row)
+
+SELECT p.id, pdb.score(p.id) AS score
+FROM pef_users u JOIN pef_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error without owner'
+ORDER BY p.id DESC
+LIMIT 6;
+  id   | score  
+-------+--------
+ 16399 | 7.0799
+ 16398 | 7.0799
+ 16397 | 7.0799
+ 16395 | 7.0799
+ 16394 | 7.0799
+ 16393 | 7.0799
+(6 rows)
+
+SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
+FROM pef_posts p LEFT JOIN pef_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error without owner'
+ORDER BY pdb.score(p.id) DESC, p.id
+LIMIT 8;
+  id   | score  | orphan 
+-------+--------+--------
+ 16001 | 7.0799 | f
+ 16002 | 7.0799 | f
+ 16003 | 7.0799 | f
+ 16004 | 7.0799 | t
+ 16005 | 7.0799 | f
+ 16006 | 7.0799 | f
+ 16007 | 7.0799 | f
+ 16008 | 7.0799 | t
+(8 rows)
+
+-- =====================================================================
+-- The range-partitioned join reaches into crossing segments in every task
+-- and must produce the same rows and the same scores.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM pef_posts p LEFT JOIN pef_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error';
+                                                                                                                                                           QUERY PLAN                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*)), (count(*) FILTER (WHERE (u.id IS NULL)))
+   Backend: DataFusion
+   Indexes: pef_posts_idx (p), pef_users_idx (u)
+   Aggregates: COUNT(*), COUNT(*)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
+     : │   CoalescePartitionsExec
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 2 ── tasks=3, partitions=3
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
+     :   │   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, owner_user_id@0)], projection=[id@0]
+     :   │     CoalescePartitionsExec
+     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=3
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments={partial=4, included=2, pruned=3}, partition=owner_user_id[-∞..1356), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t1: PgSearchScan: table=p, segments={partial=5, included=0, pruned=4}, partition=owner_user_id[1356..1601), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=4, included=2, pruned=3}, partition=owner_user_id[1601..∞), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=3, partitions=9
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1356), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1356..1601), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1601..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     └──────────────────────────────────────────────────
+(28 rows)
+
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM pef_posts p LEFT JOIN pef_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error';
+ total | orphans 
+-------+---------
+  5733 |     100
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) AS owner_join_rows
+FROM pef_users u JOIN pef_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+                                                                                                                                                                    QUERY PLAN                                                                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*))
+   Backend: DataFusion
+   Indexes: pef_users_idx (u), pef_posts_idx (p)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0]
+     : │   CoalescePartitionsExec
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
+     :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, owner_user_id@0)], projection=[]
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1356), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1356..1601), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1601..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments={partial=4, included=2, pruned=3}, partition=owner_user_id[-∞..1356), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t1: PgSearchScan: table=p, segments={partial=5, included=0, pruned=4}, partition=owner_user_id[1356..1601), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=4, included=2, pruned=3}, partition=owner_user_id[1601..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   └──────────────────────────────────────────────────
+(23 rows)
+
+SELECT count(*) AS owner_join_rows
+FROM pef_users u JOIN pef_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+ owner_join_rows 
+-----------------
+            5633
+(1 row)
+
+-- Scored, with a Top-K on another column: no score threshold reaches the scan,
+-- so the edges stay inside the query, and they add nothing to the score.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, pdb.score(p.id) AS score
+FROM pef_users u JOIN pef_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error without owner'
+ORDER BY p.id DESC
+LIMIT 6;
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, (pdb.score(p.id))
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.owner_user_id
+   Limit: 6
+   Order By: p.id desc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@2 as col_1, pdb.score()@0 as col_2, ctid_1@1 as ctid_1]
+     : │   SortPreservingMergeExec: [id@2 DESC], fetch=6
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   │ SortExec: TopK(fetch=6), expr=[id@2 DESC], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[u, p], pruned=[u]
+     :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, owner_user_id@2)], projection=[pdb.score()@2, ctid_1@3, id@5, ctid_0@1]
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1356), query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1356..1601), query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1601..∞), query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=p, segments={partial=4, included=2, pruned=3}, partition=owner_user_id[-∞..1356), dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=5, included=0, pruned=4}, partition=owner_user_id[1356..1601), dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=4, included=2, pruned=3}, partition=owner_user_id[1601..∞), dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   └──────────────────────────────────────────────────
+(25 rows)
+
+SELECT p.id, pdb.score(p.id) AS score
+FROM pef_users u JOIN pef_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error without owner'
+ORDER BY p.id DESC
+LIMIT 6;
+  id   | score  
+-------+--------
+ 16399 | 7.0799
+ 16398 | 7.0799
+ 16397 | 7.0799
+ 16395 | 7.0799
+ 16394 | 7.0799
+ 16393 | 7.0799
+(6 rows)
+
+-- Scored Top-K: the edges are checked on the rows the query returns.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
+FROM pef_posts p LEFT JOIN pef_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error without owner'
+ORDER BY pdb.score(p.id) DESC, p.id
+LIMIT 8;
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, (pdb.score(p.id)), ((u.id IS NULL))
+   Relation Tree: p LEFT u
+   Join Cond: u.id = p.owner_user_id
+   Limit: 8
+   Order By: pdb.score() desc, p.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@2 as col_1, pdb.score()@0 as col_2, id@3 IS NULL as col_3, ctid_0@1 as ctid_0]
+     : │   SortPreservingMergeExec: [pdb.score()@0 DESC, id@2 ASC NULLS LAST], fetch=8
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 2 ── tasks=3, partitions=3
+     :   │ SortExec: TopK(fetch=8), expr=[pdb.score()@0 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[p]
+     :   │     HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, owner_user_id@2)], projection=[pdb.score()@1, ctid_0@2, id@4, id@0]
+     :   │       CoalescePartitionsExec
+     :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=3
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=p, segments={partial=4, included=2, pruned=3}, partition=owner_user_id[-∞..1356), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=5, included=0, pruned=4}, partition=owner_user_id[1356..1601), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=4, included=2, pruned=3}, partition=owner_user_id[1601..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=3, partitions=9
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1356), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1356..1601), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1601..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     └──────────────────────────────────────────────────
+(30 rows)
+
+SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
+FROM pef_posts p LEFT JOIN pef_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error without owner'
+ORDER BY pdb.score(p.id) DESC, p.id
+LIMIT 8;
+  id   | score  | orphan 
+-------+--------+--------
+ 16001 | 7.0799 | f
+ 16002 | 7.0799 | f
+ 16003 | 7.0799 | f
+ 16004 | 7.0799 | t
+ 16005 | 7.0799 | f
+ 16006 | 7.0799 | f
+ 16007 | 7.0799 | f
+ 16008 | 7.0799 | t
+(8 rows)
+
+-- Asserts presence only: how the rows split across tasks is not pinned.
+SELECT count(*) > 0 AS top_k_scans_check_the_edges_on_rows
+FROM pef_explain_analyze_lines($q$
+    SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
+    FROM pef_posts p LEFT JOIN pef_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+    WHERE p.title ||| 'error without owner'
+    ORDER BY pdb.score(p.id) DESC, p.id
+    LIMIT 8
+$q$) AS line
+WHERE line LIKE '%table=p,%' AND line ~ 'partition_rows_pruned=\{[^}]*:[1-9][0-9]*';
+ top_k_scans_check_the_edges_on_rows 
+-------------------------------------
+ t
+(1 row)
+
+SELECT count(*) = 0 AS unscored_scans_keep_the_edges_in_the_query
+FROM pef_explain_analyze_lines($q$
+    SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+    FROM pef_posts p LEFT JOIN pef_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
+    WHERE p.title ||| 'error'
+$q$) AS line
+WHERE line LIKE '%partition_rows_pruned%';
+ unscored_scans_keep_the_edges_in_the_query 
+--------------------------------------------
+ t
+(1 row)
+
+-- =====================================================================
+-- A text key: the edges are compared as strings, through the segment's
+-- term ordinals when they are checked on rows.
+-- =====================================================================
+DROP INDEX pef_users_idx;
+DROP INDEX pef_posts_idx;
+CREATE INDEX pef_users_idx ON pef_users USING paradedb (id, (display_name::pdb.literal))
+WITH (partition_by = 'display_name', target_segment_count = 4);
+WARNING:  only 0 parallel workers were available for index build
+CREATE INDEX pef_posts_idx ON pef_posts USING paradedb (id, owner_user_id, (owner_name::pdb.literal), title)
+WITH (partition_by = 'id, owner_name', target_segment_count = 8);
+WARNING:  only 0 parallel workers were available for index build
+SET max_parallel_workers_per_gather TO 0;
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM pef_posts p LEFT JOIN pef_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error';
+ total | orphans 
+-------+---------
+  5733 |     100
+(1 row)
+
+SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
+FROM pef_posts p LEFT JOIN pef_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error without owner'
+ORDER BY pdb.score(p.id) DESC, p.id
+LIMIT 8;
+  id   | score  | orphan 
+-------+--------+--------
+ 16001 | 7.0799 | f
+ 16002 | 7.0799 | f
+ 16003 | 7.0799 | f
+ 16004 | 7.0799 | t
+ 16005 | 7.0799 | f
+ 16006 | 7.0799 | f
+ 16007 | 7.0799 | f
+ 16008 | 7.0799 | t
+(8 rows)
+
+SET max_parallel_workers_per_gather TO 3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM pef_posts p LEFT JOIN pef_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error';
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*)), (count(*) FILTER (WHERE (u.id IS NULL)))
+   Backend: DataFusion
+   Indexes: pef_posts_idx (p), pef_users_idx (u)
+   Aggregates: COUNT(*), COUNT(*)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
+     : │   CoalescePartitionsExec
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 2 ── tasks=3, partitions=3
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
+     :   │   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(display_name@1, owner_name@0)], projection=[id@0]
+     :   │     CoalescePartitionsExec
+     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=3
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments={partial=3, included=2, pruned=3}, partition=owner_name[-∞.."user_1361"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t1: PgSearchScan: table=p, segments={partial=4, included=0, pruned=4}, partition=owner_name["user_1361".."user_1623"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=3, included=2, pruned=3}, partition=owner_name["user_1623"..∞), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=3, partitions=9
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=display_name[-∞.."user_1361"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1361".."user_1623"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=display_name["user_1623"..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     └──────────────────────────────────────────────────
+(28 rows)
+
+SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
+FROM pef_posts p LEFT JOIN pef_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error';
+ total | orphans 
+-------+---------
+  5733 |     100
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
+FROM pef_posts p LEFT JOIN pef_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error without owner'
+ORDER BY pdb.score(p.id) DESC, p.id
+LIMIT 8;
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, (pdb.score(p.id)), ((u.id IS NULL))
+   Relation Tree: p LEFT u
+   Join Cond: u.display_name = p.owner_name
+   Limit: 8
+   Order By: pdb.score() desc, p.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@2 as col_1, pdb.score()@0 as col_2, id@3 IS NULL as col_3, ctid_0@1 as ctid_0]
+     : │   SortPreservingMergeExec: [pdb.score()@0 DESC, id@2 ASC NULLS LAST], fetch=8
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 2 ── tasks=3, partitions=3
+     :   │ SortExec: TopK(fetch=8), expr=[pdb.score()@0 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[p]
+     :   │     HashJoinExec: mode=CollectLeft, join_type=Right, on=[(display_name@0, owner_name@2)], projection=[pdb.score()@2, ctid_0@3, id@5, id@1]
+     :   │       CoalescePartitionsExec
+     :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=3
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=p, segments={partial=3, included=2, pruned=3}, partition=owner_name[-∞.."user_1361"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=4, included=0, pruned=4}, partition=owner_name["user_1361".."user_1623"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=3, included=2, pruned=3}, partition=owner_name["user_1623"..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=3, partitions=9
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=display_name[-∞.."user_1361"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1361".."user_1623"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=display_name["user_1623"..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     └──────────────────────────────────────────────────
+(30 rows)
+
+SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
+FROM pef_posts p LEFT JOIN pef_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
+WHERE p.title ||| 'error without owner'
+ORDER BY pdb.score(p.id) DESC, p.id
+LIMIT 8;
+  id   | score  | orphan 
+-------+--------+--------
+ 16001 | 7.0799 | f
+ 16002 | 7.0799 | f
+ 16003 | 7.0799 | f
+ 16004 | 7.0799 | t
+ 16005 | 7.0799 | f
+ 16006 | 7.0799 | f
+ 16007 | 7.0799 | f
+ 16008 | 7.0799 | t
+(8 rows)
+
+SELECT count(*) > 0 AS top_k_scans_check_the_text_edges_on_rows
+FROM pef_explain_analyze_lines($q$
+    SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
+    FROM pef_posts p LEFT JOIN pef_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
+    WHERE p.title ||| 'error without owner'
+    ORDER BY pdb.score(p.id) DESC, p.id
+    LIMIT 8
+$q$) AS line
+WHERE line LIKE '%table=p,%' AND line ~ 'partition_rows_pruned=\{[^}]*:[1-9][0-9]*';
+ top_k_scans_check_the_text_edges_on_rows 
+------------------------------------------
+ t
+(1 row)
+
+DROP FUNCTION pef_explain_analyze_lines(text);
+DROP TABLE pef_posts;
+DROP TABLE pef_users;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET paradedb.enable_range_partitioned_join;
+RESET paradedb.mpp_min_rows;
+RESET max_parallel_workers;
+RESET max_parallel_workers_per_gather;
+RESET min_parallel_table_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET max_parallel_maintenance_workers;

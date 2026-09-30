@@ -33,6 +33,7 @@ use std::task::{Context, Poll};
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
+use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr, PhysicalSortExpr};
@@ -75,7 +76,9 @@ use crate::scan::Scanner;
 use crate::scan::deferred_encode::is_deferred_field;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::pre_filter::{PreFilter, collect_filters, try_dynamic_filter_pushdown};
+use crate::scan::pre_filter::{
+    PartitionFilter, PreFilter, collect_filters, partition_pre_filter, try_dynamic_filter_pushdown,
+};
 use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -1284,17 +1287,41 @@ impl ExecutionPlan for PgSearchScanPlan {
                 false
             };
 
+            let mut partition_filter = None;
             let search_results = if let Some(range_boundaries) = &range_boundaries {
                 // In range-partitioned mode, each partition searches segments classified by
-                // their bounds: fully included segments omit the partition RangeQuery,
-                // while partially included segments retain it.
+                // their bounds: fully included segments run the base query alone, while
+                // partially included segments also check the partition's edges. The check
+                // is a range clause inside the query, except when a Top-K score threshold
+                // can reach the scan: the clause would turn off block-WAND there, so the
+                // edges are checked on the rows the query returns instead.
                 let partition_segments = assigned_partition_segments
                     .unwrap_or_else(|| segments_for_partition(&reader, range_boundaries, target_partition));
 
-                reader.search_segments_with_range_filter(
-                    &partition_segments,
-                    &range_boundaries.partition_bounds(target_partition),
-                )
+                if expects_score_threshold(&dynamic_filters, score_column_schema_idx)
+                    && !matches!(scanner_config.scan_mode, crate::scan::ScanMode::Tagged { .. })
+                {
+                    partition_filter = partition_edge_filter(
+                        &reader,
+                        range_boundaries,
+                        target_partition,
+                        &schema,
+                        &partition_segments,
+                    );
+                }
+                if partition_filter.is_some() {
+                    let segments = partition_segments
+                        .included
+                        .iter()
+                        .chain(partition_segments.partially_included.iter())
+                        .copied();
+                    reader.search_segments(segments)
+                } else {
+                    reader.search_segments_with_range_filter(
+                        &partition_segments,
+                        &range_boundaries.partition_bounds(target_partition),
+                    )
+                }
             } else {
                 // Standard mode delegates to the parallel state if present
                 match parallel_state {
@@ -1320,6 +1347,10 @@ impl ExecutionPlan for PgSearchScanPlan {
                 scanner_config.which_fast_fields,
                 scanner_config.heap_relid,
             );
+            let partition_rows_pruned = partition_filter.map(|partition_filter| {
+                scanner.set_partition_filter(partition_filter);
+                MetricBuilder::new(&plan_metrics).counter("partition_rows_pruned", target_partition)
+            });
             if let crate::scan::ScanMode::Tagged { local_queries, .. } = &scanner_config.scan_mode {
                 for tq in local_queries {
                     let weight = reader
@@ -1405,6 +1436,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                         }
                         if let Some(ref counter) = rows_pruned {
                             counter.add(scanner.pre_filter_rows_pruned);
+                        }
+                        if let Some(ref counter) = partition_rows_pruned {
+                            counter.add(scanner.partition_rows_pruned);
                         }
                         break;
                     }
@@ -1505,6 +1539,61 @@ impl ExecutionPlan for PgSearchScanPlan {
             Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
         }
     }
+}
+
+/// Whether a dynamic filter reads the score column, which is how a Top-K threshold on the
+/// score reaches this scan.
+fn expects_score_threshold(
+    dynamic_filters: &[Arc<dyn PhysicalExpr>],
+    score_col_schema_idx: Option<usize>,
+) -> bool {
+    let Some(score_idx) = score_col_schema_idx else {
+        return false;
+    };
+    dynamic_filters.iter().any(|filter| {
+        let mut reads_score = false;
+        let _ = filter.apply(|node| {
+            if node
+                .downcast_ref::<Column>()
+                .is_some_and(|column| column.index() == score_idx)
+            {
+                reads_score = true;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        reads_score
+    })
+}
+
+/// The edges of `partition` as a pre-filter for the segments of `segments` that cross them.
+///
+/// `None` when nothing crosses them, when the `partition_by` column is not in the scan's
+/// schema, or when its Arrow type cannot carry the bounds; the range clause then stays inside
+/// the query for those segments.
+fn partition_edge_filter(
+    reader: &SearchIndexReader,
+    range_boundaries: &RangePartitioning,
+    partition: usize,
+    schema: &SchemaRef,
+    segments: &PartitionSegments,
+) -> Option<PartitionFilter> {
+    if segments.partially_included.is_empty() {
+        return None;
+    }
+    let range = range_boundaries.partition_range(partition)?;
+    let (col_idx, field) = schema.column_with_name(range_boundaries.partition_by.as_ref())?;
+    let filter = partition_pre_filter(&range, col_idx, field)?;
+    let segments = segments
+        .partially_included
+        .iter()
+        .map(|segment_id| reader.segment_ordinal_by_id(segment_id))
+        .collect::<Option<_>>()?;
+    Some(PartitionFilter {
+        filter,
+        schema: schema.clone(),
+        segments,
+    })
 }
 
 /// Evaluate the current dynamic filter expressions and convert them into

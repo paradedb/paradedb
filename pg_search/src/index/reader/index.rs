@@ -1169,6 +1169,9 @@ impl SearchIndexReader {
     /// Fully included segments evaluate against `self` (the unconstrained base query),
     /// while partially included segments also evaluate `partition_bounds`. Both variants share
     /// the base query weight, so scored text preparation runs only once per task.
+    ///
+    /// The bounds only select rows. They add nothing to a row's score, so a row scores the
+    /// same whichever kind of segment holds it.
     pub(crate) fn search_segments_with_range_filter(
         &self,
         segments: &PartitionSegments,
@@ -1181,8 +1184,12 @@ impl SearchIndexReader {
             self.need_scores,
             self.searcher.clone(),
         ));
+        let unscored_bounds = SearchQueryInput::ConstScore {
+            query: Box::new(partition_bounds.clone()),
+            score: 0.0,
+        };
         let constrained_weight =
-            Arc::new(unconstrained_weight.and_query(self.make_query(partition_bounds, None)));
+            Arc::new(unconstrained_weight.and_query(self.make_query(&unscored_bounds, None)));
         let mut iterators = Vec::new();
         for (segment_ord, segment_reader) in self.segment_readers_in_segments(included) {
             iterators.push(ScorerIter::new(
@@ -2193,7 +2200,7 @@ impl SearchIndexReader {
         (first_orderby_info, erased_features)
     }
 
-    fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
+    pub(crate) fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
         self.segment_stats_snapshot
             .segment_index(*segment_id)
             .map(|ord| ord as SegmentOrdinal)
@@ -2681,17 +2688,13 @@ mod tests {
             if is_all {
                 assert_eq!(exact.len(), expected_all, "{bounds:?}");
             }
-            // Preserve the existing per-group queries, including their exact score
-            // contributions. Applying the range to every segment is not the score oracle.
-            let per_group = scored_hits(
-                reader
-                    .search_segments(segments.included.iter().copied())
-                    .chain(
-                        reader
-                            .and_query_input(&bounds)
-                            .search_segments(segments.partially_included.iter().copied()),
-                    ),
-            );
+            // The bounds only select rows: each row keeps the score the base query gives it,
+            // whether its segment is whole or crosses the partition's edges.
+            let base = scored_hits(reader.search());
+            let expected = exact
+                .keys()
+                .map(|doc| (*doc, base[doc]))
+                .collect::<BTreeMap<_, _>>();
 
             let calls = Arc::new(AtomicUsize::new(0));
             reader.query = Box::new(CountPreparation {
@@ -2701,14 +2704,7 @@ mod tests {
             let scan = reader.search_segments_with_range_filter(&segments, &bounds);
             assert_eq!(calls.load(Relaxed), 0, "preparation must remain lazy");
             let actual = scored_hits(scan);
-            assert_eq!(actual.len(), exact.len(), "{query:?}, {bounds:?}");
-            if is_all && scoring {
-                assert_eq!(actual, exact, "{bounds:?}");
-            }
-            assert_eq!(
-                actual, per_group,
-                "{query:?}, scoring={scoring}, {bounds:?}"
-            );
+            assert_eq!(actual, expected, "{query:?}, scoring={scoring}, {bounds:?}");
             assert_eq!(
                 calls.load(Relaxed),
                 usize::from(expected_included + expected_partial > 0)

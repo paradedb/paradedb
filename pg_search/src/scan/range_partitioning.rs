@@ -81,6 +81,31 @@ impl RangePartitioning {
         let Some(range) = self.partition_range(partition) else {
             return SearchQueryInput::All;
         };
+        // The NULLs and the values below `upper` are the rows that are not at or above it.
+        // Excluding that range lets the base query drive the scan; a union with a NULL clause
+        // would walk every document of the segment.
+        if range.includes_nulls()
+            && let Some((Bound::Unbounded, upper)) = range.values()
+            && let Some(at_or_above) = match upper {
+                Bound::Excluded(value) => Some(Bound::Included(value.clone())),
+                Bound::Included(value) => Some(Bound::Excluded(value.clone())),
+                Bound::Unbounded => None,
+            }
+        {
+            return SearchQueryInput::Boolean {
+                // A pure-negative Boolean matches nothing. All supplies the positive clause.
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![SearchQueryInput::FieldedQuery {
+                    field: self.partition_by.clone(),
+                    query: Query::Range {
+                        lower_bound: at_or_above,
+                        upper_bound: Bound::Unbounded,
+                    },
+                }],
+                minimum_should_match: None,
+            };
+        }
         let range_query = range
             .values()
             .map(|(lower, upper)| SearchQueryInput::FieldedQuery {

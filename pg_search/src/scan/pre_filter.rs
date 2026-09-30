@@ -108,6 +108,7 @@ use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::value_to_term;
 use crate::scan::deferred_encode::is_deferred_field;
+use crate::scan::range_partitioning::PartitionRange;
 use tantivy::Term;
 use tantivy::query::{
     BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
@@ -128,6 +129,80 @@ pub struct PreFilter {
 pub struct PreFilters<'a> {
     pub filters: &'a [PreFilter],
     pub schema: &'a SchemaRef,
+}
+
+/// The edges of a range partition, applied inside `Scanner::next()` to the segments whose box
+/// crosses them. A segment that lies inside the partition skips it.
+///
+/// A scan that a Top-K score threshold can reach uses this instead of a range clause inside
+/// the Tantivy query. The clause would make the query more than a union or intersection of
+/// terms, which turns off block-WAND, so every match of every crossing segment gets scored.
+/// With the edges checked here, the threshold keeps skipping blocks, and only the rows that
+/// beat it pay for the check.
+pub struct PartitionFilter {
+    pub filter: PreFilter,
+    pub schema: SchemaRef,
+    pub segments: HashSet<SegmentOrdinal>,
+}
+
+/// The rows of `range` as a pre-filter over the `partition_by` column at `col_idx`, with the
+/// same meaning as the range clause `RangePartitioning::partition_bounds` builds: a half-open
+/// value range, `IS NULL` for the partition that holds the NULLs, `IS NOT NULL` for every
+/// non-NULL value after a NULL split point, and `false` for a partition such a point closed.
+///
+/// Returns `None` when a bound cannot be a literal of the column's Arrow type, so the caller
+/// keeps the range clause inside the query.
+pub fn partition_pre_filter(
+    range: &PartitionRange,
+    col_idx: usize,
+    field: &Field,
+) -> Option<PreFilter> {
+    let col = || Arc::new(Column::new(field.name(), col_idx)) as Arc<dyn PhysicalExpr>;
+    let compare = |op: Operator, value: &PdbOwnedValue| -> Option<Arc<dyn PhysicalExpr>> {
+        let literal = Literal::new(value.to_scalar(field.data_type())?);
+        Some(Arc::new(BinaryExpr::new(col(), op, Arc::new(literal))))
+    };
+    let and = |left: Option<Arc<dyn PhysicalExpr>>, right: Option<Arc<dyn PhysicalExpr>>| match (
+        left, right,
+    ) {
+        (Some(left), Some(right)) => {
+            Some(Arc::new(BinaryExpr::new(left, Operator::And, right)) as Arc<dyn PhysicalExpr>)
+        }
+        (Some(expr), None) | (None, Some(expr)) => Some(expr),
+        (None, None) => None,
+    };
+
+    let values = match range.values() {
+        None => None,
+        Some((Bound::Unbounded, Bound::Unbounded)) => {
+            Some(Arc::new(NotExpr::new(Arc::new(IsNullExpr::new(col())))) as Arc<dyn PhysicalExpr>)
+        }
+        Some((lower, upper)) => {
+            let lower = match lower {
+                Bound::Included(value) => Some(compare(Operator::GtEq, value)?),
+                Bound::Excluded(value) => Some(compare(Operator::Gt, value)?),
+                Bound::Unbounded => None,
+            };
+            let upper = match upper {
+                Bound::Included(value) => Some(compare(Operator::LtEq, value)?),
+                Bound::Excluded(value) => Some(compare(Operator::Lt, value)?),
+                Bound::Unbounded => None,
+            };
+            and(lower, upper)
+        }
+    };
+    let nulls = range
+        .includes_nulls()
+        .then(|| Arc::new(IsNullExpr::new(col())) as Arc<dyn PhysicalExpr>);
+    let expr = match (values, nulls) {
+        (Some(values), Some(nulls)) => Arc::new(BinaryExpr::new(values, Operator::Or, nulls)),
+        (Some(expr), None) | (None, Some(expr)) => expr,
+        (None, None) => Arc::new(Literal::new(ScalarValue::Boolean(Some(false)))),
+    };
+    Some(PreFilter {
+        expr,
+        required_columns: vec![col_idx],
+    })
 }
 
 impl PreFilter {
@@ -1164,5 +1239,116 @@ mod tests {
             try_extract_score_threshold(&lit(true), Some(SCORE_IDX)),
             None
         );
+    }
+
+    mod partition_edges {
+        use super::super::partition_pre_filter;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::scan::range_partitioning::RangePartitioning;
+        use datafusion::arrow::array::{ArrayRef, BooleanArray, Int64Array, StringArray};
+        use datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use datafusion::arrow::record_batch::RecordBatch;
+        use std::sync::Arc;
+
+        fn partitioning(split_points: Vec<PdbOwnedValue>) -> RangePartitioning {
+            RangePartitioning {
+                partition_by: "k".into(),
+                split_points,
+            }
+        }
+
+        /// The rows of `column` that the filter for `partition` keeps.
+        fn kept(partitioning: &RangePartitioning, partition: usize, column: ArrayRef) -> Vec<bool> {
+            let field = Field::new("k", column.data_type().clone(), true);
+            let filter =
+                partition_pre_filter(&partitioning.partition_range(partition).unwrap(), 0, &field)
+                    .expect("the bounds fit the column type");
+            assert_eq!(filter.required_columns, vec![0]);
+            let batch =
+                RecordBatch::try_new(Arc::new(Schema::new(vec![field])), vec![column]).unwrap();
+            let mask = filter.expr.evaluate(&batch).unwrap().into_array(6).unwrap();
+            let mask = mask.as_any().downcast_ref::<BooleanArray>().unwrap();
+            mask.iter().map(|v| v == Some(true)).collect()
+        }
+
+        fn ints() -> ArrayRef {
+            Arc::new(Int64Array::from(vec![
+                None,
+                Some(3),
+                Some(10),
+                Some(15),
+                Some(20),
+                Some(25),
+            ]))
+        }
+
+        #[test]
+        fn every_row_lands_in_one_partition() {
+            let p = partitioning(vec![PdbOwnedValue::I64(10), PdbOwnedValue::I64(20)]);
+            assert_eq!(
+                kept(&p, 0, ints()),
+                [true, true, false, false, false, false]
+            );
+            assert_eq!(
+                kept(&p, 1, ints()),
+                [false, false, true, true, false, false]
+            );
+            assert_eq!(
+                kept(&p, 2, ints()),
+                [false, false, false, false, true, true]
+            );
+        }
+
+        #[test]
+        fn a_null_split_point_keeps_the_nulls_apart() {
+            let p = partitioning(vec![PdbOwnedValue::Null, PdbOwnedValue::I64(10)]);
+            assert_eq!(
+                kept(&p, 0, ints()),
+                [true, false, false, false, false, false]
+            );
+            assert_eq!(
+                kept(&p, 1, ints()),
+                [false, true, false, false, false, false]
+            );
+            assert_eq!(kept(&p, 2, ints()), [false, false, true, true, true, true]);
+
+            let p = partitioning(vec![PdbOwnedValue::Null]);
+            assert_eq!(
+                kept(&p, 0, ints()),
+                [true, false, false, false, false, false]
+            );
+            assert_eq!(kept(&p, 1, ints()), [false, true, true, true, true, true]);
+        }
+
+        #[test]
+        fn a_partition_a_null_split_point_closed_keeps_nothing() {
+            let p = partitioning(vec![PdbOwnedValue::I64(10), PdbOwnedValue::Null]);
+            assert_eq!(kept(&p, 1, ints()), [false; 6]);
+        }
+
+        #[test]
+        fn string_bounds_compare_as_strings() {
+            let strings: ArrayRef = Arc::new(StringArray::from(vec![
+                None,
+                Some("a"),
+                Some("m"),
+                Some("mm"),
+                Some("z"),
+                Some("zz"),
+            ]));
+            let p = partitioning(vec![PdbOwnedValue::Str("m".into())]);
+            assert_eq!(
+                kept(&p, 0, strings.clone()),
+                [true, true, false, false, false, false]
+            );
+            assert_eq!(kept(&p, 1, strings), [false, false, true, true, true, true]);
+        }
+
+        #[test]
+        fn bounds_the_column_type_cannot_carry_give_no_filter() {
+            let p = partitioning(vec![PdbOwnedValue::Str("m".into())]);
+            let field = Field::new("k", DataType::Int64, true);
+            assert!(partition_pre_filter(&p.partition_range(1).unwrap(), 0, &field).is_none());
+        }
     }
 }

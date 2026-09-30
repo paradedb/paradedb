@@ -21,6 +21,7 @@ use crate::index::fast_fields_helper::{
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
+use crate::scan::pre_filter::{PartitionFilter, PreFilter, PreFilters};
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{
     Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, RecordBatchOptions, UInt64Array,
@@ -43,6 +44,32 @@ const MAX_BATCH_SIZE: usize = 128_000;
 /// deferred during late materialization. Aligned with DataFusion's default
 /// batch size, since we are not fetching string dictionaries during the scan phase.
 const DEFERRED_BATCH_SIZE: usize = 8_192;
+
+/// Fetch the columns `pre_filter` reads and drop the rows of `ids` it rejects.
+fn apply_pre_filter(
+    pre_filter: &PreFilter,
+    schema: &SchemaRef,
+    ffhelper: &FFHelper,
+    segment_ord: SegmentOrdinal,
+    which_fast_fields: &[WhichFastField],
+    ids: &mut Vec<DocId>,
+    memoized_columns: &mut [Option<ArrayRef>],
+) {
+    for &ff_index in &pre_filter.required_columns {
+        ensure_column_fetched(
+            memoized_columns,
+            which_fast_fields,
+            ffhelper,
+            segment_ord,
+            ff_index,
+            ids,
+        );
+    }
+    let mask = pre_filter
+        .apply_arrow(ffhelper, segment_ord, memoized_columns, schema, ids.len())
+        .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
+    compact_with_mask(ids, memoized_columns, &mask);
+}
 
 /// Compact `ids` and `memoized_columns` in-place based on a boolean mask.
 fn compact_with_mask(
@@ -168,6 +195,10 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
+    /// The range partition's edges, checked on the segments that cross them.
+    partition_filter: Option<PartitionFilter>,
+    /// Rows the partition's edges removed.
+    pub partition_rows_pruned: usize,
     score_threshold: Option<Score>,
     tagged_queries: Vec<TaggedMatchQuery>,
     current_segment_ord: Option<SegmentOrdinal>,
@@ -311,11 +342,19 @@ impl Scanner {
             fetch_ordinals_in_scan,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
+            partition_filter: None,
+            partition_rows_pruned: 0,
             score_threshold: None,
             tagged_queries: Vec::new(),
             current_segment_ord: None,
             active_tag_scorers: Vec::new(),
         }
+    }
+
+    /// Check the range partition's edges on the rows of the segments in `partition_filter`,
+    /// which the search left unconstrained.
+    pub fn set_partition_filter(&mut self, partition_filter: PartitionFilter) {
+        self.partition_filter = Some(partition_filter);
     }
 
     /// Resolve the named deferred columns' term ordinals inside the scan, while the rows are
@@ -469,7 +508,7 @@ impl Scanner {
         &mut self,
         ffhelper: &Arc<FFHelper>,
         visibility: &mut VisibilityChecker,
-        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
+        pre_filters: Option<&PreFilters<'_>>,
     ) -> Option<Batch> {
         pgrx::check_for_interrupts!();
         let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
@@ -489,33 +528,38 @@ impl Scanner {
         self.populate_scores_for_batch(&ids, scores, &mut memoized_columns);
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
-        // before dictionary lookups.
+        // before dictionary lookups. The partition's edges go first: a row outside the partition
+        // belongs to another task, whatever the other filters say about it.
+        if let Some(partition_filter) = &self.partition_filter
+            && partition_filter.segments.contains(&segment_ord)
+        {
+            let before = ids.len();
+            apply_pre_filter(
+                &partition_filter.filter,
+                &partition_filter.schema,
+                ffhelper,
+                segment_ord,
+                &self.which_fast_fields,
+                &mut ids,
+                &mut memoized_columns,
+            );
+            self.partition_rows_pruned += before - ids.len();
+        }
         if let Some(pre_filters) = pre_filters {
             let before = ids.len();
             for pre_filter in pre_filters.filters {
                 if ids.is_empty() {
                     break;
                 }
-                for &ff_index in &pre_filter.required_columns {
-                    ensure_column_fetched(
-                        &mut memoized_columns,
-                        &self.which_fast_fields,
-                        ffhelper,
-                        segment_ord,
-                        ff_index,
-                        &ids,
-                    );
-                }
-                let mask = pre_filter
-                    .apply_arrow(
-                        ffhelper,
-                        segment_ord,
-                        &memoized_columns,
-                        pre_filters.schema,
-                        ids.len(),
-                    )
-                    .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
-                compact_with_mask(&mut ids, &mut memoized_columns, &mask);
+                apply_pre_filter(
+                    pre_filter,
+                    pre_filters.schema,
+                    ffhelper,
+                    segment_ord,
+                    &self.which_fast_fields,
+                    &mut ids,
+                    &mut memoized_columns,
+                );
             }
             self.pre_filter_rows_scanned += before;
             self.pre_filter_rows_pruned += before - ids.len();

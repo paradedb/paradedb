@@ -203,7 +203,6 @@ jobs:
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
-      github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == '')) ||
       (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange'))
     env:
@@ -293,7 +292,36 @@ jobs:
             VOLUME_ROOT="${VOLUME_ROOT}" \
             MEMORY=64g
 
-      - name: Run benchmark
+      - name: Instrument prepared plans
+        working-directory: benchmarker
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          p = Path('backends/shared/postgres/driver.go')
+          source = p.read_text()
+          source = source.replace('"context"', '"context"\n\t"os"', 1)
+          marker = '\tconfig.MaxConns = 1'
+          assert source.count(marker) == 1
+          settings = {
+              'session_preload_libraries': 'auto_explain',
+              'auto_explain.log_min_duration': '0',
+              'auto_explain.log_analyze': 'on',
+              'auto_explain.log_timing': 'off',
+              'auto_explain.log_buffers': 'on',
+              'auto_explain.log_verbose': 'on',
+              'auto_explain.log_format': 'json',
+              'auto_explain.sample_rate': '0.1',
+          }
+          import json
+          lines = ['\tconfig.ConnConfig.RuntimeParams["plan_cache_mode"] = os.Getenv("PHRASE_PLAN_CACHE_MODE")']
+          lines += ['\tconfig.ConnConfig.RuntimeParams[' + json.dumps(k) + '] = ' + json.dumps(v) for k, v in settings.items()]
+          source = source.replace(marker, '\n'.join(lines) + '\n' + marker)
+          p.write_text(source)
+          PYCODE
+          gofmt -w backends/shared/postgres/driver.go
+          make
+
+      - name: Diagnose phrase prepared plans
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
@@ -302,35 +330,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p results
-
-          topk_styles=(conjunction disjunction phrase mixed)
-          for style in "${topk_styles[@]}"; do
-            echo "== Running workload=topk query_style=${style} =="
-            taskset -c 8-11 make -f Makefile.${DATASET} run \
-              BACKENDS=paradedb \
-              WORKLOAD=topk \
-              QUERY_STYLE="${style}" \
-              VUS=1 \
-              PREWARM=30s \
-              DURATION=120s \
-              OUTPUT=json,html \
-              OUT_DIR="${PWD}/results" \
-              PARADEDB_IMAGE="${IMAGE_TAG}" \
-              VOLUME_ROOT="${VOLUME_ROOT}"
+          for mode in auto force_custom_plan force_generic_plan; do
+            started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            mkdir -p "results/${mode}"
+            PHRASE_PLAN_CACHE_MODE="${mode}" taskset -c 8-11 make -f Makefile.${DATASET} run \
+              BACKENDS=paradedb WORKLOAD=topk QUERY_STYLE=phrase \
+              VUS=1 PREWARM=30s DURATION=120s OUTPUT=json,html \
+              OUT_DIR="${PWD}/results/${mode}" \
+              PARADEDB_IMAGE="${IMAGE_TAG}" VOLUME_ROOT="${VOLUME_ROOT}"
+            for container in $(docker ps -aq --filter label=com.docker.compose.service=paradedb); do
+              docker logs --since "${started_at}" "${container}" > "results/${mode}/postgres-${container}.log" 2>&1
+            done
           done
 
-          echo "== Running workload=count query_style=mixed =="
-          taskset -c 8-11 make -f Makefile.${DATASET} run \
-            BACKENDS=paradedb \
-            WORKLOAD=count \
-            QUERY_STYLE=mixed \
-            VUS=1 \
-            PREWARM=30s \
-            DURATION=120s \
-            OUTPUT=json,html \
-            OUT_DIR="${PWD}/results" \
-            PARADEDB_IMAGE="${IMAGE_TAG}" \
-            VOLUME_ROOT="${VOLUME_ROOT}"
+      - name: Upload phrase diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: phrase-plans-${{ steps.build_image.outputs.short_commit }}
+          path: benchmarker/results/
 
       - name: Dump database logs on failure
         if: failure() || cancelled()
@@ -341,18 +359,6 @@ jobs:
           docker logs --tail 200 $(docker ps -aq --filter "name=paradedb") || true
           echo "== Kernel dmesg (OOM / Segfault) =="
           sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
-
-      - name: Publish Benchmarker Results
-        if: success()
-        uses: ./.github/actions/publish-benchmarker-results
-        with:
-          dataset: ${{ env.DATASET }}
-          short_commit: ${{ steps.build_image.outputs.short_commit }}
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          image_tag: ${{ env.IMAGE_TAG }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          pr_number: ${{ github.event.pull_request.number }}
-          auto_push: ${{ github.ref == 'refs/heads/main' }}
 
   notify-slack-on-failure:
     name: Notify Slack on Failure

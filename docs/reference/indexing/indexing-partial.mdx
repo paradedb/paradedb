@@ -14,7 +14,6 @@ The ParadeDB index supports partial indexes using the same syntax as Postgres.
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category)
-WITH (key_field='id')
 WHERE description IS NOT NULL;
 ```
 
@@ -30,55 +29,30 @@ indexing
 
 ```python Django
 from django.db import connection
-from django.db.models import Q
-from paradedb.indexes import ParadeDBIndex
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "description": {},
-                "category": {},
-            },
-            key_field="id",
-            name="search_idx",
-            condition=Q(description__isnull=False),
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, description, category)
+        WHERE description IS NOT NULL;
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(MockItem.description),
-    indexing.ParadeDBField(MockItem.category),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-    postgresql_where=MockItem.description.is_not(None),
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, description, category)
+        WHERE description IS NOT NULL;
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    description: {},
-    category: {}
-  },
-  key_field: :id,
-  name: :search_idx,
-  where: "description IS NOT NULL"
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, description, category)
+  WHERE description IS NOT NULL;
+SQL
 ```
 
 ```cs EF Core

@@ -111,21 +111,19 @@ impl RelationBufferAccess {
             struct BufferIter<I: Iterator<Item = pg_sys::Buffer>> {
                 iter: I,
             }
-            impl<I: Iterator<Item = pg_sys::Buffer>> Drop for BufferIter<I> {
-                fn drop(&mut self) {
-                    unsafe {
-                        if !pg_sys::IsTransactionState() {
-                            return;
-                        }
-                    }
-
-                    for pg_buffer in &mut self.iter {
-                        unsafe {
-                            pg_sys::ReleaseBuffer(pg_buffer);
-                        }
+            crate::impl_safe_drop!([I: Iterator<Item = pg_sys::Buffer>] BufferIter<I>, |self| {
+                unsafe {
+                    if !pg_sys::IsTransactionState() {
+                        return;
                     }
                 }
-            }
+
+                for pg_buffer in &mut self.iter {
+                    unsafe {
+                        pg_sys::ReleaseBuffer(pg_buffer);
+                    }
+                }
+            });
             impl<I: Iterator<Item = pg_sys::Buffer>> Iterator for BufferIter<I> {
                 type Item = pg_sys::Buffer;
 

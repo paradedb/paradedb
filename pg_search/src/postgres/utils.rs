@@ -76,10 +76,13 @@ unsafe extern "C-unwind" {
 ///     }
 /// });
 /// ```
+///
+/// A generic type puts its impl parameters in brackets first:
+/// `impl_safe_drop!([T: Trait] MyStruct<T>, |self| { ... })`.
 #[macro_export]
 macro_rules! impl_safe_drop {
-    ($ty:ty, |$self:ident| $body:block) => {
-        impl Drop for $ty {
+    ([$($generics:tt)*] $ty:ty, |$self:ident| $body:block) => {
+        impl<$($generics)*> Drop for $ty {
             fn drop(&mut $self) {
                 if std::thread::panicking() || $crate::postgres::utils::proc_exit_in_progress() {
                     return;
@@ -87,6 +90,9 @@ macro_rules! impl_safe_drop {
                 $body
             }
         }
+    };
+    ($ty:ty, |$self:ident| $body:block) => {
+        $crate::impl_safe_drop!([] $ty, |$self| $body);
     };
 }
 

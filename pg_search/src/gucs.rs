@@ -144,8 +144,7 @@ static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// When true, queries with expensive scorer construction (fuzzy, regex, range)
-/// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
+/// Retained so existing configurations keep working.
 static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Factor that scales the heuristic match estimate into a `DocSet::cost()` for the TopK
@@ -526,8 +525,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.expensive_query_cost_factor",
-        c"Cost factor for expensive-to-estimate queries in the TopK worker decision",
-        c"For fuzzy/regex/MLT queries (whose scorer is too expensive to build at plan time), the heuristic match estimate is multiplied by this factor to approximate the query's DocSet::cost(). Higher values make these shapes parallelize more readily.",
+        c"Deprecated; query costs come from metadata estimates",
+        c"Retained for compatibility; this setting no longer changes estimates.",
         &EXPENSIVE_QUERY_COST_FACTOR,
         0.0,
         100000.0,
@@ -716,8 +715,8 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_heuristic_selectivity",
-        c"Use heuristic selectivity for expensive query types",
-        c"When enabled, fuzzy, regex, and range queries use a cheap heuristic for planner selectivity estimation instead of constructing a full Tantivy scorer. Default is true.",
+        c"Deprecated; selectivity estimation always uses metadata and statistics",
+        c"Retained for compatibility. Neither setting executes queries during estimation.",
         &ENABLE_HEURISTIC_SELECTIVITY,
         GucContext::Userset,
         GucFlags::default(),
@@ -1104,10 +1103,6 @@ pub fn limit_fetch_multiplier() -> f64 {
     LIMIT_FETCH_MULTIPLIER.get()
 }
 
-pub fn expensive_query_cost_factor() -> f64 {
-    EXPENSIVE_QUERY_COST_FACTOR.get()
-}
-
 pub fn visibility_threshold() -> u64 {
     VISIBILITY_THRESHOLD.get().max(0) as u64
 }
@@ -1139,10 +1134,6 @@ pub fn global_mutable_segment_rows() -> Option<usize> {
 
 pub fn explain_recursive_estimates() -> bool {
     EXPLAIN_RECURSIVE_ESTIMATES.get()
-}
-
-pub fn enable_heuristic_selectivity() -> bool {
-    ENABLE_HEURISTIC_SELECTIVITY.get()
 }
 
 pub fn min_rows_per_worker() -> i32 {

@@ -27,7 +27,7 @@ use std::time::Instant;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{CTID_FIELD_NAME, FieldName, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -67,8 +67,8 @@ use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::{
-    DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
-    SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
+    DateTime, DocAddress, DocId, IndexReader, ReloadPolicy, Score, Searcher, SegmentOrdinal,
+    SegmentReader, TantivyDocument, query::Query, schema::OwnedValue,
 };
 
 /// The maximum number of sort-features/`OrderByInfo`s supported for
@@ -77,6 +77,7 @@ pub const MAX_TOPK_FEATURES: usize = 5;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DocsEstimate {
+    pub selectivity: f64,
     pub matching_docs: usize,
     pub total_docs: u64,
     pub query_cost: u64,
@@ -87,14 +88,6 @@ pub struct DocsEstimate {
 pub(crate) struct SegmentPruningEstimate {
     pub(crate) candidate_segments: usize,
     pub(crate) candidate_docs: u64,
-}
-
-fn scale_largest_segment_estimate(value: u64, segment_doc_proportion: f64) -> u64 {
-    if segment_doc_proportion > 0.0 {
-        (value as f64 / segment_doc_proportion).ceil() as u64
-    } else {
-        value
-    }
 }
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
@@ -639,6 +632,22 @@ impl SearchIndexReader {
         Self::open(index_relation, SearchQueryInput::Empty, false, mvcc_style)
     }
 
+    pub(crate) fn open_for_estimation(
+        index_relation: &PgSearchRelation,
+        query: &SearchQueryInput,
+    ) -> Result<Self> {
+        Self::open_with_context(
+            index_relation,
+            SearchQueryInput::Empty,
+            false,
+            MvccSatisfies::Estimation,
+            None,
+            None,
+            query.needs_tokenizer(),
+            None,
+        )
+    }
+
     /// Open a tantivy index that, when searched, will return the results of the specified [`SearchQueryInput`].
     pub fn open(
         index_relation: &PgSearchRelation,
@@ -938,7 +947,7 @@ impl SearchIndexReader {
             .expect("weight should be constructable")
     }
 
-    fn make_query(
+    pub(crate) fn make_query(
         &self,
         search_query_input: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
@@ -1858,231 +1867,19 @@ impl SearchIndexReader {
         }
     }
 
-    /// Given an estimate of the total number of rows in the relation, return estimates of:
-    /// 1. The number of rows which will be matched by the configured query.
-    /// 2. The total number of rows in the index (estimated if total_docs is Unknown).
-    /// 3. Tantivy's relative cost to drive the configured query's docset.
-    ///
-    /// Expects to be called using an index opened with `MvccSatisfies::LargestSegment`, and thus
-    /// to contain exactly 0 or 1 Segment.
-    pub fn estimate_docs(&self, total_docs: RowEstimate) -> DocsEstimate {
-        match self.searcher.segment_readers().len() {
-            1 => {}
-            0 => {
-                return DocsEstimate {
-                    matching_docs: 0,
-                    total_docs: 0,
-                    query_cost: 0,
-                };
-            }
-            x => {
-                panic!(
-                    "estimate_docs(): expected an index with only one segment, \
-                    which is assumed to be the largest segment by num_docs. got: {x:?} segments.",
-                );
-            }
-        }
-        let largest_reader = self.searcher.segment_reader(0);
-        let weight = self.weight();
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("counting docs in the largest segment should not fail");
-
-        // investigate the size_hint.  it will often give us a good enough value
-        let mut count = scorer.size_hint() as usize;
-        let mut cost = scorer.cost();
-        if count == 0 {
-            // but when it doesn't, we need to do a full count
-            count = scorer.count_including_deleted() as usize;
-            cost = cost.max(count as u64);
-        }
-        if let Some(shortest_posting_list) = self.shortest_posting_list(largest_reader) {
-            cost = cost.max(shortest_posting_list);
-        }
-
-        // When the caller's total is unknown or 0 we can't use the heap
-        // proportion, so fall back to the index's own doc count. Either way the
-        // largest segment is then scaled up to that total.
-        let total_docs = match total_docs {
-            RowEstimate::Known(total_docs) if total_docs > 0 => total_docs,
-            _ => self.total_docs(),
-        };
-        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
-        DocsEstimate {
-            matching_docs: scale_largest_segment_estimate(count as u64, segment_doc_proportion)
-                as usize,
-            total_docs,
-            query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
-        }
+    pub fn estimate_docs(&self, query: &SearchQueryInput, total_docs: RowEstimate) -> DocsEstimate {
+        crate::query::estimate::estimate(self, &self.index_rel, query, total_docs, None)
     }
 
-    /// The length of the shortest posting list this query walks for its positional terms, or
-    /// `None` when it has none. Lengths come from the term dictionary, so no postings are decoded.
-    ///
-    /// This floors what driving a phrase costs. Tantivy derives a phrase's cost from an
-    /// intersection estimate that assumes the terms are independent, and the words of a phrase are
-    /// anything but. The estimate shrinks with every term added while the scan keeps walking the
-    /// same posting list, until a top-K over a common phrase looks cheap enough to leave serial.
-    /// The scan still advances its cheapest list end to end and seeks the others in step, so it
-    /// can never touch fewer documents than that list holds.
-    ///
-    /// A leaf that exposes no positional terms, a range or a plain term for one, never lowers the
-    /// floor. A filter selective enough to drive a phrase scan itself therefore reads as more work
-    /// than it is, costing one parallel setup. The under-count it replaces costs a whole-docset
-    /// scan on a single core.
-    fn shortest_posting_list(&self, segment_reader: &SegmentReader) -> Option<u64> {
-        /// Past this many terms a query is a set union, not a conjunction, and a union already
-        /// costs more than any one of its lists. Reading the rest would only spend plan time.
-        const MAX_TERMS_INSPECTED: usize = 64;
-
-        // Only the queries that need positions cost what they do because of the intersection
-        // estimate, so only they need the floor. Everything else already reports the driving list
-        // and would pay for a dictionary lookup that cannot change the answer.
-        //
-        // Each query reports the terms it holds whatever field it is asked about, so one pass
-        // collects them. Asking per field would re-walk the tree once per column, and a proximity
-        // clause would re-expand its regex every time.
-        let (any_field, _) = self.schema.fields().next()?;
-        let mut terms: HashSet<Term> = HashSet::default();
-        self.query.query_terms(
-            any_field,
-            segment_reader,
-            &mut |term: &Term, needs_positions| {
-                if needs_positions && terms.len() < MAX_TERMS_INSPECTED {
-                    terms.insert(term.clone());
-                }
-            },
-        );
-
-        terms
-            .iter()
-            .filter_map(|term| {
-                let inverted_index = segment_reader.inverted_index(term.field()).ok()?;
-                inverted_index.doc_freq(term).ok().map(u64::from)
-            })
-            .min()
-    }
-
-    /// Build a query tree with recursive estimates for EXPLAIN output.
     pub fn build_query_tree_with_estimates(
         &self,
         query_input: SearchQueryInput,
     ) -> Result<QueryWithEstimates> {
-        let parser_closure = || {
-            QueryParser::for_index(
-                &self.underlying_index,
-                self.schema
-                    .fields()
-                    .map(|(field, _)| field)
-                    .collect::<Vec<_>>(),
-            )
-        };
-
-        let (_tantivy_query, mut query_tree) = query_input.into_tantivy_query_with_tree(
-            &self.schema,
-            self.index_created_by_version,
-            &parser_closure,
-            &self.searcher,
-            self.index_rel.oid(),
-            self.index_rel.rel_oid(),
-            None, // expr_context not needed for estimation
-            None,
-        )?;
-
-        let total_docs = self.searcher.num_docs() as f64;
-        self.estimate_docs_recursive(&mut query_tree, total_docs, &parser_closure);
-
-        Ok(query_tree)
-    }
-
-    fn estimate_docs_recursive<QueryParserCtor: Fn() -> QueryParser>(
-        &self,
-        query_tree: &mut QueryWithEstimates,
-        total_docs: f64,
-        parser: &QueryParserCtor,
-    ) {
-        let segment_readers = self.searcher.segment_readers();
-
-        if segment_readers.is_empty() {
-            query_tree.traverse_mut(0, &mut |node, _depth| {
-                node.estimated_docs = Some(0);
-            });
-            return;
-        }
-
-        // Find the largest segment by num_docs for estimation
-        let largest_reader = segment_readers
-            .iter()
-            .max_by_key(|r| r.num_docs())
-            .expect("should have at least one segment reader");
-
-        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
-        self.estimate_node_recursive(query_tree, largest_reader, segment_doc_proportion, parser);
-    }
-
-    fn estimate_node_recursive<QueryParserCtor: Fn() -> QueryParser>(
-        &self,
-        node: &mut QueryWithEstimates,
-        largest_reader: &SegmentReader,
-        segment_doc_proportion: f64,
-        parser: &QueryParserCtor,
-    ) {
-        use crate::query::SearchQueryInput;
-
-        // First, recursively estimate all children
-        for child in node.children_mut() {
-            self.estimate_node_recursive(child, largest_reader, segment_doc_proportion, parser);
-        }
-
-        // For structural wrapper nodes (used for labeling in EXPLAIN output), inherit
-        // estimate from child. These are placeholders created in into_tantivy_query_generic
-        // to wrap children for better tree structure display.
-        //
-        // - Empty: used for Boolean clause labels ("Must Clause [0]", etc.)
-        // - All: used for DisjunctionMax disjunct labels ("Disjunct [0]", etc.)
-        //
-        // Note: We check for exactly 1 child to distinguish structural wrappers from
-        // actual leaf queries (e.g., real "All" query has 0 children and should be estimated).
-        if matches!(&node.query, SearchQueryInput::Empty | SearchQueryInput::All)
-            && node.children().len() == 1
-            && let Some(child_estimate) = node.children()[0].estimated_docs
-        {
-            node.set_estimate(child_estimate);
-            return;
-        }
-
-        let tantivy_query = node
-            .query
-            .clone()
-            .into_tantivy_query(
-                &self.schema,
-                self.index_created_by_version,
-                parser,
-                &self.searcher,
-                self.index_rel.oid(),
-                self.index_rel.rel_oid(),
-                None,
-                None,
-            )
-            .expect("converting query for estimation should not fail");
-
-        let weight = tantivy_query
-            .weight(enable_scoring(node.query.need_scores(), &self.searcher))
-            .expect("creating weight for estimation should not fail");
-
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("creating scorer for estimation should not fail");
-
-        let mut count = scorer.size_hint() as usize;
-        if count == 0 {
-            count = scorer.count_including_deleted() as usize;
-        }
-
-        let estimated =
-            scale_largest_segment_estimate(count as u64, segment_doc_proportion) as usize;
-
-        node.set_estimate(estimated);
+        Ok(crate::query::estimate::explain(
+            self,
+            &self.index_rel,
+            &query_input,
+        ))
     }
 
     pub fn collect<C: Collector>(&self, collector: C) -> C::Fruit {
@@ -2278,8 +2075,7 @@ impl SearchIndexReader {
     }
 }
 
-/// Shape-only inspection — never reads segment contents. The planning-time
-/// gate relies on this to use a one-segment (`LargestSegment`) reader.
+/// Captures the visible segment set without constructing a query.
 impl SearchIndexManifest {
     fn components(&self) -> &IndexComponents {
         &self.0.components
@@ -2366,6 +2162,7 @@ impl ErasedFeatures {
 mod tests {
     use super::test_support::{INDEX_COMPONENT_OPENS, segmented_index_fixture};
     use super::*;
+    use crate::api::HashSet;
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
     use crate::index::stats::SegmentStats;
     use crate::scan::range_partitioning::RangePartitioning;
@@ -2384,24 +2181,25 @@ mod tests {
         unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
         let mut visibility =
             VisibilityChecker::with_rel_and_snap(&heap_rel, unsafe { pg_sys::GetActiveSnapshot() });
-        let largest = SearchIndexReader::open(
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let view = SegmentView::capture(&reader.searcher.segment_readers()[..1], &reader.directory);
+        let subset = SearchIndexReader::open(
             &index_rel,
             SearchQueryInput::All,
             false,
-            MvccSatisfies::LargestSegment,
+            MvccSatisfies::ParallelWorker(view),
         )
         .unwrap();
-        let KeySet::InMemory(largest_ctids) = largest.collect_ctidset(&mut visibility) else {
+        let KeySet::InMemory(subset_ctids) = subset.collect_ctidset(&mut visibility) else {
             panic!("expected an in-memory CTID set");
         };
-        assert_eq!(largest_ctids.len(), 10);
+        assert_eq!(subset_ctids.len(), 10);
 
-        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let KeySet::InMemory(all_ctids) = reader.collect_ctidset(&mut visibility) else {
             panic!("expected an in-memory CTID set");
         };
         assert_eq!(all_ctids.len(), 20);
-        assert!(largest_ctids.is_subset(&all_ctids));
+        assert!(subset_ctids.is_subset(&all_ctids));
         unsafe { pg_sys::PopActiveSnapshot() };
     }
 
@@ -2674,6 +2472,15 @@ mod tests {
             }
         }
 
+        impl tantivy::query::QueryEstimate for CountPreparation {
+            fn estimate_docs(
+                &self,
+                _reader: &SegmentReader,
+            ) -> tantivy::Result<Option<(u32, u64)>> {
+                Ok(None)
+            }
+        }
+
         impl Query for CountPreparation {
             fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
                 self.calls.fetch_add(1, Relaxed);
@@ -2853,25 +2660,20 @@ mod tests {
             0,
             "a query without a provable predicate must not open any .stats component"
         );
-        // Planning estimates open the largest segment only, as the join planner does.
-        let estimating = SearchIndexReader::open(
-            &index_rel,
-            range_query("id", 100, 200),
-            false,
-            MvccSatisfies::LargestSegment,
-        )
-        .unwrap();
-        estimating.estimate_docs(RowEstimate::Known(40));
+        let query = range_query("id", 100, 200);
+        let estimating = SearchIndexReader::open_for_estimation(&index_rel, &query).unwrap();
+        estimating.estimate_docs(&query, RowEstimate::Known(40));
         assert_eq!(
             STATS_OPENS.load(Relaxed),
             0,
             "a reader that only estimates must not open statistics"
         );
-        assert_eq!(estimating.segment_pruning_estimate().candidate_segments, 0);
+        let searching = open_snapshot_reader(&index_rel, query, false);
+        assert_eq!(searching.segment_pruning_estimate().candidate_segments, 1);
         assert_eq!(
             STATS_OPENS.load(Relaxed),
-            1,
-            "the first search decision opens the segment's statistics"
+            5,
+            "the first search decision checks each segment for statistics"
         );
 
         let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();

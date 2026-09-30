@@ -352,6 +352,16 @@ impl tantivy::query::QueryClone for HeapFilterQuery {
     }
 }
 
+impl tantivy::query::QueryEstimate for HeapFilterQuery {
+    fn estimate_docs(
+        &self,
+        _reader: &tantivy::SegmentReader,
+    ) -> tantivy::Result<Option<(u32, u64)>> {
+        // PostgreSQL estimates the heap predicates.
+        Ok(None)
+    }
+}
+
 impl Query for HeapFilterQuery {
     fn weight(&self, enable_scoring: EnableScoring) -> tantivy::Result<Box<dyn Weight>> {
         let indexed_weight = self.indexed_query.weight(enable_scoring)?;

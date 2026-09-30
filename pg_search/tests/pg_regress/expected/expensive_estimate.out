@@ -1,6 +1,5 @@
--- Tests that queries with expensive scorer construction (fuzzy, regex)
--- use heuristic selectivity and still produce correct results.
--- Range queries use accurate scorer-based estimation (cheap on fast fields).
+-- Tests metadata estimates for text and PostgreSQL statistics for scalar filters.
+-- Estimation never constructs a scorer.
 \i common/common_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans

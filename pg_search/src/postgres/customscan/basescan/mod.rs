@@ -762,7 +762,7 @@ impl CustomScan for BaseScan {
             // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
             // execution may skip some of these segments.
             let segment_count = {
-                let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
+                let directory = MvccSatisfies::Estimation.directory(&bm25_index);
                 let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
                 crate::index::open_index(directory)
                     .expect("custom_scan: should be able to open index");
@@ -875,7 +875,11 @@ impl CustomScan for BaseScan {
             } else {
                 // Ask the index. This is the one branch that opens, so reuse that same
                 // open's cost for the TopK worker decision instead of opening twice.
-                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone());
+                let (sel, cost) = estimate_selectivity_and_cost(
+                    &bm25_index,
+                    query.clone(),
+                    Some(crate::query::estimate::Planner { root, rti }),
+                );
                 precomputed_query_cost = cost;
                 sel.unwrap_or(UNKNOWN_SELECTIVITY)
             };
@@ -1570,40 +1574,16 @@ impl CustomScan for BaseScan {
 
             // Show query with integrated estimates if GUC is enabled and verbose
             if gucs::explain_recursive_estimates() && explainer.is_verbose() {
-                // Get or create a search reader for estimates.
-                // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
-                // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
-                //   reader using MvccSatisfies::LargestSegment for estimation purposes only
-                let query_tree =
-                    if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
-                        // EXPLAIN ANALYZE: use the existing search reader
-                        search_reader
-                            .build_query_tree_with_estimates(base_query.without_heap_filters())
-                            .expect("building query tree with estimates should not fail")
-                    } else {
-                        // EXPLAIN (without ANALYZE): create a temporary reader for estimates
-                        let indexrel = state
-                            .custom_state()
-                            .indexrel
-                            .as_ref()
-                            .expect("indexrel should be open");
-
-                        let temp_reader = SearchIndexReader::open_with_context(
-                            indexrel,
-                            base_query.without_heap_filters(),
-                            false,                         // don't need scores for estimates
-                            MvccSatisfies::LargestSegment, // Use largest segment for estimation
-                            None,                          // No expr_context needed for estimates
-                            None,                          // No planstate needed for estimates
-                            base_query.needs_tokenizer(),
-                            None,
-                        )
-                        .expect("opening temporary search reader for estimates should not fail");
-
-                        temp_reader
-                            .build_query_tree_with_estimates(base_query.without_heap_filters())
-                            .expect("building query tree with estimates should not fail")
-                    };
+                let indexrel = state
+                    .custom_state()
+                    .indexrel
+                    .as_ref()
+                    .expect("indexrel should be open");
+                let reader = SearchIndexReader::open_for_estimation(indexrel, base_query)
+                    .expect("opening metadata reader should not fail");
+                let query_tree = reader
+                    .build_query_tree_with_estimates(base_query.clone())
+                    .expect("building query tree with estimates should not fail");
 
                 explainer.add_query_with_estimates(&query_tree);
             } else {

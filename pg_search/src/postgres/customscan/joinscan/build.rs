@@ -29,7 +29,6 @@ use crate::api::OrderByInfo;
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
-use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
@@ -37,7 +36,6 @@ use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::ptr::NonNull;
 
 /// DataFusion-facing relation alias helper.
 ///
@@ -361,7 +359,6 @@ pub enum ChildProjection {
     WindowAgg { agg_index: WindowAggIndex },
 }
 
-use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::range_table::{get_plain_relation_relid, get_rte};
@@ -452,56 +449,27 @@ impl JoinSourceCandidate {
         self.heap_rti == rti
     }
 
-    /// Calculate and store the estimated number of rows matching the query.
-    ///
-    /// Uses `MvccSatisfies::LargestSegment` for cheap estimation. When the
-    /// query has heap filters or `PostgresExpression`s (which need executor
-    /// state we don't have at planning time), falls back to `total_docs` as
-    /// an upper bound - looser estimate but avoids evaluating Param-bearing
-    /// expressions during planning (would segfault on unbound PARAM_EXEC).
-    pub fn estimate_rows(&mut self) {
+    pub fn estimate_rows(&mut self, root: *mut pg_sys::PlannerInfo) {
         if !self.has_bm25_index() {
             return;
         }
-
-        let indexrelid = self.indexrelid.expect("Index relid missing");
-        let heaprelid = self.heaprelid.expect("Heap relid missing");
-
-        let index_rel = PgSearchRelation::open(indexrelid);
-        let heap_rel = PgSearchRelation::open(heaprelid);
+        let index = PgSearchRelation::open(self.indexrelid.expect("Index relid missing"));
+        let heap = PgSearchRelation::open(self.heaprelid.expect("Heap relid missing"));
         let query = self.query.clone().unwrap_or(SearchQueryInput::All);
-        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-
-        if query.has_postgres_expressions() || query.has_heap_filters() {
-            let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)
-                .expect("Failed to open index reader for estimation");
-            self.segment_count = Some(reader.total_segment_count());
-            self.estimate = Some(RowEstimate::Known(reader.total_docs()));
-            self.estimate_from_total_docs = true;
-            return;
-        }
-
-        // `expr_context` only lives until the end of this function,
-        // which is fine because it is only used to get estimates
-        let expr_context = ExprContextGuard::new();
-        let needs_tokenizer_manager = query.needs_tokenizer();
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query,
-            false,
-            MvccSatisfies::LargestSegment,
-            NonNull::new(expr_context.as_ptr()),
-            None,
-            needs_tokenizer_manager,
-            None,
-        )
-        .expect("Failed to open index reader for estimation");
-
-        // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
-        // execution may skip some of these segments.
+        let rows = RowEstimate::from_reltuples(heap.reltuples().map(f64::from));
+        let reader = SearchIndexReader::open_for_estimation(&index, &query)
+            .expect("opening metadata reader should not fail");
         self.segment_count = Some(reader.total_segment_count());
-
-        let estimate = reader.estimate_docs(row_estimate);
+        let estimate = crate::query::estimate::estimate(
+            &reader,
+            &index,
+            &query,
+            rows,
+            Some(crate::query::estimate::Planner {
+                root,
+                rti: self.heap_rti,
+            }),
+        );
         self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
     }
 }

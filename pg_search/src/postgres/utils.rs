@@ -1483,3 +1483,44 @@ pub fn is_search_operator(node: *mut pg_sys::Node, funcoids: &[pg_sys::Oid]) -> 
     }
     false
 }
+
+#[cfg(feature = "pg15")]
+pub(crate) unsafe fn make_simple_restrictinfo(
+    root: *mut pg_sys::PlannerInfo,
+    clause: *mut pg_sys::Expr,
+) -> *mut pg_sys::RestrictInfo {
+    unsafe {
+        pg_sys::make_restrictinfo(
+            root,
+            clause,
+            true,
+            false,
+            false,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    }
+}
+
+#[cfg(not(feature = "pg15"))]
+pub(crate) unsafe fn make_simple_restrictinfo(
+    root: *mut pg_sys::PlannerInfo,
+    clause: *mut pg_sys::Expr,
+) -> *mut pg_sys::RestrictInfo {
+    unsafe {
+        pg_sys::make_restrictinfo(
+            root,
+            clause,
+            true,
+            false,
+            false,
+            false,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    }
+}

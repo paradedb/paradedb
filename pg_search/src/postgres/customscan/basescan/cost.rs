@@ -261,7 +261,7 @@ pub(super) fn topk_can_prune_for_method(
 }
 
 /// The query's Tantivy drive cost when the scan is costable, else `None` -- `None` for a
-/// runtime-bound/correlated/external predicate (no resolved value to open a scorer for) or an open
+/// runtime-bound/correlated/external predicate (no resolved query to cost) or an open
 /// failure. Memoized so the index opens at most once per query.
 ///
 /// # Safety
@@ -295,8 +295,6 @@ fn cost_test_limited(
     base_result_rows: f64,
     parallel_leader_participates: bool,
 ) -> WorkerPathPolicy {
-    // A zero `drive_cost` (sampled largest segment matched nothing) yields work = 0 -> serial: a
-    // genuinely tiny match set reads zero too, indistinguishable from a skewed sample miss.
     let work = drive_work(drive_cost, drive_fraction(is_sorted, limit, matches));
 
     // Gather overhead: `parallel_setup_cost` plus per-row transport of the `k` crossing rows (1.05

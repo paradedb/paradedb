@@ -544,10 +544,7 @@ impl MvccVisibility {
     /// tuple hides best. Anything that cannot be estimated falls back to
     /// checking: an unknown row count must not silently downgrade accuracy.
     ///
-    /// The estimate opens the index without an expression context, so a query
-    /// carrying heap filters or unsolved Postgres expressions is not estimated at
-    /// all. Building a Tantivy query for those shapes requires the context, and
-    /// the accurate side of the branch is the safe place to land.
+    /// Runtime and heap predicates keep transaction visibility checking enabled.
     pub fn resolve_filtering_for_sources<'a>(
         &self,
         sources: impl IntoIterator<Item = (&'a PgSearchRelation, &'a SearchQueryInput)>,

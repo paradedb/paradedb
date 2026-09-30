@@ -198,7 +198,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         }
     }
 
-    side_info.estimate_rows();
+    side_info.estimate_rows(root);
     let source = JoinSource::try_from(side_info).ok()?;
 
     let mut current_node = RelNode::Scan(Box::new(source));

@@ -119,11 +119,11 @@ runs:
         git checkout .
 
         if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-          git fetch origin +"refs/pull/${PR_NUMBER}/head:""${PR_HEAD_REF}"
+          git fetch --depth=1 --no-tags origin +"refs/pull/${PR_NUMBER}/head:""${PR_HEAD_REF}"
           git checkout "${PR_HEAD_REF}"
         else
           # For push (and other non-PR events), use the exact commit that triggered the workflow
-          git fetch origin "${GITHUB_SHA}":"commit-${GITHUB_SHA}"
+          git fetch --depth=1 --no-tags origin "${GITHUB_SHA}":"commit-${GITHUB_SHA}"
           git checkout "commit-${GITHUB_SHA}"
         fi
 

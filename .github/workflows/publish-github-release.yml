@@ -51,7 +51,10 @@ jobs:
         uses: actions/checkout@v7
         with:
           token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 0
+          fetch-depth: 2 # Keep the parent for release-artifact diffs even when no commit is created.
+
+      - name: Fetch Release Tags
+        run: git fetch --depth=2 --no-tags origin "+refs/tags/v*:refs/tags/v*"
 
       - name: Validate Inputs and Setup
         id: validate
@@ -207,7 +210,7 @@ jobs:
         run: |
           if [[ "$BETA" != "true" ]]; then
             # Verify remote branch has not advanced before pushing release commit
-            git fetch origin "$RELEASE_REF"
+            git fetch --depth=2 --no-tags origin "+refs/heads/$RELEASE_REF:refs/remotes/origin/$RELEASE_REF"
             REMOTE_SHA=$(git rev-parse "origin/$RELEASE_REF")
             if [[ "$REMOTE_SHA" != "$START_SHA" ]]; then
               echo "❌ Error: Remote branch '$RELEASE_REF' has advanced ($START_SHA -> $REMOTE_SHA) since this release workflow started."
@@ -254,7 +257,7 @@ jobs:
           DELETED_FRAGMENTS=$(git diff HEAD~1 --diff-filter=D --name-only -- 'pg_search/sql/unreleased/' 'docs/changelog/unreleased/' 'docs/project/changelog/unreleased/')
 
           echo "Switching to main branch to sync release artifacts..."
-          git fetch origin main:main
+          git fetch --depth=1 --no-tags origin main:main
           git checkout main
 
           echo "Checking out assembled release files from the release commit..."

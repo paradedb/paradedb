@@ -30,7 +30,7 @@ jobs:
         with:
           repository: ${{ github.repository }}
           ref: ${{ github.event.pull_request.base.ref }}
-          fetch-depth: 0
+          fetch-depth: 1 # The backport action fetches source commits and target branches itself
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Configure Bot Commit Signing

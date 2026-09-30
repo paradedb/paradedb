@@ -40,7 +40,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # Fetch the entire history (required to read tags)
+          fetch-depth: 1
+
+      - name: Fetch Release Tags
+        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
 
       - name: Compute prior versions
         id: compute
@@ -91,7 +94,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # Fetch the entire history (required to checkout tags)
+          fetch-depth: 1
+
+      - name: Fetch Release Tags
+        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2

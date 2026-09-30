@@ -1,8 +1,18 @@
 diff --git a/benchmarks/Makefile.common b/benchmarks/Makefile.common
-index 3e1e7c5..8849afb 100644
+index 3e1e7c5..918ef18 100644
 --- a/benchmarks/Makefile.common
 +++ b/benchmarks/Makefile.common
-@@ -49,8 +49,16 @@ MAX_PARALLEL_WORKERS ?= 8
+@@ -40,17 +40,25 @@ CPUS ?= 8
+ # Explicit MEMORY overrides apply to every target; only create defaults to 64g.
+ ifeq ($(origin MEMORY),undefined)
+ MEMORY := 32g
+-create _create_backend: MEMORY := 64g
++create _create_backend index _index_backend: MEMORY := 64g
+ endif
+ SHARED_BUFFERS ?= 24GB
+ MAINTENANCE_WORK_MEM ?= 24GB
+ MAX_PARALLEL_MAINTENANCE_WORKERS ?= 8
+ MAX_PARALLEL_WORKERS ?= 8
  POSTGRES_SHM_SIZE ?= 16g
  WORKERS ?= 1
  BATCH_SIZE ?= 10000
@@ -108,7 +118,7 @@ index 3e1e7c5..8849afb 100644
 +	state="$$STORAGE_STATE_DIR/$$backend"
 +	log="$$STORAGE_STATE_DIR/logs/$$(date -u +%Y%m%dT%H%M%S)-$$backend-index.log"
 +	{
-+	  trap '$(COMPOSE) stop "$$backend"' EXIT
++	  trap 'rc=$$?; if [[ $$rc -ne 0 ]]; then echo "$$backend: abnormal exit (code $$rc); dumping logs:"; $(COMPOSE) logs --tail 200 "$$backend" || true; fi; $(COMPOSE) stop -t 10 "$$backend" || $(COMPOSE) kill "$$backend"' EXIT
 +	  trap 'exit 130' INT
 +	  trap 'exit 143' TERM
 +	  echo "$$backend: starting for indexing (log: $$log)"
@@ -131,9 +141,18 @@ index 3e1e7c5..8849afb 100644
  	@source "$$CONFIG_DIR/volumes.sh"
  	mkdir -p "$$STORAGE_STATE_DIR" "$$OUT_DIR"
 diff --git a/benchmarks/compose.yml b/benchmarks/compose.yml
-index fb0f057..e7f3546 100644
+index fb0f057..3524b07 100644
 --- a/benchmarks/compose.yml
 +++ b/benchmarks/compose.yml
+@@ -22,7 +22,7 @@ x-postgres: &postgres
+       "-c",
+       "max_parallel_workers_per_gather=2",
+     ]
+-  stop_grace_period: 10m
++  stop_grace_period: ${STOP_GRACE_PERIOD:-30s}
+   healthcheck:
+     test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d benchmark"]
+     interval: 2s
 @@ -30,9 +30,10 @@ x-postgres: &postgres
      retries: 150
 

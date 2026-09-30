@@ -162,8 +162,14 @@ jobs:
           done
 
       - name: Dump database logs on failure
-        if: failure()
-        run: docker logs paradedb || true
+        if: failure() || cancelled()
+        run: |
+          echo "== Docker containers =="
+          docker ps -a || true
+          echo "== ParadeDB container logs =="
+          docker logs --tail 200 $(docker ps -aq --filter "name=paradedb") || true
+          echo "== Kernel dmesg (OOM / Segfault) =="
+          sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 
       - name: Publish Benchmarker Results
         if: success()
@@ -274,7 +280,8 @@ jobs:
           make -f Makefile.${DATASET} index \
             BACKENDS=paradedb \
             PARADEDB_IMAGE="${IMAGE_TAG}" \
-            VOLUME_ROOT="${VOLUME_ROOT}"
+            VOLUME_ROOT="${VOLUME_ROOT}" \
+            MEMORY=64g
 
       - name: Run benchmark
         working-directory: benchmarker
@@ -313,8 +320,14 @@ jobs:
             VOLUME_ROOT="${VOLUME_ROOT}"
 
       - name: Dump database logs on failure
-        if: failure()
-        run: docker ps -a && docker logs --tail 200 $(docker ps -aq --filter "name=paradedb") || true
+        if: failure() || cancelled()
+        run: |
+          echo "== Docker containers =="
+          docker ps -a || true
+          echo "== ParadeDB container logs =="
+          docker logs --tail 200 $(docker ps -aq --filter "name=paradedb") || true
+          echo "== Kernel dmesg (OOM / Segfault) =="
+          sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 
       - name: Publish Benchmarker Results
         if: success()

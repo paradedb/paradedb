@@ -298,6 +298,7 @@ jobs:
         env:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.build_image.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
+          POSTGRES_CPUSET: "0-7"
         run: |
           set -euo pipefail
           mkdir -p results
@@ -305,12 +306,13 @@ jobs:
           topk_styles=(conjunction disjunction phrase mixed)
           for style in "${topk_styles[@]}"; do
             echo "== Running workload=topk query_style=${style} =="
-            make -f Makefile.${DATASET} run \
+            taskset -c 8-11 make -f Makefile.${DATASET} run \
               BACKENDS=paradedb \
               WORKLOAD=topk \
               QUERY_STYLE="${style}" \
               VUS=1 \
-              DURATION=60s \
+              PREWARM=30s \
+              DURATION=120s \
               OUTPUT=json,html \
               OUT_DIR="${PWD}/results" \
               PARADEDB_IMAGE="${IMAGE_TAG}" \
@@ -318,12 +320,13 @@ jobs:
           done
 
           echo "== Running workload=count query_style=mixed =="
-          make -f Makefile.${DATASET} run \
+          taskset -c 8-11 make -f Makefile.${DATASET} run \
             BACKENDS=paradedb \
             WORKLOAD=count \
             QUERY_STYLE=mixed \
             VUS=1 \
-            DURATION=60s \
+            PREWARM=30s \
+            DURATION=120s \
             OUTPUT=json,html \
             OUT_DIR="${PWD}/results" \
             PARADEDB_IMAGE="${IMAGE_TAG}" \

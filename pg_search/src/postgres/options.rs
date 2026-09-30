@@ -1566,13 +1566,13 @@ mod tests {
     }
 
     #[pg_test]
-    #[should_panic(expected = "expected a positive number of ranges")]
+    #[should_panic(expected = "expected a number of ranges from 1 to 1024")]
     fn test_parse_partition_by_zero_ranges_error() {
         parse_partition_by_string("id=0");
     }
 
     #[pg_test]
-    #[should_panic(expected = "expected a positive number of ranges")]
+    #[should_panic(expected = "expected a number of ranges from 1 to 1024")]
     fn test_parse_partition_by_missing_ranges_error() {
         parse_partition_by_string("id=, x");
     }

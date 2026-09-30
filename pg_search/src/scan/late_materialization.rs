@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use crate::index::fast_fields_helper::CanonicalColumn;
 use crate::index::fast_fields_helper::FFHelper;
+use crate::postgres::customscan::datafusion::topk_agg::TOPK_AS_AGG_NAME;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::table_provider::pg_search_provider_from_scan;
@@ -31,6 +32,7 @@ use async_trait::async_trait;
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Column, DFSchemaRef, DataFusionError, Result};
+use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::{
     Aggregate, Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore,
 };
@@ -365,7 +367,31 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
             // immediately below it.
             references_deferred
         }
-        LogicalPlan::Aggregate(_) | LogicalPlan::Window(_) => true,
+        LogicalPlan::Aggregate(agg) => {
+            // for non-distinct __topk with no deferred columns as sorting columns, no need to
+            // materialize
+            match topk_aggregate(agg) {
+                Some(af) => {
+                    if af.params.distinct {
+                        true
+                    } else {
+                        let mut columns = HashSet::new();
+                        for s in &af.params.order_by {
+                            s.expr.add_column_refs(&mut columns);
+                        }
+
+                        // true if any arg references deferred col
+                        columns.iter().any(|c| {
+                            trace_column(&agg.input, c)
+                                .is_some_and(|base| deferred_fields.iter().any(|df| base.is(df)))
+                        })
+                    }
+                }
+                None => true,
+            }
+        }
+        LogicalPlan::Unnest(_) => false,
+        LogicalPlan::Window(_) => true,
         LogicalPlan::Join(join) => {
             let mut join_refs = HashSet::new();
             for (l, r) in &join.on {
@@ -390,6 +416,19 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
         | LogicalPlan::Limit(_)
         | LogicalPlan::SubqueryAlias(_) => false,
         _ => true,
+    }
+}
+
+fn topk_aggregate(agg: &Aggregate) -> Option<&AggregateFunction> {
+    if !agg.group_expr.is_empty() {
+        return None;
+    }
+    let [expr] = agg.aggr_expr.as_slice() else {
+        return None;
+    };
+    match unalias(expr) {
+        Expr::AggregateFunction(f) if f.func.name() == TOPK_AS_AGG_NAME => Some(f),
+        _ => None,
     }
 }
 

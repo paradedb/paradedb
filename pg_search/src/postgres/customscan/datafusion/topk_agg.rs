@@ -278,13 +278,7 @@ fn list_of_rows(payload: &[FieldRef]) -> DataType {
     let fields: Vec<FieldRef> = payload
         .iter()
         .enumerate()
-        .map(|(i, f)| {
-            Arc::new(Field::new(
-                format!("c{i}"),
-                f.data_type().clone(),
-                f.is_nullable(),
-            ))
-        })
+        .map(|(i, f)| Arc::new(f.as_ref().clone().with_name(format!("c{i}"))))
         .collect();
     let row = DataType::Struct(Fields::from(fields));
     DataType::List(Arc::new(Field::new_list_field(row, true)))

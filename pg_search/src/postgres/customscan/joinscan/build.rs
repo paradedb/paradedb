@@ -26,12 +26,12 @@
 //! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
-use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
+use crate::{gucs, nodecast};
 use anyhow::anyhow;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
@@ -2065,6 +2065,19 @@ impl JoinCSClause {
     pub fn assign_tagged_queries(&mut self) {
         let predicates = self.plan.search_predicates();
         assign_tagged_queries(self.plan.sources_mut(), &predicates);
+    }
+
+    pub fn k_when_computing_topk_as_agg(&self) -> Option<usize> {
+        if gucs::joinscan_force_topk_as_agg() {
+            // The Top-K aggregate needs a known k
+            self.limit_offset.as_ref().and_then(|lo| lo.static_fetch())
+        } else {
+            None
+        }
+    }
+
+    pub fn will_compute_topk_as_agg(&self) -> bool {
+        self.k_when_computing_topk_as_agg().is_some()
     }
 }
 

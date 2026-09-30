@@ -226,6 +226,24 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
         8,
     );
 
+    // The join condition written with t2's column first puts `t2.t1_id` ahead
+    // of `t1.id` in their equivalence class, and the ORDER BY on `t1.id` reaches
+    // JoinScan as `t2.t1_id`, a column nothing projects. Without DISTINCT that is
+    // legal, and the aggregate path has to carry it as payload and sort on it
+    // above the aggregate rather than resolve it through the select list.
+    assert_paths_agree::<(i32, i32)>(
+        &mut conn,
+        r#"
+        SELECT t1.id, t2.id
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t2.t1_id = t1.id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.id ASC, t2.id ASC
+        LIMIT 5
+        "#,
+        5,
+    );
+
     // DISTINCT: each t1 row joins two t2 rows, so every (id, rating) pair
     // appears twice before deduplication. With the GUC on, the DISTINCT is
     // absorbed into the Top-K aggregate instead of running as a GROUP BY.

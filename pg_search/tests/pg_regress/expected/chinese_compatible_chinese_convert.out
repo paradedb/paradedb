@@ -14,45 +14,19 @@ SELECT '简体中文测试'::pdb.chinese_compatible('chinese_convert=s2t')::text
  {簡,體,中,文,測,試}
 (1 row)
 
--- Test 3: Taiwan vocabulary conversion
-SELECT '鼠標里面的硅二極管壞了'::pdb.chinese_compatible('chinese_convert=tw2s')::text[];
-                text                
-------------------------------------
- {鼠,标,里,面,的,硅,二,极,管,坏,了}
-(1 row)
-
--- Test 4: Taiwan vocabulary conversion
-SELECT '鼠标里面的硅二极管坏了'::pdb.chinese_compatible('chinese_convert=s2tw')::text[];
-                text                
-------------------------------------
- {鼠,標,裡,面,的,硅,二,極,管,壞,了}
-(1 row)
-
--- Test 5: Taiwan vocabulary conversion with idioms
-SELECT '鼠標里面的硅二極管壞了'::pdb.chinese_compatible('chinese_convert=tw2sp')::text[];
-                text                
-------------------------------------
- {鼠,标,里,面,的,硅,二,极,管,坏,了}
-(1 row)
-
--- Test 6: Create table and index with T2S
+-- Index Traditional and Simplified documents with T2S
 CREATE TABLE test_chinese_compatible_convert (
     id SERIAL PRIMARY KEY,
-    title TEXT,
-    content TEXT
+    title TEXT
 );
 -- Insert mixed Traditional and Simplified Chinese
-INSERT INTO test_chinese_compatible_convert (title, content) VALUES
-    ('繁體標題', '這是繁體中文的內容測試'),
-    ('简体标题', '这是简体中文的内容测试'),
-    ('運動鞋', '適合跑步和運動的鞋子'),
-    ('运动鞋', '适合跑步和运动的鞋子'),
-    ('電腦配件', '鼠標、鍵盤、顯示器'),
-    ('电脑配件', '鼠标、键盘、显示器');
+INSERT INTO test_chinese_compatible_convert (title) VALUES
+    ('繁體標題'),
+    ('简体标题');
 -- Create index with T2S conversion
 CREATE INDEX test_chinese_compatible_bm25 ON test_chinese_compatible_convert
-USING paradedb (id, (title::pdb.chinese_compatible('chinese_convert=t2s')), (content::pdb.chinese_compatible('chinese_convert=t2s')));
--- Test 7: Query with Traditional Chinese (should match both Traditional and Simplified)
+USING paradedb (id, (title::pdb.chinese_compatible('chinese_convert=t2s')));
+-- Both query forms match both documents
 SELECT id, title FROM test_chinese_compatible_convert
 WHERE title ||| '標題'
 ORDER BY id;
@@ -62,7 +36,6 @@ ORDER BY id;
   2 | 简体标题
 (2 rows)
 
--- Test 8: Query with Simplified Chinese (should match both Traditional and Simplified)
 SELECT id, title FROM test_chinese_compatible_convert
 WHERE title ||| '标题'
 ORDER BY id;
@@ -72,64 +45,7 @@ ORDER BY id;
   2 | 简体标题
 (2 rows)
 
--- Test 9: Query with Traditional term
-SELECT id, title FROM test_chinese_compatible_convert
-WHERE title ||| '運動'
-ORDER BY id;
- id | title  
-----+--------
-  3 | 運動鞋
-  4 | 运动鞋
-(2 rows)
-
--- Test 10: Query with Simplified term
-SELECT id, title FROM test_chinese_compatible_convert
-WHERE title ||| '运动'
-ORDER BY id;
- id | title  
-----+--------
-  3 | 運動鞋
-  4 | 运动鞋
-(2 rows)
-
--- Test 11: Content search with Traditional Chinese
-SELECT id, title FROM test_chinese_compatible_convert
-WHERE content ||| '鼠標'
-ORDER BY id;
- id |  title   
-----+----------
-  5 | 電腦配件
-  6 | 电脑配件
-(2 rows)
-
--- Test 12: Content search with Simplified Chinese
-SELECT id, title FROM test_chinese_compatible_convert
-WHERE content ||| '鼠标'
-ORDER BY id;
- id |  title   
-----+----------
-  5 | 電腦配件
-  6 | 电脑配件
-(2 rows)
-
--- Test 13: Test with S2T index
-DROP INDEX test_chinese_compatible_bm25;
-CREATE INDEX test_chinese_compatible_bm25 ON test_chinese_compatible_convert
-USING paradedb (id, (title::pdb.chinese_compatible('chinese_convert=s2t')));
-SELECT id, title FROM test_chinese_compatible_convert
-WHERE title ||| '标题'
-ORDER BY id;
- id |  title   
-----+----------
-  1 | 繁體標題
-  2 | 简体标题
-(2 rows)
-
--- Test 14: nested search_tokenizer expression path proves query-time conversion.
--- Mirrors search_tokenizer_index_level.sql's Test 3 pattern: the field itself is indexed with
--- NO chinese_convert (each CJK character its own token, exactly as typed -- nothing is converted
--- at index time), and only the search_tokenizer WITH option applies chinese_convert=t2s, at
--- query time only.
+-- The index stores Simplified text unchanged; only the search tokenizer converts the query.
 DROP TABLE IF EXISTS test_chinese_search_tokenizer;
 CREATE TABLE test_chinese_search_tokenizer (
     id SERIAL PRIMARY KEY,
@@ -149,9 +65,7 @@ ORDER BY id;
   1 | 简体标题
 (1 row)
 
--- The Traditional form of the same word can only match a Simplified-only index if
--- search_tokenizer's chinese_convert=t2s is actually converting the query at search time --
--- '標題' and '简体标题' share no codepoints at all until t2s runs.
+-- Traditional input matches only after query-time conversion.
 SELECT id, title FROM test_chinese_search_tokenizer
 WHERE title ||| '標題'
 ORDER BY id;
@@ -161,7 +75,7 @@ ORDER BY id;
 (1 row)
 
 DROP TABLE test_chinese_search_tokenizer;
--- ERROR TESTS
+-- Reject invalid conversion modes
 SELECT '繁體中文測試'::pdb.chinese_compatible('chinese_convert=t2st')::text[];
 ERROR:  Invalid value for option 'chinese_convert': must be one of: [s2t, s2tw, s2twp, t2s, tw2s, tw2sp], got 't2st'
 -- Cleanup

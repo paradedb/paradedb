@@ -245,10 +245,7 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             if let Some(v) = parsed.get("search_mode").and_then(|p| p.as_bool()) {
                 *search_mode = v;
             }
-            *chinese_convert = parsed
-                .get("chinese_convert")
-                .and_then(|p| p.as_str())
-                .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")));
+            *chinese_convert = typmod::parse_chinese_convert(parsed);
             *filters = SearchTokenizerFilters::from(parsed);
         }
         SearchTokenizer::UnicodeWords {
@@ -268,10 +265,7 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             chinese_convert,
             filters,
         } => {
-            *chinese_convert = parsed
-                .get("chinese_convert")
-                .and_then(|p| p.as_str())
-                .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")));
+            *chinese_convert = typmod::parse_chinese_convert(parsed);
             *filters = SearchTokenizerFilters::from(parsed);
         }
         SearchTokenizer::ICUTokenizer(filters)

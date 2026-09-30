@@ -34,6 +34,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use tantivy::tokenizer::Language;
 use thiserror::Error;
+use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::SearchTokenizerFilters;
 pub use validation::{TypmodSchema, ValidationError};
 
@@ -60,6 +61,14 @@ pub fn generic_typmod_out(typmod: i32) -> CString {
 }
 
 pub type Typmod = i32;
+
+/// Read the conversion option shared by direct casts and search-tokenizer expressions.
+pub(super) fn parse_chinese_convert(parsed: &ParsedTypmod) -> Option<ConvertMode> {
+    parsed
+        .get("chinese_convert")
+        .and_then(|p| p.as_str())
+        .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")))
+}
 
 #[derive(Error, Debug)]
 pub enum Error {

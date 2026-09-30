@@ -255,10 +255,7 @@ impl TryFrom<i32> for JiebaTypmod {
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
-        let chinese_convert = parsed
-            .get("chinese_convert")
-            .and_then(|p| p.as_str())
-            .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")));
+        let chinese_convert = typmod::parse_chinese_convert(&parsed);
         let search_mode = parsed
             .get("search_mode")
             .and_then(|p| p.as_bool())
@@ -277,10 +274,7 @@ impl TryFrom<i32> for ChineseCompatibleTypmod {
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
-        let chinese_convert = parsed
-            .get("chinese_convert")
-            .and_then(|p| p.as_str())
-            .map(|s| s.parse().unwrap_or_else(|e: String| panic!("{e}")));
+        let chinese_convert = typmod::parse_chinese_convert(&parsed);
         Ok(ChineseCompatibleTypmod {
             chinese_convert,
             filters,

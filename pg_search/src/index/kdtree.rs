@@ -92,19 +92,21 @@ impl KdTree {
     /// dimension is cut independently inside each range of the ones before it, so its intervals
     /// overlap across those ranges.
     ///
-    /// `ranges[dim]` is how many ranges that dimension is cut into inside each box of the
-    /// dimensions before it, so counts on every dimension fix the leaf count at their product.
+    /// `ranges[dim]` is the most ranges that dimension is cut into inside each box of the
+    /// dimensions before it, so counts on every dimension cap the leaf count at their product.
     /// A `None` shares the leaves left over by the dimensions with a count evenly, in levels of
     /// binary cuts, between that dimension and the later ones without a count, rounding up in
     /// favor of the earlier dimension. The cut sits at the quantile that gives both children a
-    /// share of the sample proportional to the leaves they will hold, so the leaves come out
-    /// balanced even when a count is not a power of two, at the cost of ranges of unequal
+    /// share of the sample proportional to the leaves they will hold, and the leaves then follow
+    /// the rows that landed on each side, so they come out balanced even when a count is not a
+    /// power of two or the cut had to move to a value change, at the cost of ranges of unequal
     /// width.
     ///
     /// A box whose points are all equal on a dimension cannot be cut on it and passes its leaves
     /// on to the next dimension; a box that is a single point on every remaining dimension stays
-    /// a leaf, so the tree can end up with fewer partitions than requested when the sample has
-    /// too few distinct values.
+    /// a leaf. The tree can therefore end up with fewer partitions than requested when the
+    /// sample has too few distinct values, and a count on an earlier dimension is never exceeded
+    /// to make up for a later one that ran out.
     ///
     /// Split values are never NULL, so every leaf's box is expressible as plain range bounds.
     pub fn from_sample(
@@ -368,7 +370,7 @@ impl Builder<'_> {
             return self.leaf();
         }
         let ranges = self.ranges_for(dim, k);
-        self.cut(idx, k, dim, ranges)
+        self.cut(idx, k, dim, ranges).0
     }
 
     /// The most leaves a box can hold from the cuts on `dim` and the dimensions after it, or
@@ -380,44 +382,56 @@ impl Builder<'_> {
             .product()
     }
 
-    /// Cuts the box on `dim` into `ranges` ranges, `ranges <= k`, and hands each range with its
-    /// share of the `k` leaves to the next dimension.
-    fn cut(&mut self, idx: &mut [usize], k: usize, dim: usize, ranges: usize) -> KdNode {
+    /// Cuts the box on `dim` into at most `ranges` ranges, `ranges <= k`, and hands each range
+    /// with its share of the `k` leaves to the next dimension. Returns the node and the number
+    /// of ranges of `dim` it made.
+    fn cut(&mut self, idx: &mut [usize], k: usize, dim: usize, ranges: usize) -> (KdNode, usize) {
+        debug_assert!(ranges <= k, "a box holds at least one leaf per range");
         if ranges <= 1 {
-            return self.build(idx, k, dim + 1);
+            return (self.build(idx, k, dim + 1), 1);
         }
         if idx.len() < 2 {
-            return self.leaf();
+            return (self.leaf(), 1);
         }
         idx.sort_by(|&a, &b| self.sample[a][dim].total_cmp(&self.sample[b][dim]));
 
         let ranges_left = ranges / 2;
-        let k_left = k * ranges_left / ranges;
-        let target = idx.len() * k_left / k;
+        let target = idx.len() * (k * ranges_left / ranges) / k;
         let Some(cut) = self.nearest_cut(idx, dim, target) else {
             // Every point is equal on this dimension, so the later ones take the whole budget.
-            return self.build(idx, k, dim + 1);
+            return (self.build(idx, k, dim + 1), 1);
         };
         let value = self.sample[idx[cut]][dim].clone();
 
+        // The cut sits where the value changes, which can be far from the target on a field
+        // with few distinct values, so the leaves follow the rows that landed on each side.
+        // Each side keeps at least one leaf per range it has to make.
+        let k_left = ((2 * k * cut + idx.len()) / (2 * idx.len()))
+            .clamp(ranges_left, k - (ranges - ranges_left));
+
         let (left_idx, right_idx) = idx.split_at_mut(cut);
         let before = self.next_partition;
-        let left = self.cut(left_idx, k_left, dim, ranges_left);
-        // A left subtree that ran out of distinct values hands its unused leaves, and the
-        // ranges they were meant for, to the right.
-        let unused = k_left - (self.next_partition - before);
-        let right = self.cut(
-            right_idx,
-            k - k_left + unused,
-            dim,
-            ranges - ranges_left + unused,
-        );
-        KdNode::Split {
-            dim,
-            value,
-            left: Box::new(left),
-            right: Box::new(right),
-        }
+        let (left, made_left) = self.cut(left_idx, k_left, dim, ranges_left);
+        let produced_left = self.next_partition - before;
+        // A left subtree that ran out of distinct values hands its unused leaves to the right.
+        // Without a count the ranges follow the leaves, which keeps a one-field tree at its
+        // target. With a count the right gets only the ranges the left could not make, so the
+        // field never exceeds the count when a later field is the one that ran out.
+        let k_right = k - produced_left;
+        let ranges_right = match self.ranges[dim] {
+            Some(_) => (ranges - made_left).min(k_right),
+            None => ranges - ranges_left + (k_left - produced_left),
+        };
+        let (right, made_right) = self.cut(right_idx, k_right, dim, ranges_right);
+        (
+            KdNode::Split {
+                dim,
+                value,
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            made_left + made_right,
+        )
     }
 
     /// How many ranges `dim` is cut into inside a box with `k` leaves to fill: the index's
@@ -731,7 +745,7 @@ mod tests {
 
         // Thirty-two leaves afford five levels: `x` takes three of them as global ranges, and
         // `y` is cut into four inside each of the eight.
-        let tree = build_with(&["x", "y"], &[None, None], grid(), 32);
+        let tree = build(&["x", "y"], grid(), 32);
         assert_eq!(tree.partition_count(), 32);
         check_invariants(&tree, &sample);
         assert_eq!(split_values(&tree, 0).len(), 7, "{tree}");
@@ -871,11 +885,11 @@ mod tests {
         assert_eq!(tree.partition_count(), 8, "{tree}");
         check_invariants(&tree, &sample);
         assert_eq!(tree.route(&[PdbOwnedValue::I64(0)]), 0);
-        let counts = counts(&tree, &sample);
-        assert_eq!(counts[0], 500);
+        let per_partition = counts(&tree, &sample);
+        assert_eq!(per_partition[0], 500);
         assert!(
-            counts[1..].iter().all(|&c| c.abs_diff(500 / 7) <= 1),
-            "{counts:?}"
+            per_partition[1..].iter().all(|&c| c.abs_diff(500 / 7) <= 1),
+            "{per_partition:?}"
         );
     }
 
@@ -1012,5 +1026,77 @@ mod tests {
              ctid < (50,1) -> 0\n\
              ctid >= (50,1) -> 1"
         );
+    }
+
+    #[test]
+    fn a_count_holds_when_a_later_field_runs_out() {
+        // `flag` has two values, so each `id` range can only be cut in two. The leaves the
+        // count of four left for `flag` stay unused instead of turning into more `id` ranges.
+        let sample: Vec<Point> = (0..1000)
+            .map(|i| vec![PdbOwnedValue::I64(i), PdbOwnedValue::Bool(i % 2 == 0)])
+            .collect();
+        let tree = build_with(&["id", "flag"], &[Some(4), None], sample.clone(), 32);
+        check_invariants(&tree, &sample);
+        assert_eq!(split_values(&tree, 0).len(), 3, "{tree}");
+        assert_eq!(tree.partition_count(), 8, "{tree}");
+
+        // `y` is constant in the lowest third of `x`, so that range holds one leaf, and the
+        // other two ranges are still cut on `y`: three `x` ranges, five leaves.
+        let sample: Vec<Point> = (0..900)
+            .map(|x| {
+                vec![
+                    PdbOwnedValue::I64(x),
+                    PdbOwnedValue::I64(if x < 300 { 0 } else { x }),
+                ]
+            })
+            .collect();
+        let tree = build_with(&["x", "y"], &[Some(3), Some(2)], sample.clone(), 6);
+        check_invariants(&tree, &sample);
+        assert_eq!(split_values(&tree, 0).len(), 2, "{tree}");
+        assert_eq!(tree.partition_count(), 5, "{tree}");
+    }
+
+    #[test]
+    fn a_skewed_first_field_keeps_the_leaves_balanced() {
+        // Nine rows in ten belong to one tenant, so the tenant cut lands far from the quantile
+        // its share of the leaves asked for; the leaves follow the rows instead.
+        let sample: Vec<Point> = (0..1000)
+            .map(|i| {
+                vec![
+                    PdbOwnedValue::I64(i64::from(i >= 900)),
+                    PdbOwnedValue::I64(i),
+                ]
+            })
+            .collect();
+        let tree = build(&["tenant", "id"], sample.clone(), 32);
+        check_invariants(&tree, &sample);
+        assert_eq!(tree.partition_count(), 32, "{tree}");
+        let per_partition = counts(&tree, &sample);
+        let (min, max) = (
+            per_partition.iter().min().unwrap(),
+            per_partition.iter().max().unwrap(),
+        );
+        assert!(max <= &(2 * min), "{per_partition:?}\n{tree}");
+    }
+
+    #[test]
+    fn three_fields_share_the_levels_in_order() {
+        // Eight leaves over three fields: one level each.
+        let sample: Vec<Point> = (0..512)
+            .map(|i| {
+                vec![
+                    PdbOwnedValue::I64(i / 64),
+                    PdbOwnedValue::I64((i / 8) % 8),
+                    PdbOwnedValue::I64(i % 8),
+                ]
+            })
+            .collect();
+        let tree = build(&["a", "b", "c"], sample.clone(), 8);
+        check_invariants(&tree, &sample);
+        assert_eq!(tree.partition_count(), 8, "{tree}");
+        for dim in 0..3 {
+            assert_eq!(split_values(&tree, dim).len(), 1, "{tree}");
+        }
+        assert!(counts(&tree, &sample).iter().all(|&c| c == 64), "{tree}");
     }
 }

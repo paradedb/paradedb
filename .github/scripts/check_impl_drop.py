@@ -4,8 +4,9 @@ Fail on any `impl Drop` in pg_search that does not say why it skips `impl_safe_d
 
 A `Drop` that calls into Postgres has to skip its body while a panic unwinds or the backend
 exits (#6479), which is what `impl_safe_drop!` in pg_search/src/postgres/utils.rs does. A bare
-`impl Drop` needs a comment directly above it that names the macro and says why it does not
-apply. pg_search is the only crate that links pgrx, so it is the only one scanned.
+`impl Drop` needs a comment directly above it that opts out in so many words: "We
+intentionally do NOT use `impl_safe_drop!` here because ...". pg_search is the only crate
+that links pgrx, so it is the only one scanned.
 """
 
 import re
@@ -19,6 +20,8 @@ BARE_DROP = re.compile(
     r"((?:^[ \t]*//.*\n)*)(?:^[ \t]*#\[.*\n)*^[ \t]*(impl\b[^{;]*?\bDrop\s+for\s+([^{;]+))",
     re.MULTILINE,
 )
+# A comment that only names the macro, like a TODO, is not an opt out.
+OVERRIDE = re.compile(r"\bnot\s+us(?:e|ing)\W+impl_safe_drop\b", re.IGNORECASE)
 
 # Shapes the matcher must get right, with the findings each should produce.
 SELF_TEST = [
@@ -27,6 +30,7 @@ SELF_TEST = [
     ("impl std::ops::Drop for Qualified {", 1),
     ("impl DropGuard for NotDrop {", 0),
     ("impl Drop for $ty {", 0),
+    ("// TODO: switch this to `impl_safe_drop!`.\nimpl Drop for Todo {", 1),
     (
         "// We intentionally do NOT use `impl_safe_drop!` here.\n\nimpl Drop for Detached {",
         1,
@@ -44,7 +48,7 @@ def find_bare_drops(text):
         (text.count("\n", 0, m.start(2)) + 1, " ".join(m.group(2).split()))
         for m in BARE_DROP.finditer(text)
         # `$ty` is the macro's own expansion.
-        if not m.group(3).startswith("$") and "impl_safe_drop" not in m.group(1)
+        if not m.group(3).startswith("$") and not OVERRIDE.search(m.group(1))
     ]
 
 
@@ -61,7 +65,8 @@ def main():
         print("\n".join(bad))
         print(
             f"\n{len(bad)} bare `impl Drop`. Use `impl_safe_drop!` from "
-            "pg_search/src/postgres/utils.rs, or say why not in a comment directly above the impl."
+            'pg_search/src/postgres/utils.rs, or opt out directly above the impl with "We '
+            'intentionally do NOT use `impl_safe_drop!` here because ...".'
         )
     return 1 if bad else 0
 

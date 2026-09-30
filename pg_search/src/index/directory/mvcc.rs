@@ -125,6 +125,8 @@ impl Seek for PgTempFile {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `may_close` already refuses the
+// close while unwinding, after the owner released the file, and outside a transaction.
 impl Drop for PgTempFile {
     fn drop(&mut self) {
         if self.release_guard.may_close() {

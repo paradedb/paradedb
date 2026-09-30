@@ -9,7 +9,7 @@ Vector search is approximate: it probes a subset of the index's vector clusters 
 ```sql
 SET paradedb.vector_cluster_max_probe = 0.02;
 SET paradedb.vector_recall_target = 1.0;
-SET paradedb.vector_router_recall = 0.99;
+SET paradedb.vector_router_recall_target = 0.99;
 ```
 
 <ParamField body="paradedb.vector_cluster_max_probe" default={0.02}>
@@ -36,7 +36,7 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
   (`vector_ip_ops`) indexes ignore it. Set it per query with `SET LOCAL`.
 </ParamField>
 
-<ParamField body="paradedb.vector_router_recall" default={0.99}>
+<ParamField body="paradedb.vector_router_recall_target" default={0.99}>
   How thoroughly the query ranks clusters before probing them. Clusters are
   themselves organized into a small routing index; below `1.0`, the router stops
   scanning that index once the estimated chance that the best clusters have been

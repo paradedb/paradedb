@@ -1543,7 +1543,7 @@ impl SearchIndexReader {
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
-                        router_recall_target: crate::gucs::vector_router_recall(),
+                        router_recall_target: crate::gucs::vector_router_recall_target(),
                         recall_target: crate::gucs::vector_recall_target(),
                         ..Default::default()
                     })

@@ -1,5 +1,0 @@
----
-header: features
----
-
-Added the `vector_router` index option, which picks how vector queries find the clusters to probe: `graph` (the default) uses a neighborhood graph over the centroids, and `ivf` uses a stacked IVF index over them, which is intended only for vectors of 128 or fewer dimensions. With `ivf`, the router stops ranking clusters once the estimated recall reaches the new `paradedb.vector_router_recall_target` GUC (default `0.99`); a target of `1.0` ranks a fixed fraction of the routing index instead. The new `paradedb.vector_recall_target` GUC (default `1.0`, off) lets each `ivf` segment stop probing clusters once the estimated recall of the true top-K reaches the target, before the `paradedb.vector_cluster_max_probe` ceiling. Both recall targets apply only to vectors of 128 or fewer dimensions indexed with `vector_l2_ops` or `vector_cosine_ops`. Changing the router with `ALTER INDEX` applies to newly built segments; run `REINDEX` to rebuild every segment with it.

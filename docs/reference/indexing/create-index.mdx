@@ -361,7 +361,7 @@ The `key_field` must:
 
 ## Index Partitioning (Beta)
 
-To accelerate filtered queries via segment pruning or enable worker-local parallel joins via range co-partitioning, you can configure the `partition_by` option:
+To speed up filtered queries by skipping non-matching segments or accelerate parallel joins between tables, you can configure the `partition_by` option:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -372,7 +372,7 @@ WITH (
 );
 ```
 
-See the [Partitioning Guide](/reference/indexing/partition-by) for column selection guidance, data type requirements, and co-partitioned join optimization.
+See the [Partitioning Guide](/reference/indexing/partition-by) for column selection guidance, data type requirements, and join setup.
 
 ## Token Filters
 

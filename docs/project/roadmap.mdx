@@ -4,37 +4,42 @@ description: The main features that we are currently working on
 canonical: https://www.paradedb.com/docs/project/roadmap
 ---
 
-We're a lean team that likes to ship at [incredibly high velocity](https://github.com/paradedb/paradedb/releases). For features and improvements that have already shipped, see the [changelog](/project/changelog/).
-
 ## In Progress
 
 ### Vector Search
 
-- **[Native vector search](/reference/vector/overview) (beta)**. The ParadeDB index natively indexes pgvector's `vector` type, addressing pgvector's limitations around filtered queries — specifically, queries that combine vector similarity with metadata filters or full-text search predicates.
+- **[Native vector search (beta)](/reference/vector/overview)**. Search pgvector's `vector` type with the ParadeDB index, combining vector similarity with metadata filters and full-text search in a single query.
 - **Incremental index maintenance**. Vector search quality currently degrades as indexed rows are updated. We are implementing SPFresh to maintain index quality incrementally.
 - **Remaining pgvector types**. Implement support for pgvector's `halfvec`, `sparsevec`, and `bit` types.
 
 ### JOIN Improvements
 
-- **Join pushdown (beta)**. [Join pushdown](/reference/joins/overview) pushes search predicates directly into the index for significantly better performance.
+- **[Accelerated JOINs (beta)](/reference/joins/overview)**. Apply search filters and aggregates directly in the index to speed up queries that join tables.
 - **Smarter JOIN planning for search indexes**. Apply index-aware optimizations and cost estimation strategies when multiple ParadeDB-indexed tables are joined.
 
 ### Ecosystem Integrations
 
-- **ORMs**. Official support for more ORMs, like Prisma and others, is coming. [Drizzle](https://github.com/paradedb/drizzle-paradedb), [Django](https://github.com/paradedb/django-paradedb), [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb), [Rails](https://github.com/paradedb/rails-paradedb), and [Entity Framework Core](https://github.com/paradedb/efcore-paradedb) are already available.
+- **ORMs**. Official support for Prisma, Diesel, and others is coming. [Drizzle](https://github.com/paradedb/drizzle-paradedb), [Django](https://github.com/paradedb/django-paradedb), [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb), [Rails](https://github.com/paradedb/rails-paradedb), and [Entity Framework Core](https://github.com/paradedb/efcore-paradedb) are already available.
 - **AI Frameworks**. Official support for LangChain, LlamaIndex, CrewAI, and others is coming.
 
-### Managed Cloud
+### Cloud Platform
 
-- Today, you can [deploy ParadeDB](/operate/deploy/overview) self-hosted, on cloud platforms, or with ParadeDB BYOC. We're also building ParadeDB Cloud, a fully managed ParadeDB: first-class search from Postgres, with a developer experience to match. [Join the waitlist](https://www.paradedb.com/cloud) to get notified when it launches.
+- **Distributed search**. Scale search across multiple nodes to support larger datasets and workloads.
+- **Reranking**. Improve search relevance by reranking retrieved results with dedicated ranking models.
 
-## Long Term
+## Planned
+
+### Object Storage
+
+- **Offload index segments to object storage**. Reduce storage costs for large datasets by storing index segments in object storage.
 
 ### Deeper Analytics Improvements
 
 - **Push Postgres visibility rules into the index**. This is currently a filter applied post index scan that adds overhead to large scans.
 
+---
+
 ## We're Hiring
 
 We're tackling some of the hardest and (in our opinion) most impactful problems in Postgres. If you want to be a part of it,
-please check out our [open roles](https://paradedb.notion.site)!
+check out our [open roles](https://paradedb.notion.site)!

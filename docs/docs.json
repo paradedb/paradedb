@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "[ParadeDB Cloud coming soon: join the waitlist for early access](https://www.paradedb.com/cloud)",
+    "content": "[ParadeDB Cloud is now available in private preview](https://auth.paradedb.com/sign-up)",
     "dismissible": false
   },
   "navigation": {
@@ -22,12 +22,11 @@
             "icon": "rocket",
             "pages": [
               "start/introduction",
-              "start/alternatives",
               {
                 "group": "Getting Started",
                 "pages": [
                   "start/install",
-                  "start/connect-your-app",
+                  "start/configure-your-environment",
                   "start/create-your-first-index",
                   "start/run-queries"
                 ]
@@ -213,6 +212,12 @@
                 ]
               },
               {
+                "group": "Sharding",
+                "pages": [
+                  "reference/sharding/citus"
+                ]
+              },
+              {
                 "group": "Cheatsheets",
                 "pages": [
                   "reference/operators-and-functions",
@@ -229,7 +234,6 @@
             "pages": [
               "concepts/architecture",
               "concepts/guarantees",
-              "concepts/how-the-paradedb-index-works",
               "concepts/full-text/overview",
               "concepts/vector/overview",
               "concepts/hybrid/overview",
@@ -240,34 +244,42 @@
             "tab": "Operate",
             "icon": "server",
             "pages": [
+              "operate/deploy/enterprise",
               {
                 "group": "Deployment",
                 "pages": [
                   "operate/deploy/overview",
-                  "operate/deploy/self-hosted/extension",
+                  "operate/deploy/cloud",
+                  "operate/deploy/byoc",
                   "operate/deploy/self-hosted/kubernetes",
+                  "operate/deploy/self-hosted/extension",
                   {
-                    "group": "Cloud Platforms",
+                    "group": "PaaS Providers",
                     "pages": [
                       "operate/deploy/cloud-platforms/railway",
                       "operate/deploy/cloud-platforms/render",
                       "operate/deploy/cloud-platforms/fly",
-                      "operate/deploy/cloud-platforms/digitalocean",
-                      "operate/deploy/cloud-platforms/dokku"
+                      "operate/deploy/cloud-platforms/dokku",
+                      "operate/deploy/cloud-platforms/digitalocean"
                     ]
-                  },
+                  }
+                ]
+              },
+              {
+                "group": "Replication",
+                "pages": [
+                  "operate/deploy/self-hosted/high-availability",
                   {
                     "group": "Logical Replication",
                     "pages": [
                       "operate/deploy/logical-replication/getting-started",
-                      "operate/deploy/logical-replication/operational-guide",
+                      "operate/deploy/logical-replication/bootstrapping",
                       "operate/deploy/logical-replication/configuration",
+                      "operate/deploy/logical-replication/schema-changes",
+                      "operate/deploy/logical-replication/monitoring-and-troubleshooting",
                       "operate/deploy/logical-replication/multi-database"
                     ]
-                  },
-                  "operate/deploy/self-hosted/high-availability",
-                  "operate/deploy/byoc",
-                  "operate/deploy/enterprise"
+                  }
                 ]
               },
               {
@@ -283,23 +295,20 @@
                   "operate/performance-tuning/overview",
                   "operate/performance-tuning/create-index",
                   "operate/performance-tuning/reads",
-                  "operate/performance-tuning/writes",
-                  "operate/performance-tuning/aggregates"
+                  "operate/performance-tuning/writes"
                 ]
               },
               {
                 "group": "Administration",
                 "pages": [
-                  "operate/deploy/upgrading",
-                  "operate/deploy/third-party-extensions",
-                  "operate/deploy/citus"
+                  "operate/deploy/upgrading"
                 ]
               },
               {
                 "group": "Continuous Integration",
                 "pages": [
                   "operate/deploy/ci/github-actions",
-                  "operate/deploy/ci/gitlab-ci"
+                  "operate/deploy/ci/gitlab-pipelines"
                 ]
               }
             ]
@@ -329,7 +338,7 @@
                       "project/changelog/0.25.1",
                       "project/changelog/0.25.0"
                     ],
-                    "expanded": true
+                    "expanded": false
                   },
                   {
                     "group": "Older",
@@ -527,7 +536,15 @@
                   }
                 ]
               },
-              "project/support"
+              {
+                "group": "Resources",
+                "pages": [
+                  "project/support",
+                  "project/resources/slack",
+                  "project/resources/blog",
+                  "project/resources/learn"
+                ]
+              }
             ]
           }
         ]
@@ -545,21 +562,18 @@
   "navbar": {
     "links": [
       {
-        "label": "Community",
-        "href": "https://paradedb.com/slack"
+        "type": "github",
+        "href": "https://github.com/paradedb/paradedb"
       },
       {
-        "label": "Blog",
-        "href": "https://www.paradedb.com/blog"
-      },
-      {
-        "label": "Learn",
-        "href": "https://www.paradedb.com/learn"
+        "label": "Log In",
+        "href": "https://app.paradedb.com"
       }
     ],
     "primary": {
-      "type": "github",
-      "href": "https://github.com/paradedb/paradedb"
+      "type": "button",
+      "label": "Sign Up",
+      "href": "https://auth.paradedb.com/sign-up"
     }
   },
   "contextual": {
@@ -595,8 +609,9 @@
   "footer": {
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
-      "slack": "https://paradedb.com/slack",
-      "twitter": "https://x.com/paradedb"
+      "twitter": "https://x.com/paradedb",
+      "linkedin": "https://www.linkedin.com/company/paradedb",
+      "slack": "https://paradedb.com/slack"
     }
   },
   "integrations": {

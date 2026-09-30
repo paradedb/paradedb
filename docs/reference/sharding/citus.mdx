@@ -1,7 +1,7 @@
 ---
 title: Using ParadeDB with Citus
 description: Distributed full-text search with Citus and ParadeDB
-canonical: https://www.paradedb.com/docs/operate/deploy/citus
+canonical: https://www.paradedb.com/docs/reference/sharding/citus
 ---
 
 [Citus](https://github.com/citusdata/citus) transforms Postgres into a distributed database with horizontal sharding. ParadeDB is fully compatible with Citus, enabling distributed full-text search across sharded tables.
@@ -25,7 +25,7 @@ apt-get install -y postgresql-18-citus-14.1
 # Add both extensions to shared_preload_libraries
 sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" /var/lib/postgresql/data/postgresql.conf
 
-# Restart PostgreSQL
+# Restart Postgres
 # Then create extensions in your database
 ```
 
@@ -90,7 +90,7 @@ ORDER BY id;
 --   3 | Full-Text Search
 ```
 
-### Verify Distributed Execution
+### Verifying Distributed Execution
 
 You can verify that both ParadeDB and Citus are working together by examining the query plan:
 
@@ -157,7 +157,7 @@ ORDER BY a.name;
 --  Bob   | Full-Text Search
 ```
 
-### Verify Distributed JOIN Execution
+### Verifying Distributed JOIN Execution
 
 Check the execution plan for distributed JOINs with search:
 

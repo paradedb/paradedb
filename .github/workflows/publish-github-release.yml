@@ -124,25 +124,6 @@ jobs:
         if: github.repository == 'paradedb/paradedb'
         uses: DeterminateSystems/determinate-nix-action@main
 
-      - name: Assemble Release Artifacts
-        if: github.repository == 'paradedb/paradedb'
-        env:
-          INPUTS_BETA: ${{ github.event.inputs.beta }}
-          INPUTS_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          FLAGS=""
-          if [[ "${INPUTS_BETA}" == "true" ]]; then
-            FLAGS="--preserve-fragments --beta"
-          fi
-          ./scripts/release.sh all "${INPUTS_VERSION}" $FLAGS
-
-      - name: Update Cargo Version, Lockfile, and Nix Hash
-        if: github.repository == 'paradedb/paradedb'
-        env:
-          INPUTS_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          ./scripts/release.sh set-version "${INPUTS_VERSION}"
-
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:
@@ -156,6 +137,29 @@ jobs:
           IS_LATEST=$(./scripts/release.sh is-latest "${INPUTS_VERSION}" $FLAGS)
           echo "is_latest=${IS_LATEST}"
           echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
+
+      - name: Assemble Release Artifacts
+        if: github.repository == 'paradedb/paradedb'
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
+          IS_BETA: ${{ github.event.inputs.beta }}
+          IS_LATEST: ${{ steps.release_latest.outputs.is_latest }}
+        run: |
+          FLAGS=(--no-is-latest)
+          if [[ "$IS_LATEST" == "true" ]]; then
+            FLAGS=(--is-latest)
+          fi
+          if [[ "$IS_BETA" == "true" ]]; then
+            FLAGS+=(--preserve-fragments --beta)
+          fi
+          ./scripts/release.sh all "$RELEASE_VERSION" "${FLAGS[@]}"
+
+      - name: Update Cargo Version, Lockfile, and Nix Hash
+        if: github.repository == 'paradedb/paradedb'
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          ./scripts/release.sh set-version "${INPUTS_VERSION}"
 
       - name: Prepare Approval Details
         if: github.event.inputs.beta != 'true'

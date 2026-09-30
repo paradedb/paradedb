@@ -1,13 +1,13 @@
 ---
-title: Connect Your App
-sidebarTitle: Connect Your App
-description: Connect your preferred SQL or application tool to ParadeDB
-canonical: https://www.paradedb.com/docs/start/connect-your-app
+title: Configure Your Environment
+sidebarTitle: Configure Your Environment
+description: Connect your preferred SQL client or ORM to ParadeDB
+canonical: https://www.paradedb.com/docs/start/configure-your-environment
 ---
 
-Connect your preferred SQL or application tool to the ParadeDB database you
+Connect your preferred SQL client or ORM to the ParadeDB database you
 started in the previous step. This page creates the `mock_items` demo table used
-by the rest of the Start tutorial.
+by the rest of the tutorial.
 
 <Note>
   The next page creates the ParadeDB index. Keep the database, project, shell,
@@ -79,7 +79,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const client = postgres(
-  "postgres://myuser:mypassword@localhost:5432/mydatabase",
+  "postgres://postgres:<PASSWORD>@localhost:5432/paradedb",
 );
 export const db = drizzle({ client });
 
@@ -161,9 +161,9 @@ INSTALLED_APPS = [
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "mydatabase",
-        "USER": "myuser",
-        "PASSWORD": "mypassword",
+        "NAME": "paradedb",
+        "USER": "postgres",
+        "PASSWORD": "<PASSWORD>",
         "HOST": "localhost",
         "PORT": "5432",
     }
@@ -245,7 +245,7 @@ alembic init migrations
 Then update the Alembic configuration to point to your database:
 
 ```ini alembic.ini
-sqlalchemy.url = postgresql+psycopg://myuser:mypassword@localhost:5432/mydatabase
+sqlalchemy.url = postgresql+psycopg://postgres:<PASSWORD>@localhost:5432/paradedb
 ```
 
 ParadeDB comes with a built-in test table that we'll run our queries against. Create a `models.py` file with a model for that table:
@@ -392,7 +392,7 @@ Finally, run `python` and execute the following:
 ```python
 from models import MockItem
 from sqlalchemy import create_engine
-engine = create_engine('postgresql+psycopg://myuser:mypassword@localhost:5432/mydatabase')
+engine = create_engine('postgresql+psycopg://postgres:<PASSWORD>@localhost:5432/paradedb')
 ```
 
 You're connected. Next, [create your first
@@ -426,9 +426,9 @@ Update `config/database.yml` to point to your ParadeDB database:
 development:
   adapter: postgresql
   encoding: unicode
-  database: mydatabase
-  username: myuser
-  password: mypassword
+  database: paradedb
+  username: postgres
+  password: <PASSWORD>
   host: localhost
   port: 5432
 ```
@@ -565,7 +565,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<MockItem> MockItems => Set<MockItem>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder options) =>
-        options.UseNpgsql("Host=localhost;Port=5432;Database=mydatabase;Username=myuser;Password=mypassword", npgsql => npgsql.UseParadeDb());
+        options.UseNpgsql("Host=localhost;Port=5432;Database=paradedb;Username=postgres;Password=<PASSWORD>", npgsql => npgsql.UseParadeDb());
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

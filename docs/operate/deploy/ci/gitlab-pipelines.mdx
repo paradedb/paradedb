@@ -1,13 +1,13 @@
 ---
-title: GitLab CI
-description: How to run ParadeDB in GitLab CI
-canonical: https://www.paradedb.com/docs/operate/deploy/ci/gitlab-ci
+title: GitLab Pipelines
+description: Run ParadeDB in GitLab Pipelines
+canonical: https://www.paradedb.com/docs/operate/deploy/ci/gitlab-pipelines
 ---
 
-## Sample GitLab CI Workflow
+## Sample GitLab Pipeline
 
 ```yaml
-paradedb-in-gitlab-ci:
+paradedb-in-gitlab-pipelines:
   # The list of available tags can be found at https://hub.docker.com/r/paradedb/paradedb/tags
   image: paradedb/paradedb:latest
   services:
@@ -21,5 +21,6 @@ paradedb-in-gitlab-ci:
     - psql -h "paradedb" -U testuser -d testdb -c "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
     - psql -h "paradedb" -U testuser -d testdb -c "SELECT description, rating, category FROM mock_items LIMIT 3;"
     - psql -h "paradedb" -U testuser -d testdb -c "CREATE INDEX search_idx ON mock_items USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range) WITH (key_field='id');"
-    - psql -h "paradedb" -U testuser -d testdb -c "SELECT description, rating, category FROM mock_items WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2' ORDER BY description LIMIT 5;"
+    - psql -h "paradedb" -U testuser -d testdb -c "SELECT description, rating, category FROM mock_items WHERE description ||| 'running shoes' AND rating > 2 ORDER BY rating LIMIT 5;"
+    - psql -h "paradedb" -U testuser -d testdb -c "SELECT description, rating, category FROM mock_items WHERE description &&& 'running shoes' AND rating > 2 ORDER BY rating LIMIT 5;"
 ```

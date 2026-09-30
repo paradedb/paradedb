@@ -6,7 +6,7 @@ canonical: https://www.paradedb.com/docs/reference/indexing/create-index
 
 Before a table can be queried by ParadeDB, it must be indexed. ParadeDB uses a
 custom index type called the [ParadeDB
-index](/concepts/how-the-paradedb-index-works).
+index](/concepts/architecture#custom-index).
 The following code block creates a ParadeDB index over several columns in the `mock_items` table.
 
 <CodeGroup>
@@ -94,8 +94,8 @@ modelBuilder.Entity<MockItem>()
 </Note>
 
 <Note>
-  See the [Getting Started guide](/start/connect-your-app) for more detail on
-  how to set up your ORM to run index creation commands.
+  See the [Getting Started guide](/start/configure-your-environment) for more
+  detail on how to set up your ORM to run index creation commands.
 </Note>
 
 <Note>
@@ -336,7 +336,7 @@ separate indexing pages cover cases that need extra configuration, such as
 JSON, arrays, composite fields, expressions, vectors, and text fields that need
 columnar storage.
 
-## Track Create Index Progress
+## Tracking Create Index Progress
 
 To monitor the progress of a long-running `CREATE INDEX`, open a separate Postgres connection and query `pg_stat_progress_create_index`:
 

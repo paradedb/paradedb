@@ -4,7 +4,9 @@ description: "ParadeDB release notes for 0.23.0"
 noindex: true
 ---
 
-## New Features 🎉
+See GitHub release: [v0.23.0](https://github.com/paradedb/paradedb/releases/tag/v0.23.0)
+
+## New Features ✨
 
 - Aggregate-on-JOIN support: a full pipeline for running aggregates over join results, including:
   - 3+ table join support and `DISTINCT` aggregates in AggregateScan.
@@ -39,5 +41,3 @@ noindex: true
 - Fix boolean comparison edge cases.
 - Allow unaliased, tokenized index fields to be selected by name when the same column is indexed multiple times.
 - Support `varchar`, `text[]`, and `citext` parameters in operators with generic plans.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.23.0).

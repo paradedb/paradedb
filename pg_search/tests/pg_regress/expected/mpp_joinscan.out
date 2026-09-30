@@ -353,10 +353,10 @@ LIMIT 10;
 (10 rows)
 
 -- =====================================================================
--- Pass 6: outer joins keep the shuffle path
+-- Pass 6: outer joins
 --
--- The co-partitioned range flip applies to inner joins only. A LEFT JOIN
--- must keep the shuffle-based shape and stay correct under MPP.
+-- A LEFT JOIN on the partition keys is co-partitioned like an inner join and
+-- runs task-locally. On any other key it shuffles, and must stay correct.
 -- =====================================================================
 SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -417,61 +417,70 @@ LIMIT 10;
 
 -- With the fetch in the scan, only the decode sits above the shuffle. Its worker
 -- has no scan of `f` in its stage, so it rebuilds the dictionary reader itself.
+-- `p.id` is not the partition key, so this join shuffles.
 SET paradedb.defer_column_fetch TO off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
-FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.id
 WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.title, p.size_bytes
    Relation Tree: f LEFT p
-   Join Cond: f.id = p.file_id
+   Join Cond: f.id = p.id
    Limit: 10
    Order By: f.title asc, p.size_bytes asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
      : │ ProjectionExec: expr=[title@1 as col_1, size_bytes@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      : │   SortPreservingMergeExec: [title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], fetch=10
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : │     [Stage 3] => NetworkCoalesceExec: output_partitions=12, input_tasks=3
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 3 ── tasks=3, partitions=4
      :   │ LocalLimitExec: fetch=10
      :   │   TantivyDecodeExec: decode=[title]
      :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10
      :   │       VisibilityFilterExec: tables=[f]
-     :   │         HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
-     :   │           DistributedLeafExec:
-     :   │             t0: PgSearchScan: table=f, segments={partial=1, included=1, pruned=1}, partition=id[-∞..68), fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │             t1: PgSearchScan: table=f, segments={partial=1, included=0, pruned=2}, partition=id[68..134), fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │             t2: PgSearchScan: table=f, segments={partial=0, included=1, pruned=2}, partition=id[134..∞), fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │           DistributedLeafExec:
-     :   │             t0: PgSearchScan: table=p, segments={partial=0, included=1, pruned=2}, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
-     :   │             t1: PgSearchScan: table=p, segments={partial=0, included=1, pruned=2}, partition=file_id[68..134), dynamic_filters=1, visibility=eager, query="all"
-     :   │             t2: PgSearchScan: table=p, segments={partial=0, included=1, pruned=2}, partition=file_id[134..∞), dynamic_filters=1, visibility=eager, query="all"
+     :   │         HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
+     :   │           [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=3
+     :   │           [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=3
      :   └──────────────────────────────────────────────────
-(27 rows)
+     :     ┌───── Stage 1 ── tasks=3, partitions=12
+     :     │ RepartitionExec: partitioning=Hash([id@1], 12), input_partitions=1
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=f, segments=3, fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │     t1: PgSearchScan: table=f, segments=3, fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │     t2: PgSearchScan: table=f, segments=3, fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── tasks=3, partitions=12
+     :     │ RepartitionExec: partitioning=Hash([id@1], 12), input_partitions=1
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=p, segments=3, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t1: PgSearchScan: table=p, segments=3, dynamic_filters=1, visibility=eager, query="all"
+     :     │     t2: PgSearchScan: table=p, segments=3, dynamic_filters=1, visibility=eager, query="all"
+     :     └──────────────────────────────────────────────────
+(35 rows)
 
 SELECT f.title, p.size_bytes
-FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.id
 WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-  title  | size_bytes 
----------+------------
- file-1  |        616
- file-1  |       1312
- file-1  |       2008
- file-1  |       2704
- file-1  |       3400
- file-10 |        153
- file-10 |       1465
- file-10 |       2161
- file-10 |       2857
- file-10 |       3553
+  title   | size_bytes 
+----------+------------
+ file-1   |         17
+ file-10  |        170
+ file-100 |       1700
+ file-101 |       1717
+ file-102 |       1734
+ file-103 |       1751
+ file-104 |       1768
+ file-105 |       1785
+ file-106 |       1802
+ file-107 |       1819
 (10 rows)
 
 RESET paradedb.defer_column_fetch;

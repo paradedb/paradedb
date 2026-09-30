@@ -13,7 +13,7 @@
 -- 5. Asymmetric join where the smaller table is NOT stamped to avoid shuffling the larger table.
 -- 6. Asymmetric join with split points > workers (down-sampling).
 -- 7. Two-table range co-partitioned SEMI join (IN subquery).
--- 8. Co-partitioned SEMI, ANTI, outer and MARK joins run task-locally like inner joins.
+-- 8. Co-partitioned SEMI, ANTI, outer, FULL and MARK joins run task-locally like inner joins.
 -- 9. A null-aware anti join (NOT IN) keeps its broadcast: one NULL key empties the result.
 --
 -- Note on hash_join_single_partition_threshold[_rows] GUCs:
@@ -429,7 +429,7 @@ ORDER BY p.post_id
 LIMIT 5;
 
 -- =====================================================================
--- Scenario 8: Co-partitioned SEMI, ANTI, outer and MARK joins
+-- Scenario 8: Co-partitioned SEMI, ANTI, outer, FULL and MARK joins
 --
 -- Whether a row matches or has no match is decided within its own user_id
 -- range, so each join type runs mode=Partitioned with no broadcast, and
@@ -489,6 +489,22 @@ LEFT JOIN mpp_rp_users u ON u.user_id = p.user_id AND u.user_id < 20
 WHERE p.title @@@ 'post'
 ORDER BY p.post_id
 LIMIT 5;
+
+-- FULL OUTER JOIN (unmatched users sort first)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.post_id, u.user_id
+FROM (SELECT * FROM mpp_rp_posts WHERE title @@@ 'post' AND post_id <= 20) p
+FULL JOIN (SELECT * FROM mpp_rp_users WHERE id @@@ pdb.all() AND user_id < 10) u
+    ON u.user_id = p.user_id
+ORDER BY p.post_id NULLS FIRST, u.user_id
+LIMIT 12;
+
+SELECT p.post_id, u.user_id
+FROM (SELECT * FROM mpp_rp_posts WHERE title @@@ 'post' AND post_id <= 20) p
+FULL JOIN (SELECT * FROM mpp_rp_users WHERE id @@@ pdb.all() AND user_id < 10) u
+    ON u.user_id = p.user_id
+ORDER BY p.post_id NULLS FIRST, u.user_id
+LIMIT 12;
 
 -- MARK (IN under OR)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

@@ -13,7 +13,7 @@
 -- 5. Asymmetric join where the smaller table is NOT stamped to avoid shuffling the larger table.
 -- 6. Asymmetric join with split points > workers (down-sampling).
 -- 7. Two-table range co-partitioned SEMI join (IN subquery).
--- 8. Co-partitioned SEMI, ANTI, outer and MARK joins run task-locally like inner joins.
+-- 8. Co-partitioned SEMI, ANTI, outer, FULL and MARK joins run task-locally like inner joins.
 -- 9. A null-aware anti join (NOT IN) keeps its broadcast: one NULL key empties the result.
 --
 -- Note on hash_join_single_partition_threshold[_rows] GUCs:
@@ -669,7 +669,7 @@ LIMIT 5;
 (0 rows)
 
 -- =====================================================================
--- Scenario 8: Co-partitioned SEMI, ANTI, outer and MARK joins
+-- Scenario 8: Co-partitioned SEMI, ANTI, outer, FULL and MARK joins
 --
 -- Whether a row matches or has no match is decided within its own user_id
 -- range, so each join type runs mode=Partitioned with no broadcast, and
@@ -830,6 +830,62 @@ LIMIT 5;
        4 |        
        5 |        
 (5 rows)
+
+-- FULL OUTER JOIN (unmatched users sort first)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.post_id, u.user_id
+FROM (SELECT * FROM mpp_rp_posts WHERE title @@@ 'post' AND post_id <= 20) p
+FULL JOIN (SELECT * FROM mpp_rp_users WHERE id @@@ pdb.all() AND user_id < 10) u
+    ON u.user_id = p.user_id
+ORDER BY p.post_id NULLS FIRST, u.user_id
+LIMIT 12;
+                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: mpp_rp_posts.post_id, mpp_rp_users.user_id
+   Relation Tree: mpp_rp_posts FULL mpp_rp_users
+   Join Cond: mpp_rp_users.user_id = mpp_rp_posts.user_id
+   Limit: 12
+   Order By: mpp_rp_posts.post_id asc nulls first, mpp_rp_users.user_id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[post_id@1 as col_1, user_id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [post_id@1 ASC, user_id@3 ASC NULLS LAST], fetch=12
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=2, partitions=2
+     :   │ SortExec: TopK(fetch=12), expr=[post_id@1 ASC, user_id@3 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   HashJoinExec: mode=Partitioned, join_type=Full, on=[(user_id@1, user_id@1)], projection=[ctid_0@2, post_id@4, ctid_1@0, user_id@1]
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=mpp_rp_users, segments={partial=0, included=1, pruned=2}, partition=user_id[-∞..34), visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"user_id","lower_bound":null,"upper_bound":{"excluded":10}}}]}}
+     :   │       t1: PgSearchScan: table=mpp_rp_users, segments={partial=0, included=2, pruned=1}, partition=user_id[34..∞), visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"user_id","lower_bound":null,"upper_bound":{"excluded":10}}}]}}
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=mpp_rp_posts, segments={partial=0, included=1, pruned=2}, partition=user_id[-∞..34), visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"post_id","lower_bound":null,"upper_bound":{"included":20}}}]}}
+     :   │       t1: PgSearchScan: table=mpp_rp_posts, segments={partial=0, included=2, pruned=1}, partition=user_id[34..∞), visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"post_id","lower_bound":null,"upper_bound":{"included":20}}}]}}
+     :   └──────────────────────────────────────────────────
+(22 rows)
+
+SELECT p.post_id, u.user_id
+FROM (SELECT * FROM mpp_rp_posts WHERE title @@@ 'post' AND post_id <= 20) p
+FULL JOIN (SELECT * FROM mpp_rp_users WHERE id @@@ pdb.all() AND user_id < 10) u
+    ON u.user_id = p.user_id
+ORDER BY p.post_id NULLS FIRST, u.user_id
+LIMIT 12;
+ post_id | user_id 
+---------+---------
+         |       1
+         |       2
+         |       3
+         |       4
+         |       5
+         |       7
+         |       9
+       1 |       8
+       2 |        
+       3 |        
+       4 |        
+       5 |        
+(12 rows)
 
 -- MARK (IN under OR)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

@@ -70,6 +70,9 @@ pub struct Scope {
     before: i64,
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body only reads the
+// `pgBufferUsage` global and updates a Rust side trace behind a `parking_lot` lock, neither of
+// which can raise, and it has to run on a panic too or `depth` never comes back down.
 impl Drop for Scope {
     fn drop(&mut self) {
         let mut data = self.trace.0.lock();
@@ -87,6 +90,8 @@ pub struct External {
     name: &'static str,
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body, like `Scope`'s, only
+// reads `pgBufferUsage` and attributes the difference on the trace.
 impl Drop for External {
     fn drop(&mut self) {
         let mut data = self.trace.0.lock();
@@ -107,6 +112,8 @@ pub struct ScanInitGuard {
     before: (i64, i64),
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body, like `Scope`'s, only
+// reads `pgBufferUsage` and records the scan init stage on the trace.
 impl Drop for ScanInitGuard {
     fn drop(&mut self) {
         let after = snapshot();

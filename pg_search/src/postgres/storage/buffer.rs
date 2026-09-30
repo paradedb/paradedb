@@ -1066,6 +1066,8 @@ impl BufferManager {
             active: bool,
         }
 
+        // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the guard exists to run
+        // while an ERROR unwinds, and its body is only tracker bookkeeping.
         impl Drop for InFlightCleanupGuard {
             fn drop(&mut self) {
                 if self.active {

@@ -1645,7 +1645,7 @@ impl SearchQueryInput {
                     index_oid,
                 )?;
                 Ok(builder.build_leaf(
-                    Box::new(query),
+                    query,
                     || format!("FieldedQuery (field: {})", field),
                     cloned_for_estimate,
                 ))

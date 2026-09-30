@@ -1881,19 +1881,26 @@ impl SearchIndexReader {
             }
         }
         let largest_reader = self.searcher.segment_reader(0);
-        let weight = self.weight();
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("counting docs in the largest segment should not fail");
-
-        // investigate the size_hint.  it will often give us a good enough value
-        let mut count = scorer.size_hint() as usize;
-        let mut cost = scorer.cost();
-        if count == 0 {
-            // but when it doesn't, we need to do a full count
-            count = scorer.count_including_deleted() as usize;
-            cost = cost.max(count as u64);
-        }
+        let (count, mut cost) = match self
+            .query
+            .estimate_docs(largest_reader)
+            .expect("estimating docs from metadata should not fail")
+        {
+            Some(estimate) => estimate,
+            None => {
+                let weight = self.weight();
+                let mut scorer = weight
+                    .scorer(largest_reader, 1.0)
+                    .expect("counting docs in the largest segment should not fail");
+                let mut count = scorer.size_hint();
+                let mut cost = scorer.cost();
+                if count == 0 {
+                    count = scorer.count_including_deleted();
+                    cost = cost.max(u64::from(count));
+                }
+                (count, cost)
+            }
+        };
         if let Some(shortest_posting_list) = self.shortest_posting_list(largest_reader) {
             cost = cost.max(shortest_posting_list);
         }
@@ -2064,18 +2071,26 @@ impl SearchIndexReader {
             )
             .expect("converting query for estimation should not fail");
 
-        let weight = tantivy_query
-            .weight(enable_scoring(node.query.need_scores(), &self.searcher))
-            .expect("creating weight for estimation should not fail");
-
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("creating scorer for estimation should not fail");
-
-        let mut count = scorer.size_hint() as usize;
-        if count == 0 {
-            count = scorer.count_including_deleted() as usize;
-        }
+        let count = match tantivy_query
+            .estimate_docs(largest_reader)
+            .expect("estimating docs from metadata should not fail")
+        {
+            Some((count, _)) => count,
+            None => {
+                let weight = tantivy_query
+                    .weight(enable_scoring(node.query.need_scores(), &self.searcher))
+                    .expect("creating weight for estimation should not fail");
+                let mut scorer = weight
+                    .scorer(largest_reader, 1.0)
+                    .expect("creating scorer for estimation should not fail");
+                let count = scorer.size_hint();
+                if count == 0 {
+                    scorer.count_including_deleted()
+                } else {
+                    count
+                }
+            }
+        };
 
         let estimated =
             scale_largest_segment_estimate(count as u64, segment_doc_proportion) as usize;
@@ -2374,6 +2389,145 @@ mod tests {
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
     };
+
+    #[pg_test]
+    fn planner_metadata_estimates_preserve_zero_and_scorer_fallback() {
+        #[derive(Clone, Debug)]
+        struct MetadataOnly(Arc<dyn Query>);
+
+        impl Query for MetadataOnly {
+            fn weight(&self, _: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+                panic!("metadata estimates must not construct a weight")
+            }
+
+            fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<(u32, u64)>> {
+                self.0.estimate_docs(reader)
+            }
+        }
+
+        Spi::run(
+            "CREATE TABLE planner_metadata (id bigint PRIMARY KEY, title text);
+             CREATE INDEX planner_metadata_idx ON planner_metadata
+             USING paradedb (id, (title::pdb.unicode_words))
+             WITH (target_segment_count = 1, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO planner_metadata
+             SELECT g, 'all' ||
+                 CASE WHEN g <= 600 THEN ' common' ELSE '' END ||
+                 CASE WHEN g <= 100 THEN ' rare' ELSE '' END ||
+                 CASE WHEN g = 1 THEN ' singleton unique' ELSE '' END
+             FROM generate_series(1, 1000) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        let index_rel = open_index("planner_metadata_idx");
+        let conjunction = SearchQueryInput::Boolean {
+            must: vec![
+                term_query("title", "singleton"),
+                term_query("title", "unique"),
+            ],
+            should: vec![],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+        let disjunction = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![term_query("title", "common"), term_query("title", "rare")],
+            must_not: vec![],
+            minimum_should_match: Some(1),
+        };
+        for (query, count, cost) in [
+            (term_query("title", "common"), 600, 600),
+            (term_query("title", "absent"), 0, 0),
+            (conjunction.clone(), 0, 1),
+            (disjunction, 522, 700),
+            (SearchQueryInput::All, 1000, 1000),
+            (SearchQueryInput::Empty, 0, 0),
+            (
+                SearchQueryInput::Boost {
+                    query: Box::new(term_query("title", "rare")),
+                    factor: 2.0,
+                },
+                100,
+                100,
+            ),
+            (
+                SearchQueryInput::ConstScore {
+                    query: Box::new(term_query("title", "rare")),
+                    score: 3.0,
+                },
+                100,
+                100,
+            ),
+        ] {
+            let mut reader = SearchIndexReader::open(
+                &index_rel,
+                query.clone(),
+                false,
+                MvccSatisfies::LargestSegment,
+            )
+            .unwrap();
+            let tree = reader.build_query_tree_with_estimates(query).unwrap();
+            assert_eq!(tree.estimated_docs, Some(count), "{:?}", tree.query);
+            reader.query = Box::new(MetadataOnly(reader.query.into()));
+            for (total, scale) in [
+                (RowEstimate::Unknown, 1),
+                (RowEstimate::Known(0), 1),
+                (RowEstimate::Known(2000), 2),
+            ] {
+                let estimate = reader.estimate_docs(total);
+                assert_eq!(estimate.matching_docs, count * scale);
+                assert_eq!(estimate.query_cost, cost * scale as u64);
+                assert_eq!(estimate.total_docs, 1000 * scale as u64);
+            }
+        }
+        assert_eq!(
+            open_snapshot_reader(&index_rel, conjunction, false)
+                .search()
+                .count(),
+            1
+        );
+
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT count(*) FROM planner_metadata WHERE title @@@ 'singleton AND unique'"
+            )
+            .unwrap(),
+            Some(1)
+        );
+
+        let phrase = SearchQueryInput::FieldedQuery {
+            field: FieldName::from("title"),
+            query: pdb::Query::Phrase {
+                phrases: vec!["singleton".into(), "unique".into()],
+                slop: None,
+            },
+        };
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            phrase.clone(),
+            false,
+            MvccSatisfies::LargestSegment,
+        )
+        .unwrap();
+        assert_eq!(
+            reader
+                .query
+                .estimate_docs(reader.searcher.segment_reader(0))
+                .unwrap(),
+            None
+        );
+        let estimate = reader.estimate_docs(RowEstimate::Unknown);
+        assert_eq!(estimate.matching_docs, 1);
+        assert!(estimate.query_cost >= 1);
+        assert_eq!(
+            reader
+                .build_query_tree_with_estimates(phrase)
+                .unwrap()
+                .estimated_docs,
+            Some(1)
+        );
+    }
 
     #[pg_test]
     fn collect_ctidset_rebinds_visibility_to_each_reader() {

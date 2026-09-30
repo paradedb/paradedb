@@ -89,6 +89,15 @@ pub(super) fn plan_partition_boundaries(
     if target_partitions <= 1 {
         return Ok(Some(KdTree::unpartitioned(partition_by)));
     }
+    // The range counts say how many partitions the layout needs. A target the index was given
+    // was checked to afford them; the default target is the host's core count, so the counts
+    // take over from it, and a rebuild on a smaller host keeps the layout.
+    let target_partitions = if indexrel.options().explicit_target_segment_count().is_some() {
+        target_partitions
+    } else {
+        let counted: usize = ranges.iter().flatten().product();
+        target_partitions.max(counted)
+    };
 
     let sample = unsafe { sample_partition_fields(heaprel, indexrel, snapshot, &partition_by)? };
     pgrx::debug1!(

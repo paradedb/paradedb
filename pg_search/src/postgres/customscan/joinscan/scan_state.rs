@@ -51,7 +51,6 @@ use super::window_func::{
     SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
-use crate::gucs;
 use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::datafusion::topk_agg::{TOPK_AGG_ROWS_COL_NAME, topk_as_agg};
@@ -879,10 +878,7 @@ fn build_clause_df<'a>(
         // sort is still necessary.
         //
         // When disabled, use apply_distinct_group_by
-        let (df, distinct_col_map) = if gucs::joinscan_force_topk_as_agg()
-            // The Top-K aggregate needs a known k
-            && let Some(k) = join_clause.limit_offset.as_ref().and_then(|lo| lo.static_fetch())
-        {
+        let (df, distinct_col_map) = if let Some(k) = join_clause.k_when_computing_topk_as_agg() {
             apply_topk_as_agg(df, join_clause, &private_data.output_columns, k)?
         } else {
             apply_distinct_group_by(df, join_clause, &private_data.output_columns)?

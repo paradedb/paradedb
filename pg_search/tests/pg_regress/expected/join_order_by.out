@@ -603,6 +603,37 @@ LIMIT 10;
 (10 rows)
 
 -- =============================================================================
+-- TEST 5b: Top K dynamic score filter pushdown
+-- ORDER BY score DESC on the probe side allows Top K to tighten its score
+-- threshold after the first batch and push it into the scanner (dynamic_filter_pushdown_score=1).
+-- =============================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.id, t2.id, paradedb.score(t2.id)
+FROM dyn_filter_t1 t1
+JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+  AND t2.val ||| 'val'
+ORDER BY paradedb.score(t2.id) DESC, t2.id
+LIMIT 10;
+                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: t1 INNER t2
+   Join Cond: t1.id = t2.t1_id
+   Limit: 10
+   Order By: pdb.score() desc, t2.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, pdb.score()@2 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=10, output_bytes=360.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[pdb.score()@2 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false], filter=[pdb.score()@2 IS NULL OR pdb.score()@2 > 0.000025033638 OR pdb.score()@2 = 0.000025033638 AND id@4 < 10], metrics=[output_rows=10, output_bytes=360.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=8.19 K, output_bytes=288.0 KB, output_batches=1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@2)], projection=[ctid_0@0, id@1, pdb.score()@2, ctid_1@3, id@5], metrics=[output_rows=8.19 K, output_bytes=288.0 KB, output_batches=1, build_mem_used=390.6 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.19 K, avg_fanout=100% (8.19 K/8.19 K), probe_hit_rate=100% (8.19 K/8.19 K)]
+     :         CooperativeExec
+     :           PgSearchScan: table=t1, segments=2, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
+     :         CooperativeExec
+     :           PgSearchScan: table=t2, segments=2, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=8.19 K, output_bytes=224.0 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, dynamic_filter_pushdown_score=1, rows_pruned=11.81 K, rows_scanned=20.00 K]
+(14 rows)
+
+-- =============================================================================
 -- TEST 6: Top K dynamic filter does not prune NULLs
 -- Top K emits "col IS NULL OR col < threshold". Rows with NULL in the ORDER BY
 -- column must survive the pre-filter (nulls_pass=true) and be returned when

@@ -63,7 +63,7 @@ use tantivy::collector::sort_key::{
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
@@ -1248,8 +1248,11 @@ impl SearchIndexReader {
             self.need_scores,
             self.searcher.clone(),
         ));
-        let constrained_weight =
-            Arc::new(unconstrained_weight.and_query(self.make_query(partition_bounds, None)));
+        let range_query = Box::new(ConstScoreQuery::new(
+            self.make_query(partition_bounds, None),
+            0.0,
+        ));
+        let constrained_weight = Arc::new(unconstrained_weight.and_query(range_query));
         let mut iterators = Vec::new();
         for (segment_ord, segment_reader) in self.segment_readers_in_segments(included) {
             iterators.push(ScorerIter::new(
@@ -2753,19 +2756,22 @@ mod tests {
                 "{query:?}, {bounds:?}"
             );
 
-            let exact = scored_hits(reader.and_query_input(&bounds).search());
+            let make_bounds_query =
+                || Box::new(ConstScoreQuery::new(reader.make_query(&bounds, None), 0.0));
+            let exact = scored_hits(reader.and_query(make_bounds_query()).search());
             let is_all = matches!(query, SearchQueryInput::All);
             if is_all {
                 assert_eq!(exact.len(), expected_all, "{bounds:?}");
             }
-            // Preserve the existing per-group queries, including their exact score
-            // contributions. Applying the range to every segment is not the score oracle.
+            // Partition bounds are wrapped in ConstScoreQuery(..., 0.0) so they do not
+            // alter scores. Applying the range across all segments or per group matches
+            // the per-partition search.
             let per_group = scored_hits(
                 reader
                     .search_segments(segments.included.iter().copied())
                     .chain(
                         reader
-                            .and_query_input(&bounds)
+                            .and_query(make_bounds_query())
                             .search_segments(segments.partially_included.iter().copied()),
                     ),
             );
@@ -2779,9 +2785,7 @@ mod tests {
             assert_eq!(calls.load(Relaxed), 0, "preparation must remain lazy");
             let actual = scored_hits(scan);
             assert_eq!(actual.len(), exact.len(), "{query:?}, {bounds:?}");
-            if is_all && scoring {
-                assert_eq!(actual, exact, "{bounds:?}");
-            }
+            assert_eq!(actual, exact, "{query:?}, scoring={scoring}, {bounds:?}");
             assert_eq!(
                 actual, per_group,
                 "{query:?}, scoring={scoring}, {bounds:?}"

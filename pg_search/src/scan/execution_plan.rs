@@ -1342,6 +1342,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             }
 
             let mut pushdown_metric_recorded = false;
+            let mut score_pushdown_metric_recorded = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let (pre_filters, score_threshold) =
@@ -1382,6 +1383,13 @@ impl ExecutionPlan for PgSearchScanPlan {
                     }
                 }
 
+                if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
+                    MetricBuilder::new(&plan_metrics)
+                        .counter("dynamic_filter_pushdown_score", target_partition)
+                        .add(1);
+                    score_pushdown_metric_recorded = true;
+                }
+
                 match next_batch {
                     Some(batch) => {
                         let record_batch = batch.to_record_batch(&schema);
@@ -1399,6 +1407,11 @@ impl ExecutionPlan for PgSearchScanPlan {
                             };
                             MetricBuilder::new(&plan_metrics)
                                 .counter(metric_name, target_partition)
+                                .add(1);
+                        }
+                        if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
+                            MetricBuilder::new(&plan_metrics)
+                                .counter("dynamic_filter_pushdown_score", target_partition)
                                 .add(1);
                         }
                         // Flush pre-materialization filter stats from Scanner.

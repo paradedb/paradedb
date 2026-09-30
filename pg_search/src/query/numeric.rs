@@ -223,9 +223,10 @@ pub fn locate_on_grid(numeric_str: &str, scale: i16) -> Result<GridPosition> {
     }
 
     // value == digits * 10^(exponent - frac_len), and we want floor(value * 10^scale),
-    // which is floor(digits * 10^shift) for the shift below.
+    // which is floor(digits * 10^shift) for the shift below. It is computed in i64, so that
+    // no exponent a literal can carry overflows it.
     let digits_str = format!("{int_part}{frac_part}");
-    let shift = exponent - (frac_part.len() as i32) + (scale as i32);
+    let shift = i64::from(exponent) - frac_part.len() as i64 + i64::from(scale);
 
     let overflow = || {
         anyhow::anyhow!(
@@ -235,40 +236,49 @@ pub fn locate_on_grid(numeric_str: &str, scale: i16) -> Result<GridPosition> {
         )
     };
 
-    let mut digits: i128 = 0;
-    for b in digits_str.bytes() {
-        digits = digits
+    // Split the digits at the grid point instead of turning them all into one integer: the
+    // digits before it are the grid value, and those after it only tell whether the literal
+    // sits strictly between two grid points. Only the grid value has to fit in an integer, so
+    // a literal is located exactly however many digits it has or however small it is, where
+    // dividing by 10^-shift would overflow i128 (`1e-41` at scale 2, say).
+    let (grid_digits, fraction_digits) = if shift >= 0 {
+        (digits_str.as_str(), "")
+    } else {
+        let cut = digits_str.len() as i64 + shift;
+        if cut <= 0 {
+            ("", digits_str.as_str())
+        } else {
+            digits_str.split_at(cut as usize)
+        }
+    };
+
+    let mut grid_value: i128 = 0;
+    for b in grid_digits.bytes() {
+        grid_value = grid_value
             .checked_mul(10)
             .and_then(|d| d.checked_add((b - b'0') as i128))
             .ok_or_else(overflow)?;
     }
+    if shift > 0 && grid_value != 0 {
+        let factor = u32::try_from(shift)
+            .ok()
+            .and_then(|s| 10i128.checked_pow(s))
+            .ok_or_else(overflow)?;
+        grid_value = grid_value.checked_mul(factor).ok_or_else(overflow)?;
+    }
+    let off_grid = fraction_digits.bytes().any(|b| b != b'0');
 
-    let position = if shift >= 0 {
-        let mut scaled = digits;
-        for _ in 0..shift {
-            scaled = scaled.checked_mul(10).ok_or_else(overflow)?;
-        }
-        let signed = if negative { -scaled } else { scaled };
+    let position = if !off_grid {
+        let signed = if negative { -grid_value } else { grid_value };
         GridPosition::Exact(i64::try_from(signed).map_err(|_| overflow())?)
-    } else {
-        let mut divisor: i128 = 1;
-        for _ in 0..(-shift) {
-            divisor = divisor.checked_mul(10).ok_or_else(overflow)?;
+    } else if negative {
+        // -(grid_value + fraction) sits strictly between -(grid_value + 1) and -grid_value.
+        GridPosition::Between {
+            floor: i64::try_from(-(grid_value + 1)).map_err(|_| overflow())?,
         }
-        let quotient = digits / divisor;
-        let remainder = digits % divisor;
-        if remainder == 0 {
-            let signed = if negative { -quotient } else { quotient };
-            GridPosition::Exact(i64::try_from(signed).map_err(|_| overflow())?)
-        } else if negative {
-            // -(quotient + fraction) sits strictly between -(quotient + 1) and -quotient.
-            GridPosition::Between {
-                floor: i64::try_from(-(quotient + 1)).map_err(|_| overflow())?,
-            }
-        } else {
-            GridPosition::Between {
-                floor: i64::try_from(quotient).map_err(|_| overflow())?,
-            }
+    } else {
+        GridPosition::Between {
+            floor: i64::try_from(grid_value).map_err(|_| overflow())?,
         }
     };
 
@@ -859,6 +869,51 @@ mod tests {
     }
 
     #[test]
+    fn test_locate_on_grid_high_precision_literals() {
+        // 10^39 does not fit in i128, which used to make these fall back to rounding.
+        assert_eq!(
+            locate_on_grid("1e-41", 2).unwrap(),
+            GridPosition::Between { floor: 0 }
+        );
+        assert_eq!(
+            locate_on_grid("-1e-41", 2).unwrap(),
+            GridPosition::Between { floor: -1 }
+        );
+        assert_eq!(
+            locate_on_grid("0.0000000000000000000000000000000000000000000000001", 2).unwrap(),
+            GridPosition::Between { floor: 0 }
+        );
+        // More significant digits than an i128 holds.
+        assert_eq!(
+            locate_on_grid("1.2300000000000000000000000000000000000000000000001", 2).unwrap(),
+            GridPosition::Between { floor: 123 }
+        );
+        assert_eq!(
+            locate_on_grid("-1.2300000000000000000000000000000000000000000000001", 2).unwrap(),
+            GridPosition::Between { floor: -124 }
+        );
+        assert_eq!(
+            locate_on_grid("1.2300000000000000000000000000000000000000000000000", 2).unwrap(),
+            GridPosition::Exact(123)
+        );
+        // Any exponent, including the extremes an i32 holds.
+        assert_eq!(
+            locate_on_grid("0e-2147483648", 2).unwrap(),
+            GridPosition::Exact(0)
+        );
+        assert_eq!(
+            locate_on_grid("0e2147483647", 2).unwrap(),
+            GridPosition::Exact(0)
+        );
+        assert_eq!(
+            locate_on_grid("1e-2147483648", 2).unwrap(),
+            GridPosition::Between { floor: 0 }
+        );
+        assert!(locate_on_grid("1e2147483647", 2).is_err());
+        assert!(!literal_is_on_grid(&s("1e-41"), 2).unwrap());
+    }
+
+    #[test]
     fn test_locate_on_grid_rejects_garbage() {
         assert!(locate_on_grid("", 2).is_err());
         assert!(locate_on_grid("abc", 2).is_err());
@@ -886,6 +941,28 @@ mod tests {
         // With a negative scale even an integer can miss the grid.
         assert!(!literal_is_on_grid(&PdbOwnedValue::I64(1234), -2).unwrap());
         assert!(literal_is_on_grid(&PdbOwnedValue::I64(1200), -2).unwrap());
+    }
+
+    #[test]
+    fn test_scale_numeric_bound_below_one_step() {
+        // price > 1e-41 is price >= 0.01, and price < 1e-41 is price <= 0.00.
+        assert_eq!(
+            scale_numeric_bound(Bound::Excluded(s("1e-41")), 2, BoundSide::Lower).unwrap(),
+            Bound::Included(PdbOwnedValue::I64(1))
+        );
+        assert_eq!(
+            scale_numeric_bound(Bound::Excluded(s("1e-41")), 2, BoundSide::Upper).unwrap(),
+            Bound::Included(PdbOwnedValue::I64(0))
+        );
+        // price >= -1e-41 is price >= 0.00, and price <= -1e-41 is price <= -0.01.
+        assert_eq!(
+            scale_numeric_bound(Bound::Included(s("-1e-41")), 2, BoundSide::Lower).unwrap(),
+            Bound::Included(PdbOwnedValue::I64(0))
+        );
+        assert_eq!(
+            scale_numeric_bound(Bound::Included(s("-1e-41")), 2, BoundSide::Upper).unwrap(),
+            Bound::Included(PdbOwnedValue::I64(-1))
+        );
     }
 
     #[test]

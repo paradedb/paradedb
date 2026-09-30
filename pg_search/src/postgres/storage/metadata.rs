@@ -427,20 +427,21 @@ mod tests {
         )
     }
 
-    // Stored segment layers are independent of the field build target.
-    #[pg_test]
-    fn vector_metadata_is_independent_of_build_target() {
-        let indexrel = vector_metadata_fixture();
+    fn set_single_layer_target(indexrel: &PgSearchRelation) {
         let mut settings: serde_json::Value = serde_json::from_slice(&unsafe {
-            MetaPage::open(&indexrel).settings_bytes().read_all()
+            MetaPage::open(indexrel).settings_bytes().read_all()
         })
         .unwrap();
         settings["vector_quantization"][0]["layers"]
             .as_array_mut()
             .unwrap()
             .truncate(1);
-        let header = unsafe { LinkedBytesList::create_without_fsm(&indexrel) };
-        let mut writer = LinkedBytesList::open(&indexrel, header).writer();
+        settings["vector_quantization"][0]["grids"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|grid| grid["bits"] == 1);
+        let header = unsafe { LinkedBytesList::create_without_fsm(indexrel) };
+        let mut writer = LinkedBytesList::open(indexrel, header).writer();
         unsafe {
             writer
                 .write(&serde_json::to_vec(&settings).unwrap())
@@ -448,16 +449,73 @@ mod tests {
         }
         writer.finalize_and_write().unwrap();
         {
-            let mut bman = BufferManager::new(&indexrel);
+            let mut bman = BufferManager::new(indexrel);
             let mut buffer = bman.get_buffer_mut(METAPAGE);
             buffer
                 .page_mut()
                 .contents_mut::<MetaPageData>()
                 .settings_start = header;
         }
+    }
+
+    fn vector_query() -> String {
+        let query = vec!["1"; 1024].join(",");
+        format!(
+            "SELECT id FROM metadata_vectors WHERE id @@@ pdb.all() ORDER BY vec <-> '[{query}]'::vector LIMIT 5"
+        )
+    }
+
+    fn expect_reindex(sql: &str) {
+        Spi::run(&format!(
+            r#"DO $body$
+            DECLARE message text; hint text;
+            BEGIN
+                BEGIN
+                    EXECUTE {query};
+                    RAISE EXCEPTION 'expected vector format failure';
+                EXCEPTION WHEN feature_not_supported THEN
+                    GET STACKED DIAGNOSTICS message = MESSAGE_TEXT, hint = PG_EXCEPTION_HINT;
+                    ASSERT position('metadata_vectors_idx' in message) > 0, message;
+                    ASSERT hint = 'Rebuild index "metadata_vectors_idx" with REINDEX.', hint;
+                END;
+            END $body$;"#,
+            query = quote_literal(sql)
+        ))
+        .unwrap();
+    }
+
+    fn quote_literal(value: &str) -> String {
+        format!("'{}'", value.replace("'", "''"))
+    }
+
+    fn replace_vector_version(indexrel: &PgSearchRelation, version: u32) {
+        use crate::postgres::storage::block::{LinkedListData, SegmentMetaEntryContent};
+        let entries = unsafe { MetaPage::open(indexrel).segment_metas().list(None) };
+        let file = entries
+            .iter()
+            .find_map(|entry| match entry.content {
+                SegmentMetaEntryContent::Immutable(content) => content.vec,
+                _ => None,
+            })
+            .expect("fixture has a vector file");
+        let mut bman = BufferManager::new(indexrel);
+        let block = bman
+            .get_buffer(file.starting_block)
+            .page()
+            .contents::<LinkedListData>()
+            .start_blockno;
+        let mut buffer = bman.get_buffer_mut(block);
+        *buffer.page_mut().contents_mut::<u32>() = version.to_le();
+    }
+
+    // Stored segment layers are independent of the field build target.
+    #[pg_test]
+    fn vector_metadata_is_independent_of_build_target() {
+        let indexrel = vector_metadata_fixture();
+        set_single_layer_target(&indexrel);
         assert_eq!(
             Spi::get_one::<bool>(
-                "SELECT layers=ARRAY[1] AND bytes_per_row=144 AND format_version=3
+                "SELECT layers=ARRAY[1] AND bytes_per_row=144 AND settings_version=3
             FROM paradedb.vector_config('metadata_vectors_idx','vec')"
             )
             .unwrap(),
@@ -471,48 +529,113 @@ mod tests {
             .unwrap(),
             Some(true)
         );
+        Spi::run(&vector_query()).unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT count(*) FROM paradedb.vector_estimator_info('metadata_vectors_idx','vec')"
+            )
+            .unwrap(),
+            Some(2)
+        );
     }
 
-    // Unsupported storage reports the affected index and the rebuild action.
     #[pg_test]
     fn unsupported_vector_storage_names_index_and_reindex() {
-        use crate::index::mvcc::MvccSatisfies;
-        use crate::index::reader::index::SearchIndexReader;
-        use crate::postgres::storage::block::{LinkedListData, SegmentMetaEntryContent};
         let indexrel = vector_metadata_fixture();
-        let entries = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) };
-        let file = entries
-            .iter()
-            .find_map(|entry| match entry.content {
-                SegmentMetaEntryContent::Immutable(content) => content.vec,
-                _ => None,
-            })
-            .expect("fixture has a vector file");
-        {
-            let mut bman = BufferManager::new(&indexrel);
-            let block = bman
-                .get_buffer(file.starting_block)
-                .page()
-                .contents::<LinkedListData>()
-                .start_blockno;
-            let mut buffer = bman.get_buffer_mut(block);
-            *buffer.page_mut().contents_mut::<u32>() = 3u32.to_le();
+        Spi::run("SET max_parallel_workers_per_gather=0; SET enable_seqscan=off;").unwrap();
+        for version in [4, 3, 99] {
+            replace_vector_version(&indexrel, version);
+            let before = crate::index::reader::io_stats::vector_read_requests();
+            assert_eq!(
+                Spi::get_one::<i64>("SELECT count(*) FROM metadata_vectors WHERE id @@@ pdb.all()")
+                    .unwrap(),
+                Some(2048)
+            );
+            assert_eq!(
+                crate::index::reader::io_stats::vector_read_requests(),
+                before,
+                "BM25 query read a .vec file at version {version}"
+            );
+            if version != 4 {
+                expect_reindex(&vector_query());
+                expect_reindex("SELECT * FROM paradedb.vector_info('metadata_vectors_idx','vec')");
+                expect_reindex(
+                    "SELECT * FROM paradedb.vector_config('metadata_vectors_idx','vec')",
+                );
+            }
         }
-        let error = pgrx::PgTryBuilder::new(std::panic::AssertUnwindSafe(|| {
-            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).unwrap();
-            None
-        }))
-        .catch_others(|caught| match caught {
-            pgrx::pg_sys::panic::CaughtError::ErrorReport(report) => Some((
-                report.message().to_string(),
-                report.hint().unwrap_or_default().to_string(),
-            )),
-            other => other.rethrow(),
-        })
-        .execute()
-        .expect("unsupported vector storage must raise a Postgres error");
-        assert!(error.0.contains("metadata_vectors_idx"), "{}", error.0);
-        assert!(error.1.contains("REINDEX"), "{}", error.1);
+    }
+
+    #[pg_test]
+    fn foreground_vector_merge_reports_reindex() {
+        let indexrel = vector_metadata_fixture();
+        let oid = indexrel.oid();
+        let layer_bytes = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) }
+            .iter()
+            .map(|entry| entry.byte_size())
+            .max()
+            .unwrap();
+        drop(indexrel);
+        Spi::run(&format!("ALTER INDEX metadata_vectors_idx SET (layer_sizes='{layer_bytes}B',background_layer_sizes='0',mutable_segment_rows=0)")).unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        replace_vector_version(&indexrel, 3);
+        expect_reindex(
+            "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::vector FROM generate_series(2049,4096) g",
+        );
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM metadata_vectors").unwrap(),
+            Some(2048)
+        );
+    }
+
+    #[pg_test]
+    fn mixed_stored_vector_schedules_reject_estimator_merge() {
+        use crate::index::mvcc::MvccSatisfies;
+        use crate::index::writer::index::{Mergeable, SearchIndexMerger};
+        let indexrel = vector_metadata_fixture();
+        let oid = indexrel.oid();
+        drop(indexrel);
+        Spi::run("ALTER INDEX metadata_vectors_idx SET (layer_sizes='0',background_layer_sizes='0',mutable_segment_rows=0); SET max_parallel_workers_per_gather=0;").unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        let first = SearchIndexMerger::open(&indexrel, MvccSatisfies::Mergeable)
+            .unwrap()
+            .searchable_segment_ids()
+            .unwrap();
+        set_single_layer_target(&indexrel);
+        for start in [2049, 2305] {
+            Spi::run(&format!("INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::vector FROM generate_series({start},{}) g",start+255)).unwrap();
+        }
+        unsafe { pg_sys::CommandCounterIncrement() };
+        let mut merger = SearchIndexMerger::open(&indexrel, MvccSatisfies::Mergeable).unwrap();
+        let new_segments: Vec<_> = merger
+            .searchable_segment_ids()
+            .unwrap()
+            .difference(&first)
+            .copied()
+            .collect();
+        assert_eq!(new_segments.len(), 2);
+        // Cluster only the newly inserted rows, retaining the first segment's stored schedule.
+        merger.merge_segments(&new_segments).unwrap();
+        drop(merger);
+        unsafe { pg_sys::CommandCounterIncrement() };
+        assert_eq!(Spi::get_one::<bool>("SELECT bool_or(layers=ARRAY[1]) AND bool_or(layers=ARRAY[1,4]) FROM paradedb.vector_info('metadata_vectors_idx','vec')").unwrap(),Some(true));
+        Spi::run(&vector_query()).unwrap();
+        Spi::run(
+            r#"DO $body$
+            DECLARE message text;
+            BEGIN
+                BEGIN
+                    PERFORM * FROM paradedb.vector_estimator_info('metadata_vectors_idx','vec');
+                    RAISE EXCEPTION 'expected schedule mismatch';
+                EXCEPTION WHEN OTHERS THEN
+                    GET STACKED DIAGNOSTICS message = MESSAGE_TEXT;
+                    ASSERT position('different schedules' in message) > 0, message;
+                    ASSERT position('[("SignPlane", 1)]' in message) > 0, message;
+                    ASSERT position('[("SignPlane", 1), ("GridPlane", 4)]' in message) > 0, message;
+                END;
+            END $body$;"#,
+        )
+        .unwrap();
     }
 
     #[pg_test]

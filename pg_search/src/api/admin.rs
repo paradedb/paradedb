@@ -19,7 +19,7 @@ use crate::api::{CTID_FIELD_NAME, FieldName, HashMap, HashSet};
 use crate::index::directory::utils::load_index_settings;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexReader, validate_vector_segments};
 use crate::postgres::index::IndexKind;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -433,6 +433,7 @@ fn vector_info(
             continue;
         }
         let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+        validate_vector_segments(&index, search_reader.searcher())?;
         let resolved = search_reader
             .schema()
             .fields()
@@ -472,12 +473,8 @@ fn vector_info(
                         .layers()
                         .iter()
                         .map(|layer| match layer {
-                            tantivy::vector::Quantizer::SignPlane { .. } => {
-                                Ok("SignPlane".to_string())
-                            }
-                            tantivy::vector::Quantizer::GridPlane { .. } => {
-                                Ok("GridPlane".to_string())
-                            }
+                            tantivy::vector::Quantizer::SignPlane { .. } => Ok("sign".to_string()),
+                            tantivy::vector::Quantizer::GridPlane { .. } => Ok("grid".to_string()),
                             _ => anyhow::bail!("unsupported vector quantizer"),
                         })
                         .collect::<anyhow::Result<Vec<_>>>()
@@ -531,11 +528,13 @@ fn vector_config(
             name!(quantized, bool),
             name!(layers, Option<Vec<i32>>),
             name!(bytes_per_row, Option<i32>),
-            name!(format_version, Option<i32>),
+            name!(settings_version, Option<i32>),
         ),
     >,
 > {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+    validate_vector_segments(&index, search_reader.searcher())?;
     let schema = index.schema()?;
     anyhow::ensure!(
         matches!(
@@ -608,6 +607,7 @@ fn vector_clusters(
             continue;
         }
         let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+        validate_vector_segments(&index, search_reader.searcher())?;
         let resolved = search_reader
             .schema()
             .fields()

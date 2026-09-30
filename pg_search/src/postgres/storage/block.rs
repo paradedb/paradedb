@@ -1145,7 +1145,7 @@ mod vector_alignment_tests {
     #[test]
     fn page_data_and_capacity_preserve_vector_element_alignment() {
         let data_start = unsafe { pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp)) };
-        let alignment = tantivy::vector::MAX_ELEM_BYTES;
+        let alignment = tantivy::vector::ENTRY_ALIGN;
         assert_eq!(data_start % alignment, 0);
         assert_eq!(bm25_max_free_space() % alignment, 0);
     }

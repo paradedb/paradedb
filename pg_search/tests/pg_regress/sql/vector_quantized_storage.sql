@@ -40,7 +40,7 @@ DROP INDEX v4_plain_idx;
 CREATE INDEX v4_q14_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
 WITH (vector_fields='{"vec":{"quantization":{"layers":[1,4]}}}', target_segment_count=1);
 SELECT bool_and(quantized AND layers=ARRAY[1,4] AND bytes_per_row=668
-    AND quantizer_kinds=ARRAY['SignPlane','GridPlane']) AS stored_q14
+    AND quantizer_kinds=ARRAY['sign','grid']) AS stored_q14
 FROM paradedb.vector_info('v4_q14_idx', 'vec');
 SELECT * FROM paradedb.vector_config('v4_q14_idx', 'vec');
 DROP INDEX v4_q14_idx;

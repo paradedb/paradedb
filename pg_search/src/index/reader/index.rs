@@ -190,9 +190,14 @@ impl TopKSearch {
 }
 
 /// Reports unsupported vector storage with the index name and rebuild instruction.
-fn report_vector_open_error(index_name: &str, error: &tantivy::TantivyError) {
+pub(crate) fn report_vector_open_error(index_name: &str, error: &tantivy::TantivyError) {
     let message = error.to_string();
-    if message.contains("vector file format version") && message.contains("unsupported") {
+    if matches!(
+        error,
+        tantivy::TantivyError::IncompatibleIndex(
+            tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. }
+        )
+    ) {
         pgrx::pg_sys::panic::ErrorReport::new(
             pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
             format!("index {index_name:?} has an unsupported vector storage format: {message}"),
@@ -201,6 +206,20 @@ fn report_vector_open_error(index_name: &str, error: &tantivy::TantivyError) {
         .set_hint(format!("Rebuild index {index_name:?} with REINDEX."))
         .report(pgrx::PgLogLevel::ERROR);
     }
+}
+
+/// Validates visible vector headers before a vector query or diagnostic reads segments.
+pub(crate) fn validate_vector_segments(
+    index_relation: &PgSearchRelation,
+    searcher: &Searcher,
+) -> Result<()> {
+    for segment in searcher.segment_readers() {
+        if let Err(error) = segment.validate_vector_format() {
+            report_vector_open_error(index_relation.name(), &error);
+            return Err(error.into());
+        }
+    }
+    Ok(())
 }
 
 fn probe_stats_to_segment_info(
@@ -641,12 +660,6 @@ impl SearchIndexReader {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-        for segment in searcher.segment_readers() {
-            if let Err(error) = segment.validate_vector_format() {
-                report_vector_open_error(index_relation.name(), &error);
-                return Err(error.into());
-            }
-        }
         let segment_stats_snapshot = SegmentStatsSnapshot::capture(&searcher);
 
         Ok(IndexComponents {
@@ -1403,6 +1416,10 @@ impl SearchIndexReader {
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearch {
+        if orderby_info.iter().any(OrderByInfo::is_vector_distance) {
+            validate_vector_segments(&self.index_rel, &self.searcher)
+                .expect("vector segments must be readable");
+        }
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {

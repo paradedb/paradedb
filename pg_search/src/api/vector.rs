@@ -18,7 +18,7 @@
 //! SQL diagnostics for vector quantization.
 
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexReader, validate_vector_segments};
 use crate::postgres::catalog::{OidExt, is_pgvector_oid};
 use crate::postgres::rel::PgSearchRelation;
 use crate::vector::PgVector;
@@ -161,6 +161,7 @@ fn vector_estimator_info_internal(
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
     let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+    validate_vector_segments(&index, search_reader.searcher())?;
     let vector_field = search_reader
         .schema()
         .tantivy_schema()
@@ -180,11 +181,11 @@ fn vector_estimator_info_internal(
         .segment_readers()
         .iter()
         .map(|segment_reader| -> Result<u64> {
-            let vector_index = segment_reader.vector_index(vector_field)?;
-            if !is_quantized(&vector_index) {
+            if !is_quantized(segment_reader, vector_field)? {
                 return Ok(0);
             }
-            u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset()))
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset())?)
                 .context("live posting-membership row count exceeds u64")
         })
         .collect::<Result<Vec<_>>>()?;
@@ -403,6 +404,7 @@ fn vector_error_audit_internal(
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
     let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+    validate_vector_segments(&index, search_reader.searcher())?;
     let vector_field = search_reader
         .schema()
         .tantivy_schema()
@@ -440,11 +442,11 @@ fn vector_error_audit_internal(
         .segment_readers()
         .iter()
         .map(|segment_reader| -> Result<u64> {
-            let vector_index = segment_reader.vector_index(vector_field)?;
-            if !is_quantized(&vector_index) {
+            if !is_quantized(segment_reader, vector_field)? {
                 return Ok(0);
             }
-            u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset()))
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset())?)
                 .context("live posting-membership row count exceeds u64")
         })
         .collect::<Result<Vec<_>>>()?;
@@ -458,11 +460,11 @@ fn vector_error_audit_internal(
         .segment_readers()
         .iter()
         .map(|segment_reader| -> Result<u64> {
-            let vector_index = segment_reader.vector_index(vector_field)?;
-            if !is_quantized(&vector_index) {
+            if !is_quantized(segment_reader, vector_field)? {
                 return Ok(0);
             }
-            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset()))
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset())?)
                 .context("live distinct-vector count exceeds u64")
         })
         .collect::<Result<Vec<_>>>()?;
@@ -651,6 +653,7 @@ fn vector_error_cone_audit_internal(
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
     let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+    validate_vector_segments(&index, search_reader.searcher())?;
     let vector_field = search_reader
         .schema()
         .tantivy_schema()
@@ -685,9 +688,11 @@ fn vector_error_cone_audit_internal(
 
     let mut vector_segments = Vec::new();
     for segment_reader in search_reader.segment_readers() {
-        let vector_index = segment_reader.vector_index(vector_field)?;
-        if is_quantized(&vector_index) && vector_index.num_vectors() != 0 {
-            vector_segments.push((segment_reader, vector_index));
+        if is_quantized(segment_reader, vector_field)? {
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            if vector_index.num_vectors() != 0 {
+                vector_segments.push((segment_reader, vector_index));
+            }
         }
     }
     ensure!(
@@ -708,11 +713,11 @@ fn vector_error_cone_audit_internal(
 }
 
 /// Identifies segments whose stored metadata contains quantization layers.
-fn is_quantized(reader: &tantivy::vector::VectorIndexReader) -> bool {
-    matches!(
-        reader.metadata(),
+fn is_quantized(segment: &tantivy::SegmentReader, field: tantivy::schema::Field) -> Result<bool> {
+    Ok(matches!(
+        segment.vector_metadata(field)?.as_deref(),
         Some(tantivy::vector::VectorColMetadata::Quantized { .. })
-    )
+    ))
 }
 
 /// Requires a visible quantized segment and identifies Plain segments excluded from diagnostics.
@@ -723,10 +728,13 @@ fn ensure_quantized_segments(
 ) -> Result<()> {
     let mut quantized = false;
     for segment in reader.segment_readers() {
-        let vector = segment.vector_index(field)?;
-        if is_quantized(&vector) {
+        let metadata = segment.vector_metadata(field)?;
+        if matches!(
+            metadata.as_deref(),
+            Some(tantivy::vector::VectorColMetadata::Quantized { .. })
+        ) {
             quantized = true;
-        } else if vector.metadata().is_some() {
+        } else if metadata.is_some() {
             pgrx::notice!(
                 "skipping Plain segment {} for vector field {:?}",
                 segment.segment_id().short_uuid_string(),
@@ -893,11 +901,11 @@ fn sample_held_out_queries(
         .segment_readers()
         .iter()
         .map(|segment_reader| -> Result<u64> {
-            let vector_index = segment_reader.vector_index(vector_field)?;
-            if !is_quantized(&vector_index) {
+            if !is_quantized(segment_reader, vector_field)? {
                 return Ok(0);
             }
-            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset()))
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset())?)
                 .context("live distinct-vector count exceeds u64")
         })
         .collect::<Result<Vec<_>>>()?;

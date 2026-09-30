@@ -26,6 +26,49 @@ use std::sync::Arc;
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::vector::current_vector_stage;
 
+#[cfg(any(test, feature = "pg_test"))]
+thread_local! {
+    static VECTOR_READ_REQUESTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts vector requests independently of executor instrumentation in storage tests.
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) fn vector_read_requests() -> usize {
+    VECTOR_READ_REQUESTS.get()
+}
+
+/// Counts requests while forwarding storage geometry and bytes unchanged.
+#[cfg(any(test, feature = "pg_test"))]
+#[derive(Debug)]
+pub(crate) struct VectorReadCounter(pub Arc<dyn tantivy::directory::FileHandle>);
+
+#[cfg(any(test, feature = "pg_test"))]
+impl tantivy::HasLen for VectorReadCounter {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+impl tantivy::directory::FileHandle for VectorReadCounter {
+    fn read_bytes(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> std::io::Result<tantivy::directory::OwnedBytes> {
+        VECTOR_READ_REQUESTS.set(VECTOR_READ_REQUESTS.get() + 1);
+        self.0.read_bytes(range)
+    }
+
+    fn read_byte(&self, offset: usize) -> std::io::Result<u8> {
+        VECTOR_READ_REQUESTS.set(VECTOR_READ_REQUESTS.get() + 1);
+        self.0.read_byte(offset)
+    }
+
+    fn storage_block_len(&self) -> Option<usize> {
+        self.0.storage_block_len()
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 struct IoCounters {
     blks_hit: u64,

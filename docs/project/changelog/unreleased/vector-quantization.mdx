@@ -14,7 +14,9 @@ CREATE INDEX ON items USING paradedb (id, embedding)
 WITH (key_field = 'id');
 ```
 
-Quantization is now enabled by default for vector fields with at least 64 dimensions. Set `"quantization": false` in a field's `vector_fields` configuration to disable it. Use `REINDEX` to apply changes to existing indexes.
+Quantization is enabled by default for vector fields with at least 64 dimensions. Set `"quantization": false` in a field's `vector_fields` configuration to disable it. Quantization settings in `vector_fields` take effect only during `CREATE INDEX` and
+`REINDEX`. Changing quantization with `ALTER INDEX ... SET (vector_fields = ...)`
+does not affect new or existing segments until `REINDEX` rebuilds the index.
 
 - Added `paradedb.max_scan_levels` to limit how many code layers a query reads. It defaults to all built layers; `0` scans full-precision vectors through the same cluster routing.
 
@@ -26,10 +28,10 @@ Every index containing a vector field must be rebuilt with `REINDEX` after upgra
 including indexes with quantization disabled. Vector storage uses format 4.
 
 `paradedb.vector_info(index, field)` reports stored metadata for each segment:
-`quantized`, ordered `layers`, ordered `quantizer_kinds` (`SignPlane` or `GridPlane`),
+`quantized`, ordered `layers`, ordered `quantizer_kinds` (`sign` or `grid`),
 and `bytes_per_row`. Plain segments have NULL layer and byte fields. Quantized byte
 counts include codes, sidecars, constants and residual norms, excluding rows and padding.
 
 `paradedb.vector_config(index, field)` reports one field-level build target:
-`quantized`, `layers`, `bytes_per_row` and `format_version`. This version describes
+`quantized`, `layers`, `bytes_per_row` and `settings_version`. This version describes
 settings serialization (3), independently of segment storage.

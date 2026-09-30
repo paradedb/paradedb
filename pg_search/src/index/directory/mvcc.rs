@@ -652,7 +652,7 @@ impl MVCCDirectory {
 impl Directory for MVCCDirectory {
     /// Returns a segment reader that implements std::io::Read
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        match self.readers.lock().entry(path.to_path_buf()) {
+        let reader = match self.readers.lock().entry(path.to_path_buf()) {
             Entry::Occupied(reader) => Ok(reader.get().clone()),
             Entry::Vacant(vacant) => match self.file_entry(path) {
                 Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
@@ -692,7 +692,15 @@ impl Directory for MVCCDirectory {
                         .clone())
                 }
             },
-        }
+        }?;
+        #[cfg(any(test, feature = "pg_test"))]
+        let reader: Arc<dyn FileHandle> =
+            if path.extension().and_then(|ext| ext.to_str()) == Some("vec") {
+                Arc::new(io_stats::VectorReadCounter(reader))
+            } else {
+                reader
+            };
+        Ok(reader)
     }
     /// delete is called by Tantivy's garbage collection
     /// We handle this ourselves in amvacuumcleanup

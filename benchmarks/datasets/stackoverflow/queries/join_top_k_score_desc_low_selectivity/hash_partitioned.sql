@@ -1,5 +1,5 @@
 -- version with scan on (pg-search-driven join)
-SET paradedb.enable_join_custom_scan TO on; SELECT 
+SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_range_partitioned_join TO off; SELECT 
   p.id, 
   pdb.score(p.id) AS score, 
   p.title 

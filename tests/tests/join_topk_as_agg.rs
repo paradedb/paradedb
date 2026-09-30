@@ -20,7 +20,9 @@
 //! Each query runs with the GUC off and then on, and the row vectors are compared,
 //! both serially and under MPP, where the aggregate splits into a Partial per
 //! worker and a Final on the leader. DISTINCT queries run too, where the GUC-on
-//! path absorbs the DISTINCT into the aggregate instead of a GROUP BY.
+//! path absorbs the DISTINCT into the aggregate instead of a GROUP BY. Each
+//! query's EXPLAIN is checked as well, so the comparison is known to be between
+//! the two paths and not the SortExec path against itself.
 
 use rstest::*;
 use sqlx::PgConnection;
@@ -110,8 +112,27 @@ enum Mode {
     Mpp,
 }
 
+/// The name the Top-K-as-aggregate path gives its aggregate (`TOPK_AGG_ROWS_COL_NAME`),
+/// which is how it shows up in the rendered DataFusion plan. The SortExec path
+/// never uses it.
+const TOPK_AGG_ALIAS: &str = "__topk";
+
+/// The `EXPLAIN` of `query`, joined into one string.
+fn explain(conn: &mut PgConnection, query: &str) -> String {
+    format!("EXPLAIN {query}")
+        .fetch::<(String,)>(conn)
+        .into_iter()
+        .map(|(line,)| line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Runs `query` with the GUC off, then on, and requires identical rows in identical
 /// order. `expected_rows` guards against a vacuous match between two empty results.
+///
+/// The plans are checked too: the GUC-off plan must not mention the Top-K
+/// aggregate, and the GUC-on plan must run it as its only aggregate, so a DISTINCT
+/// is absorbed into it rather than planned as a GROUP BY beside it.
 fn assert_paths_agree<T>(conn: &mut PgConnection, query: &str, expected_rows: usize)
 where
     T: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
@@ -121,9 +142,32 @@ where
         + Unpin,
 {
     "SET paradedb.joinscan_force_topk_as_agg = off".execute(conn);
+    let sort_exec_plan = explain(conn, query);
     let sort_exec: Vec<T> = query.fetch(conn);
     "SET paradedb.joinscan_force_topk_as_agg = on".execute(conn);
+    let topk_agg_plan = explain(conn, query);
     let topk_agg: Vec<T> = query.fetch(conn);
+
+    assert!(
+        !sort_exec_plan.contains(TOPK_AGG_ALIAS),
+        "GUC off must not plan the Top-K aggregate.\nquery: {query}\nplan:\n{sort_exec_plan}"
+    );
+    let aggregates: Vec<&str> = topk_agg_plan
+        .lines()
+        .filter(|line| line.contains("AggregateExec"))
+        .collect();
+    // LIMIT 0 folds to an EmptyRelation before physical planning, so there is no
+    // aggregate node to find; every other query must run exactly this aggregate.
+    if expected_rows > 0 {
+        assert!(
+            !aggregates.is_empty(),
+            "GUC on must plan the Top-K aggregate.\nquery: {query}\nplan:\n{topk_agg_plan}"
+        );
+    }
+    assert!(
+        aggregates.iter().all(|line| line.contains(TOPK_AGG_ALIAS)),
+        "GUC on must plan no aggregate but the Top-K one.\nquery: {query}\nplan:\n{topk_agg_plan}"
+    );
 
     assert_eq!(sort_exec.len(), expected_rows, "{query}");
     assert_eq!(topk_agg, sort_exec, "{query}");

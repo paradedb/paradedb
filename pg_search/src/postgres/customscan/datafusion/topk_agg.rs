@@ -16,23 +16,28 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Top-K aggregates for DataFusion. `topk_as_agg` keeps the K best payload rows
-//! under an ORDER BY; `distinct_topk_as_agg` does the same over distinct rows, so
-//! a `SELECT DISTINCT … ORDER BY … LIMIT k` runs as one aggregate function that
-//! can sit beside other aggregates in a single aggregate node.
+//! under an ORDER BY; with the aggregate's DISTINCT flag set it does the same
+//! over distinct rows, so a `SELECT DISTINCT … ORDER BY … LIMIT k` runs as one
+//! aggregate function that can sit beside other aggregates in a single
+//! aggregate node.
 //!
-//! Both share one accumulator: a bounded ordered map keyed on the row-format
-//! encoding of the sort keys followed by a suffix. In distinct mode the suffix is
-//! the remaining distinct columns, so equal rows collide; the first row seen holds
-//! the group, carrying the element-wise minimum of its ctids, which is what the
-//! `min(ctid)` of a DISTINCT group-by produces. Otherwise the suffix is an
-//! arrival counter, so nothing collides. Every ORDER BY key is inside the distinct
-//! key (Postgres requires it in the select list), so map order is ORDER BY order
-//! in both modes and the worst entry is always `last`.
+//! Both modes share one accumulator whose state is a sorted RecordBatch of at
+//! most K rows. Each input batch is prefiltered against the state's worst row
+//! with Arrow comparison kernels; the survivors are then sorted together with
+//! the state and the first K rows become the new state. In distinct mode the
+//! sort key is the whole distinct key (the ORDER BY columns, then the remaining
+//! non-ctid columns), so equal rows land adjacent and collapse to one
+//! representative: the row with the smallest ctid tuple, standing in for the
+//! `min(ctid)` of a DISTINCT group-by. Every ORDER BY key is inside the distinct
+//! key (Postgres requires it in the select list), so state order is ORDER BY
+//! order in both modes and the worst row is always last. Without an ORDER BY or
+//! DISTINCT the state is simply the first K rows to arrive.
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::UInt64Type;
 use arrow_array::{Array, ArrayRef, BooleanArray, RecordBatch, Scalar, StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaRef, SortOptions};
+use arrow_select::coalesce::BatchCoalescer;
 use arrow_select::concat::concat_batches;
 use arrow_select::filter::filter_record_batch;
 use arrow_select::interleave::interleave_record_batch;
@@ -120,7 +125,7 @@ impl AggregateUDFImpl for TopKAgg {
     }
 
     /// Required for a `Beneficial` aggregate. Whether the input happens to be
-    /// ordered changes nothing here; the map orders regardless.
+    /// ordered changes nothing here; the accumulator sorts regardless.
     fn with_beneficial_ordering(
         self: Arc<Self>,
         _beneficial_ordering: bool,
@@ -181,9 +186,12 @@ impl AggregateUDFImpl for TopKAgg {
                     "{name} ctid position {p} is not a UInt64 column"
                 )));
             }
+            // The rest of the distinct key: every payload column that is neither a
+            // ctid nor an ORDER BY key. Appended after the ORDER BY keys with default
+            // options, so the full sort key is the distinct key and equal rows sort
+            // adjacent.
             let rest: Vec<(usize, Option<SortOptions>)> = (0..n)
                 .filter(|p| {
-                    // Distinct Suffix keys are all non-ctid and non-orderby positions
                     !ctids.iter().any(|ctidp| ctidp == p) && !sort.iter().any(|(s, _)| s == p)
                 })
                 .map(|p| (p, None))
@@ -295,18 +303,18 @@ fn row_schema(return_field: &Field) -> Result<SchemaRef> {
     )))
 }
 
-/// The K best rows under an ORDER BY, as a bounded ordered map. The map key is
-/// the row-format encoding of the sort keys with their sort options, followed by
-/// the suffix; row-format bytes are the concatenation of per-column encodings,
-/// so a converter over the sort keys alone produces exactly the key's prefix,
-/// which is what the prefilter compares.
+/// The K best rows under an ORDER BY, kept as a RecordBatch sorted by `sort`.
 struct FusedTopK {
     schema: SchemaRef,
     k: usize,
+    /// Payload positions with their sort options: the ORDER BY keys, followed in
+    /// distinct mode by the remaining non-ctid columns (default options), so
+    /// that it is the full distinct key. Empty without an ORDER BY or DISTINCT.
     sort: Vec<(usize, Option<SortOptions>)>,
     ctid_positions: Vec<usize>,
     distinct: bool,
-    /// a key-sorted batch K rows
+    /// At most K rows in `sort` order, so the last row is the worst; in arrival
+    /// order when `sort` is empty.
     entries: RecordBatch,
 }
 
@@ -340,6 +348,8 @@ impl FusedTopK {
         })
     }
 
+    /// The `sort` columns of the worst row, one single-row array each, once the
+    /// state is full. `None` while it is not, so that nothing is filtered.
     fn worst_prefix(&self) -> Option<Vec<ArrayRef>> {
         if self.entries.num_rows() < self.k {
             None
@@ -354,6 +364,14 @@ impl FusedTopK {
         }
     }
 
+    /// Which rows of `batch` could still enter the state: all of them while it is
+    /// not full, otherwise those sorting at or before the worst row on `sort`.
+    /// A lexicographic comparison done column by column with kernels: a row is
+    /// decided by the first column on which it differs from the worst row.
+    ///
+    /// Ties on every column pass. In distinct mode a tie is a duplicate of the
+    /// worst row, which may still win on ctid; otherwise it is merely
+    /// conservative, and the sort decides.
     fn could_enter(&self, batch: &RecordBatch) -> Result<BooleanArray> {
         use datafusion::arrow::compute::kernels::cmp::not_distinct;
         use datafusion::arrow::compute::{and, or};
@@ -363,17 +381,16 @@ impl FusedTopK {
         };
 
         let mut survivors = BooleanArray::from(vec![false; batch.num_rows()]);
-        // all row equal to the threshold so far
+        // rows still tied with the worst row on every column seen so far
         let mut ties = BooleanArray::from(vec![true; batch.num_rows()]);
 
-        // 2) for each sort col:
         for ((idx, opts), wcol) in self.sort.iter().zip(worst.iter()) {
             let col = batch.column(*idx);
             // find all that sort before for this column
             let opts = (*opts).unwrap_or(SortOptions::default());
             let before = sorts_before(col, wcol, &opts)?;
-            // AND before with ties to find those that weren't before but are now, and OR
-            // that into the survivors
+            // a row that was tied so far and sorts before on this column is decided:
+            // OR it into the survivors
             survivors = or(&survivors, &and(&ties, &before)?)?;
             // ties now becomes all points where the comparison is equal (not_distinct = same value or both null)
             ties = and(&ties, &not_distinct(col, &Scalar::new(wcol))?)?;
@@ -382,12 +399,15 @@ impl FusedTopK {
                 break;
             }
         }
-        // 3) Any remaining ties could enter, so OR them into the survivors
+        // Any remaining ties could enter, so OR them into the survivors
         survivors = or(&survivors, &ties)?;
 
         Ok(survivors)
     }
 
+    /// The `sort` columns over state ++ `batch`, in that order, so that an index
+    /// below `entries.num_rows()` names a state row and anything else a row of
+    /// `batch` (see `pick_indices_from_sorted_concat`).
     fn concatenated_sort_columns(&self, batch: &RecordBatch) -> Result<Vec<SortColumn>> {
         use datafusion::arrow::compute::concat;
 
@@ -422,6 +442,25 @@ impl FusedTopK {
         Ok(new_batch)
     }
 
+    /// Rebuild `entries` through a `BatchCoalescer`. The kernels in `absorb`
+    /// share `Utf8View`/`BinaryView` data buffers instead of copying them, so
+    /// without this the K-row state would pin whole input batches (and `size`
+    /// would report them). The coalescer copies sparse view buffers into a
+    /// compact one and leaves everything else alone.
+    fn compact_entries(&mut self) -> Result<()> {
+        if self.entries.num_rows() == 0 {
+            return Ok(());
+        }
+        let batch = self.drain();
+        let mut coalescer = BatchCoalescer::new(Arc::clone(&self.schema), batch.num_rows());
+        coalescer.push_batch(batch)?;
+        coalescer.finish_buffered_batch()?;
+        self.entries = coalescer
+            .next_completed_batch()
+            .expect("one pushed batch should always yield one finished batch");
+        Ok(())
+    }
+
     fn absorb(&mut self, batch: &RecordBatch) -> Result<()> {
         use datafusion::arrow::compute::concat;
         use datafusion::arrow::compute::{lexsort_to_indices, partition};
@@ -454,15 +493,14 @@ impl FusedTopK {
 
         // 2) Sort (state ++ survivors)
         let sort_columns = self.concatenated_sort_columns(&survivors)?;
-        // DISTINCT may require dropping duplicates, so we must consider all survivors. Non-DISTINCT
-        // is purely sort order, so we only need the top-k candidates
-
+        // DISTINCT collapses duplicates after the sort, so every survivor must be
+        // placed; non-DISTINCT is purely sort order, so only the top k are needed.
         let sort_limit = if self.distinct { None } else { Some(self.k) };
         let order = lexsort_to_indices(&sort_columns, sort_limit)?;
 
         if self.distinct {
-            // 3) materialize the distinct keys in sorted order, so that we can parition them to find groups of
-            // equivalent rows
+            // 3) materialize the full key in sorted order, so that equal rows are
+            // adjacent and `partition` yields one range per distinct group
             let sorted_keys: Vec<_> = sort_columns
                 .iter()
                 .map(|c| Ok(take(c.values.as_ref(), &order, None)?))
@@ -482,52 +520,55 @@ impl FusedTopK {
                 })
                 .collect::<Result<_>>()?;
 
-            // 4). For each group, find the row with the smallest ctid, and add that row to our set
-            //   of picks
+            // 4) For each of the first k groups, pick one row to represent it.
             let mut picks = Vec::with_capacity(self.k);
             for range in ranges.iter().take(self.k) {
+                // Every row of a group carries the same key values, so for the
+                // output any row will do; without ctid columns the pick cannot be
+                // observed at all.
                 if range.len() == 1 || ctids.is_empty() {
                     picks.push(self.pick_indices_from_sorted_concat(order.value(range.start)));
                     continue;
                 }
 
-                // for each row, take the lowest "ctids" tuple. (range idx appended at the end in
-                // case a row is all null
+                // Otherwise take the row with the lexicographically smallest ctid
+                // tuple, NULLs last (mapped to u64::MAX). Like a group-by's
+                // `min(ctid)`, that is a property of the group's rows, not of the
+                // order they arrived or sorted in, so the state is the same
+                // whatever the batching.
                 let sorted_order_min_ctid_idx = range
                     .clone()
                     .min_by_key(|i| {
-                        let mut tuple: Vec<_> = ctids
+                        let tuple: Vec<_> = ctids
                             .iter()
                             .map(|col| {
                                 let c = col.as_primitive::<UInt64Type>();
                                 if c.is_valid(*i) {
-                                    Some(c.value(*i))
+                                    c.value(*i)
                                 } else {
-                                    None
+                                    u64::MAX
                                 }
                             })
                             .collect();
-                        tuple.push(Some(*i as u64));
                         tuple
                     })
-                    .expect("should always produce a value since ctids.len() > 0");
+                    .expect("should always produce a value since range.len() > 0");
                 picks.push(
                     self.pick_indices_from_sorted_concat(order.value(sorted_order_min_ctid_idx)),
                 );
             }
 
-            // 5. Construct the new record batch accordingly
+            // 5) Construct the new record batch accordingly
             self.entries = interleave_record_batch(&[&self.entries, &survivors], &picks)?;
             Ok(())
         } else {
-            // 3) Interleave the record batches based on order
-            // specify source batch based on index
+            // 3) Interleave the record batches based on sort order
             self.entries = self.new_batch_from_sorted(&order, &survivors)?;
             Ok(())
         }
     }
 
-    // return the existing record batch, and replace it with an empty one.
+    /// Return the existing record batch, and replace it with an empty one.
     fn drain(&mut self) -> RecordBatch {
         let mut res = RecordBatch::new_empty(Arc::clone(&self.schema));
         std::mem::swap(&mut self.entries, &mut res);
@@ -535,13 +576,15 @@ impl FusedTopK {
     }
 }
 
+/// The rows of `col` that sort strictly before the single value in `refcol`
+/// under `opts`, as a null-free boolean array.
 fn sorts_before(col: &ArrayRef, refcol: &ArrayRef, opts: &SortOptions) -> Result<BooleanArray> {
     use arrow_select::filter::prep_null_mask_filter;
     use datafusion::arrow::compute::kernels::cmp::{gt, lt};
     use datafusion::arrow::compute::or;
     use datafusion::arrow::compute::{is_not_null, is_null};
 
-    // if refcol is null, then the result depends only on opts.null_first.
+    // if refcol is null, then the result depends only on opts.nulls_first.
     if refcol.is_null(0) {
         if opts.nulls_first {
             return Ok(BooleanArray::from(vec![false; col.len()]));
@@ -558,12 +601,18 @@ fn sorts_before(col: &ArrayRef, refcol: &ArrayRef, opts: &SortOptions) -> Result
         lt(col, &refval)?
     };
     // lt/gt comparisons with null will leave nulls in the boolean array, which are treated as
-    // "UNKOWN". This converts them to false, leaving cmp as an array containing everything that
-    // definitively sorts before the refcol when considering sort direction
-    let cmp = prep_null_mask_filter(&cmp);
+    // "UNKNOWN". This converts them to false, leaving cmp as an array containing everything that
+    // definitively sorts before the refcol when considering sort direction.
+    //
+    // When null_count() is 0 there is no null bitmap on cmp, and `prep_null_mask_filter`
+    // panics on its absence.
+    let cmp = match cmp.null_count() {
+        0 => cmp,
+        _ => prep_null_mask_filter(&cmp),
+    };
 
-    // if nulls_first and the column has nulls, OR those into the result since they could feasiblsy
-    // sort before the non-null refcol
+    // if nulls_first and the column has nulls, OR those into the result since they sort
+    // before the non-null refcol
     if opts.nulls_first && col.null_count() > 0 {
         Ok(or(&cmp, &is_null(col)?)?)
     } else {
@@ -575,7 +624,8 @@ impl Accumulator for FusedTopK {
     fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
         let n = self.schema.fields().len();
         let batch = RecordBatch::try_new(Arc::clone(&self.schema), values[..n].to_vec())?;
-        self.absorb(&batch)
+        self.absorb(&batch)?;
+        self.compact_entries()
     }
 
     /// Other partials' K rows. They go through the same admission, which is what
@@ -589,7 +639,7 @@ impl Accumulator for FusedTopK {
                 self.absorb(&batch)?;
             }
         }
-        Ok(())
+        self.compact_entries()
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
@@ -609,11 +659,14 @@ impl Accumulator for FusedTopK {
     }
 }
 
-/// `topk_as_agg(payload…, k, key_positions, ctid_positions) ORDER BY sort_exprs`.
+/// `topk_as_agg(payload…, k, ctid_positions) ORDER BY sort_exprs`, with the
+/// aggregate's DISTINCT flag set by `distinct`.
 ///
-/// `ctid_positions` are the payload's ctid columns, which take the element-wise minimum
-/// over each distinct group. We assume the DISTINCT keys are represented by payload - ctids,
-/// and that they contain the sort expressions
+/// Sort expressions missing from `payload` are appended to it, since the
+/// accumulator can only sort on columns it receives, so the emitted rows may
+/// carry more columns than `payload`. In distinct mode the distinct key is every
+/// payload column but the `ctid_positions`, and each group is represented by its
+/// row with the smallest ctid tuple, in place of a group-by's `min(ctid)`.
 pub fn topk_as_agg(
     payload: &[Expr],
     sort_exprs: Vec<SortExpr>,

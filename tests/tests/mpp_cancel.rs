@@ -145,13 +145,11 @@ async fn signal_running_mpp_backend(
     loop {
         // Parallel workers inherit the leader's `application_name`, so pin to the client backend
         // to signal the leader (the connection running the top-level query), not a worker.
-        let pid: Option<i32> = sqlx::query_scalar(
-            "SELECT pid FROM pg_stat_activity \
-             WHERE application_name = $1 AND backend_type = 'client backend' \
-             AND state = 'active' AND query LIKE '%mpp_users.age = mpp_products.age%'",
+        let pid = client_backend_pid(
+            killer,
+            victim_app,
+            "state = 'active' AND query LIKE '%mpp_users.age = mpp_products.age%'",
         )
-        .bind(victim_app)
-        .fetch_optional(&mut *killer)
         .await?;
 
         if let Some(pid) = pid {

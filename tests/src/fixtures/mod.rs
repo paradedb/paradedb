@@ -18,6 +18,7 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+pub mod backend;
 pub mod db;
 pub mod querygen;
 pub mod tables;
@@ -27,6 +28,7 @@ use async_std::task::block_on;
 use rstest::*;
 use sqlx::{self, PgConnection};
 
+pub use crate::fixtures::backend::*;
 pub use crate::fixtures::db::*;
 pub use crate::fixtures::tables::*;
 

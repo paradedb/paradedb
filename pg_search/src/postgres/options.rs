@@ -175,7 +175,7 @@ extern "C-unwind" fn validate_partition_by(value: *const std::os::raw::c_char) {
         return;
     }
     // Parse and validate the partition_by string (panics on invalid input)
-    let _ = parse_partition_by_string(&partition_by_str);
+    validate_partition_by_fields(&parse_partition_by_string(&partition_by_str));
 }
 
 #[pg_guard]
@@ -1192,13 +1192,13 @@ pub struct PartitionByField {
     pub ranges: Option<usize>,
 }
 
-/// Parse a partition_by string like "id=8, owner_user_id"
+/// Parse a partition_by string like "id=8, owner_user_id".
 ///
 /// Grammar:
 ///   partition_by_value ::= partition_key { ',' partition_key }
 ///   partition_key      ::= field_name [ '=' ranges ]
 ///
-/// `ranges` is a positive integer. Panics on invalid input.
+/// `ranges` is a decimal integer from 1 to `MAX_TARGET_SEGMENT_COUNT`. Panics on invalid input.
 fn parse_partition_by_string(input: &str) -> Vec<PartitionByField> {
     let fields: Vec<PartitionByField> = input
         .split(',')
@@ -1215,14 +1215,18 @@ fn parse_partition_by_string(input: &str) -> Vec<PartitionByField> {
 fn parse_partition_key(key: &str) -> PartitionByField {
     let (field_name, ranges) = match key.split_once('=') {
         Some((field_name, ranges)) => {
+            let ranges = ranges.trim();
+            // Decimal digits only: `parse` would also take a sign, and a count past the
+            // largest target can never be honored.
             let ranges = ranges
-                .trim()
-                .parse::<usize>()
-                .ok()
-                .filter(|&ranges| ranges > 0)
+                .bytes()
+                .all(|b| b.is_ascii_digit())
+                .then(|| ranges.parse::<usize>().ok())
+                .flatten()
+                .filter(|&ranges| ranges > 0 && ranges <= MAX_TARGET_SEGMENT_COUNT as usize)
                 .unwrap_or_else(|| {
                     panic!(
-                        "invalid partition_by value: expected a positive number of ranges after '=' in: {key}"
+                        "invalid partition_by value: expected a number of ranges from 1 to {MAX_TARGET_SEGMENT_COUNT} after '=' in: {key}"
                     )
                 });
             (field_name.trim(), Some(ranges))
@@ -1235,6 +1239,19 @@ fn parse_partition_key(key: &str) -> PartitionByField {
     PartitionByField {
         field_name: FieldName::from(field_name.to_string()),
         ranges,
+    }
+}
+
+/// The checks a new `partition_by` value gets on top of the grammar. They stay out of the
+/// accessor so that an index created before them keeps working.
+fn validate_partition_by_fields(fields: &[PartitionByField]) {
+    for (i, field) in fields.iter().enumerate() {
+        if fields[..i].iter().any(|f| f.field_name == field.field_name) {
+            panic!(
+                "invalid partition_by value: field '{}' is listed more than once",
+                field.field_name
+            );
+        }
     }
 }
 
@@ -1497,6 +1514,24 @@ mod tests {
     #[should_panic(expected = "empty field name")]
     fn test_parse_partition_by_empty_field_name_error() {
         parse_partition_by_string("=8");
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "expected a number of ranges from 1 to 1024")]
+    fn test_parse_partition_by_signed_ranges_error() {
+        parse_partition_by_string("id=+8");
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "expected a number of ranges from 1 to 1024")]
+    fn test_parse_partition_by_ranges_past_the_largest_target_error() {
+        parse_partition_by_string("id=1025");
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "field 'id' is listed more than once")]
+    fn test_validate_partition_by_duplicate_field_error() {
+        validate_partition_by_fields(&parse_partition_by_string("id=2, x, id=4"));
     }
 
     #[pg_test]

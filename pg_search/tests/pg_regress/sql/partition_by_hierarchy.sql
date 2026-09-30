@@ -11,6 +11,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_range_partitioned_join TO on;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
@@ -36,6 +37,15 @@ FROM generate_series(1, 8000) g;
 ANALYZE pbh_users;
 ANALYZE pbh_posts;
 ANALYZE pbh_comments;
+
+-- Serial row counts of both joins, to hold every layout below to.
+SET max_parallel_workers_per_gather TO 0;
+SELECT count(*) AS id_join_rows
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.title LIKE 'error%' AND c.body LIKE 'question%';
+SELECT count(*) AS owner_join_rows
+FROM pbh_users u JOIN pbh_posts p ON u.id = p.owner_user_id
+WHERE p.title LIKE 'error%';
 
 CREATE INDEX pbh_users_idx ON pbh_users USING paradedb (id, display_name)
 WITH (partition_by = 'id', target_segment_count = 4);
@@ -73,6 +83,15 @@ WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
 
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) AS id_join_rows
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.title ||| 'error' AND c.body ||| 'question';
+
+SELECT count(*) AS id_join_rows
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.title ||| 'error' AND c.body ||| 'question';
+
 -- A join on the second field: its ranges differ from one `id` range to the
 -- next, so the tasks reach into partial segments.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -87,6 +106,15 @@ FROM pbh_users u JOIN pbh_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) AS owner_join_rows
+FROM pbh_users u JOIN pbh_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+
+SELECT count(*) AS owner_join_rows
+FROM pbh_users u JOIN pbh_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
 -- =====================================================================
 -- `id=8` spends every segment on `id`: each task takes whole segments and
@@ -112,9 +140,19 @@ WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
 
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) AS id_join_rows
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.title ||| 'error' AND c.body ||| 'question';
+
+SELECT count(*) AS id_join_rows
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.title ||| 'error' AND c.body ||| 'question';
+
 -- =====================================================================
--- `id=2, owner_user_id=4` favors the second field: a join on `id` can only
--- split into the two `id` ranges.
+-- `id=2, owner_user_id=4` favors the second field. A join on `id` can take
+-- the two whole `id` ranges or the comments edges with three tasks that cut
+-- every posts segment; the two whole tasks are cheaper.
 -- =====================================================================
 
 DROP INDEX pbh_posts_idx;
@@ -135,6 +173,15 @@ FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
 WHERE p.title ||| 'error' AND c.body ||| 'question'
 ORDER BY p.id, c.id
 LIMIT 10;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) AS id_join_rows
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.title ||| 'error' AND c.body ||| 'question';
+
+SELECT count(*) AS id_join_rows
+FROM pbh_posts p JOIN pbh_comments c ON c.post_id = p.id
+WHERE p.title ||| 'error' AND c.body ||| 'question';
 
 -- =====================================================================
 -- Invalid counts.

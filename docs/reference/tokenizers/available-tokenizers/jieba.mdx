@@ -57,3 +57,26 @@ SELECT '南京市长江大桥'::pdb.jieba('search_mode=false')::text[];
  {南京市,长江大桥}
 (1 row)
 ```
+
+## Chinese Conversion
+
+Set `chinese_convert` to convert between Traditional and Simplified Chinese before tokenization.
+This is useful when documents and queries mix both character sets and should be matched
+interchangeably.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (description::pdb.jieba('chinese_convert=t2s')))
+WITH (key_field='id');
+```
+
+The following conversion modes are supported:
+
+| Mode    | Description                                   |
+| ------- | --------------------------------------------- |
+| `t2s`   | Traditional to Simplified                     |
+| `s2t`   | Simplified to Traditional                     |
+| `tw2s`  | Traditional Taiwan to Simplified              |
+| `tw2sp` | Traditional Taiwan to Simplified, with idioms |
+| `s2tw`  | Simplified to Traditional Taiwan              |
+| `s2twp` | Simplified to Traditional Taiwan, with idioms |

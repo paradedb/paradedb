@@ -88,8 +88,8 @@ async fn is_running(conn: &mut PgConnection, pid: i32) -> Result<bool> {
 // Opening each index loads its field's typmod through `load_typmod`.
 #[case::load(
     "typmod_die_load",
-    "SELECT count(*) FROM typmod_die_a WHERE id @@@ paradedb.all()",
-    "SELECT count(*) FROM typmod_die_b WHERE id @@@ paradedb.all()"
+    "SELECT count(*) FROM typmod_die_a WHERE id @@@ pdb.all()",
+    "SELECT count(*) FROM typmod_die_b WHERE id @@@ pdb.all()"
 )]
 // Each cast to a typmod that isn't saved yet goes through `save_typmod`.
 #[case::save(

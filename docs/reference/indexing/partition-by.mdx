@@ -93,7 +93,7 @@ Choosing the right column(s) for `partition_by` depends on your query patterns a
 
 ### Physical Over-Partitioning
 
-By default, `CREATE INDEX` sets `target_segment_count` equal to the number of CPUs on the system. When using `partition_by`, we recommend physically over-partitioning by setting `target_segment_count` to 2–8X the CPU core count (or parallel worker count).
+By default, `CREATE INDEX` sets `target_segment_count` equal to the number of CPUs on the system. When using `partition_by`, we recommend physically over-partitioning by setting `target_segment_count` to 2–4X the CPU core count (or parallel worker count).
 
 Over-partitioning provides two key advantages:
 
@@ -107,7 +107,7 @@ The ceiling on physical over-partitioning is driven by two factors:
 1. Per-segment scan overhead: Every unpruned segment searched incurs execution overhead, including opening readers, evaluating postings, and maintaining Top-K heaps. Query latency depends on the absolute number of surviving segments searched rather than the percentage of segments pruned. For queries with moderate selectivity, higher segment counts can leave more total segments to search and increase latency.
 2. Segment metadata overhead: Each segment maintains its own dictionary, posting lists, and metadata structures. Creating hundreds or thousands of tiny segments increases file descriptor usage and memory pressure.
 
-Sizing `target_segment_count` to 2–8X CPU cores strikes a practical balance between pruning granularity, per-segment scan overhead, and resource usage.
+Sizing `target_segment_count` to 2–4X CPU cores strikes a practical balance between pruning granularity, per-segment scan overhead, and resource usage.
 
 ```sql
 -- Example: On an 8-core machine, over-partition by 4X (target_segment_count = 32)
@@ -262,6 +262,6 @@ Notice that:
 | Parameter                                | Type         | Default         | Description                                                                                                                        |
 | :--------------------------------------- | :----------- | :-------------- | :--------------------------------------------------------------------------------------------------------------------------------- |
 | `partition_by`                           | Index Option | `""` (disabled) | Comma-separated list of columnar indexed fields used to partition segments.                                                        |
-| `target_segment_count`                   | Index Option | CPU count       | Target number of segments to produce during build or reindex. When using `partition_by`, recommend setting to 2–8X CPU core count. |
+| `target_segment_count`                   | Index Option | CPU count       | Target number of segments to produce during build or reindex. When using `partition_by`, recommend setting to 2–4X CPU core count. |
 | `paradedb.enable_range_partitioned_join` | GUC          | `off`           | Enables range co-partitioning optimizations for parallel joins.                                                                    |
 | `paradedb.enable_join_custom_scan`       | GUC          | `on`            | Enables or disables ParadeDB custom join execution.                                                                                |

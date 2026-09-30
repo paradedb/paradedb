@@ -389,7 +389,7 @@ With range co-partitioning enabled:
 
 1. Worker-local joins: Rather than broadcasting or shuffling rows across workers, each parallel worker joins only its corresponding range partition of Table A with Table B locally.
 2. Worker-local cardinality reduction: Downstream cardinality-reducing operations like `TopK` sorting and partial aggregations also run worker-locally before results are gathered to the leader process.
-3. Physical over-partitioning: Because real-world tables almost never share identical key distributions or row counts, partition boundaries chosen during independent index builds will not naturally align. To allow the planner to align partitions effectively, we recommend [physically over-partitioning](/reference/indexing/partition-by#physical-over-partitioning) both tables by setting `target_segment_count` to 2–8X your CPU core count (e.g. 16 to 64 segments).
+3. Physical over-partitioning: Because real-world tables almost never share identical key distributions or row counts, partition boundaries chosen during independent index builds will not naturally align. To allow the planner to align partitions effectively, we recommend [physically over-partitioning](/reference/indexing/partition-by#physical-over-partitioning) both tables by setting `target_segment_count` to 2–4X your CPU core count (e.g. 16 to 32 segments).
 4. Partition pruning: Partitions with non-intersecting ranges between the two tables are eliminated without scanning.
 
 See the [Partitioning Guide](/reference/indexing/partition-by) for full setup instructions, syntax, and column selection advice.

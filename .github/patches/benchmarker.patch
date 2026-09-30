@@ -1,8 +1,8 @@
 diff --git a/benchmarks/Makefile.common b/benchmarks/Makefile.common
-index 3e1e7c5..918ef18 100644
+index 3e1e7c5..28cae63 100644
 --- a/benchmarks/Makefile.common
 +++ b/benchmarks/Makefile.common
-@@ -40,17 +40,25 @@ CPUS ?= 8
+@@ -40,7 +40,7 @@ CPUS ?= 8
  # Explicit MEMORY overrides apply to every target; only create defaults to 64g.
  ifeq ($(origin MEMORY),undefined)
  MEMORY := 32g
@@ -11,8 +11,7 @@ index 3e1e7c5..918ef18 100644
  endif
  SHARED_BUFFERS ?= 24GB
  MAINTENANCE_WORK_MEM ?= 24GB
- MAX_PARALLEL_MAINTENANCE_WORKERS ?= 8
- MAX_PARALLEL_WORKERS ?= 8
+@@ -49,8 +49,16 @@ MAX_PARALLEL_WORKERS ?= 8
  POSTGRES_SHM_SIZE ?= 16g
  WORKERS ?= 1
  BATCH_SIZE ?= 10000
@@ -141,7 +140,7 @@ index 3e1e7c5..918ef18 100644
  	@source "$$CONFIG_DIR/volumes.sh"
  	mkdir -p "$$STORAGE_STATE_DIR" "$$OUT_DIR"
 diff --git a/benchmarks/compose.yml b/benchmarks/compose.yml
-index fb0f057..3524b07 100644
+index fb0f057..c906b0e 100644
 --- a/benchmarks/compose.yml
 +++ b/benchmarks/compose.yml
 @@ -22,7 +22,7 @@ x-postgres: &postgres
@@ -165,3 +164,17 @@ index fb0f057..3524b07 100644
      build:
        context: ../docker/paradedb
      container_name: ${COMPOSE_PROJECT:-${PROJECT}}-paradedb
+diff --git a/benchmarks/paradedb/post.sql b/benchmarks/paradedb/post.sql
+index 625726a..4b79bf8 100644
+--- a/benchmarks/paradedb/post.sql
++++ b/benchmarks/paradedb/post.sql
+@@ -1,7 +1,7 @@
+ DROP INDEX IF EXISTS documents_body_bm25_idx;
+ \timing on
+ CREATE INDEX documents_body_bm25_idx ON documents
+-USING bm25 (id, body)
+-WITH (key_field=id, target_segment_count=8);
++USING bm25 (id, (body::pdb.unicode_words('pnorms=true')))
++WITH (target_segment_count=8);
+ \timing off
+ SELECT pg_relation_size('documents_body_bm25_idx') AS index_bytes;

@@ -1280,7 +1280,7 @@ pub fn pg_search_extension_installed() -> bool {
 ///
 /// This is useful when you need to create a temporary PostgreSQL list for use with
 /// PostgreSQL functions and want to ensure it's properly freed even if the code
-/// returns early or panics.
+/// returns early. While unwinding or exiting it is left to its memory context.
 ///
 /// # Example
 /// ```ignore
@@ -1313,15 +1313,13 @@ impl TempPgList {
     }
 }
 
-impl Drop for TempPgList {
-    fn drop(&mut self) {
-        unsafe {
-            if !self.0.is_null() {
-                pg_sys::list_free(self.0);
-            }
+impl_safe_drop!(TempPgList, |self| {
+    unsafe {
+        if !self.0.is_null() {
+            pg_sys::list_free(self.0);
         }
     }
-}
+});
 
 /// Returns `true` if `index_predicate` belongs to a partial index whose predicate
 /// is NOT implied by the query's restriction clauses -- i.e. the query is missing

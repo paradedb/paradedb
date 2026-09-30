@@ -8,8 +8,19 @@
 name: Benchmark pg_search (Benchmarker)
 
 on:
-  schedule:
-    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/actions/build-paradedb-image/**"
+      - ".github/actions/publish-benchmarker-results/**"
+      - ".github/actions/setup-benchmarker/**"
+      - ".github/patches/benchmarker.patch"
+      - ".github/workflows/benchmark-pg_search-benchmarker.yml"
+      - "docker/Dockerfile.source"
+      - "**/*.rs"
+      - "**/*.toml"
+      - "Cargo.lock"
   pull_request:
     types: [labeled] # Opt in on a PR with `benchmark-benchmarker` (all), `benchmark-benchmarker-hn`, or `benchmark-benchmarker-stackexchange`
   workflow_dispatch:
@@ -57,7 +68,6 @@ jobs:
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
-      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hn-ci' || inputs.dataset == '')) ||
       (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hn'))
     env:
@@ -84,7 +94,7 @@ jobs:
           INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
           # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
-          # commit, or the current main commit for nightly runs).
+          # commit, or the commit pushed to main).
           if [ -n "${INPUTS_COMMIT}" ]; then
             echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
           else
@@ -193,7 +203,7 @@ jobs:
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
-      github.event_name == 'schedule' ||
+      github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == '')) ||
       (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange'))
     env:
@@ -224,7 +234,7 @@ jobs:
           INPUTS_COMMIT: ${{ inputs.commit }}
         run: |
           # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
-          # commit, or the current main commit for nightly runs).
+          # commit, or the commit pushed to main).
           if [ -n "${INPUTS_COMMIT}" ]; then
             echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
           else
@@ -344,13 +354,13 @@ jobs:
   notify-slack-on-failure:
     name: Notify Slack on Failure
     needs: [benchmark-hn, benchmark-stackexchange]
-    if: always() && (needs.benchmark-hn.result == 'failure' || needs.benchmark-stackexchange.result == 'failure') && github.event_name == 'schedule'
+    if: always() && (needs.benchmark-hn.result == 'failure' || needs.benchmark-stackexchange.result == 'failure') && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       actions: read
       checks: read
     steps:
-      - name: Notify Slack on Failure (nightly only)
+      - name: Notify Slack on Failure (push only)
         uses: paradedb/actions/slack-alert@v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions

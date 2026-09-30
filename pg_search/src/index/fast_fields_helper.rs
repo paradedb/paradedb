@@ -835,11 +835,13 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
         .dictionary()
         .sstable_index
         .get_block_with_ord(0)
-        .expect("Failed to read term dictionary block address.");
+        .map_err(|e| {
+            DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+        })?;
     let mut current_sstable_delta_reader = str_ff
         .dictionary()
         .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
+        .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
     let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
     for (row_idx, ord) in term_ords {
@@ -967,11 +969,13 @@ pub(crate) fn ords_to_bytes_array(
         .dictionary()
         .sstable_index
         .get_block_with_ord(0)
-        .expect("Failed to read term dictionary block address.");
+        .map_err(|e| {
+            DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+        })?;
     let mut current_sstable_delta_reader = bytes_ff
         .dictionary()
         .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
+        .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
     let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
     for (row_idx, ord) in term_ords {

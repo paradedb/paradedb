@@ -22,7 +22,7 @@ use std::sync::Arc;
 use datafusion::catalog::default_table_source::DefaultTableSource;
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
-use datafusion::common::{Column, DataFusionError, JoinType, Result};
+use datafusion::common::{Column, DataFusionError, Result};
 use datafusion::logical_expr::{Expr, LogicalPlan, TableScan};
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule, optimizer::ApplyOrder};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
@@ -574,7 +574,7 @@ fn side_split_points(
         .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))
 }
 
-/// Physical optimizer rule that converts a `CollectLeft` inner hash join to
+/// Physical optimizer rule that converts a `CollectLeft` hash join to
 /// `Partitioned` mode when both inputs declare compatible `Partitioning::Range`
 /// layouts on the join keys.
 ///
@@ -583,6 +583,11 @@ fn side_split_points(
 /// both sides are range partitioned with identical split points, build-side
 /// partition `i` can only ever match probe-side partition `i`, so `Partitioned`
 /// mode joins each pair task-locally and the broadcast disappears.
+///
+/// That holds for every join type: whether a row matches (inner, semi, mark) or
+/// has no match (outer, anti) is decided within its own partition. A null-aware
+/// anti join (`NOT IN`) is the exception: one NULL key anywhere on the build side
+/// must empty every task's result, and no task can see the other partitions.
 ///
 /// A separate rule because `JoinSelection` picks `CollectLeft` from the build
 /// side's row and byte statistics alone. It never consults `output_partitioning`,
@@ -627,7 +632,7 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
             let Some(join) = node.downcast_ref::<HashJoinExec>() else {
                 return Ok(Transformed::no(node));
             };
-            if join.join_type() != &JoinType::Inner {
+            if join.null_aware {
                 return Ok(Transformed::no(node));
             }
 

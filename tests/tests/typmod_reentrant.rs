@@ -22,7 +22,7 @@
 
 use anyhow::Result;
 use rstest::*;
-use sqlx::{AssertSqlSafe, Executor, PgConnection};
+use sqlx::{Executor, PgConnection};
 use std::time::Duration;
 use tests::fixtures::*;
 use tokio::time::timeout;
@@ -59,7 +59,7 @@ async fn run_gated(database: &Db, sql: String) -> Result<()> {
     conn.execute("BEGIN").await?;
     conn.execute("SET LOCAL typmod_reentrant.gate = 'on'")
         .await?;
-    timeout(LOOKUP_TIMEOUT, conn.execute(AssertSqlSafe(sql)))
+    timeout(LOOKUP_TIMEOUT, conn.execute(sql.as_str()))
         .await
         .map_err(|_| anyhow::anyhow!("the lookup did not finish within {LOOKUP_TIMEOUT:?}"))??;
     conn.execute("COMMIT").await?;

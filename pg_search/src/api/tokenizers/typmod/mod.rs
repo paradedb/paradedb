@@ -20,8 +20,8 @@ mod validation;
 
 use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
-use pgrx::pg_sys::BuiltinOid;
 use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::pg_sys::BuiltinOid;
 use pgrx::spi::{OwnedPreparedStatement, Query};
 use pgrx::{
     extension_sql, function_name, pg_extern, pg_sys, register_xact_callback, Array, PgLogLevel,

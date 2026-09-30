@@ -23,7 +23,7 @@
 
 use anyhow::Result;
 use rstest::*;
-use sqlx::{AssertSqlSafe, Executor, PgConnection};
+use sqlx::{Executor, PgConnection};
 use std::time::{Duration, Instant};
 use tests::fixtures::*;
 use tokio::time::sleep;
@@ -60,9 +60,7 @@ async fn run_target(
     second: &'static str,
 ) -> Result<()> {
     target
-        .execute(AssertSqlSafe(format!(
-            "SET application_name = '{app_name}'"
-        )))
+        .execute(format!("SET application_name = '{app_name}'").as_str())
         .await?;
     // Neither a superuser nor BYPASSRLS, so the policy applies to this session's lookups.
     target.execute("SET ROLE pg_read_all_data").await?;

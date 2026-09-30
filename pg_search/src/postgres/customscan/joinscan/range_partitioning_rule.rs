@@ -36,6 +36,7 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::stats::{
     SegmentBox, box_edges, cut_docs, persisted_segment_boxes, persisted_split_points,
 };
+use crate::postgres::customscan::mpp::glue::producer_worker_cap;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::range_partitioning::RangeSplitPoints;
@@ -135,8 +136,8 @@ struct AsymmetricCandidate {
 ///    - Secondary key: `max(T1.rows, T2.rows)`, tie-breaking in favor of the larger partner.
 /// 3. **Greedy Assignment**: In descending priority order, commits table scans to partition keys
 ///    and split points:
-///    - When an edge `(T1, T2)` is selected, both tables adopt shared split points derived from
-///      the larger of the two tables (minimizing segment skew on the heavier side).
+///    - When an edge `(T1, T2)` is selected, both tables adopt the split points of whichever
+///      side gives the shorter co-partitioned scan (see `compute_shared_points`).
 ///    - If a table joins multiple peers on the same key (e.g., `T1 JOIN T2 ON x JOIN T3 ON x`),
 ///      subsequent tables adopt the already-established split points.
 ///    - A table committed to a key on a higher-priority edge cannot be overwritten by a lower-priority
@@ -535,12 +536,10 @@ fn named_field_arrow_type(
 /// Computes shared split points for two tables joining on matching types.
 /// Returns `None` if types don't match or neither side has split points.
 ///
-/// When both sides have boxes, the join cuts on the edges that land inside the fewest
-/// documents per cut, over both sides. One side's edges leave that side whole, so the cost is
-/// what they cut on the other side, and a side whose boxes are nested (a `partition_by` with
-/// the join key first) is cheap to cut around even when it is the larger scan. The cost is an
-/// average over every edge because the task count, which picks the edges that become cuts,
-/// is not known until the plan is scaled.
+/// When both sides have boxes, the join cuts on the side's edges that give the shorter
+/// co-partitioned scan (see [`co_partitioned_wall`]). A side whose boxes are nested on the
+/// join key (a `partition_by` with that key first) has edges that land inside none of its own
+/// segments, so it usually wins even when it is the larger scan.
 fn compute_shared_points(
     l_provider: &PgSearchTableProvider,
     l_field: &FieldName,
@@ -568,13 +567,13 @@ fn compute_shared_points(
     let points = match (edges(&l_boxes), edges(&r_boxes)) {
         (Some(l_points), Some(r_points)) => {
             let boxes = || l_boxes.iter().chain(r_boxes.iter()).flatten();
-            // Documents cut per edge, compared without the division: l/|l| < r/|r|.
-            let l_cut = u128::from(cut_docs(boxes(), &l_points)) * r_points.len() as u128;
-            let r_cut = u128::from(cut_docs(boxes(), &r_points)) * l_points.len() as u128;
+            let tasks = producer_worker_cap().max(1) as usize;
+            let l_wall = co_partitioned_wall(&l_points, boxes(), tasks);
+            let r_wall = co_partitioned_wall(&r_points, boxes(), tasks);
             let l_rows = l_provider.scan_info.estimate.as_planner_estimate();
             let r_rows = r_provider.scan_info.estimate.as_planner_estimate();
             // At a tie, the larger side keeps its segments whole.
-            if r_cut < l_cut || (r_cut == l_cut && r_rows > l_rows) {
+            if r_wall < l_wall || (r_wall == l_wall && r_rows > l_rows) {
                 r_points
             } else {
                 l_points
@@ -584,6 +583,26 @@ fn compute_shared_points(
         (None, None) => return Ok(None),
     };
     Ok(Some(points))
+}
+
+/// An estimate of the time the co-partitioned scan takes when it cuts on `points`: every
+/// segment's documents, plus the documents of the segments a cut lands inside, which the task
+/// on each side of the cut filters again, spread over the tasks the points seat. The range
+/// filter of a partial segment is a pass over the segment's column whatever the query keeps
+/// of it, so documents count in full. The cut cost is an average over every point, because
+/// the task count only picks the points that become cuts once the plan is scaled, and
+/// `partitions_for` seats fewer tasks than there are workers when a side has few edges, which
+/// the division by the seats charges for.
+fn co_partitioned_wall<'a>(
+    points: &[PdbOwnedValue],
+    boxes: impl Iterator<Item = &'a SegmentBox> + Clone,
+    tasks: usize,
+) -> f64 {
+    let seats = tasks.min(points.len() + 1).max(1);
+    let docs: u64 = boxes.clone().map(|b| b.num_docs).sum();
+    let per_cut = cut_docs(boxes, points) as f64 / points.len() as f64;
+    let filtered_twice = 2.0 * per_cut * (seats - 1) as f64;
+    (docs as f64 + filtered_twice) / seats as f64
 }
 
 /// The boxes a partitioned build stamped on the side's segments, projected onto

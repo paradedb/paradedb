@@ -312,7 +312,7 @@ jobs:
               QUERY_STYLE="${style}" \
               VUS=1 \
               PREWARM=30s \
-              DURATION=120s \
+              DURATION=300s \
               OUTPUT=json,html \
               OUT_DIR="${PWD}/results" \
               PARADEDB_IMAGE="${IMAGE_TAG}" \
@@ -326,7 +326,7 @@ jobs:
             QUERY_STYLE=mixed \
             VUS=1 \
             PREWARM=30s \
-            DURATION=120s \
+            DURATION=300s \
             OUTPUT=json,html \
             OUT_DIR="${PWD}/results" \
             PARADEDB_IMAGE="${IMAGE_TAG}" \

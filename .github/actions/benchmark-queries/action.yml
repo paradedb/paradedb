@@ -17,15 +17,6 @@ inputs:
   github_token:
     description: "GitHub token to authenticate with"
     required: true
-  slack_oauth_token:
-    description: "Slack OAuth token to authenticate with"
-    required: true
-  slack_channel:
-    description: "Slack channel to post results to"
-    required: true
-  pr_label:
-    description: "The human readable version of the commit being tested"
-    required: true
   fail_on_error:
     description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
     required: false
@@ -75,6 +66,7 @@ runs:
         gh-pages-branch: gh-pages
         auto-push: ${{ github.ref == 'refs/heads/main' }}
         benchmark-data-dir-path: benchmarks
+<<<<<<< HEAD
         alert-threshold: "115%"
         comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
         alert-comment-cc-users: "@${{ github.actor }}"
@@ -91,3 +83,35 @@ runs:
           text: |
             ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}` (${{ inputs.index }}, ${{ env.ROWS_LABEL }} rows)
             <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.pr_label }}> @ <https://paradedb.github.io/${{ github.event.repository.name }}/benchmarks/>
+=======
+        alert-threshold: ${{ inputs.alert_threshold }}
+        comment-on-alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ github.event_name == 'pull_request' }}
+
+    # The publish step above appends the current run to its local gh-pages clone, so the script
+    # takes the second-to-last entry as the baseline.
+    - name: Compare Against Baseline (Paired Bootstrap)
+      if: inputs.alert_strategy == 'paired-bootstrap'
+      id: paired_bootstrap
+      shell: bash
+      env:
+        INPUTS_DATASET: ${{ inputs.dataset }}
+        INPUTS_INDEX: ${{ inputs.index }}
+      run: |
+        python3 "${GITHUB_ACTION_PATH}/compare_baseline.py" \
+          --results benchmarks/results.json \
+          --data-js benchmark-data-repository/benchmarks/data.js \
+          --suite "pg_search '${INPUTS_DATASET} (${INPUTS_INDEX})' (${{ env.ROWS_LABEL }} rows)" \
+          --out benchmark-alert.md
+
+    - name: Comment on Alert (Paired Bootstrap)
+      if: inputs.alert_strategy == 'paired-bootstrap' && steps.paired_bootstrap.outputs.alert == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        printf '\ncc @%s\n' "${GITHUB_ACTOR}" >> benchmark-alert.md
+        gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+          -F body=@benchmark-alert.md
+>>>>>>> e02631a27 (ci: remove routine benchmark Slack notifications (#6570))

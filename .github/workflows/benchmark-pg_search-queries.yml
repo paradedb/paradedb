@@ -274,10 +274,15 @@ jobs:
           size: 100k
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+<<<<<<< HEAD
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+=======
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+>>>>>>> e02631a27 (ci: remove routine benchmark Slack notifications (#6570))
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
         if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
@@ -305,10 +310,15 @@ jobs:
           size: 1m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+<<<<<<< HEAD
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+=======
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+>>>>>>> e02631a27 (ci: remove routine benchmark Slack notifications (#6570))
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
         if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
@@ -336,10 +346,15 @@ jobs:
           size: 20m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+<<<<<<< HEAD
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+=======
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+>>>>>>> e02631a27 (ci: remove routine benchmark Slack notifications (#6570))
 
       - name: Restore "cohere" Heap Snapshot (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -382,6 +397,7 @@ jobs:
           size: 1m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+<<<<<<< HEAD
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -413,6 +429,10 @@ jobs:
             echo "$out"
             printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_1m.tsv
           done
+=======
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+>>>>>>> e02631a27 (ci: remove routine benchmark Slack notifications (#6570))
 
       - name: Restore "cohere" Heap Snapshot (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -451,6 +471,7 @@ jobs:
           size: 10m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+<<<<<<< HEAD
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -475,6 +496,10 @@ jobs:
             echo "$out"
             printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_10m.tsv
           done
+=======
+          fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
+          publish: ${{ env.PUBLISH_BASELINE }}
+>>>>>>> e02631a27 (ci: remove routine benchmark Slack notifications (#6570))
 
       - name: Comment cohere recall
         if: ${{ !cancelled() && env.RUN_COHERE == 'true' }}

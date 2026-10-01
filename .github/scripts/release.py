@@ -684,7 +684,7 @@ def update_installation_version(repo_root, clean_ver):
 
     content = install_file.read_text(encoding="utf-8")
     content = re.sub(
-        r'https://github\.com/paradedb/paradedb/releases/download/v'
+        r"https://github\.com/paradedb/paradedb/releases/download/v"
         r'(\d+\.\d+\.\d+(?:-rc\.\d+)?)/[^\s"<>]+',
         replace_version,
         content,
@@ -1320,7 +1320,8 @@ def lint_changelog_fragments(repo_root):
 
     Ensures that:
     - Every fragment has a valid 'header:' declared in .changelog_headers.json.
-    - Any multi-line fragment defines a 'title:' in frontmatter (or starts with '### ').
+    - Every fragment is either formatted as a single bullet point, or defines a
+      'title:' in frontmatter (or starts with '### ').
     """
     headers_map = load_headers_map(repo_root / ".changelog_headers.json")
     _, unreleased_cl_dir, _ = get_changelog_dirs(repo_root)
@@ -1368,27 +1369,32 @@ def lint_changelog_fragments(repo_root):
             )
             errors += 1
 
-        body_lines = [line for line in body.splitlines() if line.strip()]
-        is_multiline = len(body_lines) > 1
         has_title = bool(title or body.startswith("### "))
+        if not has_title:
+            paragraphs = [p for p in re.split(r"\n\s*\n", body.strip()) if p.strip()]
+            bullet_markers = [
+                line for line in body.splitlines() if re.match(r"^\s*[-*]\s+", line)
+            ]
+            has_code_block = "```" in body
 
-        if is_multiline and not has_title:
-            print(
-                f"::error file={rel_path}::"
-                f"Fragment is multi-line ({len(body_lines)} lines) "
-                "but missing a 'title:' in its frontmatter. "
-                "Multi-line changelog fragments must specify 'title: ...' "
-                "so they render as a dedicated subsection.",
-                file=sys.stderr,
+            is_single_bullet = (
+                len(paragraphs) <= 1 and len(bullet_markers) <= 1 and not has_code_block
             )
-            print(
-                f"❌ {rel_path}: Multi-line fragment ({len(body_lines)} lines) "
-                "is missing 'title:' in frontmatter.\n"
-                "  To fix: Add 'title: <Feature Title>' to the frontmatter so it "
-                "renders as a subsection (### <Feature Title>).",
-                file=sys.stderr,
-            )
-            errors += 1
+
+            if not is_single_bullet:
+                print(
+                    f"::error file={rel_path}::"
+                    "Fragment must either be formatted as a single bullet point, "
+                    "or specify 'title: ...' in its frontmatter to render as a subsection.",
+                    file=sys.stderr,
+                )
+                print(
+                    f"❌ {rel_path}: Fragment must either be formatted as a single bullet point,\n"
+                    "  or specify 'title: <Feature Title>' in frontmatter to render as a"
+                    " subsection.",
+                    file=sys.stderr,
+                )
+                errors += 1
 
     return errors
 

@@ -66,7 +66,7 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
      ...
      ```
 
-     Any fragment with multiple lines of content must declare a `title` in its frontmatter (enforced in CI).
+     Any fragment that is not formatted as a single bullet point must declare a `title` in its frontmatter (enforced in CI).
 
    - SQL migration fragment: If your PR modifies the SQL schema/DDL of `pg_search` (such as adding or modifying functions, procedures, types, or opclasses), add a migration fragment in `pg_search/sql/unreleased/<PR_NUMBER>.<short_description>.sql`. SchemaBot enforces this in CI and will suggest the exact SQL statements if missing.
 

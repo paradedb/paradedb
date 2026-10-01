@@ -35,28 +35,31 @@ CREATE INDEX v4_plain_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
 WITH (vector_fields='{"vec":{"quantization":false}}', target_segment_count=1);
 SELECT vector_format, quantized, layers, quantizer_kinds, bytes_per_row
 FROM paradedb.vector_info('v4_plain_idx', 'vec');
-SELECT * FROM paradedb.vector_config('v4_plain_idx', 'vec');
+SELECT index_oid::regclass AS index_name, quantized, layers, bytes_per_row, settings_version
+FROM paradedb.vector_config('v4_plain_idx', 'vec');
 DROP INDEX v4_plain_idx;
 CREATE INDEX v4_q14_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
 WITH (vector_fields='{"vec":{"quantization":{"layers":[1,4]}}}', target_segment_count=1);
 SELECT bool_and(quantized AND layers=ARRAY[1,4] AND bytes_per_row=668
     AND quantizer_kinds=ARRAY['sign','grid']) AS stored_q14
 FROM paradedb.vector_info('v4_q14_idx', 'vec');
-SELECT * FROM paradedb.vector_config('v4_q14_idx', 'vec');
+SELECT index_oid::regclass AS index_name, quantized, layers, bytes_per_row, settings_version
+FROM paradedb.vector_config('v4_q14_idx', 'vec');
 DROP INDEX v4_q14_idx;
 CREATE INDEX v4_q1_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
 WITH (vector_fields='{"vec":{"quantization":{"layers":[1]}}}', target_segment_count=1);
 SELECT bool_and(quantized AND layers=ARRAY[1] AND bytes_per_row=144) AS stored_q1
 FROM paradedb.vector_info('v4_q1_idx', 'vec');
-SELECT * FROM paradedb.vector_config('v4_q1_idx', 'vec');
+SELECT index_oid::regclass AS index_name, quantized, layers, bytes_per_row, settings_version
+FROM paradedb.vector_config('v4_q1_idx', 'vec');
 DROP TABLE v4_plain;
 
 CREATE TABLE config_parent (id integer, vec vector(64)) PARTITION BY RANGE (id);
 CREATE TABLE config_low PARTITION OF config_parent FOR VALUES FROM (0) TO (10);
 CREATE TABLE config_high PARTITION OF config_parent FOR VALUES FROM (10) TO (20);
 CREATE INDEX config_parent_idx ON config_parent USING bm25(id, vec vector_l2_ops);
-SELECT index::text, pg_typeof(index), quantized, layers
-FROM paradedb.vector_config('config_parent_idx', 'vec') ORDER BY index::text;
+SELECT index_oid::regclass::text AS index_name, pg_typeof(index_oid), quantized, layers
+FROM paradedb.vector_config('config_parent_idx', 'vec') ORDER BY index_oid::regclass::text;
 SELECT * FROM paradedb.vector_config('config_parent', 'vec');
 CREATE INDEX config_btree_idx ON config_low(id);
 SELECT * FROM paradedb.vector_config('config_btree_idx', 'vec');

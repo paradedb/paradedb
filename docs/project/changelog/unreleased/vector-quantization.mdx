@@ -33,6 +33,6 @@ and `bytes_per_row`. Plain segments have NULL layer and byte fields. Quantized b
 counts include codes, sidecars, constants and residual norms, excluding rows and padding.
 
 `paradedb.vector_config(index_relation, field)` reports the build target for each leaf index:
-`index`,
+`index_oid` (`oid`),
 `quantized`, `layers`, `bytes_per_row` and `settings_version`. This version describes
 settings serialization (3), independently of segment storage.

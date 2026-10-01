@@ -27,11 +27,13 @@ use anyhow::{Context, Result, ensure};
 use pgrx::JsonB;
 use pgrx::prelude::*;
 use pgrx::{AnyArray, PgRelation, Spi, pg_sys};
+use tantivy::vector::{
+    QuantizerKind, VectorEstimatorMeasurements, VectorEstimatorQuery, VectorEstimatorSource,
+};
 #[cfg(feature = "pg_test")]
 use tantivy::vector::{
     VectorAuditMoments, VectorErrorAuditMeasurements, VectorErrorConeAuditMeasurements,
 };
-use tantivy::vector::{VectorEstimatorMeasurements, VectorEstimatorQuery, VectorEstimatorSource};
 
 const MAX_ESTIMATOR_QUERIES: usize = 256;
 const ESTIMATOR_SAMPLE_ROWS: usize = 1_000;
@@ -920,20 +922,12 @@ fn sample_held_out_queries(
     Ok(queries)
 }
 
-fn sql_schedule(schedule: &[(&str, u8)]) -> Vec<(&'static str, u8)> {
-    schedule
+fn format_schedule(schedule: &[(QuantizerKind, u8)]) -> String {
+    let layers = schedule
         .iter()
-        .map(|&(kind, bits)| {
-            (
-                match kind {
-                    "SignPlane" => "sign",
-                    "GridPlane" => "grid",
-                    _ => "unknown",
-                },
-                bits,
-            )
-        })
-        .collect()
+        .map(|(kind, bits)| format!("{kind}:{bits}"))
+        .collect::<Vec<_>>();
+    format!("[{}]", layers.join(", "))
 }
 
 fn merge_estimator_measurements(
@@ -943,9 +937,9 @@ fn merge_estimator_measurements(
     if let Some(aggregate) = aggregate {
         ensure!(
             aggregate.schedule() == segment.schedule(),
-            "cannot merge vector measurements with different schedules: {:?} and {:?}",
-            sql_schedule(aggregate.schedule()),
-            sql_schedule(segment.schedule())
+            "cannot merge vector measurements with different schedules: {} and {}",
+            format_schedule(aggregate.schedule()),
+            format_schedule(segment.schedule())
         );
         aggregate.merge(&segment)?;
     } else {

@@ -4,7 +4,7 @@ CREATE  FUNCTION "vector_config"(
 	"index_relation" regclass, /* PgRelation */
 	"field" TEXT /* String */
 ) RETURNS TABLE (
-	"index" regclass,  /* crate :: postgres :: types :: Regclass */
+	"index_oid" oid,  /* pg_sys :: Oid */
 	"quantized" bool,  /* bool */
 	"layers" INT[],  /* :: std :: option :: Option < Vec < i32 > > */
 	"bytes_per_row" INT,  /* Option < i32 > */

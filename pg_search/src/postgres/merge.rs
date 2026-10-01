@@ -539,14 +539,6 @@ unsafe fn merge_index(
             if unsafe { pg_sys::InterruptPending } != 0 {
                 pgrx::warning!("failed to merge: {e:?} because of interrupt");
             } else {
-                if let Some(error) = e.downcast_ref::<tantivy::TantivyError>()
-                    && let Some(report) = crate::index::reader::index::report_vector_open_error(
-                        indexrel.name(),
-                        error,
-                    )
-                {
-                    report.report(pgrx::PgLogLevel::ERROR);
-                }
                 panic!("failed to merge: {e:?}");
             }
         }

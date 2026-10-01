@@ -559,7 +559,7 @@ impl SearchIndexMerger {
             if !candidates.contains_key(&segment.id()) {
                 continue;
             }
-            match tantivy::SegmentReader::open(&segment)?.validate_vector_format() {
+            match segment.validate_vector_format() {
                 Ok(()) => {}
                 Err(tantivy::TantivyError::IncompatibleIndex(
                     tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. },

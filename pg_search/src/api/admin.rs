@@ -453,19 +453,13 @@ fn vector_info(
                     .map(|layer| i32::from(layer.bits()))
                     .collect()
             });
-            let quantizer_kinds = quantized
-                .then(|| {
-                    metadata
-                        .layers()
-                        .iter()
-                        .map(|layer| match layer {
-                            tantivy::vector::Quantizer::SignPlane { .. } => Ok("sign".to_string()),
-                            tantivy::vector::Quantizer::GridPlane { .. } => Ok("grid".to_string()),
-                            _ => anyhow::bail!("unsupported vector quantizer"),
-                        })
-                        .collect::<anyhow::Result<Vec<_>>>()
-                })
-                .transpose()?;
+            let quantizer_kinds = quantized.then(|| {
+                metadata
+                    .layers()
+                    .iter()
+                    .map(|layer| layer.kind().name().to_string())
+                    .collect::<Vec<_>>()
+            });
             let bytes_per_row = metadata
                 .quantized_bytes_per_row()
                 .map(i32::try_from)
@@ -511,7 +505,7 @@ fn vector_config(
     TableIterator<
         'static,
         (
-            name!(index, crate::postgres::types::Regclass),
+            name!(index_oid, pg_sys::Oid),
             name!(quantized, bool),
             name!(layers, Option<Vec<i32>>),
             name!(bytes_per_row, Option<i32>),
@@ -558,13 +552,7 @@ fn vector_config(
             .map(|config| i32::try_from(config.format_version))
             .transpose()
             .context("quantization format exceeds SQL integer range")?;
-        rows.push((
-            crate::postgres::types::Regclass(index.oid()),
-            config.is_some(),
-            layers,
-            bytes,
-            version,
-        ));
+        rows.push((index.oid(), config.is_some(), layers, bytes, version));
     }
     Ok(TableIterator::new(rows))
 }

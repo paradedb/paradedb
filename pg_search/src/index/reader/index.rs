@@ -191,7 +191,7 @@ impl TopKSearch {
 }
 
 /// Builds the PostgreSQL error for an unsupported vector storage version.
-pub(crate) fn report_vector_open_error(
+pub(crate) fn vector_format_error_report(
     index_name: &str,
     error: &tantivy::TantivyError,
 ) -> Option<pgrx::pg_sys::panic::ErrorReport> {
@@ -224,16 +224,7 @@ fn probe_stats_to_segment_info(
         .iter()
         .zip(stats.iter())
         .map(|(id, s)| {
-            let mut value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
-            // Numeric fields accumulate across repeated scans and parallel workers.
-            let fields = value.as_object_mut().expect("ProbeStats is an object");
-            fields.remove("rerank_io");
-            fields.insert("rerank_reads".into(), s.rerank_io.reads.into());
-            fields.insert("rerank_bytes_read".into(), s.rerank_io.bytes_read.into());
-            fields.insert(
-                "rerank_storage_blocks".into(),
-                s.rerank_io.storage_blocks.into(),
-            );
+            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
             (*id, value)
         })
         .collect()
@@ -590,6 +581,7 @@ struct IndexComponents {
 
 impl SearchIndexReader {
     /// Validates this reader's visible vector headers once, including an unsuccessful check.
+    /// An unsupported format raises a PostgreSQL error and does not return; other errors are returned.
     pub(crate) fn validate_vector_segments(&self) -> Result<()> {
         let result = self.vector_segments_valid.get_or_init(|| {
             self.searcher
@@ -597,13 +589,16 @@ impl SearchIndexReader {
                 .iter()
                 .try_for_each(SegmentReader::validate_vector_format)
         });
-        if let Err(error) = result {
-            if let Some(report) = report_vector_open_error(self.index_rel.name(), error) {
-                report.report(pgrx::PgLogLevel::ERROR);
-            }
-            return Err(error.clone().into());
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => match vector_format_error_report(self.index_rel.name(), error) {
+                Some(report) => {
+                    report.report(pgrx::PgLogLevel::ERROR);
+                    unreachable!("PostgreSQL ERROR reports do not return")
+                }
+                None => Err(error.clone().into()),
+            },
         }
-        Ok(())
     }
 
     /// Returns the minimum and maximum heap block numbers represented in the segment.

@@ -873,11 +873,12 @@ fn build_clause_df<'a>(
 
         let df = apply_window_functions(df, join_clause)?;
 
-        // 4. DISTINCT + Top-(offset + K). When enabled, rows come
-        // back as k  sorted rows. and limit + output projection below
-        // resolve through `distinct_col_map` as before.
-        //
-        // When disabled, use apply_distinct_group_by + apply_sort
+        // 4 + 5. DISTINCT and the sort. With the Top-K aggregate enabled, one
+        // aggregate node does both and returns its (offset + k) rows already in
+        // ORDER BY order, so there is no sort step: the limit below applies to the
+        // unnest's output positionally, and the output projection resolves through
+        // `distinct_col_map` as before. Otherwise DISTINCT is a GROUP BY and the
+        // sort is its own step.
         let (df, distinct_col_map) = if gucs::joinscan_force_topk_as_agg()
             && let Some((offset, k)) = join_clause
                 .limit_offset
@@ -918,11 +919,16 @@ fn build_clause_df<'a>(
     f.boxed_local()
 }
 
-/// DISTINCT and non-distinct topk function mostly the same way and take the same path. The only
-/// difference is the entry requirement into topk, which is gated by join_clause.has_distinct.
+/// The Top-K (and the DISTINCT, when there is one) as a single aggregate over the
+/// projection, returning `fetch` rows in ORDER BY order.
 ///
-/// We use the same path because specifying the desired input columns and a whole-row DISTINCT's key
-/// expressions are the same logic, so we project them regardless through distinct_key_exprs.
+/// DISTINCT and non-DISTINCT take the same path: the columns the aggregate must
+/// carry are the output projection's expressions either way, which is what
+/// `distinct_key_exprs` produces, so they are projected to `col_N` through it in
+/// both modes. The two differ in the aggregate's DISTINCT flag, which turns the
+/// payload into the distinct key, and in what a sort key outside the projection
+/// means: without DISTINCT it is carried as an extra `sort_j` input, with DISTINCT it
+/// cannot occur (Postgres requires the ORDER BY to be in the select list).
 fn apply_topk_as_agg(
     df: DataFrame,
     join_clause: &JoinCSClause,
@@ -945,8 +951,11 @@ fn apply_topk_as_agg(
         );
     }
 
-    // Build the sort expressions with an empty distinct column map so they build directly against
-    // the join output.
+    // The sort against the join output, the same way the SortExec path builds it: an
+    // ORDER BY key need not be in the projection, and when Postgres substitutes an
+    // equivalence-class member (`t2.t1_id` for `t1.id`) it may not be, so the
+    // projection cannot resolve it. The columns it references are rebased onto the
+    // `col_N` projection below.
     let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
 
     // Only relations whose heap tuples are fetched need a ctid carried through,
@@ -1001,8 +1010,10 @@ fn apply_topk_as_agg(
     select.extend(ctid_names.iter().map(|n| col(n.as_str())));
     select.extend(sort_extra_cols.iter().cloned());
 
-    // the column index ranges of the various column groups we'll need for renaming later (sort
-    // columns can be excluded as we produce sorted output)
+    // The column index ranges of the groups the restore below renames. The `sort_j`
+    // columns have no range: they are inputs to the aggregate's ORDER BY only, which
+    // DataFusion evaluates and the accumulator carries as ordering columns, so they
+    // are neither payload nor restored.
     let distinct_key_end = distinct_key_exprs.len();
     let ctid_end = distinct_key_end + ctid_names.len();
     let distinct_key_col_range = 0..distinct_key_end;
@@ -1012,8 +1023,8 @@ fn apply_topk_as_agg(
 
     let ctid_positions: Vec<usize> = ctid_col_range.clone().collect();
 
-    // The same list, just as the column expressions directly, only for the necessary payload
-    // columns (so sort columns excluded)
+    // The payload: the select's key and ctid columns, as column expressions over the
+    // select's output. The `sort_j` columns that follow them are left out.
     let all_col_exprs: Vec<Expr> = df
         .schema()
         .columns()
@@ -1099,12 +1110,11 @@ fn surviving_ctid_columns<'a>(
     })
 }
 
-/// The DISTINCT key: one expression per output projection entry, in target-list
-/// order, plus the map the sort and output projection use to find those entries
-/// by their `col_{i}` names afterwards. `None` when there is no DISTINCT to apply.
-///
-/// If `bypass_distinct_clause` is true, `join_clause.has_distinct` is not considered when
-/// generating the response.
+/// The output projection as expressions: exactly one per projection entry, in
+/// target-list order, plus the map the sort and output projection use to find
+/// those entries by their `col_{i}` names afterwards. This is the DISTINCT key when
+/// there is a DISTINCT, and the Top-K aggregate's payload whether or not there is
+/// one; callers decide which. `None` when there is no output projection.
 fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, DistinctColMap)>> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 

@@ -22,16 +22,23 @@
 //! aggregate node.
 //!
 //! Both modes share one accumulator whose state is a sorted RecordBatch of at
-//! most K rows. Each input batch is prefiltered against the state's worst row
-//! with Arrow comparison kernels; the survivors are then sorted together with
-//! the state and the first K rows become the new state. In distinct mode the
-//! sort key is the whole distinct key (the ORDER BY columns, then the remaining
-//! non-ctid columns), so equal rows land adjacent and collapse to one
+//! most K rows. The accumulator never evaluates a sort key itself: DataFusion
+//! evaluates the ORDER BY expressions over the aggregate's input and hands them
+//! to `update_batch` after the arguments, and the accumulator keeps those
+//! ordering columns next to the payload, in its state as well as in memory, so
+//! a merge can sort without re-evaluating anything. A sort key therefore need
+//! not be an argument, only an expression over the aggregate's input.
+//!
+//! Each input batch is prefiltered against the state's worst row with Arrow
+//! comparison kernels; the survivors are then sorted together with the state
+//! and the first K rows become the new state. In distinct mode the sort key is
+//! the ordering columns followed by the whole distinct key (every non-ctid
+//! payload column), so equal rows land adjacent and collapse to one
 //! representative: the row with the smallest ctid tuple, standing in for the
-//! `min(ctid)` of a DISTINCT group-by. Every ORDER BY key is inside the distinct
-//! key (Postgres requires it in the select list), so state order is ORDER BY
-//! order in both modes and the worst row is always last. Without an ORDER BY or
-//! DISTINCT the state is simply the first K rows to arrive.
+//! `min(ctid)` of a DISTINCT group-by. Every ORDER BY key is a function of the
+//! distinct key (Postgres requires it in the select list), so state order is
+//! ORDER BY order in both modes and the worst row is always last. Without an
+//! ORDER BY or DISTINCT the state is simply the first K rows to arrive.
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::UInt64Type;
@@ -106,7 +113,11 @@ impl AggregateUDFImpl for TopKAgg {
         Ok(Arc::new(Field::new(self.name(), rows, true)))
     }
 
-    /// The state is the same `List<Struct>` as the result: `state()` is `evaluate()`.
+    /// The state is the result's `List<Struct>` widened by the ordering columns:
+    /// a Final merges on them, so a partial's K rows must carry them. The
+    /// ordering fields come from DataFusion, which derives them from the ORDER BY
+    /// expressions; `row_schema` derives the accumulator's schema the same way,
+    /// since a partial's output is checked against this declaration exactly.
     fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
         let payload = payload_fields(args.input_fields)?;
         let fields: Vec<_> = payload
@@ -155,13 +166,14 @@ impl AggregateUDFImpl for TopKAgg {
             }
         };
 
-        // The accumulator's batches must carry the declared row type exactly, so
-        // take the payload schema from the return field rather than the argument
-        // fields, whose names differ.
+        // The accumulator's batches must carry the declared row type exactly: the
+        // payload from the return field (the argument fields' names differ) plus
+        // the ordering fields, named by position as the state declares them.
         let schema = row_schema(&acc_args)?;
 
-        // Non-DISTINCT: the ORDER BY keys, in order, each with its own direction/nulls.
-        // Datafusion will place the evaluated order by keys after the payload entries.
+        // The ORDER BY keys, in order, each with its own direction and null
+        // placement. DataFusion evaluates them and places them after the payload,
+        // so they sit at positions n.. and no argument has to be matched.
         let mut sort: Vec<(usize, Option<SortOptions>)> = acc_args
             .order_bys
             .iter()
@@ -276,8 +288,9 @@ fn list_of_rows(payload: &[FieldRef]) -> DataType {
     DataType::List(Arc::new(Field::new_list_field(row, true)))
 }
 
-/// The payload schema inside a `List<Struct>` return field. Contains payload columns ++ ordering
-/// columns
+/// The accumulator's row schema: the payload struct inside the `List<Struct>`
+/// return field, followed by the ordering columns of the ORDER BY. It is the
+/// state's row type, of which the result is the payload prefix.
 fn row_schema(acc_args: &AccumulatorArgs) -> Result<SchemaRef> {
     use datafusion::physical_expr::aggregate::utils::ordering_fields;
 
@@ -308,19 +321,24 @@ fn row_schema(acc_args: &AccumulatorArgs) -> Result<SchemaRef> {
 }
 
 /// The K best rows under an ORDER BY, kept as a RecordBatch sorted by `sort`.
+/// A row is the payload followed by the ordering columns (see `row_schema`).
 struct FusedTopK {
     schema: SchemaRef,
     k: usize,
-    /// Payload positions with their sort options: the ORDER BY keys, followed in
-    /// distinct mode by the remaining non-ctid columns (default options), so
-    /// that it is the full distinct key. Empty without an ORDER BY or DISTINCT.
+    /// Row positions with their sort options: the ordering columns, one per
+    /// ORDER BY key with its direction, followed in distinct mode by every
+    /// non-ctid payload column (default options), so that it is the full
+    /// distinct key. Empty without an ORDER BY or DISTINCT.
     sort: Vec<(usize, Option<SortOptions>)>,
+    /// Payload positions of the ctid columns.
     ctid_positions: Vec<usize>,
     distinct: bool,
     /// At most K rows in `sort` order, so the last row is the worst; in arrival
     /// order when `sort` is empty.
     entries: RecordBatch,
-    /// number of fields in the input payload, so we can slice the output accordingly
+    /// Where the payload ends and the ordering columns begin: `update_batch`
+    /// cuts the trailing literals out of its input at this point, and `evaluate`
+    /// projects the state down to it.
     num_payload_fields: usize,
 }
 
@@ -358,7 +376,7 @@ impl FusedTopK {
 
     /// The `sort` columns of the worst row, one single-row array each, once the
     /// state is full. `None` while it is not, so that nothing is filtered.
-    fn worst_prefix(&self) -> Option<Vec<ArrayRef>> {
+    fn worst_key(&self) -> Option<Vec<ArrayRef>> {
         if self.entries.num_rows() < self.k {
             None
         } else {
@@ -384,7 +402,7 @@ impl FusedTopK {
         use datafusion::arrow::compute::kernels::cmp::not_distinct;
         use datafusion::arrow::compute::{and, or};
 
-        let Some(worst) = self.worst_prefix() else {
+        let Some(worst) = self.worst_key() else {
             return Ok(BooleanArray::from(vec![true; batch.num_rows()]));
         };
 
@@ -469,7 +487,9 @@ impl FusedTopK {
         Ok(())
     }
 
-    /// returns a boolean indicating whether or not the `self.entries` batch was updated/replaced
+    /// Admits the rows of `batch` (a row of `schema`: payload then ordering
+    /// columns) that belong in the K best, and returns whether `entries` was
+    /// replaced.
     fn absorb(&mut self, batch: &RecordBatch) -> Result<bool> {
         use datafusion::arrow::compute::concat;
         use datafusion::arrow::compute::{lexsort_to_indices, partition};
@@ -478,21 +498,20 @@ impl FusedTopK {
             return Ok(false);
         }
 
-        // if non-distinct with no sort keys (so arrival mode) and full, we can skip the entire
-        // batch.
+        // Arrival mode (no ORDER BY, no DISTINCT) admits in arrival order, so once
+        // full nothing later can enter: skip the batch outright.
         if !self.distinct && self.sort.is_empty() && self.entries.num_rows() == self.k {
             return Ok(false);
         }
 
-        // 1) kernel-based prefilter against worst_prefix
+        // 1) kernel-based prefilter against the worst row
         let survivors = filter_record_batch(batch, &self.could_enter(batch)?)?;
         if survivors.num_rows() == 0 {
             // nothing can enter
             return Ok(false);
         }
 
-        // 1a) if no sort columns present (which means we're not in DISTINCT mode and admission is
-        // in arrival order), just take enough survivors to fill k and call it good.
+        // 1a) Arrival mode, not yet full: take enough survivors to fill k and call it good.
         if self.sort.is_empty() {
             let sk = (self.k - self.entries.num_rows()).min(survivors.num_rows());
             let enough_survivors = survivors.slice(0, sk);
@@ -643,8 +662,11 @@ impl Accumulator for FusedTopK {
         Ok(())
     }
 
-    /// Other partials' K rows. They go through the same admission, which is what
-    /// deduplicates across workers in distinct mode.
+    /// Other partials' K rows, with their ordering columns, so they go through
+    /// the same admission as input rows without anything being re-evaluated.
+    /// That shared admission is also what deduplicates across workers in
+    /// distinct mode. A state list is a whole row of `schema`, so nothing is
+    /// sliced off here.
     fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
         let mut updated = false;
         for rows in states[0].as_list::<i32>().iter().flatten() {
@@ -660,7 +682,8 @@ impl Accumulator for FusedTopK {
         Ok(())
     }
 
-    /// evaluate only returns the payload fields, so we must cut off the order by fields
+    /// The result is the payload alone, so the ordering columns are projected
+    /// away; `state` keeps them.
     fn evaluate(&mut self) -> Result<ScalarValue> {
         let batch = self.drain();
         let payload_indices: Vec<_> = (0..self.num_payload_fields).collect();
@@ -686,7 +709,10 @@ impl Accumulator for FusedTopK {
 /// `topk_as_agg(payload…, k, ctid_positions) ORDER BY sort_exprs`, with the aggregate's
 /// DISTINCT flag set by `distinct`.
 ///
-/// It is required that all of the columns referenced by `sort_exprs` come in the `payload`.
+/// `sort_exprs` need not be in the `payload`: DataFusion evaluates them over the
+/// DataFusion input the aggregate is applied to and the accumulator keeps the results
+/// as ordering columns, so a sort key only has to be an expression over that input.
+/// The emitted rows are exactly the `payload`.
 ///
 /// In distinct mode the distinct key is every payload column but the `ctid_positions`, and
 /// each group is represented by its row with the smallest ctid tuple, in place of a group-by's
@@ -1075,10 +1101,6 @@ mod tests {
             .unwrap()
     }
 
-    /// Runs the UDAF through DataFusion's own planner and AggregateExec: the ORDER BY
-    /// must not become a SortExec under the aggregate, the Partial/Final split must
-    /// round-trip the state, and the declared return type must match what
-    /// `evaluate` emits.
     /// A `(g, score, id)` table in two partitions, so the planner has a reason to
     /// split Partial from Final.
     fn scores_table() -> MemTable {
@@ -1122,6 +1144,10 @@ mod tests {
         .unwrap()
     }
 
+    /// Runs the UDAF through DataFusion's own planner and AggregateExec: the ORDER BY
+    /// must not become a SortExec under the aggregate, the Partial/Final split must
+    /// round-trip the state, and the declared return type must match what
+    /// `evaluate` emits.
     #[test]
     fn plans_without_a_sort_and_splits_partial_final() {
         runtime().block_on(async {

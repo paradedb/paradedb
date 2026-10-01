@@ -229,8 +229,8 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
     // The join condition written with t2's column first puts `t2.t1_id` ahead
     // of `t1.id` in their equivalence class, and the ORDER BY on `t1.id` reaches
     // JoinScan as `t2.t1_id`, a column nothing projects. Without DISTINCT that is
-    // legal, and the aggregate path has to carry it as payload and sort on it
-    // above the aggregate rather than resolve it through the select list.
+    // legal, and the aggregate path has to feed it to the aggregate's ORDER BY as
+    // an extra input rather than resolve it through the select list.
     assert_paths_agree::<(i32, i32)>(
         &mut conn,
         r#"
@@ -246,7 +246,8 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
 
     // A sort key that wraps an unselected column: Postgres adds `t1.rating IS NULL`
     // to the target list as resjunk, not `t1.rating` itself, so the aggregate path
-    // has to carry `rating` as payload and let DataFusion evaluate the key.
+    // has to feed `rating` to the aggregate's ORDER BY as an extra input and let
+    // DataFusion evaluate the key.
     assert_paths_agree::<(i32, i32)>(
         &mut conn,
         r#"

@@ -1,0 +1,6461 @@
+window.BENCHMARK_DATA = {
+  "lastUpdate": 1790829481157,
+  "repoUrl": "https://github.com/paradedb/paradedb",
+  "entries": {
+    "benchmarker hn-ci (QPS)": [
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dd2424c18610b36018c75540a31ee16ecb018339",
+          "message": "ci: benchmarker suite for pg_search (hn-benchmarker) (#5850)\n\nAdds a RunsOn workflow that benchmarks pg_search built from this\nbranch's source against the `hn-benchmarker` dataset using the external\nbenchmarker suite.\n\n- Builds pg_search from source and overlays it onto the\n`paradedb/paradedb:v0.25.0-pg18` base (buildkit-cache-dance warms the\ncargo/target mounts).\n- Brings up the dataset's single `paradedb` service via the `paradedb`\ncompose profile, points `PARADEDB_IMAGE` at the source build.\n- Runs every `k6/*.js` the dataset ships (currently `topk.js`), once\neach.\n- Publishes each script's dashboard HTML (with CPU/mem graphs) to\ngh-pages and links it from a PR comment; pushes QPS + p50/p90/p95/p99 to\ngh-pages for over-time tracking (main only).\n\n**Testing:** add the `benchmark-benchmarker` label to run. Requires the\n`hn-benchmarker` dataset to be present at\n`s3://paradedb-benchmarker/datasets/hn-benchmarker`.\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-08-19T11:04:28-04:00",
+          "tree_id": "8c3bcacafae807e4074e533538fd64bd40655c80",
+          "url": "https://github.com/paradedb/paradedb/commit/dd2424c18610b36018c75540a31ee16ecb018339"
+        },
+        "date": 1787153837624,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 522.4333333333333,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45b92e5c6cee1d64839d7c6d0d2c20c6397f752e",
+          "message": "fix: Report dynamic filter pushdown under MPP (#5951)\n\n## What\n\nRecord dynamic filter pushdown via a metric.\n\n## Why\n\nTo allow for accurate reporting under MPP. `dynamic_filter_pushdown` is\ntriggered only after execution has started, and only metrics are\ntransferred back over the wire after MPP execution.\n\n## Tests\n\nSee changed regress tests.",
+          "timestamp": "2026-08-19T09:32:46-07:00",
+          "tree_id": "80143b13afb100c52f85648a131b2fb4084feec8",
+          "url": "https://github.com/paradedb/paradedb/commit/45b92e5c6cee1d64839d7c6d0d2c20c6397f752e"
+        },
+        "date": 1787159011692,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 529.3490216992767,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "802585d3398c5f6f0384021feb29b3813c7e75b5",
+          "message": "perf: Use an in-memory channel for self-loops in MPP (#6002)\n\n# Ticket(s) Closed\n\n- Closes #5332\n\n## What\n\nIncorporates a new tag of `datafusion-distributed` which picks up\nhttps://github.com/datafusion-contrib/datafusion-distributed/pull/656,\nand switches to using it for self-loops.\n\n## Why\n\nTo avoid serialization costs when sending data in-process.\n\n## Tests\n\nCauses some benchmark movement on small datasets, but no change on\nlarger datasets.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-19T19:03:30-07:00",
+          "tree_id": "57508ac87b2e5595e113837b3c79f7cab2ddf966",
+          "url": "https://github.com/paradedb/paradedb/commit/802585d3398c5f6f0384021feb29b3813c7e75b5"
+        },
+        "date": 1787192895476,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 511.1,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ddf7f2f06fd7e6fffd7c7a35d5623c11db7b89a0",
+          "message": "chore: Render table name (or alias) in `PgSearchScan`. (#6009)\n\n## What\n\nRender the table name (or its assigned alias) in `EXPLAIN` for\n`PgSearchScan`.\n\n## Why\n\nBecause otherwise it's necessary to differentiate tables by inspecting\ntheir filters, which is error prone.\n\n## Tests\n\nTons of regress changes; no semantic changes.",
+          "timestamp": "2026-08-19T20:08:21-07:00",
+          "tree_id": "ff181690bd989f2fc653e2071d784668ac3b21ae",
+          "url": "https://github.com/paradedb/paradedb/commit/ddf7f2f06fd7e6fffd7c7a35d5623c11db7b89a0"
+        },
+        "date": 1787196758216,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 509.1836394546485,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1158b82f1ffd9deeafa7c4633afd516ff897dbb",
+          "message": "perf: allocate the per-segment EXPLAIN info slots only where used (#6004)\n\nThis PR allocates the per-segment EXPLAIN info slots only for scans that\npublish them.\n\n## Why\n\n`amestimateparallelscan` sizes the parallel index-scan DSM for\n`u16::MAX` segments sight unseen below PG18, and the layout allocated\n`SEGMENT_INFO_MAX_PER_SEG` (1024) bytes per segment unconditionally: a\n~66MB estimate per parallel index scan. Only basescan's Top-K workers\npublish that telemetry (`publish_segment_info` / `take_segment_info`);\nthe AM index scan and the MPP launches never touch it.\n\n## What\n\n- `ParallelScanPayloadLayout` takes `with_segment_info`; the info\nregions are zero-length when off.\n- `ParallelScanArgs` carries the flag: on for BaseScan (which sizes and\npopulates from the same args), off for the JoinScan and AggregateScan\nMPP launches and the AM index scan. The PG15-17 estimate drops to ~2MB,\ndominated by the 16-byte segment ids.\n- `set_segment_info` / `take_segment_info` no-op when the layout has no\nslots, so a misrouted publish can't index past a zero-length region.\n\nThe estimate below PG18 stays a blind `u16::MAX` guess; sizing it from\nthe real segment count needs the relation, which only the PG18 signature\nprovides.",
+          "timestamp": "2026-08-20T01:49:03-07:00",
+          "tree_id": "fd871fe38fa58ba333797e6d0eeaf72d9b56c287",
+          "url": "https://github.com/paradedb/paradedb/commit/a1158b82f1ffd9deeafa7c4633afd516ff897dbb"
+        },
+        "date": 1787217585155,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 504.41651944935165,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98c3378d167341dfdc736cd4a3126ef554205f84",
+          "message": "feat: computed global partition boundaries for `CREATE INDEX`. (#5991)\n\n# Ticket(s) Closed\n\n- Closes #5736\n\n## What\n\nThe `CREATE INDEX` leader now computes global partition boundaries for a\n`partition_by` index and passes them to the parallel build workers. The\nboundaries are a recursive KD-tree over the `partition_by` fields, built\nonce from a heap sample. Workers deserialize the tree and log it at\n`DEBUG1`; routing on it is #5737.\n\n## Why\n\nEach parallel worker gets an arbitrary slice of the heap. If workers\npicked boundaries from their own tuples, segments wouldn't line up and\nlater merges would fix the edges. One set of boundaries fixed before any\nworker starts keeps a fresh index's segments aligned.\n\n## How\n\n- `index/kdtree.rs` (new, Postgres-free): `KdTree::from_sample` splits\nrecursively. Each cut is the quantile that gives both children a share\nof the sample proportional to their leaves; the dimension is the one\nspanning the widest slice of its global distribution (by rank, so mixed\ntypes compare), ties to the earlier field. Low-cardinality data can\nyield fewer than `target` leaves. Routing matches\n`RangePartitioning::partition_bounds` (NULL and `< split` left, `>=\nsplit` right, in-order leaves); in one dimension it *is* a\n`RangePartitioning`. `route`/`partition_bounds`/`partition_count` are\nthe #5737 API.\n- `postgres/build_partitioning.rs` (new): the leader samples the heap,\nnot `pg_statistic`. `BlockSampler` over <= 4096 blocks, reservoir to 30k\nrows (the `ANALYZE` size), converted through the writer's own path so\nexpression/aliased fields work.\n- `build_parallel.rs`: leaf count is `adjusted_target_segment_count`.\nThe tree ships as a binary Vec.\n\n## Tests\n\n- `kdtree.rs` and `pdb_owned_value.rs` unit test\n- `build_partitioning.rs` `pg_test`s",
+          "timestamp": "2026-08-20T14:28:52-07:00",
+          "tree_id": "3aaea0e0306b0d2236a8c0128d6e972f0038d5e6",
+          "url": "https://github.com/paradedb/paradedb/commit/98c3378d167341dfdc736cd4a3126ef554205f84"
+        },
+        "date": 1787262751514,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 526.4666666666667,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1eadf7532c877f8420ae9080f62a968e043c7281",
+          "message": "fix(mpp): align plain EXPLAIN with serial fallback when MPP cannot launch (#5822)\n\n## Summary\n- Fixes [#5784](https://github.com/paradedb/paradedb/issues/5784): when\ntask discovery finds fewer than 2 producer tasks, plain `EXPLAIN`\nrebuilds and renders the serial plan instead of a cap-sized distributed\nshape.\n- Shares the launch gate (`mpp_plan_has_data_parallelism`) across\nJoinScan and AggregateScan, matching plan-first MPP launch behavior from\n#5756.\n- Extends `mpp_worker_sizing` to assert the 1-segment plain-EXPLAIN\nserial contract.\n\n## Test plan\n- [x] `mpp_worker_sizing` regress\n- [x] 1-segment join: plain EXPLAIN has no `RoundRobinBatch` /\n`SortPreservingMergeExec`\n- [x] 1-segment join: EXPLAIN ANALYZE has no `MPP Launch` line\n- [x] 2-segment join still launches `workers=2` under an oversized cap",
+          "timestamp": "2026-08-20T17:30:20-04:00",
+          "tree_id": "3f7b3f45ca6495f94b1d6633bedf18da1ab80ae1",
+          "url": "https://github.com/paradedb/paradedb/commit/1eadf7532c877f8420ae9080f62a968e043c7281"
+        },
+        "date": 1787264639043,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 546.2333333333333,
+            "unit": "QPS"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "70322560+mehrdad3301@users.noreply.github.com",
+            "name": "Mehrdad Mahabadi",
+            "username": "mehrdad3301"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a5a85388a4b99a39baed12c5d300ee88dc42f06a",
+          "message": "feat: Push down ORDER BY range into the index (#2688) (#5791)\n\nFixes #2688\n\nPushes `ORDER BY` on Postgres range columns into the BM25/paradedb index\nTopK path. `SortByRange` reads the indexed bound sub-columns and\ncompares them using the same ordering as Postgres `range_cmp`.\n\n**Limitations**\n- Range columns must be the **leading** `ORDER BY` key; later keys fall\nback to Postgres sorting.\n- Only raw range columns are supported (not `lower(range_col)` or other\nexpressions).\n\n**Mapping**\nEmpty ranges sort first, unbounded lowers before finite lowers,\nunbounded uppers after finite uppers, and inclusive/exclusive endpoints\ntie-break like `range_cmp`.\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-08-20T16:51:32-07:00",
+          "tree_id": "7c778fa3068610ee989c53feecc39c9bf87eceb7",
+          "url": "https://github.com/paradedb/paradedb/commit/a5a85388a4b99a39baed12c5d300ee88dc42f06a"
+        },
+        "date": 1787271420889,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) QPS",
+            "value": 466.05113162894565,
+            "unit": "QPS"
+          }
+        ]
+      }
+    ],
+    "benchmarker hn-ci (latency)": [
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1696390d10ad0772db19a7918a21d89803ff4d26",
+          "message": "ci: only post the benchmarker summary comment on PRs (#6005)\n\nFollow-up to #5850, aligning the benchmarker with the benchmark-queries\n/ benchmark-stressgres conventions.\n\n- Summary comments are PR-only; nothing posts on pushes to main (main\nruns are tracked on the gh-pages charts). Compare tables come from\ngithub-action-benchmark's comment-always.\n- One tracked series instead of two: per-run mean + p50/p90/p95/p99\nlatency under a single customSmallerIsBetter publish, like queries. The\nk6 scripts are closed-loop, so mean ms carries the QPS signal (QPS = VUs\n/ mean latency); this halves the publish steps and PR comments.\n- Switched to the paradedb github-action-benchmark fork used by the\nother benchmark workflows (shallow-clones only the gh-pages branch).\n- Fixed a masked failure: with two publishes, the second one's gh-pages\nclone always failed on the non-empty ./benchmark-data-repository left by\nthe first, and continue-on-error hid it, so no latency history ever\nreached gh-pages. Now moot with a single publish, and the cleanup still\nruns before it.",
+          "timestamp": "2026-08-21T13:12:54+12:00",
+          "tree_id": "39bf4ea7592d99da81c362269c4af159c356ce01",
+          "url": "https://github.com/paradedb/paradedb/commit/1696390d10ad0772db19a7918a21d89803ff4d26"
+        },
+        "date": 1787276285419,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 2.122381672851844,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 2.03,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.62,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.729,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.88,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b13e9670f0e2e66028a22eb4930141866837b07b",
+          "message": "fix: respect collation semantics in AggregateScan grouping (#5703)\n\n# Ticket(s) Closed\n\n- None. Follow-up to #5180.\n\n## What\n\nAggregateScan declines GROUP BY pushdown when it cannot preserve\nPostgreSQL's\ngrouping semantics: nondeterministic collations, `GROUPING SETS`, and\nGROUP BY\nwithout verifiable pathkeys fall back to PostgreSQL. Deterministic\ncollations\n(including ICU like `en-US`) stay eligible. Declined `pdb.agg()` queries\nemit\na planner WARNING naming the reason.\n\n## Why\n\nPostgreSQL groups with collation-aware equality; ParadeDB's backends\ngroup by\nbytes. With a case-insensitive collation:\n\n```text\nElectronics | 1        electronics | 2\nelectronics | 1   vs.  (correct)\n```\n\nWrong groups cannot be repaired above the scan. Separately, `GROUPING\nSETS`\nsilently dropped the grand-total row — a grouping-shape bug the same\neligibility gate now catches, unrelated to collations.\n\n## How\n\nGrouping needs collation *equality*, not *ordering*: deterministic\ncollations\nbreak ties bytewise, so their grouping pushes down while their ORDER BY\nstays\nwith PostgreSQL. A new shared module `collation_semantics.rs` models\nboth\n(`CollationOperation::Equality` / `::Ordering`), replacing\n`orderby.rs::is_collation_pushdown_safe()` for all callers — including\n#5148's\nDISTINCT gates after merging main. `create_custom_path` declines the\nunsafe\nshapes before building any path; `pdb.agg()` declines warn first, then\nfail on\nthe placeholder as before.\n\n## Tests\n\nExtended `order_by_collation.sql`: deterministic ICU stays pushed down\nwith\n`pdb.agg()` executing; nondeterministic falls back and merges equivalent\nvalues; GROUPING SETS, constant-equality, hash-only, and mixed keys\ndecline\nwith correct results; each declined `pdb.agg()` warns with its reason.",
+          "timestamp": "2026-08-21T08:14:37+05:30",
+          "tree_id": "30787eb999c72c03cca092a44e2cd387c16006d5",
+          "url": "https://github.com/paradedb/paradedb/commit/b13e9670f0e2e66028a22eb4930141866837b07b"
+        },
+        "date": 1787281748108,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.860179016598829,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.737,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.271,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.394,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.748,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef3e38bb8d216544db715e5378429b0293dfbf9f",
+          "message": "perf: Use predicate tagging for disjunctions. (#6010)\n\n## What\n\nReplaces `SearchPredicateUDF` with predicate tagging for evaluating\njoin-level search predicates (e.g. cross-table disjunctions such as\n`p.description @@@ 'laptop' OR s.description @@@ 'display'`) in the join\nand aggregate scans.\n\n## Why\n\nEvaluating join-level search predicates using UDFs\n(`pdb_search_predicate`) required:\n1. Shipping canonical segment IDs across logical and physical plan\nserialization boundaries.\n2. Special handling for visibility\n3. Computing and intersecting CTID sets using a UDF\n\nPredicate tagging simplifies the intersection into a per-segment bitmap\nlookup on the `DocId`, without needing to fetch or visibility check\nctids.\n\n## How\n\nExpose matches as synthetic boolean columns for DataFusion boolean\nexpressions, which are then evaluated as vectorized boolean operations\nafter the join.\n\n## Tests\n\nExpanded tests.\n\nIn local benchmarks, predicate tagging was 22x faster for low\nselectivity queries.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-21T08:11:18-07:00",
+          "tree_id": "efd2c1616d7338a807bf2ec3e48e88690164ee0c",
+          "url": "https://github.com/paradedb/paradedb/commit/ef3e38bb8d216544db715e5378429b0293dfbf9f"
+        },
+        "date": 1787326541050,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.812193764870972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.222,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.392,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.672,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1173b5fa60ad3d8beeb01d6d485e4da1d956d617",
+          "message": "ci(benchmarks): add pgvectorscale (diskann) as a cohere index variant (#5745)\n\nReauthors #5588 against the sweep-based CI that replaced its fixed\n`[params]`. Adds pgvectorscale StreamingDiskANN as a fifth cohere arm,\nrun via the `benchmark-cohere-pgvectorscale` label or the\n`pgvectorscale` dispatch choice.\n\nEach arm sweeps whichever GUC actually binds it, and every ladder ends\nat that GUC's hard maximum — verified against the extension's GUC\nregistration in 0.9.0 (`query_rescore` max 1000,\n`query_search_list_size` max 10000; #5588 stopped search_list_size at\n4000):\n\n| arm | swept GUC | ladder |\n|---|---|---|\n| unfiltered | `diskann.query_rescore` | 50 → 1000 |\n| 10pct | `diskann.query_search_list_size` | 200 → 10000 |\n| 1pct | `diskann.query_search_list_size` | 500 → 10000 |\n\n**The filtered arms cannot reach 90% on the default SBQ build.**\nFiltering is post-filter streaming, so only the ~10%/1% of the beam\npassing the predicate survives, and at most 1000 candidates are ever\nexact-rescored — with rescore pinned at that maximum, beam width is the\nonly lever left. Ending the ladders at the ceiling lets the sweep's\nexisting unreachable-target fallback report the best achievable point\n(flagged ⚠️) rather than a fabricated one. Uncompressed `storage_layout\n= plain` would lift them but is far too slow to build in CI. This arm is\ndeliberately **not** iso-recall with the others; that is the property\nbeing surfaced.\n\nSupersedes #5588.",
+          "timestamp": "2026-08-21T12:05:37-07:00",
+          "tree_id": "31d1103b88b59d2e32d3804dcec27c056bb087e6",
+          "url": "https://github.com/paradedb/paradedb/commit/1173b5fa60ad3d8beeb01d6d485e4da1d956d617"
+        },
+        "date": 1787340584343,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.8296011948755917,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.708,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.192,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.568,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff880e56c7a137931e7073e29c14007ca0aabe5a",
+          "message": "chore: Update to df55-based df-d and fix api changes (#6015)\n\n## What\n\nUpdate to `datafusion-55`.\n\n## Tests\n\nBenchmarks are neutral.\n\nRegress tests show some lost dynamic filters due to\nhttps://github.com/apache/datafusion/pull/24045, which is necessary for\ncorrectness.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-08-21T12:42:44-07:00",
+          "tree_id": "12af687f821e5cd94415531f6c50b3cf84f92a10",
+          "url": "https://github.com/paradedb/paradedb/commit/ff880e56c7a137931e7073e29c14007ca0aabe5a"
+        },
+        "date": 1787342918582,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.9089562423697302,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.771,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.363,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.487,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.818,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "12ddb8a9e2912c6ae86a797df8bd1b97383e8326",
+          "message": "fix(mpp): replay the leader's segment view in every parallel reader (#5993)\n\nThis PR makes every reader a query opens for one index source replay the\nsame segment view, so packed `DocAddress`es stay valid across processes.\n\nCloses #5988.\n\n## Why\n\nStressgres hit `remote task 2.0 failed: range end index\n18446744073709551613 out of range for slice of length 8` on the JoinScan\nMPP path. Packed `(segment_ord, doc_id)` addresses are only meaningful\nagainst the reader that packed them, but the consumer side (a rebuilt\n`FFHelper` behind a network boundary, the leader-hosted\n`VisibilityFilterExec`, `SearchPredicateUDF`) opens its own reader over\nthe same segment id set. Two opens don't expose the same `DocId` space:\n\n- A mutable segment is materialized per open, bounded by the `(max_doc,\nnum_deleted_docs)` its meta entry holds at that moment. Concurrent DML\nmoves that bound between the producer's open and the consumer's, so a\n`doc_id` past the shorter view overflows tantivy's bitpacker, or\nresolves to the wrong ctid when the counts happen to match.\n- Segment ordinals come from an unstable doc-count sort, so they can\npermute between opens.\n\n## What\n\n- `MvccSatisfies::ParallelWorker` now has a `SegmentView`: the origin\nreader's segments in ordinal order, plus each mutable segment's\n`(max_doc, num_deleted_docs)` bound. `load_metas` rewinds mutable\nentries to that bound (the log is append-only, so it always is a prefix)\nand orders segments by the view.\n- `ParallelScanState` sends every source's view; the JoinScan leader's\nproviders, `SearchPredicateUDF`, the worker scans, and the rebuilt\nresolvers all replay that view.\n- `paradedb.aggregate` workers keep an id-only view; their addresses\nnever leave the process.\n\n## Tests\n\nA `pg_test` for the view replay\n(`test_segment_view_replays_origin_reader`), an `mpp_joinscan_mutable`\nregress covering the worker-hosted and leader-hosted shapes, and a\nconcurrent integration test (`mpp_joinscan_concurrent.rs`) that fails on\nthe base commit within a second and also catches the silent wrong-result\nvariant.",
+          "timestamp": "2026-08-22T02:17:40-07:00",
+          "tree_id": "55a004f381a03edc0e6a5e122a97bdab1fa801a3",
+          "url": "https://github.com/paradedb/paradedb/commit/12ddb8a9e2912c6ae86a797df8bd1b97383e8326"
+        },
+        "date": 1787391697727,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 2.269713915166297,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 2.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.816,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.908,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 3.058,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9491e6b4cc67e7d7d1706fcd1e8bc394eadc34f",
+          "message": "ci(benchmarks): stop recall sweeps once the top target is reached (#6028)\n\nRecall sweeps measure every value in the ladder even after a point\nreaches r99, the highest recall target. Since values are ordered\ncheapest first and recall rises monotonically with these knobs, every\ntarget already has its cheapest qualifying point by then — probing the\nlarger values only burns runner time.\n\nThis breaks out of the sweep loop after the first value that reaches the\ntop target, and documents the cheapest-first ordering requirement on\n`SweepConfig.values`.",
+          "timestamp": "2026-08-22T19:23:24-07:00",
+          "tree_id": "9f2b9a833af20e3f74f1d8bb2abb442cfcb0446e",
+          "url": "https://github.com/paradedb/paradedb/commit/e9491e6b4cc67e7d7d1706fcd1e8bc394eadc34f"
+        },
+        "date": 1787453206319,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7539633764545914,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.652,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.089,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.382,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc3dfcab58eb6a14179d639ad1e97f5369297f66",
+          "message": "docs: refresh repository guidance and fix copy (#6033)\n\n## Summary\n- correct documentation spelling, capitalization, grammar, and the 2026\ncopyright year\n- align regression-test and Stressgres commands with the current CLIs\nand repository layout\n- replace obsolete Mintlify CLI instructions\n- repair JoinScan links after source files moved and replace stale\ncommit-pinned references with durable relative links\n- refresh Docker and Antithesis guidance\n- clarify the qgen.rs link label while retaining its correct target at\ntests/tests/qgen.rs\n- align Debian, Ubuntu, and RHEL package descriptions with current\nproduct messaging from #5909\n- clarify pgvector requirements in the pg_search development README and\nintegration-test fixture\n- update executable deployment examples to the verified 0.25.3 release\ntags\n\n## Audit scope\nReviewed every tracked README, including the GitHub Actions upgrade-test\nREADME, plus CONTRIBUTING.md, SECURITY.md, and CODE_OF_CONDUCT.md\nagainst current source files, manifests, workflows, and tool help.\n\n## Testing\n- targeted prek checks for every changed file\n- cargo pgrx regress --dry-run --auto pg18 PREFIX_your_test\n- cargo run -p stressgres -- --help\n- local-link resolution check across all audited files\n- verified the v0.25.3 release and both referenced Docker Hub tags\n\nStandalone actionlint reports pre-existing findings elsewhere in the\npublish workflows; the imported sections introduce no new findings.",
+          "timestamp": "2026-08-23T13:01:18-04:00",
+          "tree_id": "62d8c6c26a02f4f98d9e697298d0efc33f26f505",
+          "url": "https://github.com/paradedb/paradedb/commit/cc3dfcab58eb6a14179d639ad1e97f5369297f66"
+        },
+        "date": 1787505898227,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.9869596256684505,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.498,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.694,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.993,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "40a0c232be1ce4855e18b720c5b4fcc1bfe2b568",
+          "message": "chore: refresh documentation and version references (#6034)\n\n## Summary\n- update Antithesis manifest application labels and monitoring\npredicates from 0.25.0 to 0.25.3\n- fix a broken changelog link and documentation copy issues\n- update django-paradedb from 0.12.0 to 0.13.0 and actions/cache from v4\nto v6\n\n## Validation\n- `prek run --files` on all changed files\n- `mint validate`\n- `mint broken-links`\n- Prettier, codespell, and `git diff --check`\n\n## Audit notes\n- historical changelog/migration version references remain unchanged\n- the Antithesis manifest is rendered from ParadeDB Helm chart 0.18.3\nwith manual overlays; updating it to the current chart should be handled\nas a dedicated regeneration and review",
+          "timestamp": "2026-08-23T13:42:25-04:00",
+          "tree_id": "411cb3c049dd156dda3a3ad21e735705a0de5977",
+          "url": "https://github.com/paradedb/paradedb/commit/40a0c232be1ce4855e18b720c5b4fcc1bfe2b568"
+        },
+        "date": 1787508396555,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.8836379714738605,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.75,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.354,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.499,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.739,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e351f6cc818a2ab88965f8997da360c9a33b600a",
+          "message": "docs: refresh documentation and repository configuration (#6036)\n\n## Summary\n\n- clarify custom scan eligibility, filtered vector search, horizontal\nscaling, and Elasticsearch transaction behavior\n- improve Kubernetes and CloudNativePG production deployment guidance\n- refresh the release process, changelog wording, PostgreSQL 18 Nix\nexample, and development comments\n- organize and prune Codecov, Codespell, Docker, Git, and Prettier\nignore lists\n- clean up the root Cargo manifest and local pg_search helper scripts\n\n## Validation\n\n- `prek run --files` on the changed files\n- `cargo metadata --no-deps --format-version 1`\n- `shellcheck scripts/*.sh`\n- `mint validate`\n- `mint broken-links`",
+          "timestamp": "2026-08-23T15:08:37-04:00",
+          "tree_id": "ac4527a0921a0e4f7b0f5d0265d3149ed66edc01",
+          "url": "https://github.com/paradedb/paradedb/commit/e351f6cc818a2ab88965f8997da360c9a33b600a"
+        },
+        "date": 1787513550737,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.8680196177062327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.741,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.332,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.496,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.628,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7ff580c75e761f5c405d8585b37f6d6c23e6092",
+          "message": "docs: refresh architecture and development guidance (#6038)\n\n## Summary\n\n- correct the architecture guide's description of mutable-segment\nbuffering and PostgreSQL parallel execution\n- refresh integration-test setup, dependency organization, paths, and\nshell examples\n- audit Stressgres helpers, CLI guidance, package metadata, and\nAntithesis scripts\n- fix Stressgres argument handling and Cargo invocation, plus a macOS\nBash compatibility issue in the Antithesis consistency check\n- update `THANKYOU.md` with pgvector, Lindera, DataFusion Distributed,\nand Apache Arrow\n- correct packaging and `pg_regress` terminology in `CONTRIBUTING.md`\n\n## Validation\n\n- repository commit hooks\n- `cargo test -p stressgres --no-default-features`\n- `cargo test --package tests --no-run`\n- `cargo fmt --all -- --check`\n- `bash -n` and `shellcheck` on the changed shell scripts\n- verified every Stressgres suite has a matching Antithesis setup script\n- `mint validate`\n- `mint broken-links`\n\n## References\n\n- [PostgreSQL parallel\nplans](https://www.postgresql.org/docs/current/parallel-plans.html)",
+          "timestamp": "2026-08-23T17:00:23-04:00",
+          "tree_id": "79e7aa2472e2d7ca420dd1c77fceaf6b03a946eb",
+          "url": "https://github.com/paradedb/paradedb/commit/d7ff580c75e761f5c405d8585b37f6d6c23e6092"
+        },
+        "date": 1787521177225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 2.1640804773339073,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 2.092,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.739,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.881,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 3.09,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "de6e2ebfe8c3bda48a5cc1e779c9848ac95040b7",
+          "message": "feat(mpp): gate MPP behind a minimum source size (#5482)\n\n## Ticket(s) Closed\n\n- Closes #5329\n\n## What\n\nThis PR gates MPP behind a minimum estimated source size:\n`paradedb.mpp_min_rows`, default 500,000, with 0 disabling the gate.\n\n## Why\n\nThe MPP launch costs 13-18ms regardless of data size: worker spawn, plan\ndispatch, and per-worker index opens. On small queries that floor\ndominates whatever the parallel split saves. Measured on a 500K x 800K\njoin (release build, 4 workers), the crossover sits near 30ms of serial\nwork, about 300K driving rows: a selective anti-join runs 4.0ms serial\nvs 16.6ms under MPP, while a full-scan group-by runs 318ms serial vs\n82ms under MPP. Postgres has `min_parallel_table_scan_size` for the same\nreason; MPP had no analog. This is also the dominant share of the 0.24.3\nto 0.25.3 anti-join regression a customer reported.\n\n## How\n\nThe gate sits at the front of the launch path, the same point as the\nshort-launch serial fallback, so both reuse one serial path. Each source\ncounts the rows its `@@@` predicate is estimated to match, not the\nindex's document count: a selective query over a large index does little\nscan work, and the floor dominates it just the same. An unanalyzed\nsource falls back to its live document count, an upper bound, so missing\nstatistics err toward launching. The largest source stands for the scan;\nthe smaller sides ride along. Below the threshold the query runs the\nplain serial plan.\n\nThis gate is the `Row-capped` analog of BaseScan's #5150 policy table,\nand it reads the same planner match estimates. #5150's cost tier\n(`cost_test_limited`) doesn't transfer: BaseScan's parallelism is PG\nGather, so `parallel_setup_cost` honestly prices it, while the MPP\nlaunch floor has no PG cost-unit representation and JoinScan's\n`Flags::Force` path cost is fabricated. A cost comparison against those\nnumbers would be fake precision; if the floor gets priced later, the\ngate can graduate to a cost test.\n\nThe gate is a pure function of the planner estimates, shared between the\nlaunch and the plain-`EXPLAIN` plan rebuilds the same way #5822 shares\nthe producer-task floor, so the rendered plan agrees with the executed\nmode. An estimate the planner substituted from the index's total\ndocument count (Postgres expressions, heap filters) is discounted by\n`PARAMETERIZED_SELECTIVITY`, mirroring BaseScan, so prepared statements\non big indexes still gate. The default is calibrated at the measured\ncrossover with headroom; the GUC exists to tune it.\n\n## Tests\n\nRegression tests.",
+          "timestamp": "2026-08-23T16:55:36-07:00",
+          "tree_id": "77c61572da4eb096208e1777ec471191de03152c",
+          "url": "https://github.com/paradedb/paradedb/commit/de6e2ebfe8c3bda48a5cc1e779c9848ac95040b7"
+        },
+        "date": 1787530752128,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7490349843924897,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.639,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.069,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.261,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.451,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d297e61da2c2353a748fe6caf2fe23c898eccf06",
+          "message": "chore: audit pg_search, Docker, and benchmarks (#6042)\n\n## Summary\n\n- refresh pg_search and pg_regress development guidance, remove the\nobsolete banner, and clean up stale regression TODOs\n- clarify generated versus hand-maintained Docker assets, complete the\nCloudNativePG extension-image example, and pin the property-test image\ndistro\n- align benchmark setup and CLI descriptions with current behavior and\nnarrow generated-result ignore rules\n- fix the benchmark CSV output filename and reject zero-run benchmark\ninvocations\n- protect generated pgBackRest configs containing AWS credentials with\nexclusive creation, mode 0600, and automatic cleanup\n\n## Validation\n\n- repository commit hooks\n- `cargo test -p benchmarks` (39 tests)\n- `cargo clippy -p benchmarks --all-targets -- -D warnings`\n- `cargo clippy -p pg_search --lib -- -D warnings`\n- `cargo fmt --all -- --check`\n- `cargo metadata --no-deps --format-version 1`\n- `cargo pgrx regress --dry-run` command verification\n- native ShellCheck and Bash syntax checks for Docker scripts\n- Docker Compose configuration validation\n- regenerated Dockerfiles from the published 0.25.3 packages and\nverified byte-for-byte template parity\n- Markdownlint, Prettier, and `git diff --check`\n\n## Audit notes\n\n- historical extension migrations and regression references were\nretained\n- open issue-linked TODOs were left unchanged\n- Docker-backed ShellCheck was unavailable because the local Docker\ndaemon was offline; native ShellCheck passed\n- full benchmark execution and Docker image builds were not run\n- `cargo test -p pg_search --lib` does not complete: the `pg_test` path\nlaunches a nested Cargo build against the same target directory and the\nouter process remains waiting after that build; no test failure was\nreported before termination",
+          "timestamp": "2026-08-23T22:40:48-04:00",
+          "tree_id": "8d844c3622ce7b3697bcdbec6b52a9973ff04a4f",
+          "url": "https://github.com/paradedb/paradedb/commit/d297e61da2c2353a748fe6caf2fe23c898eccf06"
+        },
+        "date": 1787540720259,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.89207097349642,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.767,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.332,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.494,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.747,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7262a75638c36e7e9ab3ff3dbc08bbe1f88ab1d",
+          "message": "ci: audit GitHub automation and templates (#6044)\n\n## Summary\n\n- restore benchmark baseline publishing to `main` only and make manual\n`fail_on_error: false` effective\n- trigger benchmark runs when their local composite actions change\n- harden benchmark composite-action shell inputs and align the GitHub\nApp client-ID input name with its actual value\n- replace deprecated global `apt-key` usage with scoped PostgreSQL\nrepository keyrings and HTTPS package sources\n- repair issue and discussion links and route users to the core, ORM,\nand benchmark repositories with active issue trackers\n- reduce `FUNDING.yml` to the active GitHub Sponsors account and remove\nnonexistent discussion labels\n- refresh the benchmark source action description to match its actual\nbehavior\n\n## Validation\n\n- repository commit hooks\n- Prettier across `.github` YAML\n- Actionlint across all workflows, ignoring only known custom runner\nlabels, Actionlint's stale `create-github-app-token@v3` metadata, and\npre-existing inline ShellCheck findings\n- Actionlint with inline ShellCheck enabled for the changed benchmark\nworkflows\n- Python syntax compilation for `.github/actions` and `.github/scripts`\n- Bash syntax and ShellCheck for standalone `.github/scripts`\n- live verification of issue destinations and the `paradedb/charts`\nIssues setting\n- live verification of the GitHub Sponsors destination and repository\nlabels used by templates\n- `git diff --check`\n\n## Audit notes\n\n- generated code-snippet verification fixtures were treated as generated\nartifacts and were not hand-edited\n- action major-version updates remain managed by Dependabot\n- full benchmark, release, and publishing jobs require CI\ncredentials/infrastructure and were not run locally",
+          "timestamp": "2026-08-23T23:42:36-04:00",
+          "tree_id": "69fa91159263c72992b4308ca6f62fe5e301df8c",
+          "url": "https://github.com/paradedb/paradedb/commit/b7262a75638c36e7e9ab3ff3dbc08bbe1f88ab1d"
+        },
+        "date": 1787544382896,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.8180154901120482,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.716,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.194,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.301,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.41,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "81e7d38632bacafad455cde5ecf09bb694416c37",
+          "message": "chore: audit docs configuration (#6045)\n\n## Summary\n- remove the obsolete Mintlify promotional search placeholder override\n- update the footer social link from `twitter.com` to `x.com`\n- remove the empty `.mintignore` file\n\n## Audit scope\nReviewed the full `docs/` tree for navigation coverage, metadata,\ninternal links, stale version and Postgres support claims,\nrelease/install examples, ORM package pins, legacy API references,\ntracked artifacts, and custom configuration. Historical changelogs and\nintentional roadmap/coming-soon language were left unchanged.\n\n## Validation\n- `git diff --check`\n- `prettier --check docs/override.js docs/docs.json`\n- `mint validate`\n- `mint broken-links`\n- commit-time prek hooks",
+          "timestamp": "2026-08-24T00:30:46-04:00",
+          "tree_id": "2d0f812deb84ba49dff0c5211eba8bf7c857a5a7",
+          "url": "https://github.com/paradedb/paradedb/commit/81e7d38632bacafad455cde5ecf09bb694416c37"
+        },
+        "date": 1787547315846,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.928852729278901,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.797,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.447,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.61,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.786,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd1ec5841aef3738ac7339ec2a2b8c890ccdcdaf",
+          "message": "docs: update documentation URLs (#6052)\n\n## Summary\n\n- update ParadeDB documentation links from docs.paradedb.com to\nparadedb.com/docs\n- preserve every existing documentation path and anchor\n\n## Verification\n\n- confirmed representative replacement URLs resolve successfully\n- git diff --check\n- verified no obsolete documentation URLs remain, excluding the\nintentional legacy-host redirect rules in the website repository",
+          "timestamp": "2026-08-24T16:31:41-04:00",
+          "tree_id": "51abed1b88f4c0d42118c854f804f1617ae27e7b",
+          "url": "https://github.com/paradedb/paradedb/commit/fd1ec5841aef3738ac7339ec2a2b8c890ccdcdaf"
+        },
+        "date": 1787605153298,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.9879533141595829,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.845,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.496,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.598,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.834,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cd12adbf0bd58ef2e4307c19d15c55546a61f80c",
+          "message": "feat: Add support for aggregate score joins. (#6024)\n\n## What\n\nAdds support for:\n* Aggregate score joins (without any Block-Max WAND dynamic filter\ncalculation, as described in #5301)\n* Calculation of scores for disjunctive joins under predicate tagging\n\n## Why\n\nAs described in #5961, we have been remiss in not tracking disjunctive\njoins in our benchmarks. But before tracking them, we need them to be\nfully supported, with accurate scores.\n\nThis change fills out support for ordering by a sum of scores, and adds\nsupport for scoring disjunctive joins.\n\n## How\n\n* Added expression matching for simple \"sum of scores\" patterns, and\nimproved planner warnings for other cases.\n* Fixed planning of `SegmentedTopK` to ensure that it is never\naccidentally pushed down through a join, or through a node with a schema\nthat it does not recognize.\n* Moved to lazily tagging and scoring blocks of rows in `BatchScanner`\nto avoid needing segment-sized score arrays.\n\n## Tests\n\nOverhauled `joinscan_sortby_score.sql` to use comprehensible per-table\nscores, and then validate that sums across those scores make sense under\nconjunction and disjunction.\n\nAdditionally, `join_distinct_expr.out` shows many changes due to the fix\nin `SegmentedTopK` planning.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-24T15:14:35-07:00",
+          "tree_id": "773179c2a83f9dbb9d24c2947f379b9f27648312",
+          "url": "https://github.com/paradedb/paradedb/commit/cd12adbf0bd58ef2e4307c19d15c55546a61f80c"
+        },
+        "date": 1787613322565,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.8444987576096303,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.748,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.218,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.33,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.542,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4696391e4f03afde8eae256cd320a5843819fdc2",
+          "message": "chore: Prepare `0.25.4`. (#6056)\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-24T16:48:04-07:00",
+          "tree_id": "798879ff9d41f74fb2638d38af82b4187c792c45",
+          "url": "https://github.com/paradedb/paradedb/commit/4696391e4f03afde8eae256cd320a5843819fdc2"
+        },
+        "date": 1787616644891,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 2.275230616302168,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 2.172,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.857,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 3.115,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4696391e4f03afde8eae256cd320a5843819fdc2",
+          "message": "chore: Prepare `0.25.4`. (#6056)\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-24T16:48:04-07:00",
+          "tree_id": "798879ff9d41f74fb2638d38af82b4187c792c45",
+          "url": "https://github.com/paradedb/paradedb/commit/4696391e4f03afde8eae256cd320a5843819fdc2"
+        },
+        "date": 1787623460723,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.9500562372859125,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.815,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.45,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.569,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.846,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e0083a5846437586684ef5c5a8cc0898162610f6",
+          "message": "test(stressgres): expand planner and topology coverage (#5889)\n\n## What\n\nOur Stressgres workloads were extremely outdated. I discovered this\nwhile adding \"plan shape assertions\" to them, which was recommended by\nCarl Sverre from Antithesis. They existed from pre-AggregateScan and\npre-JoinScan era, and even for the BaseScan they only covered some\ncases. This PR revamps them to be more up-to-date and have wider\ncoverage, which notably caught an MPP bug that had previously slipped\nthrough.\n\nThe performance alerts can be ignored for this PR, since this revamps\nthe suites altogether and previous values are now meaningless.\n\nCloses (partially) #5500. I commented future area of work on that issue,\nwhich is why I'm not closing it fully. More context:\n\n## Planner coverage\n\nThe single-node planner suite now asserts coverage for:\n\n- ParadeDB Base Scan, including normal, parallel, columnar, unordered\nTop K, key-ordered Top K, and score-ordered Top K paths\n- Aggregate Scan, including plain counts, grouped aggregates, and\n`pdb.agg`\n- JoinScan\n- PostgreSQL fallbacks, including Index Scan, Index Only Scan, Seq Scan,\nand Sort over a ParadeDB Base Scan\n\nAssertions are attached to the executor state that actually represents\neach optimized path, including Top K coverage under `TopKScanExecState`.\n\n## Suites and topologies\n\n- Renames suites around the behavior they validate:\n  - `single-node-planner-paths.toml`\n  - `bulk-update-merge-pressure.toml`\n  - `logical-replication-mixed-workload.toml`\n  - `logical-replication-fsm-merge-race.toml`\n- Adds `partitioned-table.toml` for partition pruning, parent/child scan\nplanning, aggregates, joins, and writes\n- Adds `logical-replication-multi-subscriber.toml` for one publisher\nwith two ParadeDB subscribers under mixed reads and writes\n- Narrows the FSM merge-race workload to paths relevant to that race\n- Removes the unused `vanilla-postgres.toml` suite and its references\n- Adds Antithesis entrypoints for every bundled suite, including\nindependent databases for the two logical-replication subscribers\n\nPhysical replication remains an enterprise-only topology:\n`paradedb-enterprise` already exercises its physical-replication and\ncombined physical/logical-replication suites in CI and Antithesis.\n\n## Tests\n\n`benchmark-stressgres` and `antithesis-stressgres` both pass error-free.",
+          "timestamp": "2026-08-25T12:18:01-04:00",
+          "tree_id": "c9794ea2e72745d63a40423e253a4bfc016ddf50",
+          "url": "https://github.com/paradedb/paradedb/commit/e0083a5846437586684ef5c5a8cc0898162610f6"
+        },
+        "date": 1787676352917,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.779005631440202,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.683,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.119,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.348,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.582,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3540c09ec21744ca430ce76e6475201c4a292c6f",
+          "message": "ci: run the benchmarker suite on the metal benchmark runner (#6069)\n\nMoves `benchmark-benchmarker` from `m8gd.2xlarge` to `m8gd.metal-24xl`,\nthe same whole-host runner the queries and stressgres benchmarks already\nuse (\"chosen for its performance consistency across hosts\").\n\n## Why\n\nThe tracked `hn-ci` latency series swings ~±15% between runs on\nidentical code: the last 12 runs on main range from 1.75 ms to 2.28 ms\nmean latency, including docs-only commits, and this tripped a false\nregression alert on 4696391e4 (a version bump). The workload itself is\nflat run-to-run on dedicated hardware, so the variance is per-run\nenvironment. A `.2xlarge` is a 1/12th slice of a shared metal host:\nvCPUs are dedicated, but memory bandwidth and the system-level cache are\nshared with whoever else is on the box that run.\n\nA whole host removes the noisy neighbours, matching what the other\nbenchmark suites concluded.\n\n## What doesn't change\n\n- Core pinning is untouched and works identically on the same Graviton4\nsilicon: DB on cores 0-3, pgbouncer on 4, k6 tasksetted onto 5-7.\n- Still no EBS data volume; the metal host's local NVMe serves the same\nrole.\n\n## Notes\n\n- The series may show a small step (likely faster) at the first metal\nrun, since the benchmark cores now get the chip's system-level cache to\nthemselves. Alerts only fire on regressions, so no false page, but the\nhistory chart will have a seam.\n- Runner cost per run goes up (~$5.40/hr vs ~$0.45/hr on-demand), the\nsame trade the other benchmark workflows accepted.\n\n**Testing:** add the `benchmark-benchmarker` label to run on this PR;\nre-dispatching on the same commit a few times afterwards will show\nwhether metal flattens the spread.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-08-25T12:23:36-04:00",
+          "tree_id": "9854d10ba881cf37740c2db421a18e7982235e0b",
+          "url": "https://github.com/paradedb/paradedb/commit/3540c09ec21744ca430ce76e6475201c4a292c6f"
+        },
+        "date": 1787676494676,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6012192193809085,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.538,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.862,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.065,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1da2ad788cb80fb3ad83e5879d4cab8e0cd1a56f",
+          "message": "chore: Post release version bump. (#6061)\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-25T09:38:27-07:00",
+          "tree_id": "889fef766f10e2aa5724c8c3e655c8fd9fbdc170",
+          "url": "https://github.com/paradedb/paradedb/commit/1da2ad788cb80fb3ad83e5879d4cab8e0cd1a56f"
+        },
+        "date": 1787677746287,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6543024742841226,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.921,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.263,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "400f131982cfe708ae9b48e8fcf9f4a1839c3215",
+          "message": "feat: partitioned index build execution (#6077)\n\n## Ticket(s) Closed\n\n- Closes #5737\n\n## What\n\nThis PR adds partitioned `CREATE INDEX` execution for an index that\ndeclares `partition_by`. Each worker routes its rows onto the leader's\nkd-tree boundaries and writes one segment per cell, so every segment of\na fresh index stays inside one cell's bounds in `partition_by` space,\nwith no merges across workers.\n\nIt carries @devdattatalele's commits from #6012 unchanged, plus the two\nfollow-ups from the last review round.\n\n## Why\n\nSegment pruning on `partition_by` needs segments that don't straddle\ncell boundaries. A parallel scan hands each worker an arbitrary slice of\nthe heap, so a worker has to route every row it sees, and a cross-worker\nmerge would undo the alignment.\n\n## How\n\nPhase 1: the scan callback routes each row with the shared `KdTree` and\nspills only `(pid, ctid)` to a worker-local `bytea` tuplesort. Phase 2:\nthe sorted records re-fetch rows through `HeapDocFetcher` under a reused\nbuffer pin and index them cell by cell, one `SerialIndexWriter` alive at\na time. The sort and the writer split the worker budget. A cell boundary\nfinalizes a segment; an overfull cell merges its own segments in passes\nof at most `CELL_MERGE_FANIN`. The drain walks HOT chain roots to the\nlive tail, so it indexes what the inline callback would have.\n`CONCURRENTLY` skips boundary planning and takes the regular path.\n\nThree refactors land first: the `bytea` tuplesort wrapper moves out of\n`keyset.rs`, `HeapDocFetcher` moves out of `index_memory_segment`, and\n`merge_now` splits out of `try_merge`.\n\nPersisting each cell's `partition_bounds` into segment stats is a\nfollow-up, together with the query-side pruning that reads it. Phase-2\nread amplification for a `partition_by` uncorrelated with heap order is\na known follow-up too (see the discussion on #6012).\n\n## Tests\n\n`#[pg_test]`s in `build_parallel.rs`\n\n---------\n\nCo-authored-by: Devdatta Talele <devtalele0@gmail.com>",
+          "timestamp": "2026-08-25T11:45:29-07:00",
+          "tree_id": "78e6bec5fab50325abb7a6bc7ac19b0b213c7bcf",
+          "url": "https://github.com/paradedb/paradedb/commit/400f131982cfe708ae9b48e8fcf9f4a1839c3215"
+        },
+        "date": 1787684787883,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6567064751405656,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.601,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.905,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.952,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.108,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39a2eec5d040dde203ab335772bea9a43e26f378",
+          "message": "feat: Unify planner warnings GUCs, and allow for converting them into errors. (#6082)\n\n## What\n\nReplaces the separate boolean GUCs `paradedb.check_aggregate_scan` and\n`paradedb.check_topk_scan` with a single unified enum GUC,\n`paradedb.planner_warnings` (`off`, `warning`, `error`, defaulting to\n`warning`).\n\nWhen set to `error`, queries that cannot use an optimized ParadeDB scan\n(`basescan` / Top K, `aggregatescan`, or `joinscan`) raise an error\nduring execution instead of logging a warning.\n\n## Why\n\nIn CI and staging environments, users and tests need a strict mode where\nfallback to unoptimized execution paths immediately fails the query\nrather than logging warnings.\n\n## How\n\n- Replaced boolean GUCs with `paradedb.planner_warnings` (`off`,\n`warning`, `error`).\n- Added `ProcessUtility_hook` interception in\n`pg_search/src/postgres/planner_warnings.rs` to track `EXPLAIN` queries\nvia thread-local state, in order to allow `EXPLAIN` to be rendered\nrather than erroring.\n- Updated `emit_planner_warnings()` in\n`pg_search/src/postgres/planner_warnings.rs` to suppress messages when\n`off`, raise `pgrx::error!` when `error` (downgraded to `pgrx::warning!`\nduring `EXPLAIN`), and emit `pgrx::warning!` when `warning`.\n\n## Tests\n\nAdded regression tests in\n`pg_search/tests/pg_regress/sql/topk_validation.sql` verifying `off`,\n`warning`, and `error` modes, including `EXPLAIN` behavior under `error`\nmode.",
+          "timestamp": "2026-08-25T14:59:37-07:00",
+          "tree_id": "480847b82dfbf0a193e27ad23329081e9eaa55b1",
+          "url": "https://github.com/paradedb/paradedb/commit/39a2eec5d040dde203ab335772bea9a43e26f378"
+        },
+        "date": 1787696454181,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.658227498188698,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.605,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.944,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.998,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.109,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cd124da0cbd34938fdf65a773cdc0081c283cf67",
+          "message": "perf: Initialize MPP search readers only where they execute (#6026)\n\n# Ticket(s) Closed\n\n- Related to #5999\n\n## What\n\nThe MPP leader opened every source index twice:\n\n1. At query begin, to capture and pin the segment manifest used to\npopulate the DSM.\n2. During DataFusion planning, to build the leader's\n`SearchIndexReader`.\n\nIt also opened fast fields for every segment when constructing\n`FFHelper`, including mutable segments the process never scanned.\n\nThis PR changes that:\n\n- `SearchIndexManifest` retains the components created during capture.\nThe leader builds its reader from those components using\n`SearchIndexReader::from_manifest`, avoiding the second index open while\npreserving the same searcher and segment view.\n- Tokenizers are registered into the managers already shared with the\ncaptured searcher.\n- `FFHelper` retains one `Searcher` and opens a segment's fast fields on\nfirst access. Mutable segments are materialized only in processes that\nactually scan them.\n- JoinScan injects manifests through the logical-plan codec.\nAggregateScan injects them directly into its providers. Serial scans and\nworker reader construction are unchanged.\n\n## Why\n\nThe second leader open became redundant after begin-time manifest\ncapture was added in #4311. Eager fast-field initialization also made\nevery process pay for segments assigned to other workers.\n\nReusing the manifest removes the redundant leader open. Lazy fast fields\navoid opening or materializing segments the process never reads.\n\n## Tests\n\n- `from_manifest_reuses_the_captured_open`: verifies zero additional\nindex opens, the same segment view, and tokenizer registration.\n- `decoded_provider_reuses_the_injected_manifest`: verifies manifest\nreuse through codec deserialization and provider planning.\n- `ffhelper_opens_only_the_segment_it_reads`: verifies only the accessed\nsegment opens and an unaccessed mutable segment remains cold.\n- `mpp_deferred_open_leader`: verifies leader-hosted leaves through\nJoinScan and AggregateScan, result parity, and continued MPP launch.\n- Local full regress and MPP integration results matched `main`.\n\n## Benchmark\n\nSame-session A/B against `12ddb8a9e`: release builds, PostgreSQL 17.7,\nApple Silicon, four MPP workers, one client, 20 warmups followed by five\nbatches of 100 transactions. Result hashes matched between base and\nhead.\n\n| Layout | Query | Base | Head | Change |\n| --- | --- | ---: | ---: | ---: |\n| Mixed: 5/21 segments | no text filter | 47.211 ms | 23.273 ms | −50.7%\n|\n| Mixed | `dragon` | 58.703 ms | 34.433 ms | −41.3% |\n| Mixed | `love` | 59.169 ms | 34.521 ms | −41.7% |\n| 128 immutable | all three | 13.99 / 16.48 / 16.83 ms | 13.6–14.6 /\n16.9 / 17.5 ms | within noise |\n\nThe mixed-layout improvement comes from avoiding mutable-segment\nmaterialization in processes that never scan those segments.\nImmutable-only layouts remain within noise.",
+          "timestamp": "2026-08-25T15:48:45-07:00",
+          "tree_id": "6319144c55e93583efe6b2261450a4e2f12e7dfc",
+          "url": "https://github.com/paradedb/paradedb/commit/cd124da0cbd34938fdf65a773cdc0081c283cf67"
+        },
+        "date": 1787700426534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6489413590510975,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.562,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.916,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.162,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f5f2980cd6628b4d280b7135328751299df8c06",
+          "message": "chore: Revert \"feat: partitioned index build execution (#6077)\" (#6096)\n\nThis reverts commit 400f131982cfe708ae9b48e8fcf9f4a1839c3215, which\nregressed index builds.",
+          "timestamp": "2026-08-25T20:43:22-07:00",
+          "tree_id": "eaa24ed4310f534fcd047d4b758730e91108ca62",
+          "url": "https://github.com/paradedb/paradedb/commit/4f5f2980cd6628b4d280b7135328751299df8c06"
+        },
+        "date": 1787717007185,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.5951119034852554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.528,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.81,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.905,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.018,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7496549a2eb2813a246fdb3ab4a55f4b88d335e0",
+          "message": "fix: keep negative NUMERIC(p>18) values sortable in the index (#6053)\n\n## Ticket(s) Closed\n\n- Closes #6051\n\n## What\n\nThis PR fixes TopN ordering and range pushdown for negative values in\n`NumericBytes` fast fields (`NUMERIC` with precision > 18 or no\nprecision). Positive values were fine, and `NUMERIC(18,0)` was fine,\nsince that goes through `Numeric64`.\n\n## Why\n\n`decimal-bytes` stored a negative mantissa as bitwise-inverted BCD with\nno terminator. When a shorter mantissa is a prefix of a longer one, the\nshorter one sorts first in byte order, but it's the larger number:\n`-49990` (`B6 66`) came before `-49999` (`B6 66 6F`). TopN,\n`paradedb.range`, heap-filter pushdown, and `numrange` bounds all\ncompare those bytes directly.\n\n## How\n\nThe encoding fix is paradedb/decimal-bytes#19, released as `0.5.0`.\nNegative digits are nine's-complemented and end with a `0xFF`\nterminator. The old layout still decodes, and `Decimal::to_legacy_bytes`\nproduces it.\n\nThe two layouts don't sort together, so an index has to stay on one of\nthem. Same as #5245 did for datetimes, the choice follows the index's\n`created_by_version`. Indexes created before `0.25.5` keep writing and\nquerying the old layout, so existing rows and new rows stay comparable\n(and the ordering bug stays until `REINDEX`). Indexes built by `0.25.5`\nor later use the fixed layout. `query::numeric::decimal_to_index_bytes`\nis the one place that picks, and it's threaded through query terms,\nrange bounds, the index write path, and `numrange` bounds.\n\nPlease note that:\n- The gate is `0.25.5`, the version `main` carries after the `0.25.4`\nrelease. If that release doesn't ship this fix, the constant has to\nmove.\n- A JoinScan between a legacy index and a rebuilt one on a `NUMERIC(p >\n18)` key won't match negative values until both are rebuilt.\n\n## Tests\n\n- `issue_6051` regress test: TopN asc/desc, unbounded `numeric`,\n`numeric(30,10)` fractions with shared prefixes, `paradedb.range` (no\nrows outside the range), heap-filter pushdown, equality, rows inserted\nafter the build, and `numrange` containment and intersection. The\n`numeric(18,0)` column serves as the reference for the counts and\norderings.\n- Unit test in `query/numeric.rs` for the layout choice by version.\n- The legacy layout itself is covered in the crate. The regress test\nonly builds indexes with this version, so the legacy write path isn't\ncovered end to end here.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-26T13:10:55-07:00",
+          "tree_id": "da74bd02a844e8537199b293cd0cee2de98718f7",
+          "url": "https://github.com/paradedb/paradedb/commit/7496549a2eb2813a246fdb3ab4a55f4b88d335e0"
+        },
+        "date": 1787776782146,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6325008777704861,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.893,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.919,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.077,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6966a36e4682c93c00dccd249774ab7e2e8c1702",
+          "message": "feat: partitioned index build execution with one segment per partition (#6086)\n\n## Ticket(s) Closed\n\n- Closes #6081\n- Closes #5737\n\n## What\n\nThis PR re-lands the partitioned `CREATE INDEX` execution of #6077\n(reverted in #6096) with the build writing one segment per partition,\nwhichever workers scanned its rows, and prefetching heap blocks ahead of\nthe re-fetch drain. The first commit is #6077 unchanged; the two after\nit are the change.\n\n## Why\n\n#6077 drained each worker's own heap slice partition by partition, so a\nparallel build wrote `partitions x participants` segments. On the\nbenchmark the partitioned indexes went from 40 to 384 segments (48\npartitions x 8 participants), the indexes grew (+10%\n`stackoverflow_posts_idx`, +50% `users_idx` at 1M), and at 1M 48 of 126\nqueries got over 1.2x slower (joins up to 2.5x), none faster.\n\n## How\n\nThe two-pass plan from #5737. Phase 1 routes each scanned row on the\nleader's kd-tree and appends its ctid to a per-partition spill file: a\n`SharedFileSet` in the DSM for a parallel build (the leader initializes\nit in place before the workers spawn, so cleanup rides on the segment's\ndetach), plain temporary `BufFile`s for a serial one. Postgres decides\nwhich heap chunks a worker scans, so the labeling stays with the\nscanner.\n\nPhase 2 waits for every participant's spill, then gives each participant\na contiguous share of the partitions. The owner reads a partition's\nctids from all participants' files, sorts them through an `int8`\ntuplesort on a slice of the worker budget and re-fetches in ctid order,\n`maintenance_io_concurrency` blocks ahead. One writer is alive at a time\non the rest of the budget, so a partition merges only when it outgrows\nit, and then in one merge. `target_segment_count` is bounded at 1024, as\nis the GUC that overrides it.\n\nThere is no single global tuplesort because a parallel tuplesort lets\nonly the leader read the merge; per-partition files cost the same 8\nbytes per row.\n\n## Numbers\n\nFrom the benchmark runner, this head against `4f5f2980c` (the same index\ndefinitions built by the regular path). Ratios are partitioned over\nregular.\n\n| index | build 100k | build 1M | build 20M | size 20M |\n|---|---|---|---|---|\n| `stackoverflow_posts_idx` | 1.23x | 1.25x | 1.59x (4.12 vs 2.60 min) |\n1.05x |\n| `comments_idx` | 1.18x | 1.25x | 1.19x | 0.98x |\n| `users_idx` | 1.41x | 1.27x | 1.33x | 0.85x |\n| `badges_idx` (no `partition_by`) | 1.01x | 1.01x | 0.99x | 1.00x |\n\nThe segment counts are back to the target (48), so the sizes are flat.\nThe build itself is slower, and more so as the heap outgrows\n`shared_buffers`: the drain reads a heap block once per partition that\nhas a row in it, and with a key uncorrelated with heap order that is\nclose to `partitions` passes over the heap.\n\nQueries on the partitioned indexes:\n\n| queries (125 per suite) | 100k | 1M | 20M |\n|---|---|---|---|\n| median ratio | 1.00x | 1.00x | 1.00x |\n| over 1.2x | 1 | 10 | 19 |\n| under 0.8x | 2 | 4 | 7 |\n\n| slowest at 20M | 100k | 1M | 20M |\n|---|---|---|---|\n| `join_aggregate_sort - alternative 2` | 0.96x | 1.41x | 2.03x |\n| `join_aggregate_topk_count - alternative 2` | 1.00x | 1.34x | 1.94x |\n| `regex-and-heap` | 1.32x | 1.42x | 1.93x |\n| `join_aggregate_groupby - alternative 2` | 1.01x | 1.42x | 1.92x |\n| `join_aggregate_multi - alternative 2` | 1.00x | 1.41x | 1.83x |\n| `join_aggregate_count - alternative 2` | 1.00x | 1.39x | 1.78x |\n| `join_aggregate_disjunctive_count - alternative 2` | 0.91x | 1.20x |\n1.76x |\n| `join_top_k-score-desc-high-selectivity` | 1.19x | 1.30x | 1.54x |\n| `join_disjunctive_local_sort - alternative 2` | 0.88x | 1.07x | 1.36x\n|\n| `join_foreign_filter_local_sort` | 1.12x | 1.25x | 1.29x |\n\nThe `- alternative 2` rows are the `enable_range_partitioned_join`\nvariants: a key-aligned segment sends all of its rows to one range of\nthe shuffle. The others touch the heap per row, and a segment ordered by\nkey holds rows from all over the heap. Both are costs of the aligned\nlayout itself, not of the segment count, and stay until M3 uses the\nalignment for pruning and shuffle-free joins.\n\n## Follow-ups\n\n- Spilling the serialized document per partition in phase 1, instead of\nthe ctid, removes the re-fetch (one heap read, one sequential spill\nwrite and read) and the double expression evaluation. That is where most\nof the build gap is.\n\n## Tests\n\n`#[pg_test]`s in `build_parallel.rs`: one segment per partition with and\nwithout leader participation, a partition whose ctids spill through the\ntuplesort, a partition scanned by one participant only, and rows deleted\nby the building transaction (the drain used to drop them).\n\n---------\n\nCo-authored-by: Devdatta Talele <devtalele0@gmail.com>",
+          "timestamp": "2026-08-26T16:55:12-07:00",
+          "tree_id": "0783afbd7c75b1688130c52c5625aa657b806060",
+          "url": "https://github.com/paradedb/paradedb/commit/6966a36e4682c93c00dccd249774ab7e2e8c1702"
+        },
+        "date": 1787789790895,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.614741615109114,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.558,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.892,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.94,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 1.983,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0cc4b3cd1b329346523724d359ffde565388a9c2",
+          "message": "feat: Efficiently intersect non-ParadeDB bitmap scans with ParadeDB custom scan (#6088)\n\n# Ticket(s) Closed\n\n- Closes #5702 \n\n## What\n\nToday, a query with a predicate that cannot be answered by the ParadeDB\nindex falls back to a heap filter, which evaluates the predicate against\nthe heap for every tuple emitted by the ParadeDB index. While correct,\nthis is extremely expensive over large result sets.\n\nA better path exists: if that predicate can be answered by another\nindex, and the index can produce a bitmap, we can attach the bitmap scan\nas a child of our custom scan and use the bitmap to cheaply reject\ntuples.\n\nTo illustrate:\n\n```sql\n-- SETUP\nCREATE TABLE items (id bigint, description text, location point);\nINSERT INTO items\nSELECT i, 'blue running shoes ' || i, point(i % 1000, i / 1000)\nFROM generate_series(1, 1000000) i;\nCREATE INDEX items_paradedb ON items USING paradedb (id, description) WITH (key_field = 'id');\nCREATE INDEX items_location ON items USING gist (location);\n```\n\nOn `main`, the following query which uses a GIST predicate touches 6k+\nbuffers:\n\n```sql\nEXPLAIN (ANALYZE, BUFFERS)\nSELECT count(*) FROM items\nWHERE description === 'shoes' AND location <@ circle(point(500, 500), 20);\n\n                                                                                                              QUERY PLAN                                                                                                              \n--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Custom Scan (ParadeDB Aggregate Scan) on items  (cost=0.00..0.00 rows=1 width=8) (actual time=77.336..77.337 rows=1.00 loops=1)\n   Index: items_paradedb\n   Tantivy Query: {\"boolean\":{\"must\":[{\"with_index\":{\"query\":{\"term\":{\"field\":\"description\",\"value\":\"shoes\"}}}},{\"heap_filter\":{\"indexed_query\":\"all\",\"field_filters\":[{\"heap_filter\":\"(location <@ '<(500,500),20>'::circle)\"}]}}]}}\n     Applies to Aggregates: COUNT(*)\n     Aggregate Definition: {\"0\":{\"value_count\":{\"field\":\"ctid\",\"missing\":null}}}\n   Buffers: shared hit=6007\n Planning:\n   Buffers: shared hit=141 read=12\n Planning Time: 8.093 ms\n Execution Time: 77.498 ms\n(10 rows)\n```\n\nOn this branch, we drop down to~300 buffers (20x improvement):\n\n```sql\nEXPLAIN (ANALYZE, BUFFERS)\nSELECT count(*) FROM items\nWHERE description === 'shoes' AND location <@ circle(point(500, 500), 20);\n\n                                                                                                                                   QUERY PLAN                                                                                                                                    \n----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Custom Scan (ParadeDB Aggregate Scan) on items  (cost=40.03..40.03 rows=1 width=8) (actual time=8.226..8.227 rows=1 loops=1)\n   Bitmap Intersection: items_location\n   Bitmap Exact Candidates: 1257\n   Bitmap Lossy Blocks: 0\n   Bitmap Recheck Blocks: 0\n   Index: items_paradedb\n   Tantivy Query: {\"boolean\":{\"must\":[{\"with_index\":{\"query\":{\"term\":{\"field\":\"description\",\"value\":\"shoes\"}}}},{\"heap_filter\":{\"indexed_query\":\"all\",\"field_filters\":[],\"recheck_filters\":[{\"heap_filter\":\"(location <@ '<(500,500),20>'::circle)\"}],\"uses_tid_bitmap\":true}}]}}\n     Applies to Aggregates: COUNT(*)\n     Aggregate Definition: {\"0\":{\"value_count\":{\"field\":\"ctid\",\"missing\":null}}}\n   Buffers: shared hit=295 read=25\n   ->  Bitmap Index Scan on items_location  (cost=0.00..39.78 rows=1000 width=0) (actual time=0.109..0.109 rows=1257 loops=1)\n         Index Cond: (location <@ '<(500,500),20>'::circle)\n         Buffers: shared read=25\n Planning:\n   Buffers: shared hit=119 read=26\n Planning Time: 2.676 ms\n Execution Time: 8.299 ms\n(17 rows)\n```\n\n## Why\n\nCustomer request\n\n## How\n\nImplemented:\n\n1. Find heap filters\nThe planner identifies AND-connected predicates that ParadeDB would\notherwise evaluate against heap rows.\n\n2. Require CTID sorting\nBitmap intersection is enabled only when the ParadeDB index is sorted by\nCTID.\n\n3. Choose a PostgreSQL index\nThe planner finds a profitable btree, GIN, or GiST index that covers a\nheap filter.\n\n4. Rewrite the query\nCovered filters are marked as bitmap-backed. Exact matches require\nrechecking only on lossy or recheck pages.\n\n5. Attach the bitmap plan\nThe PostgreSQL bitmap index scan becomes a child of the ParadeDB custom\nscan.\n\n6. Build the TIDBitmap\nThe leader executes the child index scan once and fills a native\nTIDBitmap. For parallel scans, it gets built inside DSA shared memory.\n\n7. Create per-segment cursors\nEach Tantivy segment receives its own forward-only cursor over the\nbitmap. Parallel workers attach to shared cursors.\n\n8. Stream the intersection\nTantivy matches are produced in CTID order and merged with the bitmap.\nMissing CTIDs are rejected immediately; exact matches avoid redundant\nheap-filter evaluation.\n\n## Tests\n\nSee regression test\n\n## Opens\n\n- #6089 BitmapAnd over multiple indexes\n- #6090 BitmapOr for indexable disjunctions\n- #6091 ScalarArrayOpExpr (`= ANY`) matching",
+          "timestamp": "2026-08-26T18:17:42-07:00",
+          "tree_id": "1e2571350f55e9e9ddeb4ad8aa41d913a74c8f26",
+          "url": "https://github.com/paradedb/paradedb/commit/0cc4b3cd1b329346523724d359ffde565388a9c2"
+        },
+        "date": 1787795810708,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6077256809338543,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.545,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.847,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.946,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.217,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a97a3589f65a9cbb3387eea9b942512eb219256f",
+          "message": "chore: Switch to tracking fragments of upgrade SQL and release notes (#6079)\n\n## What\n\nTransitions ParadeDB release artifact generation (SQL extension\nmigration scripts and changelogs) from manually maintained, monolithic\nfiles to a PR-level fragment model.\n\n## Why\n\nTo remove confusion about which file to put upgrade snippets in, and to\nfurther automate release preparation.\n\n## How\n\nSee the changes to `RELEASE.md` and `CONTRIBUTING.md`\n\n## Tests\n\n- Tested `assemble_sql.py` and `assemble_changelog.py` locally.\n- CI has validated that the upgrade test properly picks up the change in\n`pg_search/sql/unreleased/5903.rename_test_table_proc.sql`\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-27T09:46:40-07:00",
+          "tree_id": "da02ea71f79b24e45f5ea8ad7d0227faf2ea86a0",
+          "url": "https://github.com/paradedb/paradedb/commit/a97a3589f65a9cbb3387eea9b942512eb219256f"
+        },
+        "date": 1787850443089,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6652746502518017,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.588,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.896,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.047,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.133,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7e80ccd5bad1d084256dc1035265c5877e18099",
+          "message": "fix: use ParadeDB index terminology (#6127)\n\nUpdates current Rust documentation, planner diagnostics, user-facing\nerrors, and admin notices from “BM25 index” to “ParadeDB index.”\nRequired regression expectations are updated with the changed messages.\n\nAlso fixes the Antithesis monitoring query to select the `paradedb`\naccess method and describes the legacy `bm25` access method as a\nbackwards-compatible alias.\n\nDeliberately unchanged: upgrade SQL, compatibility test inputs,\nchangelogs, internal `bm25_*` identifiers, operator classes, and\nversion-pinned benchmark fixtures.\n\nValidation: all non-build commit hooks pass, including formatting,\nMarkdown, YAML, and Prettier. Rust build hooks are locally blocked by\nthe configured PostgreSQL SDK path\n`/Applications/Xcode.app/.../MacOSX26.5.sdk`, which does not exist on\nthis machine; CI remains authoritative.",
+          "timestamp": "2026-08-27T15:35:13-04:00",
+          "tree_id": "37b6269e7ca6417cfd98072ef0612cff8eff1860",
+          "url": "https://github.com/paradedb/paradedb/commit/d7e80ccd5bad1d084256dc1035265c5877e18099"
+        },
+        "date": 1787860549517,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6272995679046314,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.858,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.909,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.081,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67a4c846171467072d0c68342b7f427eb464621b",
+          "message": "feat: per-segment statistics component and range partition pruning (#6084)\n\n## Ticket(s) Closed\n\n- Closes #5735\n\n## What\n\nThis PR adds a per-segment `.stats` component and uses it for range\npartitioning.\n\nEvery immutable segment records the empirical `min`/`max` of each fast\nfield. A segment from a partitioned build also records its partition's\nbox. A range-partitioned join takes its split points from those boxes,\nand each partition searches only the segments its range can reach.\n\n## Why\n\nRange partitioning needs the value distribution and needs to skip\nsegments. Today both need segment reads at plan time and a scan of every\nsegment per partition. A segment already knows its extremes and, after a\npartitioned build, its partition. Query-level pruning outside range\npartitioning stays with #6078.\n\n## How\n\nA tantivy `SegmentPlugin` writes one small `.stats` file beside each\nsegment's other components, so the statistics follow the segment through\nwrites, merges, and vacuum. The file holds the empirical range of every\nfast field, taken from the segment's own fast columns, and, for a\npartitioned build, the box the kd-tree gave the partition. A merge\nrecomputes the range and keeps the box only when every source had one.\n\nStorage tracks the file as one more entry in the segment's metadata. A\nsegment without the file counts as unknown, so existing indexes keep\nworking and get the file when they merge.\n\nA partitioned build with an explicit `target_segment_count` keeps that\nmany partitions on a heap under the 15MB floor, which otherwise\ncollapses a build to one segment. A plain build keeps the floor.\n\nThe planner reads the boxes to get split points that line up with the\nsegments, and no longer samples: a join is range partitioned only when\nat least one side has split points, and a side without any is cut on the\nother side's. A segment without a box does not remove the split points,\nsince its own range places it at execution. The task count never exceeds\nwhat the split points seat, so no task is empty. At execution, each\npartition opens only the segments whose range can reach it. The range\nquery stays in place, so a kept segment costs time, not correctness.\n\n## Tests\n\n`#[pg_test]`s in `stats/tests.rs`, and `partitioned_stats_pruning.sql`\nfor the join shapes: split points on both sides, on one side, on\nneither, and more workers than the split points seat.\n\n## Benchmarks\n\nThe `alternative 2` join queries run with `enable_range_partitioned_join\n= on` over indexes built with `partition_by`. At 1M and 20M rows they\nare 0.32 to 0.83x of current `main` (0cc4b3cd1). Part of that is\nrecovering #6086, which made the same queries 1.3 to 2x slower on `main`\nbecause every task range-filtered all segments. Against `main` before\n#6086 (7496549a2) the PR is still 0.58 to 0.84x on the aggregate joins\nat 20M, and 0.14 to 0.47x on `join_conjunctive_score_sort`,\n`join_permissioned_search`, `join_semi_filter`, and `join_top_k`.",
+          "timestamp": "2026-08-28T17:08:12-04:00",
+          "tree_id": "80978c2022c9b675f958a09162adb0f1e6aacef1",
+          "url": "https://github.com/paradedb/paradedb/commit/67a4c846171467072d0c68342b7f427eb464621b"
+        },
+        "date": 1787952495806,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.625141405865986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.566,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.854,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.098,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "85b9031af4edc412752a30594cdd3fdea30f9d22",
+          "message": "chore: Remove post-release bump. (#6147)\n\nThe post-release bump of the version was an unnecessary artifact of\nusing `Cargo.toml` to drive the upgrade script testing.\n\nBy using a synthetic version to test upgrades, we can remove one commit\nand a bunch of complexity from the process.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-28T15:53:58-07:00",
+          "tree_id": "b1792653ee77a0fc02cdcef3457ada85dcd2560b",
+          "url": "https://github.com/paradedb/paradedb/commit/85b9031af4edc412752a30594cdd3fdea30f9d22"
+        },
+        "date": 1787958848534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.607890913022355,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.549,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.832,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.941,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 1.977,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dbed3a3a873f700775168e59d6c683cd2d9a32a",
+          "message": "ci: Fix benchmarker CI failure handling & cleanup duplicated actions and workflows (#6183)\n\n## Summary\n- consolidate source-building benchmark workflows on a single\n`Swatinem/rust-cache` owner for Cargo binaries and build artifacts\n- verify the cached `cargo-pgrx` version in both Benchmarker and\nStressgres, installing the pinned version only when missing or stale\n- notify `@pg_search-maintainers` in Slack when the Benchmarker workflow\nfails on a push\n\n## Root cause\n[Run\n33561565782](https://github.com/paradedb/paradedb/actions/runs/33561565782/job/100035036147)\nrestored `~/.cargo/bin/cargo-pgrx` through `Swatinem/rust-cache`, while\na second dedicated `cargo-pgrx` cache reported a miss. The subsequent\ninstall failed because the binary already existed. Removing the\noverlapping cache ownership prevents that inconsistent state.\n\nThe query benchmark workflow does not install `cargo-pgrx`; it uses a\nprepared benchmark cluster, so there is no equivalent cache path to\nchange there.\n\n## Validation\n- `git diff --check`\n- parsed all three modified YAML files with Ruby YAML",
+          "timestamp": "2026-09-01T16:13:19-07:00",
+          "tree_id": "9b4db32eb6476fe2a4f2e5a84707d9d6dee78521",
+          "url": "https://github.com/paradedb/paradedb/commit/2dbed3a3a873f700775168e59d6c683cd2d9a32a"
+        },
+        "date": 1788306120019,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6256989617486215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.572,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.851,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.873,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.007,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a85104bf07d4f6510bb189dec2155c7a7ee4af7",
+          "message": "fix: respect PostgreSQL parallel mode for MPP scans (#6181)\n\n# Ticket(s) Closed\n\n- Closes #6157\n\n## What\n\nGate MPP producer-worker launch on PostgreSQL's statement-wide\nparallel-mode decision (`PlannerGlobal.parallelModeOK`). A DataFusion\ncustom scan under `ModifyTable` now plans and runs serially instead of\nfailing with `cannot assign transaction IDs during a parallel\noperation`. The scan is still selected and still runs on DataFusion.\n\n## Why\n\nMPP launches its own producers via `EnterParallelMode()`, bypassing\nPostgreSQL's per-statement decision. Under `INSERT ... SELECT` that\ndecision is false, and the heap write's `AssignTransactionId` errors\nonce the backend is in parallel mode. The subplan's own query level\ncan't detect this — a SELECT under `ModifyTable` is still `CMD_SELECT`;\nonly the statement-wide flag reflects the enclosing INSERT.\n\nSide effect of adopting PG's decision: MPP is also suppressed for\ncursor-driven queries, queries containing `PARALLEL UNSAFE` functions,\nand modifying CTEs — all cases where entering parallel mode was already\nunsafe. pg_search's `@@@`, `score`, and `snippet*` are `parallel_safe`,\nso ordinary search queries are unaffected.\n\n## How\n\nReview in this order:\n\n1. `mpp/glue.rs` — `query_allows_parallel_mode(&PlannerInfo)`: reads\n`parallelModeOK`, captured once at path creation by each scan.\n2. `mpp/launch.rs` — `mpp_eligible(mpp_query_safe, &RelNode)`: the\nsingle gate (statement safety + worker budget + min-rows), used by\n`AggregateScan::prepare_mpp`, `JoinScan::begin_custom_scan`, and both\nplain-EXPLAIN rebuilds, so rendered plans match execution.\n3. `{aggregatescan,joinscan}/privdat.rs` + `scan_state.rs` — the flag is\nserialized in private data (`#[serde(default)]`, fail-closed) and copied\ninto scan state.\n4. `joinscan/mod.rs` — `bake_logical_plan` folds `!mpp_query_safe` into\n`force_serial` at the only place plan bytes are produced, so no caller\ncan bake MPP provider metadata (`mpp_source_idx`) for an unsafe\nstatement.\n\n## Tests\n\n- New `mpp_worker_sizing` regress cases: `INSERT ... SELECT` over both\nscans (serial plan shape + correct inserted rows), and a\n`force_generic_plan` prepared `INSERT` covering JoinScan's exec-time\nrebake with a runtime `Param`.\n- Full regress: 333/333. Integration (`tests` + `tokenizers`): 619\npassed, 0 failed. Unit/`#[pg_test]`: 339 passed, 0 failed.",
+          "timestamp": "2026-09-02T11:38:09+05:30",
+          "tree_id": "540c7951897fd1e08951af9b75d85f0a2781a674",
+          "url": "https://github.com/paradedb/paradedb/commit/8a85104bf07d4f6510bb189dec2155c7a7ee4af7"
+        },
+        "date": 1788330512297,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6018258926167237,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.537,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.894,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.974,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.018,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "46780009+sahilchug@users.noreply.github.com",
+            "name": "sahil",
+            "username": "sahilchug"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f583d7e93a8235920707b29abd1ec929be41f6b5",
+          "message": "feat: push down GROUP BY DATE(timestamp) to the aggregate custom scan (#5936)\n\n# Ticket(s) Closed\n\n- Closes #4082 \n\n## What\nPushes `GROUP BY DATE(ts)` and `GROUP BY ts::date` into DataFusion\nbackend when `ts` is a bare timestamp without timezone.\n\nThe DataFusion path supports:\n\n- handles -infinity, infinity\n- preserves NULL date values correctly\n- handles `DATE()` combined with other grouping columns \n- supports both serial and MPP execution, producing the same grouped\nresults when work is distributed across multiple workers and index\nsegments\n\nShapes outside the safe boundary refuse pushdown with a named reason and\nfall sback to native Postgres execution :\n\n- `DATE(timestamptz)` — the result depends on the session `TimeZone`\n- `DATE()` over a cast (e.g. `DATE(text_col::timestamp)`) — the argument\n      must be a bare timestamp column  \n\n**Note**: support for Top K query via DataFusion path will be a follow\nup PR\n\n## Why\n  \nThis is a rework of #4918, which had 2 correctness bugs:\n     - NULL timestamp rows silently dropped fro results\n- `DATE(timestampz)` was pushed down with wrong timezone semantics.\n\nAlso an earlier attempt was done using Tantivy Path for predicate push\ndown but it has limitations:\n\n- Tantivy converts the stored `i64` timestamp microseconds to `f64` when\ncalculating histogram buckets. For dates far from the PostgreSQL epoch,\nthis loses microsecond precision and can move timestamps near midnight\ninto the wrong day.\n- PostgreSQL's `infinity` and `-infinity` timestamp sentinels cannot be\nrepresented correctly after the conversion to `f64`.\n- `ORDER BY ... LIMIT` / TopK queries were already routed toward\nDataFusion, so the histogram implementation did not help with that query\nshape\n  \n\n## How\n\n- Detects `Date(timestamp)` in `GROUP BY` clause and routes the query to\nDataFusion backend\n- Validates that `Date(timestamp)` is a bare timestamp column without\ntimezone\n- Adds a Grouping transform to `JoinGroupColumn` metadata\n- Applies a DataFusion scalar UDF `TimestampToDateUdf` that converts\ntimestamps to Arrow `Date32` values and preserves `NULL` and handles\n`-infinity` and `infinity` sentinels\n- Updates the Arrow `Date32` projection to map the internal\n`i32::MIN/MAX` sentinels back to PostgreSQL `-infinity` and `infinity`\ninstead of treating them as finite day counts.\n\n## Tests\n\n- Integration and `pg_regress` tests cover basic date grouping, NULL\ngroups, TopK, aggregate `FILTER`, multi-column grouping, timestamp\nboundaries, infinities, and fallback for unsupported expressions.\n- MPP regression tests verify that serial and distributed DataFusion\nexecution produce the same results as native PostgreSQL across multiple\nindex segments.",
+          "timestamp": "2026-09-02T11:56:33-04:00",
+          "tree_id": "39176d36a4ff5b7395132a8049b49145d589d53e",
+          "url": "https://github.com/paradedb/paradedb/commit/f583d7e93a8235920707b29abd1ec929be41f6b5"
+        },
+        "date": 1788365829625,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6879536044467043,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.968,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.063,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.151,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "236c5131f72436f93b1d802c19b958f9e2de10b4",
+          "message": "perf: defer visibility and late materialization in more join plans (#6139)\n\nThis PR re-lands the deferred visibility and late-materialization work\nfrom #6119, adds a kill-switch so aggregates stay on the eager path for\nnow, and dedups the optimizer rules.\n\n## Why\n\n#6119 lets a scan defer its visibility check (and string decode) to a\n`VisibilityFilterExec` above a join, so rows dropped by the join, a\nfilter, or a LIMIT never pay the check. That helps when an intermediate\nnode reduces rows. For aggregate-on-join it did not: the benchmark heaps\nare ~100% all-visible, so the eager in-scan check is cheap, and\ndeferring only moves the ctid fetch past the `HashJoin` where it loses\nthe scan's ctid-sorted locality. Deferral there was a loss.\n\nSo aggregates keep the eager, in-scan path until selective late\nmaterialization can decide per-source when deferral pays. #6155 explored\na plan-time cost gate for it and was closed with the findings; the\nselective design needs statistics-driven or run-time decisions.\n\n## What\n\n- `paradedb.enable_aggregate_late_materialization` (default `false`)\ngates deferral for the aggregate-on-join path. With it off, aggregate\nplans check visibility in the scan, as before #6119. The join and TopK\npaths keep #6119's behavior.\n- The visibility and late-materialization optimizer rules shared their\nprovider downcast, reduction-node test, and beneficial-ancestor walk\ninto `pg_search_provider_from_scan`, `is_reduction_node`, and\n`has_reduction_before_stop`.\n- The beneficial walk no longer credits a Full barrier itself. A Full\nbarrier keeps every check below it, so its own reduction comes after the\ncheck. A scan under a mark or full join with nothing reducing in between\nkeeps its in-scan check instead of a `VisibilityFilterExec` wrap that\nfilters the same rows. The visibility rule's ctid-projection forcing\nmoved into two helper functions so the `transform_up` closure becomes as\nits two steps: activate the scan, then carry the ctid up through\nrow-preserving nodes.\n\n## Tests\n\n- `enable_aggregate_late_materialization` off reverts the aggregate\nexpected plans to eager; the join, TopK, and distinct expected files are\nunchanged from #6119.\n- Two unit tests pin the Full-join contract (no wrap without a reduction\nbelow the join, wrap on the reduced side only). `issue_4531`,\n`issue_4667`, `issue_4719`, and `join_outer_edge` drop the wraps that\nsat directly above their scans.\n\n## CI benchmarks\n\nThe Queries benchmark on the current head is neutral against main\n([run](https://github.com/paradedb/paradedb/actions/runs/33470217899),\n[main\nbaseline](https://github.com/paradedb/paradedb/actions/runs/33218525532)).\nNothing moved beyond noise: the largest tight-interval delta\n(`bucket-expr-filter`, 1.06 at 20m) is a single-table `GroupAggregate`\nthis PR does not touch, and `join_conjunctive_score_sort` (1.07 at 20m)\nhas overlapping confidence intervals and is flat at 100k and 1m.\n\nThe follow-up that decouples ctid fetching from the visibility check\n(moving column loading into `TantivyLookupExec`) will stack on this\nbranch.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-02T12:54:54-04:00",
+          "tree_id": "9ac244769e7a89e857852a22e3f0883b7975d35e",
+          "url": "https://github.com/paradedb/paradedb/commit/236c5131f72436f93b1d802c19b958f9e2de10b4"
+        },
+        "date": 1788370424727,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6337319564978618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.542,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.924,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.968,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.173,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d052f7d8476ff147ab65f17ac4304bf746870119",
+          "message": "feat: match ScalarArrayOpExpr clauses against the index (#6171)\n\n# Ticket(s) Closed\n\n- Closes #6091\n\n## What\n\n`IndexClause::from_clause` dispatched only `OpExpr` and `FuncExpr`, so\n`col = ANY(ARRAY[...])` stayed a heap filter even when a btree could\nanswer it. Adds a `from_saop` arm.\n\n## Why\n\nFollow-up to #6088. The array membership is exactly what the index\nanswers, so the bitmap rejects non-matching rows before the heap fetch\nand the filter drops to a recheck.\n\n## How\n\n`from_saop` mirrors core's `match_saopclause_to_indexcol`: `ANY` only,\nindex key as the left operand, a pseudoconstant array on the right, then\nthe collation and opfamily gates. `ALL` is refused because one index\nscan cannot answer a conjunction over every element, and there is no\ncommuted form to try since the array can only be the right operand.\n\nThose gates and the `IndexClause` construction were previously written\nout once per branch in `from_opexpr`. A preparatory commit extracts them\ninto `direct_match_ok` and `direct`, which both existing branches and\nthe new arm now share.\n\n## Tests\n\nThe `TODO ScalarArrayOpExpr` shape moves into the supported section: it\nharvests `providers_specialty` and its filter becomes a recheck, with\n`saop_count` unchanged at 400. `ALL` is added as a refusal alongside it.\n\n`cargo pgrx regress pg18` 333/333.",
+          "timestamp": "2026-09-02T10:27:19-07:00",
+          "tree_id": "eca0fd8b6f3370b1c6f5c522c3ae4b6f96f38110",
+          "url": "https://github.com/paradedb/paradedb/commit/d052f7d8476ff147ab65f17ac4304bf746870119"
+        },
+        "date": 1788371251585,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6309578947368466,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.906,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.929,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.016,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51e683ece89fde7e42ca0c50e4fbad43a2cfe408",
+          "message": "refactor: resolve ctids in TantivyLookupExec, not VisibilityFilterExec (#6140)\n\nThis PR moves ctid resolution out of `VisibilityFilterExec` and into\n`TantivyLookupExec`.\n\nStacked on #6139. It is the second step Stu mentioned for the takeover\nof #6119: split column loading out of the visibility filter so\n`TantivyLookupExec` owns fetching columns (the ctid included) and\n`VisibilityFilterExec` only consumes and mutates the ctid.\n\n## What\n\n- `TantivyLookupExec` can resolve a `ctid_<plan_position>` column from\npacked doc-addresses to real ctids. A ctid-resolving lookup is inserted\ndirectly below every `VisibilityFilterExec`, and below a\n`SegmentedTopKExec` that absorbs one. The plan now shows\n`TantivyLookupExec: decode=[], resolve_ctid=[ctid_0, ctid_1]` under the\nfilter.\n- `VisibilityFilterExec` and the absorbed-visibility path in\n`SegmentedTopKExec` no longer resolve ctids. They check visibility and\nHOT-correct the already-real ctids.\n- The MPP dispatch machinery moved with it: the lookup's dispatch\npayload carries its ctid columns and resolver indexes, and its decode\nrebuilds a resolver from the index segment view when the source sits\nbehind a network boundary.\n\n## Why\n\n`VisibilityFilterExec` was doing two jobs: fetching the ctid column and\nchecking visibility. Separating them makes each node do one thing and\nsets up the follow-up where `TantivyLookupExec` owns all column\nfetching.\n\n## Tests\n\nExisting test.\n\n## CI benchmarks\n\nNo change in benchmark results as expected.\n\nPlease note that `SegmentedTopKExec`'s absorbed-visibility data keeps\nits own ctid resolvers: the absorption takes the lookup's input, so only\nthe K winners pay resolution, and the exec resolves them itself.",
+          "timestamp": "2026-09-02T14:32:52-07:00",
+          "tree_id": "52d24649a4d011b6bd1b09e366e3151a2cb7ecc5",
+          "url": "https://github.com/paradedb/paradedb/commit/51e683ece89fde7e42ca0c50e4fbad43a2cfe408"
+        },
+        "date": 1788385971381,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6305689154381822,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.944,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.983,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.136,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "zey8840@naver.com",
+            "name": "Tal",
+            "username": "taljeon"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8af80204b038b585a96131b5b21522493263afca",
+          "message": "test: cover JoinScan NULL predicate ordering in qgen (#6199)\n\n# Ticket(s) Closed\n\n- Progresses #6194. This is an umbrella issue and should remain open.\n\n## What\n\n- Add nullable `quantity IS NULL` and `quantity IS NOT NULL` ordering\nvariants to the existing `generated_joinscan` property test.\n- Move JoinScan ordering generation into a dedicated helper that emits\nonly valid combinations.\n- Remove the superseded `join_order_by_is_null` SQL and expected-output\nfiles.\n\n## Why\n\nThe fixed regression's NULL-valued companies have no matching rows, so\nits result blocks do not exercise joined NULL values. The qgen test\ndoes: it verifies both that the generated query uses `ParadeDB Join\nScan` and that its results match PostgreSQL over randomized joins,\npredicates, limits, GUCs, and data.\n\nThe property test uses the indexed nullable integer `quantity` column,\navoiding text-collation constraints while covering both NULL predicate\nforms with deterministic `quantity` and ID tie-breakers.\n\n## How\n\n`arb_joinscan_order_parts` explicitly represents all six previously\nvalid non-DISTINCT ordering states: regular columns, `upper(category)`,\nboth quantity NULL predicates, and both combinations of\n`upper(category)` with a NULL predicate. Each state includes the\nappropriate deterministic tie-breakers.\n\nDISTINCT is passed directly to the generator as a projection\nrestriction, which emits ordinary projected columns only. This removes\nthe intertwined booleans and rejected cases from the test body. Because\nqgen now owns both plan selection and result parity for #4751, the fixed\nSQL and expected-output files are removed entirely.\n\n## Tests\n\n- `cargo fmt --all -- --check`\n- `cargo clippy --package tests --test qgen -- -D warnings`\n- `cargo test --package tests --lib` — 16 passed\n- `cargo test --package tests --test qgen --no-run`\n- Focused local property validation of the NULL-ordering path, excluding\nthe pre-existing cross-relation planner path — 128/128 cases passed\nagainst the official ParadeDB 0.25.6 image in a C-locale PostgreSQL\ncluster. The temporary local filter is not part of the commit.\n- `rg -n 'join_order_by_is_null' pg_search tests` — no remaining\nreferences\n- `git diff --check`\n\nUnfiltered runs against the published image reached the existing\ncross-relation planner error (`variable not found in subplan target\nlist`) with both regular and nullable ordering. The focused run excluded\nthat unchanged heap-condition path; this PR does not alter\ncross-relation generation or planner behavior.\n\nAI assistance: OpenAI Codex helped prepare and validate this change.\n\n---------\n\nCo-authored-by: taljeon <taljeon@users.noreply.github.com>",
+          "timestamp": "2026-09-02T18:00:43-07:00",
+          "tree_id": "0ee699e6d518c7698e80492a223f374757b9062b",
+          "url": "https://github.com/paradedb/paradedb/commit/8af80204b038b585a96131b5b21522493263afca"
+        },
+        "date": 1788398456192,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6924830821722925,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.632,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.929,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.083,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.151,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16e0303417a0da7f025620a3398b2e013f7c5ea5",
+          "message": "ci: Use runs-on/action to properly configure runs-on's caching (#6195)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis is the proper way to configure runs-on's cache that makes it work\nwithout us having to use workarounds for artifact uploads.\nhttps://runs-on.com/docs/performance/caching/actions/\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-02T18:38:12-07:00",
+          "tree_id": "eb77cd149f35313e59ebac99cca0a58dbc2991a7",
+          "url": "https://github.com/paradedb/paradedb/commit/16e0303417a0da7f025620a3398b2e013f7c5ea5"
+        },
+        "date": 1788400706837,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6608785510967266,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.588,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.934,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.06,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.1,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc",
+          "message": "fix: Join Scan composite ORDER BY on nullable key returned wrong top-K rows (#5981)\n\n# Ticket(s) Closed\n\n- Closes #5567\n\n## What\n\nComposite ORDER BY with a nullable deferred first key returned the wrong\ntop-K rows in ParadeDB Join Scan (rows emitted in insertion order\ninstead of the correct lex sort).\n\n## Why\n\nIn `SegmentedTopKExec::collect_batch`, one `pass_through_scratch` bitmap\nis shared across every deferred sort column. A NULL in any single\ndeferred column marks the whole row pass-through, and `emit_final_topk`\nthen substitutes `typed_null(sort_col)` for every deferred column,\ncollapsing the sort key to `(NULL, NULL, ...)`. Stable sort of identical\nkeys emits in insertion order.\n\n## How\n\nSplit `pass_through_rows` from `Vec<(usize, usize)>` into a struct\ncarrying per-column term ordinals + source `SegmentOrdinal`.\n`collect_batch` captures the ordinals from the already-computed\n`deferred_ords` map. `emit_final_topk` resolves each deferred column\nindependently via a shared `materialize_deferred_ordinal` helper.\n\n`resolve_global_threshold_values` is left alone (returns Err instead of\ntyped_null; different semantics, out of scope).\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/issue_5567.sql` runs the ticket's\nminimal repro under `paradedb.enable_join_custom_scan = off` (baseline)\nand `= on` (fix path); post-fix the two outputs agree.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-09-03T16:42:18+05:30",
+          "tree_id": "d80fc57f9fd2cce8448e0e54298ccce3effe7c75",
+          "url": "https://github.com/paradedb/paradedb/commit/cce20d6d0bc7b2f5947c0cabc203f279bec7cbcc"
+        },
+        "date": 1788435172775,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6590066912010526,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.588,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.936,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.171,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f728c746ce9f7251a83e2a0f6ee30f27e1776085",
+          "message": "feat: Added `pdb.agg()` support to the DataFusion aggregate backend. (#6185)\n\n## Ticket(s) Closed\n\n- Closes #5250\n\n## What\n\nThis PR adds `pdb.agg()` to the DataFusion aggregate backend, so it runs\nover joins and on a single table routed past the Tantivy bucket cap.\n\nSupported: `terms` (`size`, `min_doc_count`, `missing`, `order` by\n`_count`, `_key`, or a metric sub-aggregation), `sum`, `avg`, `min`,\n`max`, `value_count`, `cardinality`, nested `aggs`, NUMERIC fields,\nper-aggregate `FILTER`, `HAVING`, and `visibility`. A field name must\nresolve to one table; `alias.field` disambiguates.\n\nOver a join, `range`, `histogram`, `date_histogram`, `filter`,\n`composite`, `multi_terms`, `stats`, `percentiles`, `top_hits`, terms\n`include`/`exclude`, and array fields raise an error, since `pdb.agg()`\nhas no Postgres fallback. On a single table such a spec stays on\nTantivy. `pdb.agg(...) OVER ()` above joins is #5637.\n\n## Why\n\nThe DataFusion backend declined every `pdb.agg()`: no joins, and a\nsingle-table query pushed there by the bucket cap failed with the join\nmessage. `raw` visibility, only reachable through `pdb.agg()`, had no\neffect on DataFusion scans either.\n\n## How\n\nThe spec is lowered to one DataFusion aggregate with grouping sets, one\nset per `terms` level. After execution the grouped rows are handed back\nto Tantivy as its own intermediate results, so Tantivy does the\nordering, the `size` cut, and the output shape, and the result reads the\nsame as on a single table. `cardinality` uses Tantivy's HLL sketch as\nwell, so the estimate matches too.\n\nThis depends on paradedb/tantivy#225. It also makes Tantivy order\nbuckets with equal counts by key on every path, which moved a few\nexisting expected outputs.\n\nKnown gaps: the leader materializes every grouped row before the first\noutput row, and the pre-existing Tantivy panic on `GROUP BY` plus nested\n`aggs` is untouched.\n\n## Tests\n\nAdded `pdb_agg_datafusion` . Also unit tests checks the `__grouping_id`\nencoding, the column layout, stat sharing, and the NULL sentinels.",
+          "timestamp": "2026-09-03T13:37:33-07:00",
+          "tree_id": "78f5230d92bc5473bfb3c4332db55d5344f7f7e2",
+          "url": "https://github.com/paradedb/paradedb/commit/f728c746ce9f7251a83e2a0f6ee30f27e1776085"
+        },
+        "date": 1788469162769,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6200187353629936,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.55,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.916,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.103,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c74bcde7bf6f6e44516d81f18350f2725d14fd5f",
+          "message": "feat: Add support for non-equi JOINs in the join and aggregate scan (#6196)\n\n## What\n\nAdds support for pushing down non-equi join conditions (e.g. `<`, `<=`,\n`>`, `>=`, `<>`) and mixed equi/non-equi joins to DataFusion.\n\nImproves expression deparsing during planning and `EXPLAIN` in order to\nbetter render join conditions.\n\n## Why\n\nThe Postgres optimizer frequently produces non-equi joins in #6149 while\nreorganizing joins in property tests. To avoid users encountering\nplanning failures non-deterministically based on estimate changes, it\nwas easiest to extend support.\n\n## How\n\n- `pg_search/src/postgres/customscan/joinscan/predicate.rs`: Absorbs\ntranslatable non-equi conditions into join-level filters\n(`JoinLevelExpr::PgExpression`), respecting outer join ON vs WHERE\nclause semantics.\n- `pg_search/src/postgres/customscan/aggregatescan/`: Recursively\nhandles non-equi joins in aggregate pushdown planning.\n- `pg_search/src/postgres/deparse.rs` &\n`pg_search/src/postgres/customscan/explainer.rs`: Added\n`deparse_planner_expr` using `PlannerInfo` range table contexts for\nreadable multi-relation expression deparsing.\n\n## Tests\n\nAdded regression tests. Additional property test coverage is provided by\nthe changes in https://github.com/paradedb/paradedb/pull/6149.",
+          "timestamp": "2026-09-03T23:12:12-07:00",
+          "tree_id": "1f536f91fd3793c3b54f93cb2ffeefa3337100af",
+          "url": "https://github.com/paradedb/paradedb/commit/c74bcde7bf6f6e44516d81f18350f2725d14fd5f"
+        },
+        "date": 1788503546573,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6319455871866688,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.798,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.882,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 1.95,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e51119bce84539e25abad25423be5aeb4b6b6c37",
+          "message": "feat: Support `JOIN LATERAL unnest` pushdown in the join and aggregate scans (#6149)\n\n## What\n\nAdds support for `JOIN LATERAL unnest` over array fast fields in the\njoin and aggregate scans.\n\n## Why\n\nQueries combining multi-table joins with `[CROSS|LEFT] JOIN LATERAL\nunnest(...)` over indexed array fast fields previously had multiple\nissues:\n- `ORDER BY` on unnested columns was declined or double-prefixed.\n- `WHERE` on unnested columns omitted from the `SELECT` list failed\nduring plan execution.\n- Inner and cross joins were erroneously classified as left joins in\nsome cases.\n- Datetime and timestamp array fast fields produced schema mismatches\nwhen constructing `RecordBatch`es.\n\n## How\n\n- Extended `JoinScan` planning to include lateral `unnest` function RTIs\nin `output_rtis`, enabling pathkey matching for unnested columns.\n- Added `lateral_unnests` to `CombinedMapper` and populated\n`custom_scan_tlist` with predicate `Var`s via `add_vars_to_tlist` so\nPostgres planner setrefs resolves unprojected filter columns.\n- Corrected left-join classification in `JoinScan` planning by removing\nthe invalid `joininfo.is_null()` check.\n- Updated `fetch_array_values_or_ords_to_arrow` in\n`pg_search/src/index/fast_fields_helper.rs` to use\n`TimestampMicrosecondBuilder` for datetime/timestamp `I64` fields, and\ndeduplicated array fetching across types via `fetch_list_array`.\n- Unified `RelNode::Unnest` DataFusion lowering via\n`apply_relnode_unnest` across `JoinScan` and `AggregateScan`.\n\n## Tests\n\nNew regress tests in\n`pg_search/tests/pg_regress/sql/join_lateral_unnest.sql`, and new\nproperty tests.",
+          "timestamp": "2026-09-04T07:32:37-07:00",
+          "tree_id": "b82ffcb2c7c516bec019a2e40e276d7ab8909d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/e51119bce84539e25abad25423be5aeb4b6b6c37"
+        },
+        "date": 1788533639123,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6355078867820845,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.564,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.034,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.176,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "17972943855cca91ca275cfbd10a4c5301214c51",
+          "message": "feat: partition a partition_by index built CONCURRENTLY (#6146)\n\n## Ticket(s) Closed\n\n- Closes #6170. Follow-up to #5735, which left this open.\n\n## What\n\nAn index with `partition_by` built by `CREATE INDEX CONCURRENTLY` or\n`REINDEX CONCURRENTLY` now cuts its partitions during the scan, the way\na plain build does.\n\n## Why\n\nA `partition_by` build routes each row into a kd-tree partition and\nstamps every segment with its box. A concurrent build skipped that\nplanning, so a concurrently built index recorded no boundaries and\n`enable_range_partitioned_join` got nothing to cut on. The only fix was\na blocking `REINDEX`.\n\nThe reason the build was ruled out: its phase 2 re-reads rows by ctid\nafter the scan, and with writers still running, a chain's live tail can\nbe a version the build's snapshot never saw.\n\nThat is a property of the fetch, not of the build. Phase 1 of a\nconcurrent build is a plain MVCC scan under a registered snapshot, and\nvisibility to a registered snapshot does not change. So phase 2\nreproduces phase 1's row choice by resolving each HOT chain under that\nsame snapshot.\n\nRows that arrive later stay unrouted, including the ones\n`validate_index` adds in the last phase of a concurrent build. That is\nM3 in the design: only the largest levels get partitioned, and lower\nmerges route by the largest level's boxes, as in Spooky.\n\n## How\n\n`do_build` registers the scan's snapshot. The scan drops its own at\n`table_endscan`, and a parallel worker's snapshot is `SO_TEMP_SNAPSHOT`,\nso the registration is what keeps it alive for the drain.\n`drain_partitioned` pushes it as active and fetches query-visible\ninstead of maintenance-visible. `HeapDocFetcher` had both modes already.\nA plain build keeps the maintenance one, which must index every live\nrow.\n\nThe serial path takes the snapshot from `build_index`. The parallel path\nreads it off the shared scan descriptor.\n\nEvery `partition_by` dimension needs a fast column in raw order, because\na partition's range query runs on the fast column and a box holds only\nwhere the raw order does. `CREATE INDEX` and `REINDEX` refuse a\ndimension without one, and a utility hook refuses an `ALTER INDEX` that\nchanges `partition_by` (clearing it remains allowed).\n\n## Tests\n\n`partitioned_build_concurrently` (pg_regress): two `CREATE INDEX\nCONCURRENTLY` indexes record split points, and a range-partitioned join\nover them matches the serial baseline.\n\n`#[pg_test]`s in `build.rs`: a key with an unroutable dimension fails\n`CREATE INDEX`. Changing `partition_by` by `ALTER INDEX` fails, and\nclearing it works.\n\n`partitioned_build_concurrent_writes` (integration test): two backends,\none building `CONCURRENTLY` while the other updates, inserts and deletes\nunder it. Both check that the index holds exactly the table's rows, with\ncontents that agree with the heap. They run on PG 17 and newer: on 15\nand 16 a `CONCURRENTLY` build under a writer fails on a leaked buffer\npin, which #6208 tracks and which predates this PR (it reproduces on\n`main` with no `partition_by` at all).\n\n## Open\n\n- The concurrency test does not discriminate the fetch mode. It still\npasses with the drain reading in maintenance mode, so I could not build\na case where the old mode is observably wrong. HOT's invariant, that\nchain members agree on indexed columns, looks like the reason. The\nquery-visible fetch keeps the drain's contract equal to the scan's,\nwhich is easier to reason about, but treat it as belt and braces rather\nthan a demonstrated fix.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-04T10:48:18-07:00",
+          "tree_id": "a350589116aa50bb4a976fb93049c4f866575a29",
+          "url": "https://github.com/paradedb/paradedb/commit/17972943855cca91ca275cfbd10a4c5301214c51"
+        },
+        "date": 1788545347191,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6382393040030887,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.566,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.974,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.007,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f4b1f65e25f5ebeda6744e1e1fd00f962ba89260",
+          "message": "fix: clean up the pg15/pg16 insert states before a commit (#6211)\n\n## Ticket(s) Closed\n\n- Closes #6208\n\n## What\n\nThis PR runs the pg15/pg16 `aminsertcleanup` polyfill's cleanup before a\ncommit, instead of at the end of the utility statement.\n\n## Why\n\n`CREATE INDEX CONCURRENTLY` on a `bm25` index fails on Postgres 15 and\n16 when another backend writes to the table during the build:\n\n```\nWARNING:  buffer refcount leak: [11388] (rel=base/460123/462610, blockNum=582, ...)\nERROR:  buffer 11388 is not owned by resource owner TopTransaction\n```\n\nAn `InsertState` pins buffers, and a pin belongs to the resource owner\nof the transaction that took it. The polyfill keeps every state in a\nframe that a `ProcessUtility` or `ExecutorRun` hook opens, and cleans\nthat frame up when the hook returns. `CREATE INDEX CONCURRENTLY` commits\nbetween its phases while the frame is still open, so the state its\nvalidation pass builds outlives the owner of its pins. One local run\nwent further and ended in a segfault.\n\npg17 added `index_insert_cleanup`, and `validate_index` calls it before\nit returns. So 17 and 18 never reach this, and the polyfill is compiled\nout there.\n\nA subtransaction abort is the other way a state can outlive its owner,\nand it's worse. A statement that fails part way, say a multi-row\n`INSERT` that trips the primary key on its third row inside a PL/pgSQL\n`EXCEPTION` block, leaves its frame behind: the guard sees the unwind\nand steps aside. The next guard to exit then pops that stale frame\ninstead of its own and runs the cleanup on it, which commits the rows\nthe rollback discarded over pins the aborting owner has already given\nup. With `global_mutable_segment_rows = 0` that takes the backend down\nwith `SIGABRT`.\n\n## How\n\nA `PreCommit` xact callback drains every open frame, beside the `Abort`\nand `Commit` ones already registered. The frames themselves stay on the\nstack, because only a `FrameGuard` may pop one and every guard is still\nlive.\n\nEach frame now records the nesting level it was pushed at, and an\n`AbortSub` callback drops every frame at the aborting level or deeper,\nwithout cleanup. Those frames can only belong to hooks that left through\nan error, and the callback runs before the subtransaction's resource\nowner releases its pins, the same order the top-level abort path already\nrelies on.\n\nThis also reverts a9cab39e4, which held #6146's concurrent-build tests\nto pg17 and newer while this was open.\n\n## Tests\n\n`tests/tests/concurrent_build_writes.rs` races a writer against a plain\nbuild. It declares no `partition_by`, so it covers the bug on its own.\n\nStep 1: seed a table with about 60k rows.\n\nStep 2: run the build on one connection.\n\n```sql\nCREATE INDEX CONCURRENTLY cic_writes_idx ON cic_writes\nUSING bm25 (id, body) WITH (key_field = 'id');\n```\n\nStep 3: on a second connection, loop `UPDATE`s and `INSERT`s until the\nbuild returns.\n\nVerified on `PGVER=15.15` and `PGVER=16.11`, where it fails before the\nchange and passes after, and on `PGVER=18.1`.\n\n`a_subtransaction_abort_drops_its_insert_state` in `insert.rs` runs the\nfailing-`INSERT`-inside-`EXCEPTION` shape above with immutable inserts,\nthen checks the index holds exactly the surviving rows. It crashes the\nbackend on 16 before the fix and passes after; it also runs on 17 and\n18, where the native `aminsertcleanup` handles the same case.",
+          "timestamp": "2026-09-04T20:27:22-07:00",
+          "tree_id": "f48a74ba352432b9f4a1dbe2b430bb5a479eacb8",
+          "url": "https://github.com/paradedb/paradedb/commit/f4b1f65e25f5ebeda6744e1e1fd00f962ba89260"
+        },
+        "date": 1788580048753,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6542313466029224,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.028,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.158,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c2667adb313041e94c78563d03a889868c9f6e0",
+          "message": "refactor: decouple column fetching from string decoding (#6219)\n\n# Ticket(s) Closed\n\n- Closes #6216\n\n## What\n\nThis PR splits `TantivyLookupExec` into `TantivyFetchExec` (doc address\nto term ordinal, packed ctid to ctid) and `TantivyDecodeExec` (term\nordinal to string or bytes), and lets a scan emit term ordinals\ndirectly.\n\n## Why\n\nThe two halves have different access patterns. The fetch wants doc\norder, which a join or a shuffle above the scan no longer keeps. The\ndecode is random access wherever it runs, and an ordinal is far narrower\nthan the string. #6156 measured the cost of moving both above a fan-out\njoin. As separate nodes, a cost model can place each on its own.\n\n## How\n\n- The planner puts the decode directly over the fetch, so plans change\nshape but the work runs where it did. The fetch keeps the schema and\npasses State 1 rows through; the decode treats a State 0 row as an\ninternal error. The ctid-only lookup under `VisibilityFilterExec` is a\nfetch with no string columns.\n- The fetch carries only the input ordering up, as the old node did.\nCarrying a join's equivalence classes let DataFusion rewrite a Top-K\nsort key onto the other join side and move its dynamic filter off the\nprobe scan.\n- With `paradedb.defer_column_fetch = off` (default `on`), the scan\nresolves the ordinals itself, in doc order, and only the decode node is\nplanned. It's an A/B lever for the cost-model follow-up, not a\nrecommendation: it fetches every projected deferred column, decoded or\nnot.\n- Batch sizes are unchanged. The scan keeps its 8192 batch whenever its\nstrings are deferred, and the decode runs per input batch. Gathering the\ndecode's input up to `MAX_BATCH_SIZE` is a follow-up to measure, since a\nTop-K or `LIMIT` above it would see its first rows 16x later.\n- Naming follows option 1 from the issue. Folding the\n`SegmentedTopKExec`'s own union reader onto `DeferredUnion` is a\nfollow-up.\n\n## Tests\n\n- New `deferred_fetch_decode` regress test: Top-K, a two-column sort, a\nbytes-backed `NUMERIC` sort key, NULLs, `enable_segmented_topk = off`,\nan aggregate over a join, and an MPP leg, each under both GUC settings,\nwith identical rows. `mpp_joinscan` gains the scan-fetch placement over\nits shuffled LEFT JOIN, where the decode's worker rebuilds its reader\nfor a scan in another stage.\n- 56 expected files change shape: the ctid-only lookup is renamed, and\nevery `decode=[...]` line becomes a decode over a fetch. They were\nrewritten by script from the old outputs, then verified by running each\ntest. Only the fetch node's own `EXPLAIN ANALYZE` metrics come from a\nrun.",
+          "timestamp": "2026-09-05T12:34:56-07:00",
+          "tree_id": "5d9882f33a82aae5f5ddffc83077937ee9e4da12",
+          "url": "https://github.com/paradedb/paradedb/commit/1c2667adb313041e94c78563d03a889868c9f6e0"
+        },
+        "date": 1788638112581,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.642892202341496,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.572,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.887,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.004,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.174,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c807edea84cc882673003f352eeb05a77bdaf8dc",
+          "message": "fix: keep the pdb.agg join proptest inside work_mem (#6235)\n\n## Ticket(s) Closed\n\nNone.\n\n## What\n\nThis PR keeps `generated_pdb_agg_join` inside `work_mem`.\n\n## Why\n\nThe proptest can draw a join with a step joined on a non-equi condition\nalone, such as `users.age <> products.age`, which fans out to nearly the\ncross product of its two sides. Under a SQL `GROUP BY` and two nested\n`terms`, that yields tens of thousands of buckets. The DataFusion\naggregate runs with the `DiskManager` disabled, so it fails once its\nstate outgrows `work_mem` instead of spilling. In addition,\n`create_memory_pool` in\n`pg_search/src/postgres/customscan/datafusion/memory.rs` grows the pool\nonly for a `HashJoinExec` or a `SortExec`, so under a\n`NestedLoopJoinExec` the pool is the default 4MB.\n\nBoth reproduction scripts from run 33983476495 (PG16 system and PG18\npgrx) fail on a local instance at `work_mem = 4MB` every time, so this\nwas never a flake. Measured on the PG18 data:\n\n| Shape | Buckets | Fails at | Passes at |\n| --- | --- | --- | --- |\n| PG18 seed: `GROUP BY` + 2 `terms`, 2 `cardinality` | 982 | 8MB | 16MB\n|\n| 3 keys, `sum`/`min`/`max` on NUMERIC, keyless 3-way join | 55035 |\n16MB | 24MB |\n| 3 keys, 3 `cardinality`, keyless 3-way join | 55035 | 256MB | 1GB |\n\n## How\n\n- The oracle closure sets `work_mem` to `64MB`, the way\n`generated_joins_small` does. That covers every shape without a sketch\nwith about 3x margin.\n- `arb_pdb_agg_join` passes the join into the spec shape. Over a join\nwith a keyless step, a spec with `cardinality` keeps to at most one\nbucket key; with more keys the metric becomes `value_count` on the same\nfield. Equi and mixed joins keep every shape, since their equality\nbounds the fan-out.\n- `JoinExpr::has_keyless_step` is the new predicate.\n\nWhether `create_memory_pool` should also budget for a\n`NestedLoopJoinExec` is a separate question.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-09-05T16:51:04-07:00",
+          "tree_id": "6838bea4ae00cc689285536c21323d19e40b89ce",
+          "url": "https://github.com/paradedb/paradedb/commit/c807edea84cc882673003f352eeb05a77bdaf8dc"
+        },
+        "date": 1788653450496,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.637833305807866,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.586,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.872,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.042,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11878d8bf3adb026df4fa54d44815f963768c0fb",
+          "message": "fix: Expand join property tests, and fix issues for outer joins, lateral unnests, and DISTINCT (#6236)\n\n# Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nFixes several query planning and execution edge cases across the join\nand aggregate scans, dynamic filter pushdown, and late materialization.\n\nDriven by expanded query-generation property test coverage.\n\n## Why\n\nExpanding qgen coverage with lateral unnest across arbitrary join trees,\nnull predicate generators, and filtered join aggregates exposed several\nlatent bugs:\n\n- Outer-join delayed predicates were discarded or caused unclassified\nclause errors.\n- `SELECT DISTINCT` with derived expressions pushed down `LIMIT`\nunsafely, truncating rows before deduplication.\n- Pruned relations from Anti/Semi joins caused schema errors during\ncolumn lookup, lateral unnesting, and deserialization.\n- Dynamic filter pushdown remapped column indices incorrectly over\nduplicate column names.\n- Arrow's dense UnionArray take kernel replaced null indices with offset\n0, corrupting late-materialized columns on outer joins.\n- Multi-table join aggregates failed collation checks when constant\ngrouping keys cleared group_pathkeys.\n- Fixed duplicate tagging of identical clauses in multi-table join score\nordering, which previously resulted in double-counted relevance scores.\n\n## Tests\n\n- Significantly improved property test coverage in\n`generated_joins_small` and `generated_pdb_agg_join`.\n- New regress tests (generated from the property tests, but adapted for\nexisting harnesses).",
+          "timestamp": "2026-09-07T18:20:20-07:00",
+          "tree_id": "f612872544f4e9dab20e2966d66ec476bc74cd79",
+          "url": "https://github.com/paradedb/paradedb/commit/11878d8bf3adb026df4fa54d44815f963768c0fb"
+        },
+        "date": 1788831617722,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.5919837276522937,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.523,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.838,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.859,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.053,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b750c7d6c84035bcae2469d820e7d17db87cda5",
+          "message": "feat: Add support for `pdb.agg` atop joins over array fields. (#6250)\n\n# Ticket(s) Closed\n\n- Closes #6215\n\n## What\n\nAdds support for `pdb.agg()` terms aggregations on array fields over\njoins.\n\n## Why\n\nPreviously, `pdb.agg()` over joins only supported scalar fast fields;\nattempting to reference an array field failed during custom scan path\nplanning or query lowering. For joins, array fields must be unnested\ninto relation rows so that multi-valued terms can participate in\ngrouping and nested aggregations consistent with PostgreSQL join\nsemantics.\n\n## How\n\n- Resolved array fast fields in custom scan planning and permitted them\nin join terms aggs while rejecting them for metrics.\n- In DataFusion, pre-projected array columns to unique temporary names,\nunnested them sequentially to produce the Cartesian product matching\nPostgreSQL `LATERAL unnest`, and post-projected back to qualified names.\n- Added array term generation and `LEFT JOIN LATERAL unnest` translation\nto join property tests.\n\n## Tests\n\n- Added Section 6 to\n`pg_search/tests/pg_regress/sql/pdb_agg_datafusion.sql` testing join\nterms on array fields, metric sub-aggs, multiple array fields,\nsingle-table fallback to Tantivy, and error handling.\n- Validated via expanded property tests: `cargo test -p tests --test\nqgen -- generated_pdb_agg_join`.",
+          "timestamp": "2026-09-09T14:23:16+02:00",
+          "tree_id": "1a29f153bd17dcecdd43652600ac065a62787dfd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b750c7d6c84035bcae2469d820e7d17db87cda5"
+        },
+        "date": 1788957849142,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6060804622529492,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.543,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.861,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.921,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.009,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788959789820,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6256121099513885,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.55,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.919,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.99,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.095,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "559f671aa9abfa7695b5a1f88a3f51c5b33671c1",
+          "message": "fix: avoid double-scaling Numeric64 hash-join InList filters (#6192)\n\n## Summary\n- Fixes hash-join dynamic `InList` pushdown double-scaling\nalready-scaled `Numeric64` Arrow `Int64` values, which caused JoinScan\nto drop matching probe rows.\n- Adds `PdbOwnedValue::from_execution_scalar` and uses it only in\n`try_convert_in_list_to_query`; leaves `from_scalar` unchanged for\nlogical SQL literals.\n- Adds `issue_6158` pg_regress coverage (native vs JoinScan, probe\n`dynamic_filter_pushdown_*=1`, negatives/zero/scale-0 edges).\n\nCloses #6158\n\n## Out of scope\n- #6100 (cross-scale Numeric64 joins)\n- #6104 (range-partition sampled bound double conversion)\n- #6102 (Numeric64 query-literal rounding)\n\n## Test plan\n- [x] `cargo pgrx regress issue_6158`\n- [x] Related regresses: `join_hash`,\n`join_hash_dynamic_filters_sparse`, `topk_dynamic_filter`,\n`numeric_pushdown`, `pushdown_numeric`, `filter_pushdown_datafusion`\n- [x] Unit tests for `from_execution_scalar` vs `from_scalar`\n- [x] Negative control: restoring `from_scalar` at the InList site\nreturns empty JoinScan results while pushdown still fires\n\n\nMade with [Cursor](https://cursor.com)",
+          "timestamp": "2026-09-10T02:07:43-07:00",
+          "tree_id": "33dc3d5f0504bedbec6661beaac9d0981b820be7",
+          "url": "https://github.com/paradedb/paradedb/commit/559f671aa9abfa7695b5a1f88a3f51c5b33671c1"
+        },
+        "date": 1789032531246,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6706300185299432,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.964,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.023,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.155,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789044021305,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6374928732595913,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.572,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.851,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.217,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8df565f0495bf2dd5176ba23e04e4a42583b411b",
+          "message": "fix: Mark `pdb.agg` parallel safe. (#6269)\n\n## What\n\nMarks `pdb.agg` and its underlying placeholder C functions (`state` and\n`finalize`) as `PARALLEL SAFE` / `PARALLEL = SAFE`, and adds MPP\nregression test cases for `pdb.agg` in `mpp_aggregate`.\n\n## Why\n\nIn PR #6181, MPP execution was gated on\n`PlannerInfo.glob.parallelModeOK`. Because `pdb.agg` and its placeholder\nfunctions were declared without parallel safety markings in the catalog\n(`proparallel = 'u'`), PostgreSQL set `parallelModeOK = false`. This\nforced all queries containing `pdb.agg` to silently bypass\n`DistributedExec` and fall back to single-threaded serial execution\n(`CooperativeExec`).\n\n## How\n\n- In `pg_search/src/api/aggregate.rs`, added `const PARALLEL:\nOption<ParallelOption> = Some(ParallelOption::Safe);` to the `Aggregate`\ntrait implementations and annotated `fn state` and `fn finalize` with\n`#[pgrx(parallel_safe)]` across all three overloads (`AggPlaceholder`,\n`AggPlaceholderWithMvcc`, and `AggPlaceholderVisibility`).\n\n## Tests\n\n- In `pg_search/tests/pg_regress/sql/mpp_aggregate.sql`, added scalar\nand `GROUP BY` `pdb.agg` test cases across Pass 1 (serial baseline),\nPass 2 (MPP path exercising `DistributedExec`), and Pass 3 (size-gating\nfallback).",
+          "timestamp": "2026-09-10T08:31:05-07:00",
+          "tree_id": "9f14dfc273036a7d31f3be2eef9a49bfdfd65064",
+          "url": "https://github.com/paradedb/paradedb/commit/8df565f0495bf2dd5176ba23e04e4a42583b411b"
+        },
+        "date": 1789055573582,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6096560419936319,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.54,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.873,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.898,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 1.975,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789086796632,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6370794585374078,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.566,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.939,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.99,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.117,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789134541219,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6464893758300057,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.57,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.91,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.091,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a175c6771e3f8b30264e9b9e06923822194edc21",
+          "message": "perf: pushed down join InList filters on `uuid` keys. (#6278)\n\n## Ticket(s) Closed\n\n- Partially closes #6276\n\n## What\n\nThis PR makes the hash-join `InList` dynamic filter reach tantivy when\nthe join key is a `uuid` or a tokenizer-cast text column.\n\n## Why\n\n`PdbOwnedValue::from_scalar` mapped the Utf8 family onto\n`SearchFieldType::Text` only. `Uuid` and `Tokenized` store as `Utf8View`\ntoo, so the join-derived `InList` produced no term and\n`try_convert_in_list_to_query` gave up. The predicate showed up only as\na post-search pre-filter, which drops rows after the scan has already\nread and materialized them. So the probe side read every document in the\nindex.\n\n`Inet`, `Json`, `Range` and `Ltree` are `Utf8View`-backed as well but\nare not checked here. `Inet` stores as a tantivy IP field and the other\nthree carry path, bound or facet encoding. The pushdown rewrites the\nDataFusion filter to `lit(true)`, so nothing rechecks the term. A term\nbuilt the wrong way would silently drop rows that should match.\n\nThe `paradedb.hash_join_inlist_pushdown_max_distinct_values` cap still\napplies, so a build side above it keeps the old behaviour.\n\n## How\n\nWiden the string arm in `from_scalar` to accept `Text`, `Tokenized` and\n`Uuid`.\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/join_dynamic_filter_string_keys.sql`\n\nOn a 5,000 row probe with 20 build keys, `rows_scanned` drops from 5,000\nto 20.\n\nStep 1, build the fixture from #6276 and pick the group below the cap.\n\n```sql\nSET max_parallel_workers_per_gather = 0;\n\nEXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)\nSELECT parent.* FROM parent\nJOIN child ON child.parent_id = parent.id\nWHERE parent.id @@@ paradedb.all()\n  AND parent.deleted_at IS NULL\n  AND parent.group_id = md5('g2')::uuid\n  AND parent.active = true\n  AND child.amount >= 0\nORDER BY parent.created_at DESC, parent.id DESC\nLIMIT 25;\n```\n\nStep 2, read `rows_scanned` on the `child` scan. It goes from `1.00 M`\nto `10.18 K`.\n\nIssue #6276 stays open. The join still materializes every matching row\nbefore the Top-K, so it does work proportional to the build side rather\nthan to the 25 rows asked for. That part needs an ordered outer scan\nwith early exit, which is not in here.",
+          "timestamp": "2026-09-11T16:53:06+02:00",
+          "tree_id": "ce58b96090ce19c704141ca93fc1db1cbe0857cc",
+          "url": "https://github.com/paradedb/paradedb/commit/a175c6771e3f8b30264e9b9e06923822194edc21"
+        },
+        "date": 1789139592379,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6467018097293777,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.579,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.065,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789149387030,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6250769608914215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.878,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.919,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.144,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04945c58db60269634bac566f5adf264fb829603",
+          "message": "feat: placed the fetch and the decode of a deferred column per source. (#6231)\n\n## Ticket(s) Closed\n\n- Closes #6217\n\n## What\n\nThis PR adds `DeferredPlacementRule`, which decides per source where the\nfetch and the decode of a late-materialized string column run.\n`paradedb.defer_column_fetch` becomes `auto | on | off` and gets a\n`paradedb.defer_string_decode` twin.\n\nStacked on #6247, whose packed encoding this needs for a sort key on the\nnull-supplying side of an outer join.\n\n## Why\n\nThe two halves want different places. The fetch is a columnar read that\nis cheapest in doc order, and a hash join's build side comes back out in\nprobe order. The decode costs the same per row wherever it runs, but a\n1:N join multiplies the rows it runs on, which is how #6156 regressed\n9.5x. #6155 tried row estimates, which flip plans between machines.\n\n## How\n\nThe rule reads the plan's shape, not estimates. A build side, a sort, or\na hash repartition means the rows leave doc order, so the fetch moves\ninto the scan. A join whose other key is not that side's key field means\nfan-out. If nothing above bounds the rows, the decode moves into the\nscan too; a Top-K or `LIMIT` above keeps it deferred. An unknown shape\nkeeps the old placement. The scan shows `fetch=[...]` and `eager=[...]`\nfor what it took over.\n\nThe model follows Liu et al. (PVLDB 2025), with the plan's shape in\nplace of their trained cost model and optimizer cardinalities.\n\n## Tests\n\n- New `late_materialization_placement` regress test.\n- Unit tests for the decision logic.",
+          "timestamp": "2026-09-12T10:43:18+02:00",
+          "tree_id": "aaae729cda492c750b28baf1d993524ed96571a0",
+          "url": "https://github.com/paradedb/paradedb/commit/04945c58db60269634bac566f5adf264fb829603"
+        },
+        "date": 1789203852434,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6049676792748104,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.534,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.864,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.892,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.085,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a2438a366894d88ee0649b54d0ee7a2c631634b4",
+          "message": "fix: restored parallel top-K for phrase and filtered searches. (#6296)\n\n## Ticket(s) Closed\n\n- Closes #5746\n\n## What\n\nThis PR fixes two drive-cost estimates that collapse to near zero, which\nleaves top-K searches serial.\n\n[searchbench](https://serenedb.com/blog/searchbench-postgres) found 3 of\nits 88 queries 7-8x slower on `0.25.0` than on `0.24.1` at 100M rows: a\nfour-word phrase by score, that phrase under a time window, and a\n`charg.*` regex under a time window. #5746 is the same regression from\nanother user.\n\n## Why\n\nSince #5150 a costable scan picks serial or parallel from its drive\ncost, and two estimates feeding that choice are off by orders of\nmagnitude.\n\n`UNKNOWN_SELECTIVITY` marks a clause we cannot estimate, so multiplying\nit into a conjunction read as an extremely selective one. On 3M rows,\n`regex('body','charg.*') AND ts BETWEEN ...` estimated 1 row against\n189,034 actual.\n\nTantivy derives a phrase's cost from an intersection estimate that\nassumes independent terms, so it shrinks with every term added while the\nscan walks the same posting list. A phrase matching 300,000 rows costed\n136. Only a narrow band is hit, which is why so few queries moved. Below\nit `size_hint()` reaches zero and the existing full count is right,\nabove it the phrase really is rare.\n\n## How\n\nAn un-estimatable conjunct drops out of the product, leaving\n`UNKNOWN_SELECTIVITY` for queries with nothing to estimate at all.\n\nThe drive cost is floored at the shortest posting list the query walks,\nread from the term dictionary. A conjunction advances that list end to\nend, so it cannot touch fewer documents. The floor is inert for terms\nand unions and bites only on phrases.\n\n`ProximityQuery::query_terms` reports a field miss instead of aborting\nthe plan, since callers walk terms one field at a time.\n\n## Tests\n\n`topk_parallel_estimates` covers the three shapes plus a rare phrase\nthat must stay serial. Plans on one 3M-row table:\n\n| query | 0.24.1 | 0.25.0 | this PR |\n| --- | --- | --- | --- |\n| phrase, top-K by score | parallel | serial | parallel |\n| phrase under a window | parallel | serial | parallel |\n| regex under a window | parallel | serial | parallel |\n| Q43, Q47, Q70 (never flagged) | parallel | parallel | parallel |\n\nThat cuts the three by 7.6x, 7.3x and 3.5x. I could not run #5746's\ndata, but its query shape goes from `rows=1` and serial to `rows=29999`\nand parallel.",
+          "timestamp": "2026-09-13T09:20:24+02:00",
+          "tree_id": "0b928d729d493c337c2b39f6ef1daafa042e8acf",
+          "url": "https://github.com/paradedb/paradedb/commit/a2438a366894d88ee0649b54d0ee7a2c631634b4"
+        },
+        "date": 1789285257761,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6351006870019325,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.568,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.952,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.103,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5",
+          "message": "fix: derive deferred placement uniqueness from heap indexes (#6307)\n\nThis PR reads a join column's uniqueness from the heap's unique indexes\ninstead of the BM25 key field, which #6221 removes.\n\n`PgSearchRelation::unique_fields()` keeps a search field when a valid,\nimmediate, non-partial, single-column unique index backs its heap column\nand the index stores the value as is (no normalizer, no array). `NULL`\nneeds no special case, since an equi-join key never matches it.\nPrimary-key join plans do not change; a key field without a unique index\nnow counts as a fan-out.\n\nAll review findings are fixed: the catalog walk moved onto\n`PgSearchRelation`, the `NOT NULL` gate is gone, the filters carry their\nreasons, and `late_materialization_placement` covers a join on a non-key\n`UNIQUE NOT NULL` column and one on a key field without a unique index.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-13T10:55:18+02:00",
+          "tree_id": "0fe762cda8caf6b4e5d6cac2c81d81465b481203",
+          "url": "https://github.com/paradedb/paradedb/commit/c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5"
+        },
+        "date": 1789290956203,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6478417991469851,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.573,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.94,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.004,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.13,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f5e33bf756e3dce0c06238a4af1f3a96df7928b",
+          "message": "feat: Fully support DISTINCT in JoinScan via hook location migration (#6239)\n\n# Ticket(s) Closed\n\n- Closes #6022\n\n## What\n\nMoves `JoinScan` path generation from `set_join_pathlist_hook` to\n`create_upper_paths_hook` at `UPPERREL_FINAL`, planning the full join\ntree, projections, `DISTINCT`, `ORDER BY`, and `LIMIT`/`OFFSET` into a\nsingle root DataFusion execution plan once per query.\n\n## Why\n\n- Reduces code duplication by aligning the join and aggregate scans in\nthe same hook.\n- Followup PRs can further pull on this to increase reuse across the\nscans, since they now both use the parse.\n- Eliminates plan non-determinism (#6022) by planning against the\ncomplete query tree rather than depending on PostgreSQL's relation\nsearch order.\n- Cuts planning/estimation overhead by planning joins once per query\ninstead of evaluating candidate pairs across join permutations.\n- Provides reliable `SELECT DISTINCT` support.\n- Previously we have to bail in many situations where we ended up\nwrapped in upper nodes which needed to be able to consume the unfiltered\noutput.\n\n## How\n\n- Replaced `set_join_pathlist_hook` with `create_upper_paths_hook`\ntargeting `UPPERREL_FINAL`.\n\n## Tests\n\n- Reduced property test planning restrictions, as we can now almost\nalways plan the join scan.\n- Expanded regress tests based on failing property tests.",
+          "timestamp": "2026-09-13T02:38:02-07:00",
+          "tree_id": "0746e6ef2331626723cac45d6260ec882caf3fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/3f5e33bf756e3dce0c06238a4af1f3a96df7928b"
+        },
+        "date": 1789293501653,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7528454154643656,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.706,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.046,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.097,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e87c7e2f935b1c855d076b0559881d39f28d7568",
+          "message": "feat: remove the key_field requirement from search indexes (#6221)\n\n# Ticket(s) Closed\n\n- Part of #6198. Documentation and ORM guidance remain in #6303.\n- Consolidates the implementation stack #6222–#6228 into this PR. The\nbroad test-fixture cleanup remains separate in #6304.\n\n## What\n\nRemove the dependency on a designated `key_field` throughout BM25 index\ncreation and search execution. New indexes can contain only the fields\nbeing searched, without a primary key, unique first column, or\n`key_field` option:\n\n```sql\nCREATE INDEX products_search ON products USING paradedb (description, category);\nSELECT * FROM products AS p WHERE p @@@ 'shoes';\n```\n\nExisting indexes remain usable after an extension upgrade without\nrebuilding. The `key_field` option remains accepted for compatibility\nbut has no effect on new indexes; fields follow their ordinary\nconfiguration rules.\n\n## Why\n\nSearch evaluation, index-only scans, projections, and aggregates\npreviously relied on assumptions about a special key column. Those\nassumptions prevented ordinary nullable or duplicate-valued columns from\nbehaving consistently and produced incorrect matches in some\nsequential-scan and RLS cases.\n\n## How\n\n- Use PostgreSQL row identity and visibility when evaluating indexed\nsearch predicates during sequential scans. Fall back to inline row\nevaluation for prospective RLS rows, rows outside a partial index, and\nother cases the index cannot answer.\n- Allow index-only scans over eligible fast fields and apply the same\nfield eligibility rules to custom scans. Restrict document-count\nshortcuts to actual document counts.\n- Treat whole-row queries as unfielded searches. A field-specific\nbuilder such as `pdb.term()` requires an indexed column on the left-hand\nside; it no longer implicitly binds to a key field.\n- Bind more-like-this source-document lookups to the field on the\nleft-hand side. The changed overload returns `pdb.query`; upgrade SQL\nrecreates it without cascading through dependent objects, which must be\nmigrated explicitly.\n- Include the SQL upgrade fragments and retain legacy key-field upgrade\nfixtures. The broad removal of obsolete `key_field` options from\nregression, integration, stress, benchmark, and snippet-test fixtures is\nisolated in #6304.\n\n## Tests\n\n- All source PRs passed CI before consolidation, including PostgreSQL\n15–18 integration tests, PG18 regression tests, upgrade tests from\n`0.21.0` and `0.25.9`, schema checks, Rust lint, and applicable\ndocumentation checks.\n- Published `0.26.0-rc.1` from the implementation head and smoke-tested\nthe Docker image on arm64: upgraded five `0.25.9` databases, verified\nlegacy indexes without rebuilding, compared upgraded and fresh extension\nschemas, and tested keyless indexes with NULLs, duplicates, searches,\nwrites, rollback, vacuum, reindex, and restart persistence.\n- Runtime code matches #6228 at `4405076dc`, which passed CI and was\nused to cut the beta. Migration fragments are grouped under #6221 so\nSchemaBot validates the full schema change against `main`; its validator\nfinds all 13 required statements, and fragment lint passes. The\ntest-fixture cleanup is stacked separately in #6304.\n\nThe related docs PR remains separate while the ORM clients are updated.",
+          "timestamp": "2026-09-13T13:11:13+02:00",
+          "tree_id": "c95893209d706d93992857f5edae9e4e5350376f",
+          "url": "https://github.com/paradedb/paradedb/commit/e87c7e2f935b1c855d076b0559881d39f28d7568"
+        },
+        "date": 1789299090177,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6795101015801401,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.928,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.994,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.105,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789308104266,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.705543829494676,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.639,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.953,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.009,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.274,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "740e1a9feb40d942beb8ee1f747edc0f8c7f1455",
+          "message": "feat: combine multiple index bitmaps with BitmapAnd (#6144)\n\n# Ticket(s) Closed\n\n- Closes #6089\n\n## What\n\n`build_bitmap_path` kept only the best net candidate, so a predicate\ncovered by a second index stayed a heap filter. It now scores every\ncandidate, sorts by descending net, and keeps adding while the next\nbitmap's incremental net stays positive, then combines them with\n`create_bitmap_and_path`.\n\n## Why\n\nFollow-up to #6088. A second bitmap only rejects rows the first one\nkept, so when it still pays for itself the scan skips those heap fetches\nand their filter evaluation.\n\n## How\n\n`ledger` takes the rows that reach a bitmap, so one function scores both\nthe standalone case and the incremental one. An index covering no clause\nthe accepted set already covers is skipped, since a multicolumn index\nand a single column one over a shared key match the same clause and\nmultiplying their selectivities would count it twice.\n\n`accept()`, the query rewrite, `MultiExecProcNode` and `index_names()`\nalready handled a BitmapAnd child, so this is planner only.\n\n## Tests\n\nNew supported case: two indexable predicates on a wide row table.\nEXPLAIN shows BitmapAnd over both leaves, both filters move to recheck,\nand results match the same query with the indexes dropped. A lateral\nrescan covers freeing and re-seeding the bitmap per outer row.\n\nThe `TODO BitmapAnd` shape does not flip. Both its predicates take the\n0.005 default selectivity and `providers` is narrow, so the first bitmap\nis modeled as cutting 1000 rows to 5 and the second one's incremental\nnet is -5.84. That is the cost gate working rather than missing\ncoverage, so it moved to the rejected section.\n\n`cargo pgrx regress pg18` 332/332.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-09-13T13:50:59-07:00",
+          "tree_id": "ffd3f92e2ca493d1eca04566c2a5bc89c4c21483",
+          "url": "https://github.com/paradedb/paradedb/commit/740e1a9feb40d942beb8ee1f747edc0f8c7f1455"
+        },
+        "date": 1789333873083,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7040885822263014,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.629,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.011,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.056,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.136,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21f55244bbdb9340de7fa6bcf47d50cbcd8a8e9a",
+          "message": "test: remove key_field from test fixtures (#6304)\n\n# Ticket(s) Closed\n\n- Stacked on #6221 (`codex/keyless-01-sequential-ctids`); part of #6198.\n\n## What\n\nRemove `key_field` from current-version test fixtures throughout the\nrepository: regression SQL and shared setup, expected output, Rust\nintegration and property tests, the remaining extension unit-test\nfixture, stress suites, benchmark datasets, and documentation\nsnippet-test indexes. Indexed columns and other index options are\npreserved.\n\n## Why\n\nThe stack makes `key_field` an ignored compatibility option. The test\nfixtures should exercise index creation without it.\n\n## How\n\nRemove the option and empty `WITH` clauses, remove the query generator's\nunused primary-key lookup, and update obsolete fixture descriptions.\n\nThe six declarations in four legacy upgrade `setup.sql` files are\nintentionally retained: those files execute on released versions that\nrequire `key_field`, and the tokenizer case verifies writes to legacy\nindexes after upgrading. The current-version assertion in\n`key_field_tokenizers/queries.sql` also passes `key_field` explicitly\nand verifies that normal field tokenization is preserved.\n\nRegression output changes are limited to echoed index definitions and\nfixture descriptions. Regenerated `tokenizer-typmod.out` also resizes\nthe `pg_indexes.indexdef` table header/separator for the shorter\ndefinition. **No execution plans, errors, warnings, query results, or\nrow ordering changed** in the paired PostgreSQL 18.3 runs against the\nparent and this PR.\n\nThe raw-array error in `whole_row_search` uses terse verbosity for that\nstatement only, so CI-enabled Rust backtraces do not enter the snapshot.\nDefault verbosity is restored immediately to retain the other error-hint\nassertions.\n\n## Tests\n\n- Parent: all 358 regression cases passed. PR: 357 passed immediately;\nthe remaining case passed after regenerating the index-definition table\nwidth. Compared all 358 outputs against the parent, accounting for the\ndocumented text/formatting changes.\n- Integration and tokenizer suites: 745 passed, 0 failed, 5 ignored;\nreplication/ephemeral tests excluded using the pgrx CI filters (4 tests\nfiltered out). Includes all 16 generated-query tests.\n- Stressgres SQL scanner test, snippet-index setup, and the updated\nsubtransaction fixture's SQL assertion passed.\n- All repository pre-commit checks passed, including workspace Clippy\nwith warnings denied, compilation, formatting, and documentation with\nwarnings denied.\n\n\n- Reproduced the whole-row regression failure locally with\n`RUST_BACKTRACE=short`, then verified `setup` and `whole_row_search`\npass with the same setting after the verbosity fix.",
+          "timestamp": "2026-09-14T01:43:03+02:00",
+          "tree_id": "c24b82a2396f5ffa64b0db615c4cfb4a3364f37e",
+          "url": "https://github.com/paradedb/paradedb/commit/21f55244bbdb9340de7fa6bcf47d50cbcd8a8e9a"
+        },
+        "date": 1789344197276,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7076448651749971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.631,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.965,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.171,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a62b7a0d19eef318f9cdab6b0716c6aa6935e2b",
+          "message": "fix: vacuum stressgres tables before index-only plan assertions (#6321)\n\n## What\n\nRun `VACUUM (ANALYZE) test` during setup in\n`single-node-planner-paths.toml` and on the subscriber in\n`logical-replication-mixed-workload.toml`. Keep their `Index Only Scan`\nplan assertions.\n\n## Why\n\n[The planner-paths benchmark\nfailed](https://github.com/paradedb/paradedb/actions/runs/34760542323/job/103732492376)\nbecause PostgreSQL selected an ordinary index scan. Both suites\npreviously analyzed newly loaded tables without explicitly populating\nthe visibility map before workers started. An index-only path can\ntherefore have no estimated heap-access advantage; relying on concurrent\nvacuum or autovacuum makes the assertion depend on timing.\n\n## How\n\nReplace setup's `ANALYZE test` with `VACUUM (ANALYZE) test`, with\ncomments explaining the ordering requirement. Stressgres executes these\nsetup statements individually outside an explicit transaction and\ncompletes setup before starting workers. These are the only two suites\nthat assert an index-only plan; the other six do not need this change\nfor that assertion.\n\n## Tests\n\n- Parsed all eight suite TOML files successfully with Python `tomllib`.\n- `git diff --check` passed.\n- Reviewed setup execution ordering in `stressgres/src/runner.rs`.\n- Runtime verification pending: local PostgreSQL/Rust tools and a\nrunning Docker daemon are unavailable. CI must confirm the expected plan\nafter vacuuming.",
+          "timestamp": "2026-09-14T08:09:36-07:00",
+          "tree_id": "956e0f9886ff5e808c383f75278890fc831bfbae",
+          "url": "https://github.com/paradedb/paradedb/commit/2a62b7a0d19eef318f9cdab6b0716c6aa6935e2b"
+        },
+        "date": 1789399851418,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7334066158057138,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.651,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.988,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.088,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.169,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "104281681+Tyagiquamar@users.noreply.github.com",
+            "name": "Mohd Quamar Tyagi",
+            "username": "Tyagiquamar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a7db311723c2d4997b37b541d222755ea73126f",
+          "message": "fix(pg_search): return EmptyQuery in phrase_prefix query builder when terms are empty (#6206) (#6308)\n\n### Summary\nFixes an issue where \\phrase_prefix\\ query builder constructs a\n\\PhrasePrefixQuery\\ with empty terms when phrase evaluation produces\nzero terms, causing Tantivy scorer panics on zero-doc segment lookups.\n\n### Changes\n- Check if \\ erms.is_empty()\\ in \\phrase_prefix\\ and return\n\\Box::new(EmptyQuery)\\ consistent with \\ okenized_phrase\\.\n\nCloses #6206\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-09-14T09:05:55-07:00",
+          "tree_id": "5f737b62550c1a9381f4538bf709508c81619aae",
+          "url": "https://github.com/paradedb/paradedb/commit/2a7db311723c2d4997b37b541d222755ea73126f"
+        },
+        "date": 1789403364400,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7098264866417816,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.646,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.003,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.024,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.13,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "37de6812245943977e8c1df3f7f733272325a623",
+          "message": "chore: Revert \"ci: use c7gd metal runners for benchmarks and snapshots (#6322)\" (#6329)\n\nThe smaller runners experienced errors:\nhttps://github.com/paradedb/paradedb/actions/runs/34866628585",
+          "timestamp": "2026-09-14T09:48:57-07:00",
+          "tree_id": "5f737b62550c1a9381f4538bf709508c81619aae",
+          "url": "https://github.com/paradedb/paradedb/commit/37de6812245943977e8c1df3f7f733272325a623"
+        },
+        "date": 1789405804089,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.706355979818798,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.993,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.101,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.249,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7a254d4720cae92c088c0a4a227774e0f393c648",
+          "message": "fix: Restore late materialization in some join scan plans (#6318)\n\n## What\n\n#6239 and #6231 lightly collided, such that the join scan was not\nproperly deferring columns in all cases.\n\n## Why\n\n#6239 migrated the join scan to `extract_join_tree_from_parse`, which\ncloned all fast fields into `candidate.fields` in `build_scan_node`.\nExposing all fields caused DataFusion to project every column and\neagerly decode strings during scans, even though Postgres fetched the\nsame tuples from the heap via `ctid`.\n\nThis caused a regression in two benchmarks.\n\n## Tests\n\nBenchmarks for `join_foreign_filter_local_sort` and `join_semi_filter`\nare fixed.",
+          "timestamp": "2026-09-14T10:32:47-07:00",
+          "tree_id": "6f94e39dfaf44e0cb937410427a1ed99974e669a",
+          "url": "https://github.com/paradedb/paradedb/commit/7a254d4720cae92c088c0a4a227774e0f393c648"
+        },
+        "date": 1789408647705,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6481641278457755,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.927,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.994,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.042,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "55d68f2c7029f8c3e88193c2c74d89c9b353070c",
+          "message": "fix: warn when deprecated key_field option is provided (#6324)\n\n## What\n\nPassing `key_field` to `CREATE INDEX` now emits:\n\n```text\nWARNING:  key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided\n```\n\n## Why\n\nThe option is retained for compatibility, but users should know they can\nremove it.\n\n## How\n\nRegister a warning callback for the `key_field` reloption. The option\nremains ignored, including when it names a nonexistent column. Omitting\nit produces no warning.\n\n## Tests\n\n- Passed PostgreSQL 18 regressions: `deprecated_key_field` and\n`bitmap_intersection`.\n- Updated expected output and added coverage for omitting `key_field`.\n- Removed obsolete `key_field` options from the bitmap intersection\nfixtures.",
+          "timestamp": "2026-09-14T10:57:45-07:00",
+          "tree_id": "02a2fe884e7502b4a848356a468863b57beca20c",
+          "url": "https://github.com/paradedb/paradedb/commit/55d68f2c7029f8c3e88193c2c74d89c9b353070c"
+        },
+        "date": 1789410120579,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6729707602339021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.922,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.009,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.109,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0764352d1b9f58497e303fcbc3791dd4657f446d",
+          "message": "ci: use shared organization lint and check actions (#6305)\n\nReplace duplicated CI steps with the shared composite actions in\nparadedb/actions#22, referenced by the `v12` release tag. Migrates:\ncheck-typo, lint-bash, lint-docker, lint-format, lint-markdown,\nlint-pr-title, lint-yaml.\n\nWorkflow triggers, job names, permissions, runners, concurrency, and\ncheckout settings are preserved. Repository-specific exclusions,\nconfiguration files, and validation commands remain in this repository.\nPrettier/markdownlint versions are pinned directly in the shared install\nsteps; repository dependencies are not installed for these checks.\nSpelling uses pinned Python codespell instead of the Docker wrapper, so\nthe check no longer needs Docker Hub credentials. Bash checks use shfmt\nwith two-space indentation and indented case branches on all tracked\nshell scripts, including hidden scripts. Existing pre-commit\nconfigurations use the same formatter settings. Shell scripts are\nreformatted accordingly.\n\nDepends on https://github.com/paradedb/actions/pull/22; merge the\nshared-actions PR and publish `v12` first. The tag does not exist yet,\nso consumer action resolution is expected to remain blocked until that\nrelease is published.\n\nValidation: workflow/job-envelope and action-input checks, actionlint\nwith ShellCheck, Prettier formatting, and git diff --check passed\nlocally. All tracked shell scripts in this repository pass the shared\nformatting, shebang, strict-mode, and ShellCheck steps locally; Bash\nsyntax checks also pass. Repository CI results are tracked separately.\n\nPart of paradedb/paradedb#5477.\n\nThe migrated checks passed against the tested implementation SHA before\nswitching to the requested release tag. Rerun CI after `v12` is\npublished.",
+          "timestamp": "2026-09-14T11:26:10-07:00",
+          "tree_id": "26040438ec4e83568dd9db1699c26f07698a15df",
+          "url": "https://github.com/paradedb/paradedb/commit/0764352d1b9f58497e303fcbc3791dd4657f446d"
+        },
+        "date": 1789411646362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6705280444668933,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.604,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.933,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.214,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d46f86b867f61d1a0a367e6cd0c68900fc51ef4",
+          "message": "chore: Add support for `partition_by` on the `ctid`. (#6317)\n\n## What\n\nAdds support for `partition_by` on the `ctid`.\n\n## Why\n\nAlthough every segment is currently always sorted by the `ctid`, we do\nnot partition by the `ctid`.\n\nPartitioning on the `ctid` might be useful in cases where the only other\nuseful property to `partition_by` is something very low cardinality,\nsuch as an enum or boolean column, as it will allow for increasing the\ntotal number of partitions while increasing density for visibility\nchecks.\n\nIt's not clear yet whether partitioning by the `ctid` is something that\nwe'll want to do by default though: because it is never used as a\nfilter, introducing partitioning will almost never allow for pruning\nsegments (the exception is sequential scans, which do `ctid` point\nlookups: but we avoid them anyway). Nonetheless, it's possible that\npartitioning will reduce write amplification in M3, and in that case it\nwould be worth partitioning by the `ctid` by default.\n\n## Tests\n\nAdded regress test coverage.",
+          "timestamp": "2026-09-14T11:44:54-07:00",
+          "tree_id": "ba1833f37a8fc9103ec8d4c67faac755a68cf4a6",
+          "url": "https://github.com/paradedb/paradedb/commit/3d46f86b867f61d1a0a367e6cd0c68900fc51ef4"
+        },
+        "date": 1789412797711,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6622509497206726,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.913,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.95,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.08,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "614011267d075ad9cb24b20549d9094614546a8e",
+          "message": "feat: Support global window functions (OVER ()) over joins (#6313)\n\n# Ticket(s) Closed\n\n- Closes #5637 \n\n## What\nAdd support for global window functions of the form `SUM(_) OVER ()`\nover joins. The aggregate functions `min(_), max(_), sum(_), avg(_),\ncount(_), count(*)` are supported.\n\n## Why\nAllow faceting over joinds\n\n## How\n- During planning, find `WindowNode`s, validate that they are a\nsupported function, and bare. Stash the relevant info on `JoinCSClause`.\n- During execution, add a datafusion `Window` pass that executes all\nwindow functions.\n- Remove join flag from `basecan/projections/window_agg.rs` and reject\nall queries with two or more tables, as joinscan now handles all of the\nwindow function logic.\n- tweak UDF support to allow for wrapped window functions. (for instance\n`(SUM(c) OVER ())::float8`)\n\n## Tests\n- Add a regress case\n- Added a few integration tests\n- Add coverage for this to the `generate_small_join` property test.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-14T14:18:42-06:00",
+          "tree_id": "e0e3ba76db1785d6be10559bdf7fa7cf6fe2de5c",
+          "url": "https://github.com/paradedb/paradedb/commit/614011267d075ad9cb24b20549d9094614546a8e"
+        },
+        "date": 1789418400264,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6427485370431694,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.579,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.91,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.969,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.05,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8ce3d5ea8b9f72a3420db290f88025e49d8e342d",
+          "message": "refactor: centralize expression inspection in NodeExt (#6244)\n\n# Ticket(s) Closed\n\nNone.\n\n## What\n\nMove expression inspection onto `NodeExt`, so callers use methods such\nas `node.contains_unnest()`, `node.contains_exec_param()`,\n`node.contains_score()`, and `node.collect_rtis()`. Remove the\ncorresponding free functions and update their callers.\n\n## Why\n\nExpression checks and collection were scattered across modules, with\nrepeated PostgreSQL walker callbacks and context structs. Keeping both\ntraversal and the named operations on node pointers makes these checks\neasier to find and reuse.\n\n## How\n\nAdd one guarded expression walker supporting early exit, full visits,\nand subtree pruning. Build typed lookup, collection, and named\npredicates on it. Preserve traversal order, duplicate occurrences,\nexisting relation-index filtering, parameter classification, and\nmutation behavior. Keep query recursion, node-replacing mutators, and\nthe two specialized walkers with their existing traversal rules.\n\nThis PR is based directly on `main` and has no dependency on the\nsequential-scan changes in #6221.\n\n## Tests\n\n- Eight focused PostgreSQL tests covering traversal, callback errors,\nUNNEST, parameter kinds and init plans, and relation references.\n- All 41 selected SQL regression suites passed, covering operators,\nprepared plans, RLS, joins, scoring, snippets, aggregates, windows, and\ncollations.\n- PostgreSQL 15 compilation passed.\n- Repository commit hooks: formatting, full-workspace Clippy and\ncompilation, and documentation.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-14T14:46:28-07:00",
+          "tree_id": "caca0464c0f7c20add245e8858e8dbd8994e5cd6",
+          "url": "https://github.com/paradedb/paradedb/commit/8ce3d5ea8b9f72a3420db290f88025e49d8e342d"
+        },
+        "date": 1789423631296,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6447266596650418,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.563,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.945,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.122,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7535bd5aec636bc427688431650e303b71410a94",
+          "message": "chore: shrink unsafe surface area (#6283)",
+          "timestamp": "2026-09-14T18:26:00-05:00",
+          "tree_id": "324eb4f3859141f84a125c99ad35ff9ee66b9b1e",
+          "url": "https://github.com/paradedb/paradedb/commit/7535bd5aec636bc427688431650e303b71410a94"
+        },
+        "date": 1789429592691,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6731018836097764,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.958,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.001,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.21,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b9ed7f7cf5b53125c58923d9a1a77c6cbb02f467",
+          "message": "fix: support UUID scalar filters in JoinScan (#6338)\n\n# Ticket(s) Closed\n\n- Closes #6337\n\n## What\n\nFix JoinScan scalar UUID predicates failing with `Unsupported OID for\nUtf8 Arrow type`, and make their expression UDF names consistent across\nPostgreSQL builds.\n\n## Why\n\nThe PostgreSQL-expression fallback casts UUID inputs to `Utf8`, whose\nconversion match was missing a UUID arm.\n\nThe regression also exposed platform-dependent UDF names: PostgreSQL's\n`outDatum` prints bytes through C `char`. The same UUID serializes with\nnegative byte values on signed-char builds and positive values on\nunsigned-char builds. Hashing these representations reproduces the exact\nlocal/CI suffixes, `f560a0b2` and `53ac39d1`.\n\n## How\n\nAdd the UUID arm to the existing `Utf8` conversion match, using the same\ndecoding as `Utf8View`.\n\nUse PostgreSQL's `datum_image_hash` to hash constant values directly. On\na copy of the expression tree, replace those values with NULL before\nhashing the remaining structure. This avoids platform-dependent byte\nspelling while preserving the original expression for execution.\n\nAdd `issue_6337.sql` with its full, unmasked EXPLAIN output. It compares\nJoinScan results with PostgreSQL execution for matching, nonmatching,\nand NULL UUIDs. Keep the full UDF names in the expected output; no SQL\nmasking or serialized-byte parsing is needed.\n\n## Tests\n\n- SQL regressions passed on PostgreSQL 18.3: `issue_6337`,\n`join_semi_anti_disjunctive`, `join_semi_anti_disjunctive_parallel`,\n`join_predicates`, `topk-agg-facet`, `join_distinct_expr`, and\n`expr_translator_debug`.\n- The three cases with updated hash suffixes (`issue_6337`,\n`join_distinct_expr`, `expr_translator_debug`) each passed twice against\nthe updated expected output.\n- `cargo clippy -p pg_search --lib --tests -- -D warnings` — passed.\n- Rust formatting and source whitespace checks passed.\n- Previously verified the same SQL regression fails on main with the\nUUID conversion error.\n\nLocal commit hooks were bypassed because Markdown linter dependency\ninstallation fails with the installed Node version.",
+          "timestamp": "2026-09-14T18:04:02-07:00",
+          "tree_id": "097add2bb536bd5b4443ef0579579f58948fccf6",
+          "url": "https://github.com/paradedb/paradedb/commit/b9ed7f7cf5b53125c58923d9a1a77c6cbb02f467"
+        },
+        "date": 1789435494756,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6773557860323296,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.958,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.026,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.105,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b29ed13bc301be52e6a55e86342b39e806676550",
+          "message": "feat: add BufFile-backed spilling (#5953)\n\nThis PR adds `paradedb.spill_to_disk`, an opt-in GUC that lets\nDataFusion operators under `JoinScan`, `AggregateScan`, and the MPP\nworkers spill to Postgres `BufFile` temp files instead of failing on\n`work_mem`.\n\nCloses #4064.\n\nWithout it, an operator whose state exceeds `work_mem` fails with\n`ResourcesExhausted`, whatever the query shape. That matters most for\n`GROUP BY`, where the hash table size follows data cardinality. Spilling\nlets these queries complete in bounded memory. It stays off by default.\nSpilling keeps a query alive, but it isn't something to rely on for\nlow-latency execution, so a query that spills also emits a `WARNING`\nthat names `work_mem` as the setting to raise.\n\n## How\n\n### Spill backend (`datafusion/spill.rs`)\nImplements DataFusion's `TempFileFactory` / `SpillFile` / `SpillWriter`\ntraits over `BufFile`, so spill files count against `temp_file_limit`,\nland in `temp_tablespaces`, and are removed at transaction end (and by\nthe postmaster on restart after a crash). The `BufFile` FFI shims are\nshared with the key-set filter through the new `postgres/buffile.rs`.\n\nClosing is guarded. Postgres releases a resource owner's temp files\nitself, and under SPI a subtransaction abort does that before it frees\nthe scan state; `BufFileClose` also flushes, so it must not run while an\nerror is unwinding (a `temp_file_limit` hit raises mid-spill).\n`BufFileReleaseGuard` in `postgres/buffile.rs` records the owner, learns\nfrom a resource-release callback when the files are gone, and lets\n`Drop` close only when it is safe: not released, not unwinding, inside a\ntransaction, and not after a call that raised. `keyset.rs` gets the same\ntransaction-state guard.\n\nOne pre-existing bug surfaced: `HeldInterrupts` in `mpp/interrupt.rs`\ndecremented `InterruptHoldoffCount` in its `Drop`, but `errfinish`\nzeroes that count before an ERROR is re-thrown, so the first Postgres\nERROR raised from inside a DataFusion poll underflowed it and aborted\nthe backend. It now decrements saturating, which is what PG's own\nholdoff sections amount to after an ERROR.\n\nA `BufFile` has one cursor, and DataFusion's `SpillPool` (behind\n`RepartitionExec`) reads a file while its writer still appends. The\nwriter and every `read_stream()` therefore track their own `(fileno,\noffset)` and seek before each call; `BufFileSeek` and `BufFileRead`\nflush a dirty buffer when they reposition, so the interleaving is safe.\nReads run inline on the backend thread rather than on a blocking pool:\nevery DataFusion runtime here is a current-thread tokio runtime, and\n`BufFile` is backend-thread-local.\n\n### Memory pool (`datafusion/memory.rs`)\n`build_runtime_env` picks the `BufFile` disk manager when the GUC is on.\n`WorkMemMemoryPool` now reports its finite limit through\n`memory_limit()`, which DataFusion 55 uses only to keep the\n`PartialReduce` fast path off a bounded pool; the spilling aggregate\nstreams key off `tmp_files_enabled()`. With the GUC off, the pool's\nerror now also mentions `paradedb.spill_to_disk`.\n\n### Spill warning\n`BufFileTempFileFactory` fires a `SpillNotify` callback on its first\n`create_temp_file`. The leader records it in an `AtomicBool` on its scan\nstate; an MPP worker sets a flag in the DSM-shared `ParallelScanState`.\n`warn_if_spilled` in `mpp/glue.rs` ORs both after the workers are joined\nand warns once per scan node. DataFusion 55 creates spill files lazily\n(`SortExec` inside its spill append, `RepartitionExec` only when\n`try_grow` fails), so the warning means a real spill.\n\n## Tests\n- `spilling_buffile_serial`: 20k groups at `work_mem = 1.25MB`. Checks\nthe GUC-off error text, that `AggregateExec` reports a nonzero\n`spill_count` with the GUC on, that every group is correct after\nspilling, that the same plan with enough `work_mem` neither spills nor\nwarns, and that a spill which trips `temp_file_limit` fails as a normal\nerror both as a plain statement and inside a `DO` block, with the\nbackend still alive after.\n- `spilling_buffile_mpp`: 80k groups, 3 workers, `work_mem = 2.5MB`,\nwhich drives `RepartitionExec`'s reader and writer through the shared\n`BufFile` cursor. The GUC-off case accepts the three known error shapes\n(#6326, #6327) and surfaces any other error.\n\n`HashJoinExec` has no spill path in DataFusion 55, so most equi-joins\nstill error on `work_mem` with the GUC on; the docs say so.\n\n## Docs\nA changelog fragment. The reads page doesn't get a section: the error a\nquery gets when it exceeds `work_mem` now names\n`paradedb.spill_to_disk`, and that is where a user meets it.\n\nFollow-ups: #6326 (`SpillPool` errors lack the `work_mem` hint), #6327\n(MPP failures surface as \"transport receiver detached\").\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-14T19:24:01-07:00",
+          "tree_id": "efbb58319ea3c51f6eb7aa6896e688012a608075",
+          "url": "https://github.com/paradedb/paradedb/commit/b29ed13bc301be52e6a55e86342b39e806676550"
+        },
+        "date": 1789440292912,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6618966826761703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.607,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.955,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.253,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6659c5693b07f4e5f856365caa6eab4af7d40a38",
+          "message": "fix: allow benchmarker Go toolchain upgrades (#6355)\n\n## What\n\nSet `GOTOOLCHAIN=auto` for the benchmarker build step so Go can download\nand use the toolchain required by `xk6@latest`.\n\n## Why\n\nThe [enterprise benchmark\nrun](https://github.com/paradedb/paradedb-enterprise/actions/runs/35008928196/job/104515667380)\nfailed because setup-go selected Go 1.25.0 from benchmarker's `go.mod`,\nwhile xk6 v1.4.13 requires Go 1.26.0. The build inherited\n`GOTOOLCHAIN=local`, preventing the automatic upgrade.\n\n## How\n\nOverride toolchain selection only for `make`, including its child Go\ncommands. Keep the initial Go version and cache configuration sourced\nfrom benchmarker. No change to `paradedb/actions` is needed.\n\n## Tests\n\n- `actionlint -shellcheck= .github/workflows/benchmark-benchmarker.yml`\npassed.\n- `git diff --check` passed.\n- Confirmed the selected Go version and `GOTOOLCHAIN=local` in the\nfailed job log; checked automatic switching behavior against [Go's\ntoolchain documentation](https://go.dev/doc/toolchain).\n- Full benchmark execution remains to be validated in CI.",
+          "timestamp": "2026-09-15T12:20:22-07:00",
+          "tree_id": "b16f83a1b107ec55f7ea116095c5c8d6ebbc6dcc",
+          "url": "https://github.com/paradedb/paradedb/commit/6659c5693b07f4e5f856365caa6eab4af7d40a38"
+        },
+        "date": 1789501302061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.664922685314677,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.602,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.156,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f1c7374c1173900b767bdaa7f609fcd28bf7820",
+          "message": "fix: use PostgreSQL projection for DataFusion aggregates (#6172)\n\n# Ticket(s) Closed\n\n- Closes #6168\n\n## What\n\nFix DataFusion `AggregateScan` projection for aggregate wrappers and\ncomposite output expressions.\n\nDataFusion now supports:\n\n- wrapped aggregates, such as `COUNT(*) * 2`, casts, `COALESCE`, and\nstring expressions;\n- multiple aggregates in one output expression;\n- mixed aggregate and grouping expressions;\n- functionally dependent output columns PostgreSQL permits beside\ngrouped keys;\n- structurally distinct aggregates in `HAVING`, including `FILTER`\nvariants;\n- nested `pdb.agg()` expressions when any request requires DataFusion.\n\n## Why\n\nDataFusion previously wrote aggregate results directly into the final\noutput slot. PostgreSQL therefore never evaluated the original target\nlist, which produced wrong results for wrappers and could use an\naggregate Datum as the wrong type.\n\nUsing placeholder `Const`s for DataFusion would not be a safe fit: they\ndo not naturally represent multiple aggregates, grouping values used by\nwrappers, or PostgreSQL's target-list and slot-lifetime contract.\n\n## How\n\nDataFusion now exposes a flat raw tuple through `custom_scan_tlist`:\n\n```text\n[group expressions..., deduplicated Aggrefs..., predicate resjunk Vars...]\n```\n\n- PostgreSQL `setrefs` rewrites the original target list against those\nraw values.\n- DataFusion fills the scan slot with raw group and aggregate results.\n- PostgreSQL evaluates the original target list through its normal\n`ExecProject` path.\n- `HAVING` matches aggregates structurally, preserving `FILTER`,\n`DISTINCT`, and aggregate `ORDER BY` identity.\n- Arrow-to-Postgres conversions run in per-tuple memory, reset once per\nemitted row.\n\n## Tests\n\nAdded or updated DataFusion aggregate coverage for:\n\n- aggregate wrappers, casts, NULL handling, and `COALESCE`;\n- multiple aggregates and aggregate/group-expression combinations;\n- filtered aggregates in `HAVING`;\n- functionally dependent output columns;\n- DISTINCT output ordering;\n- nested numeric and non-numeric `pdb.agg()` routing;\n- fallback diagnostics for unsupported GROUP BY and DISTINCT\nexpressions.\n\n## User-visible changes\n\n- `EXPLAIN VERBOSE` for DataFusion aggregate plans now shows real\naggregate expressions instead of `pdb.agg_fn(...)` placeholders.\n- Unsupported `DISTINCT` expressions now identify the offending\none-based column, replacing the old zero-based `target index N` suffix.\n- Unsupported `GROUP BY` expressions now identify the offending\none-based grouping item.\n\n## Non-goal\n\nThis PR does not redesign Tantivy aggregate projection. Tantivy retains\nits separate wrapped-projection contract; any Tantivy-specific\nprojection work should be handled independently.",
+          "timestamp": "2026-09-16T17:33:09+05:30",
+          "tree_id": "a60d96be537e9dc8725baebf660394e5571c99a3",
+          "url": "https://github.com/paradedb/paradedb/commit/7f1c7374c1173900b767bdaa7f609fcd28bf7820"
+        },
+        "date": 1789561472985,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6618339757555283,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.606,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.922,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.008,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.095,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c4f2575437cdae75d5081eecb4be83a651d2a91",
+          "message": "fix: walk a live lower path for JoinScan at `UPPERREL_FINAL` (#6371)\n\n## Ticket(s) Closed\n\n- Closes #6364\n\n## What\n\nThis PR fixes a backend abort while JoinScan plans a query with `ORDER\nBY` and parallel paths.\n\n## Why\n\nSince the hook moved to `UPPERREL_FINAL`, JoinScan walks\n`join_rel->cheapest_total_path`. By then `create_ordered_paths` has\nadded the presorted join paths to the ordered rel as-is, and `add_path`\npfrees the ones it dominates. When a `GatherMerge` over a partial path\nwins, that pointer is dangling. With debug assertions on,\n`walk_path_restrictinfo` trips `panic_misaligned_pointer_dereference`.\nThat's a non-unwinding panic, so the backend aborts and the log only\nshows `thread caused non-unwinding panic. aborting.`. A release build\nreads the garbage and goes on.\n\nStep 1: build with debug assertions and start Postgres.\n\n```sh\ncargo pgrx install --package pg_search --pg-config ~/.pgrx/18.1/pgrx-install/bin/pg_config\ncargo pgrx start pg18\n```\n\nStep 2: run the new regress test on `main`.\n\n```sh\npsql -h localhost -p 28818 -d pg_search -f pg_search/tests/pg_regress/sql/join_final_rel_live_path.sql\n```\n\n```\nserver closed the connection unexpectedly\n```\n\n## How\n\n- `check_join_path_predicates` takes the path to walk instead of a rel.\n- JoinScan gets that path from `find_live_lower_path`. It descends the\nupper rel's own pathlist through the known wrappers and picks the\ncheapest path over the join rel, with the same preference order as\n`set_cheapest`.\n- Behind a `DISTINCT` or window stage it keeps the join rel's own path.\nThose stages only add wrappers, so the path is still live there, and the\naggregate scan's custom path can be the only survivor above the join.\n- AggregateScan passes `input_rel.cheapest_total_path`, so nothing\nchanges for it.\n\n## Tests\n\n- `join_final_rel_live_path`: aborts on `main`, passes here. It needs\n`debug_parallel_query = on` (`force_parallel_mode` on PG15).",
+          "timestamp": "2026-09-16T16:34:05-07:00",
+          "tree_id": "886f7ddc20074611ddd39ec10a1da258c73c8d2e",
+          "url": "https://github.com/paradedb/paradedb/commit/7c4f2575437cdae75d5081eecb4be83a651d2a91"
+        },
+        "date": 1789602909117,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.654345065332197,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.864,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.919,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.23,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b89b660c58bb8d17fe5643b769402a6b5852e8cd",
+          "message": "test: property-test partitioned joins (#6348)\n\n## Related issue\n\nAdds `partition_by` property-test coverage as a prerequisite for #6078.\n\n## What and why\n\n`partition_by` changes physical segment placement and join execution,\nbut must preserve SQL results. Rather than a dedicated partition test,\nthis PR makes partitioned indexes part of the shared query-generator\nfixture, so every existing generator compares its randomized cases over\npartitioned indexes against PostgreSQL.\n\n## Implementation\n\n- `generated_queries_setup` decides from the qgen seed whether the BM25\nindexes are `partition_by` none, one, or two of the integer fast fields,\nand records the choice in the repro script.\n`PARADEDB_QGEN_PARTITION_BY=none|random|<fields>` overrides the roll.\n- A partitioned index is built after the rows are loaded, since until\npartitioning M3 an index created empty records no split points\n(`TODO(#5738)` to remove the toggle). A partitioned build gets two\npartitions so each segment holds enough rows for every JSON key to be\npresent (#6353).\n- `paradedb.enable_range_partitioned_join` joins the random GUC draw so\nthe co-partitioned join path is exercised.\n- No plan-shape assertions: executed MPP launches remain asserted in\npg_regress (`mpp_range_boundary`, `mpp_worker_sizing`).\n- The numeric predicate generator gains an `IN` list variant.\n\n## Known failure\n\nA partitioned layout under a parallel join currently aborts the backend\nat plan time (#6364, bisected to #6239). The seeded roll stays on by\ndesign, so the qgen suite can fail on that abort until #6364 is fixed.\nThe bugs surfaced while building this coverage are filed as #6353,\n#6363, and #6364, each with a self-contained reproduction.\n\n## Validation\n\n- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --\n-D warnings --no-deps`, `RUSTDOCFLAGS=\"-D warnings\" cargo doc\n--workspace --no-deps --document-private-items`, `cargo machete`, `taplo\nformat --check`\n- `cargo test -p tests --lib querygen`\n- PostgreSQL 17: `PARADEDB_QGEN_PARTITION_BY=id cargo test --package\ntests --test qgen` (16 passed)\n- PostgreSQL 17: `PARADEDB_QGEN_PARTITION_BY=none cargo test --package\ntests --test qgen` (16 passed)\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-16T19:33:54-07:00",
+          "tree_id": "76109dc36f47c8f78b20b5d65e41239745a3e862",
+          "url": "https://github.com/paradedb/paradedb/commit/b89b660c58bb8d17fe5643b769402a6b5852e8cd"
+        },
+        "date": 1789613684116,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6941706428286718,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.616,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.072,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.251,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "93437997+IamYipi@users.noreply.github.com",
+            "name": "Javier Garcia",
+            "username": "IamYipi"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "530ff73974e5a7e75199a79c7c885252acd24494",
+          "message": "fix: apply the indexed representation to more_like_this seed values (#6388)\n\nFixes #6103.\n\n## Problem\n\nThe key-value form of `pdb.more_like_this` reads the seed row and\nconverts each datum with `TantivyValue::try_from_datum`, which knows the\nPostgreSQL type but not the representation the field was indexed with.\n\n- A **`Numeric64`** field is physically an I64 column, so it received\nthe string form of the NUMERIC and Tantivy failed to build a weight.\n- A **`NumericBytes`** field is a Bytes column, which Tantivy's\nMoreLikeThis has no handling for at all, so the field contributed\nnothing and the query returned an empty result with no explanation.\n\n## Reproduced\n\nOn `main` at `b89b660`, PostgreSQL 18 via pgrx, with the schema from the\nissue:\n\n| field | before | after |\n|---|---|---|\n| `i` (int, control) | `{1,2}` | `{1,2}` |\n| `n64` (`numeric(10,2)`) | `ERROR: weight should be constructable:\nInvalidArgument(\"invalid value\")` | `{1,2}` |\n| `nb` (`numeric(30,2)`) | `NULL`, no rows, no error | clear error, see\nbelow |\n\n## Fix\n\n**Numeric64** — route the seed values through `convert_value_for_field`,\nthe same schema-aware conversion the other query paths already use. The\nNUMERIC field then agrees with the integer control.\n\n**NumericBytes** — reject it the way this function already rejects json\nand vector fields: a clear error when the field is named explicitly, and\nskipped when it is not. That pattern is right above the change:\n\n```rust\nif search_field.is_json() {\n    panic!(\"json fields are not supported for more_like_this\");\n}\nif is_vector {\n    panic!(\"vector fields are not supported for more_like_this\");\n}\n```\n\nso a `NumericBytes` field named explicitly now reports:\n\n```\nERROR:  numeric field 'nb' is not supported for more_like_this: its precision or scale\nis too wide for the fixed-point representation, so it is stored as bytes, which\nMoreLikeThis cannot compare\n```\n\nand a query with no field list skips it and still works. The issue left\nthis open between adding Bytes-term support and a clear error; the\nlatter keeps the change inside ParadeDB and matches the existing\nhandling of unsupported field types. Happy to go the other way if you\nwould rather have Bytes participate.\n\n## Tests\n\nAdded to `more_like_this`, covering the key-value form over both\nrepresentations:\n\n- the `Numeric64` field alone, and alongside an integer field, both\nagreeing with the integer control\n- the `NumericBytes` field named explicitly, showing the error\n- a query with no field list, where it is skipped and the query still\nreturns rows\n\nThe section sets `paradedb.planner_warnings = 'off'` so the expected\noutput does not carry `array_agg` planner warnings, as the rest of the\nfile does.\n\nVerified on PostgreSQL 18 via pgrx:\n\n```\ncargo pgrx regress --package pg_search pg18 more_like_this   ->  PASS\n  ... with the fix reverted                                  ->  FAIL\ncargo pgrx regress --package pg_search pg18 --auto           ->  passed=367 failed=1\n```\n\n`cargo fmt --check` and `cargo clippy` are clean on the changed file.\n\nThe single failure in the full run is `issue_3678`, about parallel path\nselection and `pdb.score()`. It fails identically on a clean checkout of\n`main` in my environment (64 cores), so it looks environment-sensitive\nhere rather than related to this change.",
+          "timestamp": "2026-09-17T10:18:41-07:00",
+          "tree_id": "039e482b18e04a45d2783586efeb63d46c46e0df",
+          "url": "https://github.com/paradedb/paradedb/commit/530ff73974e5a7e75199a79c7c885252acd24494"
+        },
+        "date": 1789667184465,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.693054446151223,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.633,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.953,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.013,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.086,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3e1513a4e0d6add1bea44c0305b813c57ee095dc",
+          "message": "fix: skip mutable segments with no live documents in query readers (#6380)\n\n## Ticket(s) Closed\n\n- Closes #6376\n\n## What\n\nThis PR keeps a mutable segment with no live documents out of query\nreaders.\n\n## Why\n\nA mutable segment has no delete bitset. When every ctid in it is\nremoved, it has zero documents, but it still reached the reader.\n`AllScorer::new(0)` in our tantivy fork starts at doc 0 anyway, so a\n`NOT (... @@@ ...)` query got a doc 0 that has no values and reads as\nctid `0`. A query served from columns returns a phantom row with `id =\n-9223372036854775808`. A query that goes to the heap passes ctid `0` to\n`table_index_fetch_tuple`, and an assert build aborts on\n`ItemPointerIsValid(tid)`.\n\n## How\n\n`load_metas` skips a mutable segment with `num_docs() == 0` for\n`Snapshot` and `LargestSegment`. Parallel workers follow the leader's\nsegment view, so they skip it too. `Vacuum` and `Mergeable` still see\nit. A writer that opens with `Snapshot` never has it in the metas it\nloads or the metas it saves, so `save_new_metas` doesn't treat it as\ndeleted.\n\n## Tests\n\n- `mutable_segment_emptied`",
+          "timestamp": "2026-09-17T14:01:00-07:00",
+          "tree_id": "5edc0176ad09742f6c5480f125a4581108403191",
+          "url": "https://github.com/paradedb/paradedb/commit/3e1513a4e0d6add1bea44c0305b813c57ee095dc"
+        },
+        "date": 1789680111918,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6491455896213494,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.571,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.931,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.963,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.035,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6de75132f685706f99acc01a9532ced7cab07b6",
+          "message": "perf: read persisted settings directly for CTID sort checks (#6398)\n\n## What\n\nAdd `PgSearchRelation::settings()` alongside the existing `schema()`\naccessor, and use it to check whether stored segments are sorted by\nascending CTID.\n\n## Why\n\nBitmap-intersection planning currently opens a full Tantivy index just\nto inspect its persisted sort order. Reading the settings directly\navoids loading and pinning segment metadata for that check.\n\n## How\n\nDeserialize persisted settings through `MetaPage::settings()`.\n`load_metas()` reuses its already-open metadata page, so this refactor\nadds no extra metadata-page access there. The CTID check continues to\nuse stored settings and returns false if they cannot be read.\n\n## Tests\n\n- PG18: all 11 `postgres::build::tests` passed.\n- PG18 SQL regressions: `sort_by`, `bitmap_intersection`,\n`partition_by`, and `recursive_estimates` passed.\n- `cargo fmt --all --check`, workspace Clippy, and `cargo check\n--workspace` passed.",
+          "timestamp": "2026-09-17T17:00:30-07:00",
+          "tree_id": "d0e83fdcfbbcbb64b44149d56194ac846e291fe8",
+          "url": "https://github.com/paradedb/paradedb/commit/c6de75132f685706f99acc01a9532ced7cab07b6"
+        },
+        "date": 1789690881028,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6739241631504787,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.586,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.93,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.02,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.189,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7df908094ff421ba761d33bedbc736742f0afbd9",
+          "message": "ci: reuse shared pg_search source build action (#6401)\n\nUse the shared `paradedb/actions/build-pg_search-source` action for\nAntithesis and benchmarker, using `@v13`. Remove the local source-build\naction; other consumers retain their existing local PostgreSQL/toolchain\nsetup actions.\n\nUpgrade all other `paradedb/actions` v12 references to `@v13` as well.\nDepends on merging https://github.com/paradedb/actions/pull/29 and\npublishing v13; CI cannot resolve these references until that release\nexists. The shared action preserves the build inputs and staged\ninstall-tree output, including Antithesis instrumentation, and isolates\npackage output from cached files.\n\nValidation: actionlint and Prettier pass for both workflows;\nshared-action staging contracts cover release, dev, and\ninstrumented/custom-target arguments. Native compilation remains for\nconsumer CI.",
+          "timestamp": "2026-09-17T17:15:51-07:00",
+          "tree_id": "f11e83c098325217c0a838594286a20742e999fd",
+          "url": "https://github.com/paradedb/paradedb/commit/7df908094ff421ba761d33bedbc736742f0afbd9"
+        },
+        "date": 1789691821242,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.66245568842197,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.587,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.921,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.199,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8325b0bab2f4b37acb5325532ae9f573cb9c3186",
+          "message": "fix: stop benchmark recall sweeps on plateaus (#6400)\n\n# Ticket(s) Closed\n\nNone.\n\n## What\n\nStop recall sweeps after three consecutive larger operating points fail\nto improve the best measured recall. When a target is not reached,\nmeasure latency at the cheapest point tied for the best recall.\n\n## Why\n\nThe Cohere 10M unfiltered sweep reached 97.5% recall at\n`vector_cluster_max_probe=0.05` and stayed there through `1.0`. The\nbenchmark swept every remaining budget and selected `1.0` for r99\nlatency, scoring nearly all 10M vectors per query despite gaining no\nrecall.\n\n## How\n\nAny new best recall resets the plateau window. Reaching the highest\nrecall target still stops immediately. Log plateau termination and\npreserve the unreached-target flag; the warning now describes measured\nrecall rather than suggesting a wider sweep. Plateau stopping is a\nheuristic and can miss gains beyond the three-point window.\n\nFor the recorded 10M curve, the sweep now stops at `0.2` and selects\n`0.05` for the best available recall.\n\n## Tests\n\n- `cargo test -p benchmarks --bin benchmarks --locked`: 33 passed.\n- Repository commit hooks passed, including workspace formatting,\nClippy, compilation, and documentation checks.\n- Regression coverage for the recorded 10M plateau, cheapest ties, short\nsweeps, declining recall, and improvement resetting the plateau window.\n- The full 10M benchmark has not been rerun with this change.",
+          "timestamp": "2026-09-17T17:33:41-07:00",
+          "tree_id": "5da25d2ddff046924c59b7cb2e59c5b479289f00",
+          "url": "https://github.com/paradedb/paradedb/commit/8325b0bab2f4b37acb5325532ae9f573cb9c3186"
+        },
+        "date": 1789692835021,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.651250138750117,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.582,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.053,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c125181adc9770798aee1ab7fc913b17e4c214f",
+          "message": "feat: Capture per-segment statistics in one execution-visible snapshot (#6345)\n\n## What\n\nProvide lazily opened statistics tied to one frozen execution\n`Searcher`, and route range partitions through that shared snapshot.\n\n## Why\n\nFirst of three PRs for #6078: statistics snapshot → static proofs\n(#6346) → dynamic pruning (#6347).\n\nInserts and merges can change the visible segment set between planning\nand execution. This PR preserves the separation between planner\nsplit-point values and execution segment membership, while giving\nstatistics consumers one shared view.\n\n`SegmentStatsSnapshot` binds statistics to the existing searcher's\nsegment view. Readers created from the same manifest share its identity\nand lazy caches, giving later proof consumers one consistent view to\nreason about. In this PR, its only consumer is range-partition routing.\n\n## Execution flow\n\n```text\nOpen execution Searcher\n  → capture shared statistics snapshot\n  → range partition requests candidate segments\n  → lazily open statistics and check bounds\n  → execute the existing query on retained segments\n```\n\n## Design\n\n- Retain one shared `Searcher`, with segment IDs and lazily cached\n`.stats` opens. Capture performs no statistics I/O. Opened components\nare cached; individual field entries are decoded on request. An error\nopening or decoding an existing component aborts the query.\n- Keep partition iteration and segment ordinals inside the snapshot.\n- Reject mutable-segment `.stats` probes in `MVCCDirectory` before\nmaterialization.\n- Normalize datetime statistics through `SegmentStats::empirical_for`.\n- Absent statistics keep the segment eligible; unreadable statistics\nabort the query. Missing bounds still allow other available bounds to\nprune. The exact query remains responsible for matching rows.\n\n## Validation\n\nLocal build and formatting checks passed, along with eight focused PG18\ntests covering:\n\n- Shared snapshot identity and lazy statistics opens.\n- Open, empirical, and logical failures raising the query error, and\nabsent statistics keeping the segment eligible.\n- Statistics probes avoiding mutable-segment materialization, with a\nterms read as the positive control.\n- Mutable inserts, timestamp bounds, and partitioned-build pruning.",
+          "timestamp": "2026-09-18T20:08:48+05:30",
+          "tree_id": "df6f7a5a472e2e6663bce36cd4a709b962b07b35",
+          "url": "https://github.com/paradedb/paradedb/commit/5c125181adc9770798aee1ab7fc913b17e4c214f"
+        },
+        "date": 1789743559023,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.665076445240345,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.93,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.193,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b4785596d67587e33bc115e873882c4478ffb5a",
+          "message": "fix: decline aggregate COALESCE defaults that the column type would change (#6383)\n\n## Ticket(s) Closed\n\n- Closes #6353\n\n## What\n\nThis PR stops the Tantivy aggregate path from using a `COALESCE` default\nthat the field's column type would change. PostgreSQL runs those\naggregates instead, window aggregates in top K queries included.\n\n## Why\n\nTantivy casts `missing` to the type of each segment's column before it\naggregates. An integer column drops the fraction, so `AVG(COALESCE(n,\n1.5))` returns `2.5` where PostgreSQL returns `2.75`. An unsigned column\nturns a negative into zero.\n\nA JSON path is the hard case. Its column type comes from the values in\neach segment, and a segment where no document has the path reads it\nthrough an empty `u64` column. So\n`SUM(COALESCE((metadata->>'rating')::bigint, -1))` adds `0` instead of\n`-1` for every row in such a segment.\n\nTwo more cases lost the default. `NaN` and `Infinity` don't survive the\nplan's JSON. A string column drops a numeric default, so\n`COUNT(COALESCE(t, '0'))` counted only the rows with a value.\n\n## How\n\nThe planner checks each `COALESCE` default against every column type the\nfield can have, and declines the pushdown when Tantivy can't apply it\nexactly. The aggregate scan and the top K window aggregates share this\ncheck. `COUNT` with a non-null default counts every row, so it runs as\n`COUNT(*)`.\n\n## Tests\n\n- `aggregate_coalesce_default_cast`\n- The churned qgen run in #6377 hit both\n`AVG(COALESCE((metadata->'details'->>'score')::double precision, 1.5))`\nand `SUM(COALESCE((metadata->>'rating')::bigint, -1))` over segments\nwithout the key. qgen also gets a JSON path default that still pushes\ndown.",
+          "timestamp": "2026-09-18T11:02:07-07:00",
+          "tree_id": "a6ce6a3ae4b3c7ae61277a0443b500e8725840bd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b4785596d67587e33bc115e873882c4478ffb5a"
+        },
+        "date": 1789755753224,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.661470046340228,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.581,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.952,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.029,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.15,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5df1bb84d09c63e703f6a942a979e8503cfe19f5",
+          "message": "fix: read a JSON path with no column in a segment as NULL (#6381)\n\n## Ticket(s) Closed\n\n- Closes #6363\n\n## What\n\nThis PR makes the DataFusion scans read a JSON path that a segment has\nno column for as NULL. Before, they failed with `` `metadata.brand` is\nmissing or is not configured as columnar ``.\n\n## Why\n\nA segment writes a column for a JSON path only if one of its documents\nhas the key. A row inserted after `CREATE INDEX` without the key goes to\na segment of its own, with no such column. `FFType::new` tried every\ncolumn type, found none, and panicked. PostgreSQL returns NULL for the\nmissing key, and so does the Tantivy aggregate path.\n\n## How\n\n`FFHelper::column` classifies the miss instead of panicking. A non-empty\npath on a columnar JSON field that the segment wrote no column for\nbecomes `FFType::Junk`. Anything else still panics, so a real\nmisconfiguration keeps its error. The field type is checked too, since\n`Schema::find_field` resolves a dotted suffix against any field, not\nonly a JSON one.\n\nEvery reader of a `Junk` column then yields NULL: the batch scanner, the\ndeferred fetch, the top-K and the pre-filter. The scanner leaves the\ncolumn empty for `to_record_batch` to fill, because the `Null`-typed\nplaceholder the old code produced breaks the deferred-ordinal downcast.\nThe top-K also takes its sort type from the first segment that has the\ncolumn, since segment `0` may be the one without it.\n\n## Tests\n\n`json_path_missing_column`",
+          "timestamp": "2026-09-18T11:01:50-07:00",
+          "tree_id": "998f714a306e8b15936e2818afb4e38847f9bdbb",
+          "url": "https://github.com/paradedb/paradedb/commit/5df1bb84d09c63e703f6a942a979e8503cfe19f5"
+        },
+        "date": 1789755871071,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6545513348164307,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.895,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.977,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.014,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c37dfc5cea1fbc4a3536ca72b2fd70044601775b",
+          "message": "fix: assert the join scan's heap fetch finds its tuple (#6395)\n\n## Ticket(s) Closed\n\n- Closes #6394\n\n## What\n\nThis PR makes the join scan fail loudly when its heap fetch finds no\ntuple, instead of skipping the row.\n\n#6394 asked for the opposite: null-extend an outer join's nullable side\non a miss. That's the wrong repair, so it's gone.\n\n## Why\n\nA miss is not hypothetical. The HOT redirect of #6375 was one. Put the\nHOT-updated table on the nullable side of a `LEFT JOIN`, and before\n#6378 the preserved side silently loses rows, from a table that has\nnothing wrong with it:\n\n```sql\n-- on 3e1513a4e, main right before #6378, with join_hot_update_vacuum's data\nSELECT o.id, o.note, u.id, u.name, u.rating\nFROM hot_orders o\nLEFT JOIN hot_users u ON o.user_id = u.id\nWHERE o.note @@@ 'order'\nORDER BY o.id\nLIMIT 20;\n```\n\n4 rows instead of 7. Orders 11, 12 and 14 disappear, which are the\nHOT-updated ones.\n\nNull-extending wouldn't have helped. The right answer for those rows is\nthe real user with `rating = 2`, not NULL, so blanking the nullable side\ntrades missing rows for silently wrong ones. Either way the damage lands\nfar from its cause, and it took someone noticing to find it. A miss\nmeans the two fetches don't cover some ctid shape, and that's where it\ngets fixed.\n\n## How\n\n`debug_assert!` on the fetch result, so the next uncovered shape is a\nfailure the tests and DST see. Release builds keep the old skip.\n\nThe condition moved to `fetch_tuple_direct(..) ||\nexec_if_visible(..).is_some()`, same result and same short-circuit, so\nthe direct-then-index order #6378 relies on is unchanged.\n\n## Tests\n\nRecreating #6375 (short-circuiting the `exec_if_visible` fallback) turns\nthat `LEFT JOIN` from 4 quiet rows into `ERROR: JoinScan: no heap tuple\nfor source 1 at ctid (0, 2)`. Full `pg_regress` on PG18 never fires it,\nand the failure set is a strict subset of `origin/main`'s, with the\nshared diffs byte-identical.",
+          "timestamp": "2026-09-18T15:17:17-07:00",
+          "tree_id": "3e12ce29f182f63033622944fd44c8f6b2d7278d",
+          "url": "https://github.com/paradedb/paradedb/commit/c37dfc5cea1fbc4a3536ca72b2fd70044601775b"
+        },
+        "date": 1789771032439,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6964079119877,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.637,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.941,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.058,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.104,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb36025ad32314895030d784a15e1833bf9e9b41",
+          "message": "fix: read tokenizer-cast fields in `pdb.agg()` over joins (#6412)\n\n## Ticket(s) Closed\n\n- Closes #6411\n\n## What\n\nThis PR lets `pdb.agg()` read fields indexed through a bare tokenizer\ncast, like `(name::pdb.literal)`, over joins.\n\nSuch a spec failed with `Field 'name' is an expression index, which\ncannot be read back as a column`, while a SQL `GROUP BY` on the same\nfield ran fine. On a single table, a cast key next to a NUMERIC metric\nfell back to Tantivy and failed on the NUMERIC field instead.\n\n## Why\n\nA bare cast keeps the column's value, so the field can be read back as\nthat column. `resolve_fast_field` and `more_like_this` already treat it\nthat way, but the `pdb.agg()` field resolver turned down every\nexpression field. It also keeps #6336 from moving the `pdb.agg()` join\ntests off the legacy `text_fields` config.\n\n## How\n\n- `FieldSource::heap_attno` gives the heap column a field holds: the\ncolumn itself, or the `Var` under a tokenizer cast.\n`resolve_index_field_by_name` and `more_like_this` both use it.\n- Computed expressions like `upper(name)::pdb.literal` still decline\nover a join, and the limitations page now says so.\n\n## Tests\n\n`pdb_agg_tokenizer_cast`",
+          "timestamp": "2026-09-18T15:32:40-07:00",
+          "tree_id": "e258bf3a936aa62acdfe996841cff5a36d9287a5",
+          "url": "https://github.com/paradedb/paradedb/commit/cb36025ad32314895030d784a15e1833bf9e9b41"
+        },
+        "date": 1789771959161,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.652251596778685,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.583,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.907,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.025,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.155,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fc4548aebc3acfbcfe15273e5c52dc6f3eae1de9",
+          "message": "test: migrate fixtures to current ParadeDB syntax (#6336)\n\nStacked on #6412, which lets `pdb.agg()` over joins read tokenizer-cast\nfields, so those tests use casts too.\n\nMigrates regression SQL, Rust integration/unit fixtures, and\nproperty-test generators to `USING paradedb`, tokenizer casts, and the\nterm/phrase/match operators. Non-text scalar filters use SQL comparisons\nand sets; scalar-only queries add `@@@ pdb.all()` to keep a ParadeDB\noperator. Parser-specific coverage uses explicit query builders.\nRegenerates regression outputs and consolidates redundant tests of\nignored non-text field options.\n\nKeeps unsupported cases isolated in explicitly named compatibility\ntests, with the limitations documented in `tests/README.md`:\n- JSON tokenizer casts change numeric JSON filter and term matching.\n- Custom stopword lists have no working tokenizer cast equivalent.\n\nPhrases with stopwords retain explicit parser functions because `###`\ncurrently loses their position gaps. Literal schema dumps now reflect\nthe current `basic`/no-fieldnorms defaults, and invalid-configuration\ntests check current cast diagnostics. Matching rows and scores are\npreserved; native aggregate tie ordering is made deterministic. Scalar\nequality removes a redundant sort in `join_semi_anti`, and cross-table\nOR scalar comparisons in `nested_loop` are evaluated at the join.\nExplicit alias/array/facet and executor-path query-builder tests retain\ntheir specialized coverage.\n\nUUID scalar-filter cases are fully enabled with the fix from #6338 on\nmain; the temporary #6337 error-based skip has been removed.\n\nLatest verification on PostgreSQL 18: all 16 query-generator tests, the\noriginal #6337 reproduction, and the seven affected regression suites\npassed. Earlier migration validation covered the full integration suite\nplus 98 targeted reruns, 24 fixture unit tests, 395 extension unit\ntests, and 367 regression cases with refreshed outputs verified.\nPre-commit formatting, clippy, workspace check, and documentation checks\npassed.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-18T15:40:46-07:00",
+          "tree_id": "b797d45f07c9e65e50ae04ed0b89bcdb6f506f02",
+          "url": "https://github.com/paradedb/paradedb/commit/fc4548aebc3acfbcfe15273e5c52dc6f3eae1de9"
+        },
+        "date": 1789772439846,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6785675523213035,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.923,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.203,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a5c7553734f74951d919eb1a7396ba8a848f5ad",
+          "message": "fix: replay the published segment view in a parallel scan's leader (#6393)\n\n## Ticket(s) Closed\n\n- Closes #6384\n\n## What\n\nThis PR makes a parallel Base Scan's leader resolve the same segments it\npublished for its workers.\n\n## Why\n\n`init_search_reader` chose `MvccSatisfies::Snapshot` whenever\n`ParallelWorkerNumber == -1`. That assumed the leader opens its reader\nonly before publishing. It doesn't. A `Gather`/`Gather Merge` sets the\nrescan param on its child, so the first `ExecProcNode` runs `ExecReScan`\nand `rescan_custom_scan` opens a second reader, after the publish and\nafter the workers launch. An instrumented run of the reported shape:\n\n```text\ninit_search_reader   worker=-1 parallel_attached=false nsegs=2   <- publishes from this reader\ninitialize_dsm       published_nsegs=2\nrescan_custom_scan   worker=-1 parallel_attached=true had_reader=true\ninit_search_reader   worker=-1 parallel_attached=true nsegs=2    <- second open, ::Snapshot\ninit_search_reader   worker=0  parallel_attached=true nsegs=2    <- worker, replays the view\n```\n\n`::Snapshot` isn't snapshot-stable for segments.\n`SegmentMetaEntry::visible()` is `xmax != FrozenTransactionId`, so it\nlists whatever is undeleted right then. A merge committing between the\ntwo opens retires a published segment, and the first claim for it trips\n`segment ... should exist`. Only the leader can get there. A worker\nbuilds its reader from the view itself.\n\nReplaying the view isn't enough on its own. A merge marks its inputs\ndeleted and leaves the blocks in place, and `recyclable()` reports them\nrecyclable once nothing pins them. A replaying reader drops a recyclable\nsegment. So the leader's pins are what keep them readable.\n`TopKScanExecState` clones the reader in `reset_exec_results` and held\nthose pins by accident. `NormalScanExecState` and `ColumnarExecState`\ndon't, so they released them before the replacement reader took its own.\n\n## How\n\n- A scan's segment visibility now follows whether the scan is\nparallel-aware, not which process it runs in. Every participant replays\nthe published view, the leader included.\n- A scan that replaces its reader keeps the outgoing reader's segment\npins until the new reader holds its own. A retired segment stays\nreadable for the whole scan.\n- The `segment ... should exist` panic mentions the reader's visibility\nstyle.\n\n## Tests\n\n`parallel_topk_leader_segment_view` and\n`test_segment_view_replays_retired_segments`",
+          "timestamp": "2026-09-18T17:48:43-07:00",
+          "tree_id": "ec181f1887f3aa7249b9db8f1e4a33db25656eb7",
+          "url": "https://github.com/paradedb/paradedb/commit/4a5c7553734f74951d919eb1a7396ba8a848f5ad"
+        },
+        "date": 1789780111121,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6544060606060587,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.59,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.906,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.147,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44544cdcf5305ae3f3ebdad6f087ddd7652269d2",
+          "message": "perf: Optimize range partitioning across multi-key and asymmetric joins (#6342)\n\n## What\n\nCoordinates range partitioning across MPP joins, prioritizing large\nrelations and multi-key bridge tables, enables 1-sided asymmetric range\nadaptation, and incorporates upstream DataFusion improvements.\n\n## Why\n\n- Tables declaring multiple partition keys (e.g. `user_id,topic_id`)\ncould previously be claimed by small dimension joins during bottom-up\ntraversal, locking them out of 0-shuffle co-partitioning with large fact\ntables.\n- Joining partitioned tables with unpartitioned ones can keep the larger\ntable local (0 shuffles) and adapt only the smaller partner (1 shuffle),\nrather than forcing a 2-sided hash shuffle.\n- Tracked upstream as https://github.com/apache/datafusion/issues/25302\n- `JoinSelection` converts partitioned joins to `CollectLeft`\n(broadcast) based on row/byte thresholds alone, ignoring that physically\nco-partitioned inputs run task-locally with zero network cost.\n- Tracked upstream as https://github.com/apache/datafusion/issues/25301\n- Round-robin repartitioning added redundant partitions and stages in\nour single-threaded task model.\n\n## How\n\n- `RangePartitioningRule`: Ranks candidate join edges globally by data\nvolume (`min(left_rows, right_rows)`). Stamps asymmetric anchors only\nwhen strictly larger than their partner or when the partner is already\ncommitted to another key.\n- `RangeCoPartitionedJoinRule`: Placed before `EnsureRequirements` to\nflip `CollectLeft` back to `Partitioned` for range co-partitioned inputs\nand peel unnecessary repartition nodes.\n- Session config: Disabled `optimizer.enable_round_robin_repartition` in\nplanner and worker sessions.\n\n## Tests\n\n- Added `pg_search/tests/pg_regress/sql/mpp_range_partitioning.sql`\nexercising 2-table co-partitioning, multi-key bridge joins,\naggregations, and asymmetric joins.\n- Benchmarks show up to 70% improvement on some range partitioned joins.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-19T01:08:38-07:00",
+          "tree_id": "dca5da50ecd0d8231949565cf7069a2017112234",
+          "url": "https://github.com/paradedb/paradedb/commit/44544cdcf5305ae3f3ebdad6f087ddd7652269d2"
+        },
+        "date": 1789806668319,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6588264287705596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.599,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.941,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.974,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.131,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "336281cb2af16b13bc7730cf19fc3128f5167c18",
+          "message": "chore: Always defer wal during `CREATE INDEX`. (#6408)\n\n## What\n\nAlways use `deferred_wal`.\n\n## Why\n\nThis flag was never set intentionally in any build, but was likely set\n_unintentionally_ in a few cases where we used `--no-default-features`\nto select an alternate PG version.",
+          "timestamp": "2026-09-19T07:47:18-07:00",
+          "tree_id": "272b2732ec3f89f039c9fb59731acf2715bce4f0",
+          "url": "https://github.com/paradedb/paradedb/commit/336281cb2af16b13bc7730cf19fc3128f5167c18"
+        },
+        "date": 1789830466731,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6568207484129647,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.578,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.897,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.947,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.211,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "70322560+mehrdad3301@users.noreply.github.com",
+            "name": "Mehrdad Mahabadi",
+            "username": "mehrdad3301"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "663b10d57ec833d8d1f626a94debaf226f6765e0",
+          "message": "fix: Don't push ORDER BY col::text as a raw column sort (#5997) (#6037)\n\n# Ticket(s) Closed\n\n- Closes #5997\n\n## What\nStop pushing `ORDER BY col::text LIMIT k` as a TopK sort on the inner\ncolumn.\n\n## Why\n`find_one_var_and_fieldname` unwraps `CoerceViaIO`, so `n::text` was\nclassified as a raw sort on n. Numeric/range order is not text order (2,\n9, 10, 100 vs 10, 100, 2, 9). A collation gate does not catch this:\nCOLLATE \"C\" is still the wrong comparison.\n\n## How\nIn `analyze_sort_expression`, decline a type-changing `CoerceViaIO`\nbefore the Raw arm. `RelabelType` stays unwrapped. Indexed expressions\nthat are themselves a `CoerceViaIO` still match earlier.\n\n## Tests\n`bigint::text` and `int4range::text` stay off TopK (text order); `n` and\n`varchar::text` still use TopK.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-19T13:29:46-07:00",
+          "tree_id": "0b1da3b1f5c63f842024622688595856c0028a24",
+          "url": "https://github.com/paradedb/paradedb/commit/663b10d57ec833d8d1f626a94debaf226f6765e0"
+        },
+        "date": 1789850976238,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6289413472070018,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.568,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.856,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.893,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.107,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "sahil",
+            "username": "sahilchug",
+            "email": "46780009+sahilchug@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "90596c730c283d9e8ee15c43f02edf3c5f839781",
+          "message": "feat(customscan): push down GROUP BY Date(timestamp) to datafusion to top K query (#6362)\n\n# Ticket(s) Closed\n\n- Closes # https://github.com/paradedb/paradedb/issues/4082\n\n## What\n\nThis is a small follow up to\nhttps://github.com/paradedb/paradedb/pull/5936 adding support for\npushing down Date(timestamp) in top K queries via Datafusion route.\n\nFor example:\n\n```sql\nSELECT DATE(created_at), COUNT(*)\nFROM events\nGROUP BY DATE(created_at)\nORDER BY DATE(created_at) DESC\nLIMIT 2;\n```\n\n## Why\n\n#5936 added DataFusion grouping for DATE(timestamp), but the TopK\ndetector only accepted bare group columns such as ORDER BY category.\nAs a result, ordering by the transformed date key left the sort and\nlimit outside the DataFusion aggregate plan. This change closes that\ngap.\n\n## How\n- Allows the TopK detector to recognize a DATE(timestamp) expression\nwhen its group column carries the `TimestampToDate` transform.\n- Resolves the TopK sort column to the output produced by the\ntimestamp-to-date UDF.\n\n## Tests\n- Extend `aggregate_custom_scan` tests to verify the plan produces a\nDatafusion plan that has `SortExec: TopK` operator\n- update `mpp_aggregate_date` and `datetime_date_pushdown` tests\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-19T22:23:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/90596c730c283d9e8ee15c43f02edf3c5f839781"
+        },
+        "date": 1789891032600,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6639115163040399,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.582,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.95,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.096,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e85216119a6f853de73fcdfbbe57e503360a6ec6",
+          "message": "chore: update Django ORM used by docs tests (#6426)\n\nUpdate the docs snippet test runner from `django-paradedb==0.12.0` to\n`0.13.0`, matching the version already used in Connect Your App.\n\nValidation: `bash -n .github/scripts/smoke_test_code_snippets.sh` and\n`git diff --check` passed. Database execution is covered by the existing\ndocs CI workflow.",
+          "timestamp": "2026-09-20T21:38:05Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e85216119a6f853de73fcdfbbe57e503360a6ec6"
+        },
+        "date": 1789978052950,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6581242685984758,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.593,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.92,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.015,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.109,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "3daab419734854b0b705124a090dd2e02393fbb1",
+          "message": "fix: avoid reading positions for term queries (#6429)\n\n# Ticket(s) Closed\n\nNone.\n\n## What\n\nAvoid unnecessary positions reads for scored term queries, including\nsingle-term `===` searches ordered by BM25 score.\n\n## Why\n\nThe term builder requested `WithFreqsAndPositions`, which makes Tantivy\nopen positional postings when constructing the scorer even though term\nscoring does not use them. The reported single-term top-10 benchmark\nattributed 71 extra buffer hits to these reads.\n\n## How\n\nRequest `WithFreqs` for exact terms, array matches, single-token phrase\narrays, and numeric parser terms. Tantivy still downgrades term queries\nto `Basic` when scoring is disabled. Multi-token phrase and proximity\nqueries retain their positional postings.\n\n## Tests\n\n- Added `term_scoring_does_not_open_positions`: remove the positions\nfile from an in-memory index and verify five single-term query forms\nreturn identical BM25 scores. A control query requesting positions fails\nagainst the same index.\n- Passed on current `main`: `cargo test -p pg_search --lib\nterm_scoring_does_not_open_positions -- --nocapture`.\n- PostgreSQL 18 regression suites `operators`, `phrase_tokenization`,\nand `proximity` passed on the original checkout.\n- `cargo fmt --all --check` and `git diff --check`.\n- Commit hooks passed on current `main`, including workspace Clippy,\n`cargo check --workspace --all-targets`, and documentation generation.",
+          "timestamp": "2026-09-22T04:28:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3daab419734854b0b705124a090dd2e02393fbb1"
+        },
+        "date": 1790063962523,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6665261860751546,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.588,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.847,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.056,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.256,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Walter Woodall",
+            "username": "walter-woodall",
+            "email": "wwoodal@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "cd3451c19143d0106c6e7a2cb5656245df8d423f",
+          "message": "fix: bump Tantivy to the streaming merge tip (#6433)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nMove the Tantivy pin from `91abdcf3` to tip `9e5996f`.\n\n## Why\n\nStacked on #6432 so the streaming-merge bump can be reviewed without the\nvector API rewrite. `9e5996f` streams postings positions during sorted\nmerges instead of buffering every position for a term. `88693e48`,\nincluded in that range, stops cloning vector buffers when a segment is\nserialized without doc-id remapping.\n\n## How\n\n`Cargo.toml` / `Cargo.lock` rev bump only. pg_search's clusterer is\nunchanged from the parent PR. The Nix `cargoHash` matches this lockfile.\n\n## Tests\n\n- Existing pg_search suite against the new Tantivy pin\n\nCo-authored-by: Cursor <cursoragent@cursor.com>",
+          "timestamp": "2026-09-22T22:55:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/cd3451c19143d0106c6e7a2cb5656245df8d423f"
+        },
+        "date": 1790150487221,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6335698127711056,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.555,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.936,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.04,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.159,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bdf1132ca8d0a8ddbe260f4003b7b1f9b81bb793",
+          "message": "feat: enable MaxScore with a query pruning setting (#6462)\n\nEnable Tantivy's MaxScore algorithm for eligible score-ordered top-k OR\nqueries. Pin all Tantivy dependencies to merged commit\n`ccfd11a918e7727082805d23f777feba5f94212c` from [Tantivy\n#243](https://github.com/paradedb/tantivy/pull/243).\n\nAdd `paradedb.disjunction_pruning` to choose `auto` (default), `wand`,\nor `maxscore`. Automatic selection uses each segment's term count and\npostings density. The setting is read at execution time, including for\nprepared queries, and can be scoped with `SET LOCAL`.\n\nValidation:\n- PostgreSQL 18 `disjunction_pruning` regression: defaults, invalid\nvalues, result/score parity, prepared queries, and `SET LOCAL` reset.\n- `cargo check --locked --features pg18,io_stats`.\n- Repository commit checks, including formatting, Clippy, workspace\ncompilation, and documentation.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-25T04:04:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bdf1132ca8d0a8ddbe260f4003b7b1f9b81bb793"
+        },
+        "date": 1790323900208,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6570756892230454,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.582,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.011,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.07,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "739a11c59d9d08625a619fb9f351300949e1a0b5",
+          "message": "feat: Much faster ctid map (#6498)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nImplements a block number to docId map as a custom component. See the\ndoc comments of `pg_search/src/index/ctid_map/mod.rs` for the layout,\nbut basically it's a column of doc ID boundaries keyed by block number\nwith an offset of the segment's lowest block number.\n\nImplementation details to note:\n\n- Implemented as a new `.ctid_map` plugin. The alternative was to\npiggyback off the `.stats` plugin but I didn't want to pollute the\n`.stats` entries especially if we decide to change this in the future.\n- A GUC that when turned off falls back to the original strategy of\nreading a ctid per matched docId, which allows us to proptest for\nequivalence\n- The ctid map uses Tantivy's `ColumnWriter` and can choose from\nbitpacked or blockwise linear as codecs\n\nWith this change in place, the visibility checking flow is now \n\n1. Check the segment's min/max block range, and see if that entire range\nis visible. If yes, skip visibility checking entirely (that was a\nprevious PR, already in main)\n2. If at least one block is dirty, see if the `.ctid_map` plugin is\navailable\n3. If it is, use the CTID map to efficiently go from `Vec<dirty blocks>`\nto `Vec<Range<DocId>>`, where each `Range<DocId>` means \"the doc Ids on\nthat dirty block that need to be rechecked.\"\n4. Then, execute the Tantivy query. For each `DocId`, check if it's in\nany of the ranges. The check right now is a batched binary search.\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-26T03:12:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/739a11c59d9d08625a619fb9f351300949e1a0b5"
+        },
+        "date": 1790409868943,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.5877329026747113,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.54,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.894,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.969,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.049,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "235d1b6baf62c841e01b2a9f497358c801cc94b7",
+          "message": "fix: Don't ask Postgres for a dropped buffer's block in block_tracker (#6491)\n\n## What\n\n`block_tracker` no longer asks Postgres for a buffer's block number when\nthe buffer is dropped, and no longer leaves an entry behind when a pin\nor a cleanup-lock wait errors out.\n\n## Why\n\nWith `block_tracker` on, catching an error from a search crashes the\nserver:\n\n```sql\nDO $$ BEGIN\n  PERFORM id, 10 / (n - n) FROM t WHERE id @@@ paradedb.all();\nEXCEPTION WHEN division_by_zero THEN NULL;\nEND $$;\n```\n```\nTRAP: failed Assert(\"BufferIsPinned(buffer)\"), File: \"bufmgr.c\"\n```\n\nA subtransaction abort releases its buffer pins before it frees the\nexecutor state that holds our `Buffer`s, and their `Drop` then called\n`BufferGetBlockNumber` on a buffer that is no longer pinned. The same\nthing crashes `spilling_buffile_mpp`'s `spill_to_disk = off` case.\n\nA cancelled `VACUUM` also left a stale entry: `get_buffer_for_cleanup`\ntracks the block before `LockBufferForCleanup`, so cancelling that wait\nand running `VACUUM` again in the same session failed with `blockno\nCleanup(N) already opened`.\n\nBoth bugs only affect builds with `block_tracker`. CI's integration\ntests use it; `cargo pgrx regress` does not.\n\n## How\n\n- `Buffer` and `PinnedBuffer` store the block number, read in their\nconstructors while the buffer is pinned, and `Drop` forgets that. The\nfield only exists with `block_tracker`.\n- `pinned_buffer` tracks after the read, like `get_buffer` and\n`get_buffer_mut`.\n- `get_buffer_for_cleanup` still tracks before `LockBufferForCleanup`,\nso a conflicting hold on the same block is reported before the wait.\n`InFlightCleanupGuard` forgets the entry if that call errors.\n- `track!`/`forget!` bodies are blocks, so the tracker lock is released\nbefore the caller continues. Without that, the guard's `forget!`\ndeadlocked on the lock `track!` still held.\n- The sites that built `Buffer { pg_buffer }` directly use\n`Buffer::new`. Its asserts hold there: the buffers come from\n`ReadBufferExtended` or relation extension, and every caller runs in a\ntransaction. These asserts also run in release builds.\n\n## Tests\n\n- New `aborted_xact::search_error_caught_in_subtransaction`: crashes\n`main` with `block_tracker`, passes with this PR.\n- New `aborted_xact::cleanup_lock_wait_cancelled_then_retried`: a search\nholds a pin on the cleanup-lock page, `VACUUM` times out waiting for it,\nthen runs again in the same session. Fails with the guard disabled\n(`blockno Cleanup(345) already opened`), passes with it.\n- `spilling_buffile_mpp` with `block_tracker`: crashed on `main`, no\nlonger crashes.\n- Full `pg_regress` suite (plain build) and full integration suite\n(`block_tracker`) on PG 17: same pass/fail as `main` test by test, and\nno crashes or tracker errors. The tests that fail on both are\nlocal-environment ones (PG 18 expected output, collation, replication\nwithout `PG_CONFIG`).",
+          "timestamp": "2026-09-27T07:25:12Z",
+          "url": "https://github.com/paradedb/paradedb/commit/235d1b6baf62c841e01b2a9f497358c801cc94b7"
+        },
+        "date": 1790496369868,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6255697420201063,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.557,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.957,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.121,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "62fd961ac81579964e56c2b4038f47ae77754db0",
+          "message": "chore: bump Tantivy for cached term metadata and pnorm offsets (#6528)\n\n## What\n\nBump the Tantivy Git dependencies from `f0a8e6b9` to `d85adf246`, the\nlatest Tantivy main.\n\n## Why\n\nThis brings in [cached SSTable term\nmetadata](https://github.com/paradedb/tantivy/pull/259) and [direct\nposting-norm offsets in term\nmetadata](https://github.com/paradedb/tantivy/pull/264), including\ncompact SSTable offsets and bitpacked FST offsets.\n\n## How\n\nUpdate the workspace dependency and crates.io patch revisions together,\nrefresh their lockfile entries, and update the generated Nix Cargo hash.\nNo other dependency versions or ParadeDB code change. Existing non-pnorm\ndictionaries remain compatible; indexes built with the previous\nexperimental pnorm format need rebuilding.\n\n## Tests\n\n- PostgreSQL 18 release build passed.\n- Rebuilt the 28.7M-document HN index with pnorms enabled and CTID\npartitioning.\n- Compared 1,120 query/input combinations per backend against combined:\ncounts and facets match, and all 880 top-K/filter score sequences match\nwithin 1e-6. Tied rows can differ.\n- Full 28-shape Benchmarker comparison completed with zero query errors,\nincluding ten-term OR and AND. One client, 3-second warmup and 8-second\nmeasurement per backend/shape, with rotated backend order.\n- Independent paired confirmation: 40 inputs per shape, two warmups and\neight measured repetitions, alternating backend order. All 16 OR top-K\nshapes are faster on this candidate; geometric mean per-input latency\nratio is 0.964. AND is near parity at 1.006. The range-filter case is\n1.014 (slightly slower), and the literal-filter case is 0.985.\n- Counts: title 0.56 vs 5.20 ms; text 0.70 vs 11.79 ms. Both facets and\nboth highlighting shapes are faster.\n\nThe ten-term AND pools mostly return no matches: 0/40 title inputs and\n1/40 text inputs match. These measurements do not establish performance\nfor conjunctions with many matches.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-28T01:06:01Z",
+          "url": "https://github.com/paradedb/paradedb/commit/62fd961ac81579964e56c2b4038f47ae77754db0"
+        },
+        "date": 1790583914138,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.5357710787352814,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.481,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.867,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.943,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 1.995,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4917fb13f95e8ba5d46ece5df3ce46bd7cd6280f",
+          "message": "fix: Fix a crash when a search scan is cancelled or terminated (#6479)\n\n## What\n\nTerminating a backend in the middle of a search (`pg_terminate_backend`,\nor the SIGTERM a parallel query's leader sends its workers on cancel)\ncan crash the server, or leave buffer pins and table locks held until it\nrestarts. This skips dropping pg_search's scan state once `proc_exit`\nhas started.\n\n## Why it happens\n\nA FATAL doesn't unwind. `proc_exit` runs right where\n`CHECK_FOR_INTERRUPTS()` fired, which can be deep inside a Rust call.\nThe abort then frees the query's memory, and pgrx's callback drops the\nscan state while that call is still using it:\n- a `OnceLock` whose initializer never finished panics (`invalid Once\nstate`);\n- the tokio runtime whose `block_on` never returned panics (`Oh no! We\nnever placed the Core back`);\n- a DataFusion stream dropped mid-poll corrupts memory.\n\nThe panic becomes a second FATAL that skips the rest of the abort, so\nbuffer pins and locks are never released. Memory corruption kills the\nbackend and restarts the cluster.\n\n## The fix\n\n`leak_and_drop_unless_exiting` (@mdashti's approach) is pgrx's\n`leak_and_drop_on_delete` with one check in its callback: once\n`proc_exit` has started, return without dropping. It is used at the two\nplaces pgrx frees scan state: each custom scan's state\n(`custom_state.rs`, `build()`) and the index AM's (`scan.rs`,\n`amrescan`).\n\n`impl_safe_drop!` now also skips its body once `proc_exit` has started\n(`std::thread::panicking() || proc_exit_in_progress()`). That alone\ncan't fix this: returning early from `Drop::drop` skips only its body,\nand Rust still drops the fields, which are what fail. We skip whole\nstates because we don't know which of the values inside need\n`impl_safe_drop!` (TODO #6530).\n\n## Why skipping is safe\n\nThe process is exiting. The abort still releases the buffer pins, locks,\nsnapshots and temp files the state holds, and the OS reclaims the\nmemory. After a normal end or an ERROR, the drop runs as before.\n\n## Evidence\n\n- **Sweep:** the FATAL landed inside every `OnceLock` initializer that\nreads an index page, across 8 query shapes. Assert build: 40 of 265\ncrashed before, 0 after. Release build: 38 of 188 panicked or crashed\nbefore, 0 after. Measured on 84fd7da2f, which skipped the same state;\nsee the last section.\n- **`basescan_cancel`** (new): passes. It cancels and terminates running\nBase Scans and checks that the cluster survives.\n- **Integration suite:** same results as `main`. With a log line in the\ncallback: no drop while panicking, 13 drops skipped at exit.\n- **MPP / parallel:** 60 terminates of the leader or a worker (MPP join,\nparallel Base Scan, parallel index scan), with no hang, crash, leftover\npin or lock.\n- **Limitations:** CI covers the custom-scan path; the index AM path is\ncovered by the sweep and the reproduction below. #6531 (cancel in\nstressgres) is a follow-up; #6516 (MPP hang) is unrelated.\n\n<details><summary>The FATAL path, step by step</summary>\n\n1. **The FATAL lands inside a Rust call.** pg_search reaches\n`CHECK_FOR_INTERRUPTS()` all the time, for example while waiting in\n`WaitIO` for an index page another backend is reading. This one was\ncaptured with a debugger on a release build:\n   ```\n   ProcessInterrupts                          <- FATAL\n   WaitIO / ReadBufferExtended\n   LinkedBytesList::get_linked_list_data\nOnceLock<LinkedListData>::initialize <- initializer still running\n   ...\nUnsafeSendStream<AsyncStream<..>>::poll <- stream in the middle of a\npoll\n   BaseScan::exec_custom_scan\n   ```\n2. **`proc_exit` frees the query's memory while that call is still \"in\nuse\".** `ShutdownPostgres` -> `AbortTransaction` -> `AtAbort_Portals`\n(`xact.c:2857`) frees the query context. pgrx registered a callback\nthere (`leak_and_drop_on_delete`), so it drops our scan state, including\nthe values the frozen call was in the middle of using.\n3. **Dropping those values fails:**\n- A `OnceLock` whose initializer never finished: std panics with\n`invalid Once state`. std treats that state as impossible in its\ndestructor, because in safe Rust the initializer's borrow prevents a\ndrop.\n- A tokio `Runtime` whose `block_on` never returned panics with `Oh no!\nWe never placed the Core back`.\n- The DataFusion stream dropped mid-poll corrupts memory: a `SIGSEGV`,\nor `free` of a pointer that was never allocated.\n4. **A panic becomes a second FATAL.** pgrx converts the panic to an\nERROR. During `proc_exit`, `errstart` promotes an ERROR to FATAL\n(`elog.c:379`), which calls `proc_exit` again. `shmem_exit` has already\ntaken `ShutdownPostgres` off its list (`ipc.c:242`). So the rest of\n`AbortTransaction`, including `ResourceOwnerRelease`, never runs, and\nneither does `LockReleaseAll`.\n5. **What's left behind:**\n- After a panic, on a release build: buffer pins stay held until the\nserver restarts, and `AccessShareLock`s block `ALTER TABLE`, `DROP` and\n`VACUUM FULL`.\n- After a panic, on an assert build: the `pgstat.c:588` assert fails and\nthe cluster restarts.\n- After memory corruption, on any build: the backend dies on a signal\nand the cluster restarts.\n\n</details>\n\n<details><summary>What the scan state owns, and the options\nconsidered</summary>\n\nThis is what pgrx drops when the query's memory is freed, for a Base\nScan with the columnar executor. A FATAL can leave any of these values\nhalf-updated, and most of them are inside tantivy:\n\n```\nCustomScanStateWrapper<BaseScan>\n `- custom_state: BaseScanState                      <- not dropped once proc_exit has started\n     |- search_reader: SearchIndexReader\n     |   `- searcher -> tantivy SegmentReader (one per segment)\n     |        |- OnceLock<CompositeFile>             terms, postings, positions\n     |        |- OnceLock<FastFieldReaders>\n     |        |- OnceLock<FieldNormReaders>\n     |        `- file handles: SegmentComponentReader\n     |             `- LinkedBytesList\n     |                  `- OnceLock<LinkedListData>\n     `- exec_method: ColumnarExecState\n          |- inner.ffhelper: FFHelper\n          |    `- OnceLock<FFType>                   ctid and each fast-field column\n          |- runtime: tokio Runtime                  panics if block_on never returned\n          `- stream: DataFusion stream               corrupts memory if dropped mid-poll\n               `- Scanner -> MultiSegmentSearchResults\n                    `- DeferredScorer\n                         `- OnceLock<scorer>\n```\n\nEvery value in the tree failed in the sweep above or in\n`basescan_cancel`. The index AM holds the same subtree under\n`scan->opaque` -> `Bm25ScanState` (`SearchIndexReader`,\n`MultiSegmentSearchResults`).\n\n| Option | Why not / why |\n|---|---|\n| **A. Hold interrupts around the Rust call** (what MPP does since\n#5336) | It covers only the call it wraps, but these initializers run on\nany index page read. It also delays cancels, and #6516 shows the cost:\nan MPP worker with interrupts held can't be terminated. |\n| **B. Wrap each value whose `Drop` fails** (the runtime and scorer, as\nfirst pushed) | The sweep found many more such values. Most are fields\nof tantivy's `SegmentReader`, which we can't wrap without changing\ntantivy, and one is a stream that corrupts memory instead of panicking.\nAny `OnceLock` added later would reopen the hole. |\n| **C. Skip the destructor of the scan state, which owns all of them**\n(this PR) | One check in the callback that frees the scan state, at the\ntwo places pgrx registers it, covers every value inside, ours and\ntantivy's, including future ones. |\n\n</details>\n\n<details><summary>The code</summary>\n\nThe callback approach is @mdashti's. pgrx frees a scan state with a\nmemory context callback: `leak_and_drop_on_delete` boxes the value, and\nthe callback rebuilds the `Box` and drops it.\n`leak_and_drop_unless_exiting` is the same function with one check\nadded: once `proc_exit` has started, the callback returns without\nrebuilding the `Box`, so nothing the state owns is dropped.\n\n```rust\npub(crate) trait PgMemoryContextsExt {\n    fn leak_and_drop_unless_exiting<T>(&mut self, v: T) -> *mut T;\n}\n\nimpl PgMemoryContextsExt for PgMemoryContexts {\n    fn leak_and_drop_unless_exiting<T>(&mut self, v: T) -> *mut T {\n        #[pg_guard]\n        unsafe extern \"C-unwind\" fn drop_unless_exiting<T>(ptr: *mut std::ffi::c_void) {\n            if proc_exit_in_progress() {\n                return;\n            }\n            drop(unsafe { Box::from_raw(ptr.cast::<T>()) });\n        }\n        // registers the callback exactly as pgrx's leak_and_drop_on_delete does\n    }\n}\n```\n\nIt replaces `leak_and_drop_on_delete` at the two places pgrx frees scan\nstate:\n\n```rust\n// custom scans (Base, Join, Aggregate, MPP): builders/custom_state.rs, build()\nPgMemoryContexts::CurrentMemoryContext.leak_and_drop_unless_exiting(wrapper)\n\n// index AM: scan.rs, amrescan()\nscan.opaque = PgMemoryContexts::CurrentMemoryContext\n    .leak_and_drop_unless_exiting(Some(scan_state))\n    .cast();\n```\n\nThe skip has to happen before the state is dropped, not in a `Drop` on\nthe state: an early `return` from `Drop::drop` skips only its body, and\nRust still drops the fields afterwards. The scan state types and their\ncallers are unchanged, and the stored type is still generic, as in pgrx.\nThe other `leak_and_drop_on_delete` calls stay as they are: the custom\nscan method tables and the planner's `CustomScan` are plain C structs\nwith nothing to drop, and the insert path's `InsertState` didn't fail at\nexit when I terminated backends inside `aminsert`, its cleanup and the\nlogical replication worker (PG16 and PG17).\n\nWe skip whole states because we don't know which of the values inside\nthem need `impl_safe_drop!`, and most of them can't have it: the ones\nthat fail are the automatic drops of std, tokio, tantivy and DataFusion\nvalues, not `impl Drop`s of our types. Finding and marking the drops\nthat need `impl_safe_drop!` is tracked in #6530.\n\nBoth sites are needed. Measured on 84fd7da2f: with the index AM left\nunprotected, 8 of 21 index-AM sweep runs crash again while the custom\nscans stay clean; with the custom scans left unprotected,\n`basescan_cancel` fails (`Oh no! We never placed the Core back`).\n\n</details>\n\n<details><summary>Why skipping each destructor loses nothing</summary>\n\nAt `proc_exit` the process is about to end. A skipped destructor is safe\nif Postgres or the OS does the same work anyway, and no other process\ndepends on it. These are all the destructors reachable from the scan\nstate:\n\n| Destructor | Why skipping it loses nothing |\n|---|---|\n| buffer, heap, relation, tuplesort, slot and BufFile guards | They\nalready do nothing once `AbortTransaction` sets `TRANS_ABORT`\n(`IsTransactionState()` is false). `ResourceOwnerRelease` releases what\nthey hold. |\n| `MessageQueueHandle` | Already does nothing once parallel mode ends\n(`xact.c:2850`). Postgres detaches the queue itself through\n`on_dsm_detach` (`shm_mq.c:309`). |\n| MPP leader's DSM senders | `AtEOXact_Parallel` (`xact.c:2849`) has\nalready terminated and waited for the workers and detached the DSM,\nbefore `AtAbort_Portals` (`2857`). |\n| MPP worker's DSM senders | Not in the scan state. They are locals of\nthe worker entry point, which a FATAL never drops, with or without this\nchange. |\n| DataFusion spill files | Every session spills through Postgres\n`BufFile` or not at all. Postgres deletes `BufFile`s at exit. |\n| tokio runtime, Rust heap | Only current-thread runtimes, so no thread\noutlives the process. The OS reclaims the memory. |\n\nI terminated the leader or one worker of a running MPP join, parallel\nBase Scan and parallel index scan, 10 times each (60 terminates). Every\nquery ended, every process exited, and there were no crashes, panics,\nleftover pins or unlockable tables.\n\n**Unchanged:**\n- A scan that ends normally frees its state exactly as before. On an\nERROR, Postgres frees the scan state after the unwinding has finished,\nso `panicking()` is false there and it is freed as before too. With a\nlog line added to the callback, the full integration suite logged no\ndrop while panicking, and 13 skipped at exit.\n- What `impl_safe_drop!`'s 16 existing users do at exit. The macro now\nskips their bodies once `proc_exit` has started, but they already did\nnothing then: 11 check `IsTransactionState()` or parallel mode, which\n`AbortTransaction` has turned off, and the other 5 are held only by\nfunction locals, which a FATAL never drops.\n\n</details>\n\n<details><summary>Sweep details</summary>\n\nI made the FATAL land inside every `OnceLock` initializer that reads an\nindex page, one at a time (a debugger holds another backend's read of\nthe page, so the terminated backend waits in `WaitIO`), across 8 query\nshapes.\n\n| | only the runtime and scorer protected (first push) | whole scan\nstate skipped (84fd7da2f) |\n|---|---|---|\n| assert build: backend crashes | 40 / 265 | 0 / 265 |\n| release build: `invalid Once state` panics, each leaving pins and an\nunlockable table | 31 / 188 | 0 / 188 |\n| release build: backend killed by a signal (cluster restart) | 7 / 188\n| 0 / 188 |\n\nThe failing values were `OnceLock`s in our readers (`LinkedBytesList`,\n`FFHelper`, `DeferredScorer`) and in tantivy's `SegmentReader`\n(`CompositeFile`, `FastFieldReaders`, `FieldNormReaders`, bitpacked\n`Block`), plus the columnar scan's DataFusion stream. They failed in the\ncustom scans and in the index AM. 84fd7da2f skipped the same state at\nthe same two places as this revision, through a wrapper's `Drop` instead\nof the callback.\n\n</details>\n\n<details><summary>Reproduction</summary>\n\nThe script terminates a backend (B) while it waits inside a `OnceLock`\ninitializer. After B exits, it counts pinned buffers and tries an\nexclusive lock on the table.\n\n<details><summary>repro_once_fatal.sh (needs lldb and\npg_buffercache)</summary>\n\n```bash\n#!/usr/bin/env bash\n# Terminates a backend while it is inside a OnceLock's get_or_init that pg_search's scan state owns,\n# then reports what its exit left behind. Needs lldb, pg_buffercache, and a superuser connection.\n#\n# The FATAL has to land inside the OnceLock's initializer. The initializer reads an index page, so:\n#   A runs the query and is paused by lldb inside that read (the page is marked \"I/O in progress\");\n#   B runs the same query, reaches the same initializer, and waits in WaitIO for A's read;\n#   B is terminated. WaitIO checks for interrupts, so B's FATAL is raised inside the initializer.\nset -u\nPSQL=${PSQL:-psql}\nLOG=${PGLOG:?set PGLOG to the server log file}\n\n$PSQL -q <<'SQL'\nCREATE EXTENSION IF NOT EXISTS pg_search CASCADE;\nCREATE EXTENSION IF NOT EXISTS pg_buffercache;\nDROP TABLE IF EXISTS once_fatal;\nCREATE TABLE once_fatal (id int PRIMARY KEY, body text, grp int);\nCREATE INDEX once_fatal_idx ON once_fatal USING paradedb (id, body, grp);\nSET paradedb.global_mutable_segment_rows = 0;\nINSERT INTO once_fatal SELECT g, md5(g::text) || ' hello', g % 10 FROM generate_series(1, 25000) g;\nINSERT INTO once_fatal SELECT g, md5(g::text) || ' hello', g % 10 FROM generate_series(25001, 50000) g;\nVACUUM ANALYZE once_fatal;\nSQL\n\nGUCS=\"SET max_parallel_workers_per_gather = 0\"\nQ=\"SELECT grp FROM once_fatal WHERE id @@@ paradedb.all() AND grp = 1\"   # columnar Base Scan\n\n# lldb callback: stop A at the first disk read inside FFHelper::ctid's OnceLock<FFType> initializer.\nCB=$(mktemp -d)/cb.py\ncat > $CB <<'PY'\ndef on_read(frame, bp_loc, d):\n    t = frame.GetThread()\n    names = [t.GetFrameAtIndex(i).GetFunctionName() or \"\" for i in range(t.GetNumFrames())]\n    return any(\"OnceLock<pg_search::index::fast_fields_helper::FFType>\" in n for n in names) \\\n       and any(\"FFHelper>::ctid\" in n for n in names)\nPY\n\nB0=$(wc -l < \"$LOG\")\n$PSQL -XAtqc \"SELECT count(*) FILTER (WHERE pg_buffercache_evict(bufferid)) FROM pg_buffercache WHERE bufferid IS NOT NULL\" >/dev/null\n\nPGAPPNAME=once_a $PSQL -Xq -c \"SELECT pg_sleep(3)\" -c \"$GUCS\" -c \"$Q\" >/dev/null 2>&1 &\nfor _ in $(seq 50); do A=$($PSQL -XAtc \"SELECT pid FROM pg_stat_activity WHERE application_name = 'once_a' AND wait_event = 'PgSleep'\"); [ -n \"$A\" ] && break; sleep 0.1; done\nlldb -p \"$A\" --batch -o \"command script import $CB\" -o 'breakpoint set -n mdreadv -N rd' \\\n  -o 'breakpoint command add -F cb.on_read rd' -o continue -o 'script import time; time.sleep(15)' -o 'process detach' >/dev/null 2>&1 &\nLLDB=$!\n\nPGAPPNAME=once_b $PSQL -Xq -c \"SELECT pg_sleep(4.5)\" -c \"$GUCS\" -c \"$Q\" >/dev/null 2>&1 &\nfor _ in $(seq 150); do B=$($PSQL -XAtc \"SELECT pid FROM pg_stat_activity WHERE application_name = 'once_b' AND wait_event ILIKE 'BufferIo'\"); [ -n \"$B\" ] && break; sleep 0.1; done\n[ -n \"$B\" ] || { echo \"B never waited for A's read; rerun\"; kill $LLDB; wait; exit 1; }\necho \"B ($B) is waiting for A's read inside the OnceLock initializer; terminating B\"\n$PSQL -XAtqc \"SELECT pg_terminate_backend($B)\" >/dev/null\nwait $LLDB; wait\nsleep 2\n\necho \"--- server log for B:\"\ntail -n +$((B0 + 1)) \"$LOG\" | grep -E \"\\[$B\\]|TRAP|terminated by signal\" | grep -vE 'STATEMENT|^\\s*[0-9]+ ' | cut -c1-160\necho \"--- after B exited:\"\n$PSQL -XAtc \"SELECT 'buffers still pinned: ' || count(*) FROM pg_buffercache WHERE pinning_backends > 0\"\n$PSQL -Xq -c \"SET lock_timeout = '2s'\" -c \"BEGIN\" -c \"LOCK TABLE once_fatal IN ACCESS EXCLUSIVE MODE\" \\\n  -c \"SELECT 'ACCESS EXCLUSIVE lock on once_fatal: acquired'\" -c \"ROLLBACK\" 2>&1 | grep -m1 -E 'acquired|ERROR'\n```\n\n</details>\n\nOnly the runtime and scorer protected (release PG 17.6, log prefixes\ntrimmed):\n```\nB (80224) is waiting for A's read inside the OnceLock initializer; terminating B\n--- server log for B:\nFATAL:  terminating connection due to administrator command\nFATAL:  internal error: entered unreachable code: invalid Once state\n--- after B exited:\nbuffers still pinned: 10\nERROR:  canceling statement due to lock timeout\n```\n\nWhole scan state skipped (84fd7da2f):\n```\nB (93601) is waiting for A's read inside the OnceLock initializer; terminating B\n--- server log for B:\nFATAL:  terminating connection due to administrator command\n--- after B exited:\nbuffers still pinned: 0\nACCESS EXCLUSIVE lock on once_fatal: acquired\n```\n\n</details>\n\n<details><summary>Where each result was measured</summary>\n\n- On this revision's callback code (0e280f30d, assert PG 17 with\n`block_tracker`), before the `impl_safe_drop!` condition was added:\n`basescan_cancel`, the integration suite and the callback log counts,\nand the 60 MPP / parallel terminates. CI runs the tests on this commit.\n- On 84fd7da2f, which skipped the same state at the same two places\nthrough a wrapper's `Drop`: the sweep, the reproduction output, the\ncheck that both sites are needed, and `pg_regress` (same result as\n`main` for every test). The sweep and `pg_regress` have not been rerun\non this revision.\n\n</details>\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-29T04:39:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4917fb13f95e8ba5d46ece5df3ce46bd7cd6280f"
+        },
+        "date": 1790669566173,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.5244573567875102,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.477,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.864,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.942,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 1.995,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "beb9046f43cf7b2fd7a2f8ddd8af2423e4523df0",
+          "message": "chore: Increase benchmarker memory limit (#6561)\n\nIncrease memory limit, and ensure that logs are captured.\n\nFirst green run:\nhttps://github.com/paradedb/paradedb/actions/runs/36656410331",
+          "timestamp": "2026-09-30T02:47:26Z",
+          "url": "https://github.com/paradedb/paradedb/commit/beb9046f43cf7b2fd7a2f8ddd8af2423e4523df0"
+        },
+        "date": 1790746908297,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) (topk) p50 latency",
+            "value": 1.453,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) (topk) p99 latency",
+            "value": 1.989,
+            "unit": "ms"
+          }
+        ]
+      }
+    ],
+    "benchmarker stackexchange (latency)": [
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4787f56f74fc7aca0493e0afc729e7231d01ddc2",
+          "message": "chore: Run benchmarker on pushes to `main`. (#6564)\n\nWhile we're paying particular attention to this dataset, ensure that we\nhave up-to-date comparison points at all times.",
+          "timestamp": "2026-09-29T22:22:44-07:00",
+          "tree_id": "94fc55276e99073b6bf79e6a1e65cd9157382683",
+          "url": "https://github.com/paradedb/paradedb/commit/4787f56f74fc7aca0493e0afc729e7231d01ddc2"
+        },
+        "date": 1790748613205,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 68.891,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 299.07,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 86.276,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 338.548,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 282.735,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 1027.625,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 95.228,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 792.442,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 143.022,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 632.084,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77a002d144d8157f5126830e49f3487196ce980f",
+          "message": "perf: Use tree to load page map faster (#6537)\n\n## What\n\nAdds an immutable B+ tree directory over the compressed\nlogical-page-to-physical-block map in Tantivy components. Rather than\nsequentially decoding preceding map pages from the start of the linked\nlist, lookups traverse the directory tree directly to the relevant leaf\npage and decompress only the targeted chunk.\n\n## Why\n\nTantivy components span non-contiguous Postgres blocks, mapped by a\nchain of compressed block-list pages. In large components, looking up an\nordinal near the end of a component previously required reading and\ndecoding every preceding mapping page in the chain, causing significant\nbuffer churn and latency spikes. Indexing the mapping pages with a\nshallow B+ tree makes block lookups O(log N) in the number of pages.\n\n## How\n\n- Tree structure: `Node::build` creates the tree bottom-up while writing\nmapping pages, avoiding extra passes. Level 0 entries point to mapping\npages, while higher levels point to directory pages. The root node is\nstored directly in free space on the component header page alongside\n`LinkedListData`, spilling to chained directory pages when capacity is\nexceeded.\n- Zero-copy reads: `Directory` borrows `DirectoryEntry` slices directly\nfrom pinned Postgres pages using `bytemuck` via `header(&self)` and\n`entries(&self)`. `MappingPage` wraps leaf page buffers in `OwnedBytes`\nvia `into_immutable_page()`, avoiding copying pages into heap vectors.\n- Lazy chunk caching: `MappingPage` lazily decompresses bitpacked chunks\ninto exact-sized `Box<[BlockNumber]>` slices on first touch. This\nensures interleaved streams decode each chunk at most once while\navoiding decompression of untouched chunks. Sequential access uses an\nO(1) `current_chunk` fast path.\n- Compatibility: Components lacking directory metadata or encountering\ninvalid nodes fall back to walking the original linked list.\n\n## Tests\n\nStressgres and Antithesis tests pass.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-29T23:36:45-07:00",
+          "tree_id": "4dce801e9d64d094110bf1cf97ca24ff9890adfb",
+          "url": "https://github.com/paradedb/paradedb/commit/77a002d144d8157f5126830e49f3487196ce980f"
+        },
+        "date": 1790753071375,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 69.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 291.239,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 84.13,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 325.411,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 243.042,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 1076.283,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 93.647,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 820.492,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 146.725,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 626.031,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17bd39ffadb863d4213c5db2b293d9088c39bbe1",
+          "message": "chore: Generate Dockerfiles for v0.25.11 (#6549)\n\nUpdates generated Dockerfiles for v0.25.11 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-29T16:27:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17bd39ffadb863d4213c5db2b293d9088c39bbe1"
+        },
+        "date": 1790758172345,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 118.782,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 453.032,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 128.629,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 1184.531,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 149.932,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 482.28,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 104.549,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 861.964,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 238.962,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 2390.957,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b4a0ae18a9d837099291cc467171fd30ced22990",
+          "message": "chore: Stabilize `Index Scan` vs `Index Only Scan` plans in stressgres (#6567)\n\n## What\n\nSet additional GUCs to ensure an `Index Only Scan`.\n\n## Why\n\nWe periodically saw `Index Scan`s used when planner costs lined up\nperfectly.",
+          "timestamp": "2026-09-30T09:20:27-07:00",
+          "tree_id": "40b44644a90b7bede1584d15f63441353ba1d8aa",
+          "url": "https://github.com/paradedb/paradedb/commit/b4a0ae18a9d837099291cc467171fd30ced22990"
+        },
+        "date": 1790788247282,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 68.41,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 298.246,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 94.989,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 337.769,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 263.62,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 1063.269,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 94.913,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 827.76,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 134.506,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 622.234,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "47521537+wankhede04@users.noreply.github.com",
+            "name": "Vijay Wankhede",
+            "username": "wankhede04"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b12272911fed385b751bd1627202c229073ef150",
+          "message": "feat: add chinese_convert to the chinese_compatible tokenizer (#6488)\n\n# Ticket(s) Closed\n- Closes #6486\n\n## What\n\nAdds a `chinese_convert` option to the `chinese_compatible` tokenizer,\nmatching the option\nalready supported by `pdb.jieba`.\n\n## Why\n\nThis was explicitly promised on the original Jieba PR (#3764) -- a\nreviewer asked whether other\nChinese-capable tokenizers could reuse it, and the author agreed to add\nit \"separately later.\"\nThat follow-up never happened. `chinese_compatible` is the cleanest\nsibling to start with: no\ninteracting options (unlike Jieba's `search_mode`), and the\n`ChineseConvertTokenizer<T:\nTokenizer>` wrapper Jieba already uses is fully generic, so it needed no\nchanges of its own to\nbe reused here.\n\n## How\n\nChanged `SearchTokenizer::ChineseCompatible` from a tuple variant to a\nstruct variant carrying\n`chinese_convert: Option<ConvertMode>` alongside `filters` -- the same\nkind of enum-shape change\nthe original Jieba PR made, confirmed safe by checking that precedent\ndirectly. Wired the new\nfield through:\n- `from_json_value` (JSON \"tagged\" API), mirroring Jieba's parsing\nexactly\n- `to_tantivy_tokenizer()`, wrapping `ChineseTokenizer` in\n`ChineseConvertTokenizer` when configured\n- `name()`, so a configured conversion mode produces a distinct\nregistered analyzer name\n- Both typmod-driven paths: `apply_expression_params` (nested\n`search_tokenizer` expressions)\nand `apply_typmod` (direct\n`pdb.chinese_compatible('chinese_convert=t2s')` casts), the latter\n  via a new `ChineseCompatibleTypmod` struct mirroring `JiebaTypmod`\n\nAlso added the `chinese_convert` documentation `chinese_compatible`\n(and, as a byproduct, this\nPR's docs page) was missing -- CONTRIBUTING.md requires documentation\nfor a feature, and this\nwas worth doing properly even though the original Jieba implementation\ndidn't have it either.\n\n## Tests\n\nNew test `test_chinese_compatible_with_chinese_convert` in\n`tokenizers/src/manager.rs`, mirroring\nthe existing `test_jieba_search_mode` pattern: builds the tokenizer from\nJSON, runs it through\nreal text (\"繁體中文測試\"), and asserts the Traditional input is actually\nconverted to\nSimplified characters when `chinese_convert=T2S` is set, and that the\ntwo configurations produce\ndistinct registered names. Full `tokenizers` crate suite passes (81/81\n-- including this test and\nthe trim-collision fix's test from the companion PR, if both land).\n`cargo check -p pg_search`\n(against a live PostgreSQL 17) compiles clean across the whole\nworkspace, confirming every match\narm touching the changed enum is exhaustive. `cargo fmt` clean.\n\nWasn't able to run this through `cargo pgrx regress`/a live SQL test --\n`cargo-pgrx 0.19.2`\nrequires a newer rustc than what's available in my environment, so I\ncouldn't generate a golden\n`.out` file for a `pg_regress` test the way\n`jieba_chinese_convert.sql`/`.out` does for the\nJieba implementation. Happy to add that test file if a maintainer can\nrun/verify it, or if\npointed at a compatible toolchain.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-30T09:31:43-07:00",
+          "tree_id": "26834423eacf205513609d8beb5e19533e712a52",
+          "url": "https://github.com/paradedb/paradedb/commit/b12272911fed385b751bd1627202c229073ef150"
+        },
+        "date": 1790788795700,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 68.016,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 290.693,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 84.358,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 333.59,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 360.731,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 1093.106,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 91.988,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 817.223,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 137.428,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 615.437,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "93437997+IamYipi@users.noreply.github.com",
+            "name": "Javier Garcia",
+            "username": "IamYipi"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad275852f4b572d352d22f9d104d43e65589929a",
+          "message": "fix: don't hold the typmod caches across SPI (#6554)\n\n# Ticket(s) Closed\n\n- Closes #6489\n\n## What\n\nPrevent backend hangs when loading or saving tokenizer settings is\ninterrupted by `pg_terminate_backend`, or reentered through SQL executed\nby SPI. Report missing stored tokenizer settings explicitly.\n\n## Why\n\nThe typmod caches were locked across SPI calls. A FATAL during SPI exits\nwithout unwinding, leaving the mutex locked. An abort callback\nregistered by an earlier lookup then waits on that mutex forever, so the\nterminated backend stays active and retains its locks.\n\nThe cached prepared statements also had mutexes held across execution. A\nrow-security policy on `paradedb._typmod_cache` can call back into the\nsame typmod function, causing the nested lookup to wait on the outer\nlookup's lock.\n\n## How\n\n- Check each typmod cache under its mutex, release the guard before SPI,\nthen reacquire it to insert the result. Preserve the existing\ntransaction-abort callbacks.\n- Keep the prepared lookup statements in `OnceLock<StmtHolder>` without\nan execution mutex. Prepared-statement reuse is retained.\n- Distinguish an empty lookup result from an SPI failure. Propagate\nlookup errors and report missing entries as `stored tokenizer options\ncould not be found`, with the missing ID in `DETAIL`.\n- Route tokenizer and alias consumers through the same error reporting\ninstead of swallowing lookup errors or using generic Rust panic\nmessages.\n- Share the client-backend lookup helper used by the termination and\ncancellation tests.\n\n## Tests\n\n- `typmod_terminate`: a row-security policy parks the second lookup of a\ntransaction inside SPI, after an earlier lookup registered an abort\ncallback. Both load and save cases terminate that backend and require it\nto exit within 10 seconds.\n- `typmod_reentrant`: a row-security policy calls back into the typmod\nfunctions during an outer lookup. Both load and save cases must finish\nwithin 10 seconds. Each case uses a fresh connection as\n`pg_read_all_data`, so row security applies and the caches start empty.\n- `tokenizer-typmod_cache`: covers a nonexistent typmod ID and an index\nwhose stored options were deleted, queried from a fresh connection.\n- Existing base-scan and MPP cancellation tests cover the shared\nbackend-lookup helper.\n\nLocal validation on PostgreSQL 18.1 at `55afd42db`:\n\n- `cargo build -p pg_search --locked`\n- `cargo fmt --check` and `git diff --check`\n- Six integration tests across `typmod_terminate`, `typmod_reentrant`,\n`basescan_cancel`, and `mpp_cancel`.\n- Eleven focused SQL regression files covering typmod caching, tokenizer\noptions, aliases, and inline tokenization.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-09-30T09:29:23-07:00",
+          "tree_id": "f23b4cf16a024297c7f8fa52c62a368abd9bb9b3",
+          "url": "https://github.com/paradedb/paradedb/commit/ad275852f4b572d352d22f9d104d43e65589929a"
+        },
+        "date": 1790789483297,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 68.674,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 309.904,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 84.309,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 336.742,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 247.262,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 1050.981,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 95.182,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 841.405,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 138.096,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 636.507,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd87284976c26731c4a92b9a1f521503fd43f00e",
+          "message": "feat: stacked IVF vector router with adaptive partition scanning (#6562)\n\nBumps tantivy to 04112253 (paradedb/tantivy main: #223, #252, #253,\n#254) and adds the pg_search side of adaptive partition scanning (APS):\n\n- `vector_router` index option: `graph` (default, RNG router) or `ivf`\n(stacked IVF router). Existing segments open with the router persisted\nin their `.centroids` file, so `ALTER INDEX ... SET (vector_router)`\napplies to newly built segments and `REINDEX` rebuilds all of them.\n- `paradedb.vector_router_recall` (default 0.99): recall target for the\nstacked router's centroid ranking.\n- `paradedb.vector_recall_target` (default 1.0, off): recall target that\nlets each stacked-router segment stop probing clusters early.\n\nBoth recall targets apply only to `ivf` indexes of 128 or fewer\ndimensions using L2 or cosine distance.\n\nThe tantivy bump also pulls in lazy SSTable block addresses (#282);\n`fast_fields_helper` now handles the fallible block-address lookup, and\n`tantivy-fst` is pinned to the same rev tantivy uses.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-30T11:36:18-07:00",
+          "tree_id": "e96fc45647e5ac703fee70083acba85c0e58e5f5",
+          "url": "https://github.com/paradedb/paradedb/commit/fd87284976c26731c4a92b9a1f521503fd43f00e"
+        },
+        "date": 1790796281392,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 66.039,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 314.591,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 82.692,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 330.588,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 230.361,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 1006.765,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 91.389,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 808.48,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 144.41,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 620.991,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db13d31f385116f6c5705c9afeb83796db881760",
+          "message": "chore: Adjust index settings for `stackexchange`. (#6568)\n\n* Use `pnorms`\n* Remove `key_field` and `id`\n* Apply noise-reduction fixes (disable autovacuum and checkpoints, pin\nCPUs, run for twice as long)",
+          "timestamp": "2026-09-30T12:14:16-07:00",
+          "tree_id": "619c7f3efb4b542612de30e8ba8de5213dfcc360",
+          "url": "https://github.com/paradedb/paradedb/commit/db13d31f385116f6c5705c9afeb83796db881760"
+        },
+        "date": 1790798983581,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 55.418,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 224.738,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 72.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 279.445,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 125.66,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 639.021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 66.635,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 390.756,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 136.56,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 693.108,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "671f5f0024625452033c85560879875051583878",
+          "message": "fix: run range co-partitioned non-inner joins task-locally in MPP (#6574)\n\n## What\n\nIn MPP, a semi, anti, outer or mark join over range co-partitioned\ninputs now runs task-locally (`mode=Partitioned`) instead of\nbroadcasting or re-shuffling its inputs, as inner joins already do. A\nnull-aware anti join (`NOT IN`) keeps its broadcast.\n\nFixes the semi-join blocker from #5738 (repro:\n`stuhood.semi-join-range`, included here as its first commit).\n\n## Why\n\n`RangePartitioningRule` stamps the same range split points on both sides\nof every join, but `RangeCoPartitionedJoinRule` only flipped\n`CollectLeft` **inner** joins to `Partitioned`:\n\n```rust\nif join.join_type() != &JoinType::Inner { return Ok(Transformed::no(node)); }\n```\n\nSo a co-partitioned semi join had both sides split into ranges *and* the\nbuild side broadcast to every task:\n\n```\nHashJoinExec: mode=CollectLeft, join_type=RightSemi\n  [Stage 1] => NetworkBroadcastExec          ← users sent to every task\n    t0: PgSearchScan: table=u, partition=user_id[-∞..34)\n    t1: PgSearchScan: table=u, partition=user_id[34..∞)\n```\n\n## How\n\n```rust\nif join.null_aware {   // was: join.join_type() != &JoinType::Inner\n    return Ok(Transformed::no(node));\n}\n```\n\n**Why this is safe.** With identical split points on the join keys,\nevery matching pair has the same key and so falls in the same partition\non both sides. Whether a row matches (inner, semi, mark) or has no match\n(outer, anti) is therefore decided within its own partition, and each\ntask's result is its share of the whole join.\n\n| Join type | Task-local? |\n|---|---|\n| Inner, Semi, Mark | yes: all of a row's matches are in its partition |\n| Left / Right / Full outer, Anti (`NOT EXISTS`) | yes: \"no match here\"\n= \"no match anywhere\" |\n| **Null-aware anti (`NOT IN`)** | **no**: one NULL key anywhere on the\nbuild side must empty every task's result, and no task can see the other\npartitions |\n\n`null_aware` is only ever set on single-key `LeftAnti` joins\n(`HashJoinExec` validation), which ParadeDB builds for `NOT IN`\n(`joinscan/planning.rs`, #5005). DataFusion's own planner already\nrequires these to stay `CollectLeft` (\"Null-aware joins must use\nCollectLeft\").\n\nThe final co-partitioning check is unchanged: after flipping, DataFusion\nmust confirm both inputs satisfy the join's distribution, otherwise the\n`CollectLeft` join is kept.\n\n## Tests\n\n`mpp_range_partitioning`:\n- **Scenario 7** (the repro): now `mode=Partitioned` with no broadcast\nstage.\n- **Scenario 8:** semi (`IN`), anti (`NOT EXISTS`), outer (`LEFT JOIN`),\n`FULL JOIN` and mark (`IN` under `OR`) joins each run `Partitioned`;\ntheir rows were checked against a serial run. The `FULL JOIN` sorts\nunmatched rows from both sides first, so each appears exactly once.\n- **Scenario 9:** `NOT IN` with a NULL `user_id` stays `CollectLeft` and\nreturns 0 rows. With the guard removed, MPP returned 67 rows against 0\nserially.\n\nExisting tests whose plans improve (rows unchanged): the `LEFT JOIN`s in\n`mpp_joinscan` and `range_partition_null_keys` previously re-split both\nrange-partitioned inputs by hash over the network (2 shuffles each);\nthey now join the matching range slices task-locally with no shuffle\n(`range_partition_null_keys` 2 → 0). `range_partition_null_keys`\nincludes posts with NULL owners, which still appear exactly once. The\n`defer_column_fetch = off` case in `mpp_joinscan` needs a decode in a\nstage with no scan of `f`, so it now joins on `p.id` (not the partition\nkey) to keep its shuffle (`mpp_joinscan` 6 → 4 shuffles in total).\n\npg_regress (PG18): 392 passed.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-10-01T03:02:36+05:30",
+          "tree_id": "865a78fa4e0729e34c65b70b8d5ccf465bc3f057",
+          "url": "https://github.com/paradedb/paradedb/commit/671f5f0024625452033c85560879875051583878"
+        },
+        "date": 1790807480778,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 56.343,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 225.26,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 72.234,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 276.392,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 128.133,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 643.308,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 65.832,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 393.366,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 137.95,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 678.516,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6f4f4cb031da12263adc1c210ce7ada6d3435f1e",
+          "message": "chore: bump Tantivy for lazy posting reads (#6578)\n\n## What\n\nUpdate Tantivy from `041122535` to latest main, `c279ac02c`, bringing\nlazy posting-block reads into ParadeDB.\n\n## Why\n\nParadeDB main still pins the revision before paradedb/tantivy#275. This\nupdate lets block-backed readers fetch posting blocks on demand with 1\nKiB read-ahead instead of reading the whole term stream up front.\n\n## How\n\nKeep the workspace dependencies, crates.io patches, and lockfile\nsynchronized. The two upstream changes included are:\n\n- paradedb/tantivy#275: lazy posting-block reads.\n- paradedb/tantivy#231: snippet generation across multiple fields of the\nsame text.\n\nNo unrelated dependency versions change.\n\n## Tests\n\n- `cargo metadata --locked --format-version 1` passed; all Tantivy\ncrates resolve to the new revision.\n- `git diff --check` and repository pre-commit checks passed.\n- Local PostgreSQL 18 `cargo check` was cancelled while waiting for\nanother build to release Cargo’s shared build-directory lock;\ncompilation is unverified locally. ParadeDB CI is pending.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-30T16:36:22-07:00",
+          "tree_id": "b6647713f71a7d94e9159d4fbd89e06380eed114",
+          "url": "https://github.com/paradedb/paradedb/commit/6f4f4cb031da12263adc1c210ce7ada6d3435f1e"
+        },
+        "date": 1790814701729,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 16.411,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 148.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 53.473,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 245.724,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 105.75,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 625.356,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 48.108,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 434.935,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 130.798,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 697.853,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e452858e7bc76bb3042ad037b3960e89060168d",
+          "message": "chore: Enable range-partitioned joins by default. (#6527)\n\n# Ticket(s) Closed\n\n- Closes #5738.\n\n## What\n\nEnable range partitioned joins by default (when `partition_by` is in\nuse).\n\n## Why\n\nRange partitioned joins are almost always faster than hash partitioned\njoins",
+          "timestamp": "2026-09-30T16:56:10-07:00",
+          "tree_id": "045187ca7f57882994f077e001280805a58e2aa7",
+          "url": "https://github.com/paradedb/paradedb/commit/6e452858e7bc76bb3042ad037b3960e89060168d"
+        },
+        "date": 1790815870111,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.146,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 140.789,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 53.483,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 245.67,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 117.378,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 598.208,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 48.02,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 433.386,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 126.405,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 691.226,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c4321395743119df87c4b1c9c15bb7987ebb1e6c",
+          "message": "chore: run StackExchange benchmarks for five minutes (#6583)\n\nRuns each StackExchange k6 workload for 300s instead of 120s.",
+          "timestamp": "2026-09-30T18:29:37-07:00",
+          "tree_id": "ef20e4189911f307a8a919b26983a0b7f2835050",
+          "url": "https://github.com/paradedb/paradedb/commit/c4321395743119df87c4b1c9c15bb7987ebb1e6c"
+        },
+        "date": 1790822344924,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.007,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 146.459,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.48,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 241.846,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 105.89,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 604.099,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 49.383,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 352.142,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 124.079,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 735.686,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e2b0bc1c23c3b8edda7c1ae150de93a5a21daee",
+          "message": "chore: bump Tantivy for phrase query optimizations (#6590)",
+          "timestamp": "2026-09-30T20:28:08-07:00",
+          "tree_id": "c9e67bbc5b9c2f5fffc1a75a0d15d5973d621a1b",
+          "url": "https://github.com/paradedb/paradedb/commit/9e2b0bc1c23c3b8edda7c1ae150de93a5a21daee"
+        },
+        "date": 1790829479336,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.024,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 145.796,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 51.926,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 245.576,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.198,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 169.427,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.535,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 212.995,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.45,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 727.198,
+            "unit": "ms"
+          }
+        ]
+      }
+    ]
+  }
+}

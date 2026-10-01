@@ -1,0 +1,32 @@
+# IDEs
+.vscode/
+.idea/
+/*.iml
+
+# macOS
+.DS_Store
+
+# Cargo
+target/
+
+# Docker
+docker/.docker_cache_dev/
+
+# SSH
+*.pem
+*.json
+
+# Code coverage
+*.profraw
+
+# Binaries
+*.deb
+
+# Ruff
+.ruff_cache/
+
+# pgvector
+pgvector/
+
+# Env files
+.env

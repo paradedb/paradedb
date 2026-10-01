@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Benchmark Results</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <!-- Zoom plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.0" defer></script>
+    <style>
+        .chart-container canvas {
+            min-height: 300px;
+        }
+
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            gap: 1rem;
+        }
+
+        .toggle-switch input {
+            margin-right: 0.5rem;
+        }
+
+        .reset-btn {
+            padding: 0.25rem 0.75rem;
+            background: #4299e1;
+            color: white;
+            border-radius: 0.375rem;
+            cursor: pointer;
+        }
+
+        .slider-container {
+            margin: 1rem 0;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .slider-container input[type="range"] {
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-6">
+<div class="max-w-7xl mx-auto">
+    <header class="mb-10">
+        <h1 class="text-4xl font-bold">ParadeDB Benchmark Results</h1>
+        <p class="text-gray-600 mt-2">Grouped benchmark charts.</p>
+        <div class="mt-4">
+            <label class="font-medium mr-2">Dataset:</label>
+            <select id="dataset-filter" class="px-3 py-2 border rounded-lg bg-white">
+            </select>
+        </div>
+    </header>
+    <div id="charts" class="space-y-12"></div>
+</div>
+
+<script>
+    let allRawData = {};
+    let hashInfo = {};
+
+    // Finds the longest continuous substring that is present in all provided strings.
+    // This is used to extract the shared portion of metadata across benchmark variants
+    // so it can be displayed once in the tooltip footer.
+    function getCommonSubstring(strings) {
+        if (!strings || strings.length === 0) return "";
+        if (strings.length === 1) return strings[0];
+        let first = strings[0];
+        let longest = "";
+        for (let i = 0; i < first.length; i++) {
+            for (let j = i + longest.length + 1; j <= first.length; j++) {
+                let substr = first.substring(i, j);
+                if (strings.every(s => s.includes(substr))) {
+                    longest = substr;
+                } else {
+                    break;
+                }
+            }
+        }
+        return longest.length > 5 ? longest : "";
+    }
+
+    // Wraps text to a specified maximum line length, breaking at spaces when possible.
+    function wordWrap(str, maxLen) {
+        if (!str) return [];
+        const lines = [];
+        let currentLine = "";
+        
+        for (const word of str.split(' ')) {
+            if (!currentLine) {
+                currentLine = word;
+            } else if (currentLine.length + word.length + 1 <= maxLen) {
+                currentLine += " " + word;
+            } else {
+                lines.push(currentLine);
+                currentLine = word;
+            }
+            
+            // Handle extremely long words without spaces
+            while (currentLine.length > maxLen) {
+                lines.push(currentLine.substring(0, maxLen));
+                currentLine = currentLine.substring(maxLen);
+            }
+        }
+        if (currentLine) {
+            lines.push(currentLine);
+        }
+        return lines;
+    }
+
+    // Parse dataset identifier from entry key
+    // e.g., "pg_search 'logs' (100K rows)" -> "logs (100K rows)"
+    // e.g., "pg_search 'logs' Query Performance" -> "logs"
+    function parseDatasetId(key) {
+        // Match pattern: 'dataset' optionally followed by (size)
+        const match = key.match(/'([^']+)'(?:\s*\(([^)]+)\))?/);
+        if (match) {
+            const dataset = match[1];
+            const size = match[2];
+            return size ? `${dataset} (${size})` : dataset;
+        }
+        return key;
+    }
+
+    // Extract unique dataset identifiers from data keys
+    function getUniqueDatasets(rawData) {
+        const datasets = new Set();
+        Object.keys(rawData).forEach(key => {
+            datasets.add(parseDatasetId(key));
+        });
+        return Array.from(datasets);
+    }
+
+    // Filter rawData by selected dataset
+    function filterData(rawData, selectedDataset) {
+        const filtered = {};
+        Object.entries(rawData).forEach(([key, value]) => {
+            if (parseDatasetId(key) === selectedDataset) {
+                filtered[key] = value;
+            }
+        });
+        return filtered;
+    }
+
+    // Populate dropdown with dataset options
+    function populateDropdown(rawData) {
+        const dropdown = document.getElementById('dataset-filter');
+        const datasets = getUniqueDatasets(rawData);
+        datasets.forEach(dataset => {
+            const option = document.createElement('option');
+            option.value = dataset;
+            option.textContent = dataset;
+            dropdown.appendChild(option);
+        });
+    }
+
+    // Render charts for the given data
+    function renderCharts(rawData) {
+        const container = document.getElementById('charts');
+        container.innerHTML = '';
+
+        if (!Object.keys(rawData).length) {
+            container.innerHTML = '<p class="text-gray-500">No data for selected dataset.</p>';
+            return;
+        }
+
+        // Group data by file
+        const fileGroups = {};
+        Object.entries(rawData).forEach(([cat, ents]) => {
+            const fn = cat.split(' ')[1] || cat;
+            fileGroups[fn] = (fileGroups[fn] || []).concat(ents);
+        });
+
+        for (const [fn, entries] of Object.entries(fileGroups)) {
+            const section = document.createElement('section');
+            section.className = 'bg-white p-6 rounded-xl shadow-lg';
+            const titleEl = document.createElement('h2');
+            titleEl.className = 'text-2xl font-semibold mb-4';
+            titleEl.textContent = fn;
+            section.appendChild(titleEl);
+
+            // Flatten and sort benches
+            const benches = entries.flatMap(ent => ent.benches.map(b => ({
+                name: b.name,
+                unit: b.unit,
+                timestamp: new Date(hashInfo[ent.commit.id.slice(0, 7)]?.timestamp || ent.commit.timestamp).getTime(),
+                run: ent.date,
+                short: ent.commit.id.slice(0, 7),
+                value: b.value,
+                extra: b.extra || ""
+            })));
+            benches.sort((a, b) => a.name.localeCompare(b.name));
+
+            // Group by prefix
+            const prefixGroups = {};
+            benches.forEach(b => {
+                const sep = b.name.indexOf(' - ');
+                const prefix = sep > -1 ? b.name.slice(0, sep) : b.name;
+                (prefixGroups[prefix] = prefixGroups[prefix] || []).push(b);
+            });
+
+            // Render each prefix
+            Object.entries(prefixGroups).forEach(([prefix, group]) => {
+                const runKeys = Array.from(new Set(group.map(d => `${d.timestamp}|${d.run}|${d.short}`)));
+                // We do not sort by timestamp here because our fork of github-action-benchmark
+                // (https://github.com/paradedb/github-action-benchmark) is expected to insert
+                // them in commit-graph-aware order.
+                const runs = runKeys.map(k => {
+                    const [ts, r, sh] = k.split('|');
+                    return {timestamp: +ts, run: +r, short: sh};
+                });
+                const labels = runs.map(r => {
+                    const lbl = hashInfo[r.short]?.label || r.short;
+                    return lbl.length > 25 ? `${lbl.slice(0, 25)}…` : lbl;
+                });
+                const runUrls = runs.map(r => hashInfo[r.short]?.url);
+
+                // Build datasets
+                const seriesMap = {};
+                const extraMap = {};
+                group.forEach(d => {
+                    const idx = runs.findIndex(r => r.timestamp === d.timestamp && r.run === d.run && r.short === d.short);
+                    (seriesMap[d.name] = seriesMap[d.name] || Array(runs.length).fill(null))[idx] = d.value;
+                    (extraMap[d.name] = extraMap[d.name] || Array(runs.length).fill(null))[idx] = d.extra;
+                });
+                const datasets = Object.entries(seriesMap).map(([name, data]) => ({
+                    label: name,
+                    data: data.slice(),
+                    original: data.slice(),
+                    extras: extraMap[name].slice(),
+                    fill: false,
+                    tension: 0.4,
+                    borderWidth: 2,
+                    pointStyle: 'circle',
+                    pointRadius: 3,
+                    pointBorderColor: data.map((v, i, arr) => {
+                        if (i > 0 && arr[i - 1] != null) {
+                            const pct = (v - arr[i - 1]) / arr[i - 1];
+                            if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                        }
+                        return Chart.defaults.borderColor
+                    }),
+                }));
+
+                // Auto-enable normalization if there are significant changes (>=10%),
+                // but disable if any change is >10000% as it's likely noise.
+                const hasSignificantChange = datasets.some(ds => ds.original.some((v, i, arr) => i > 0 && arr[i - 1] != null && Math.abs((v - arr[i - 1]) / arr[i - 1]) >= 0.10));
+                const hasExtremeNoise = datasets.some(ds => ds.original.some((v, i, arr) => i > 0 && arr[i - 1] != null && Math.abs((v - arr[i - 1]) / arr[i - 1]) >= 100.0));
+                const defaultNorm = hasSignificantChange && !hasExtremeNoise;
+                const yUnit = group[0].unit;
+                const percentLabel = '% diff from first value';
+
+                const wrap = document.createElement('div');
+                wrap.className = 'chart-container mb-8';
+                wrap.innerHTML = `
+              <div class="toggle-switch">
+                <label><input type="checkbox" class="norm-toggle" ${defaultNorm ? 'checked' : ''}/><span>Normalize to First Value</span></label>
+              </div>
+              <div class="slider-container">
+                <label>Window Start:</label>
+                <input type="range" class="window-slider" min="0" max="${labels.length - 1}" value="0" />
+                <span class="window-label">0</span>
+              </div>
+            `;
+                const canvas = document.createElement('canvas');
+                wrap.appendChild(canvas);
+                const resetBtn = document.createElement('button');
+                resetBtn.className = 'reset-btn';
+                resetBtn.textContent = 'Zoom Out';
+                const btnDiv = document.createElement('div');
+                btnDiv.className = 'flex justify-start mt-2';
+                btnDiv.appendChild(resetBtn);
+                wrap.appendChild(btnDiv);
+                section.appendChild(wrap);
+
+                // Set up chart options with dynamic ticks for normalized view
+                function makeYOptions(normalized) {
+                    if (normalized) {
+                        return {
+                            beginAtZero: false,
+                            title: {display: true, text: percentLabel},
+                            ticks: {
+                                maxTicksLimit: 5,
+                                callback: val => `${Math.round((val * 100) - 100)}%`
+                            }
+                        };
+                    }
+                    return {beginAtZero: true, title: {display: true, text: yUnit}};
+                }
+
+                const chart = new Chart(canvas.getContext('2d'), {
+                    type: 'line',
+                    data: {labels, datasets},
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: {ticks: {maxRotation: 33, minRotation: 33}},
+                            y: makeYOptions(defaultNorm)
+                        },
+                        plugins: {
+                            legend: {display: true},
+                            title: {display: true, text: prefix},
+                            tooltip: {
+                                mode: 'index', intersect: false, callbacks: {
+                                    label: ctx => {
+                                        const v = ctx.raw;
+                                        const lines = [`${ctx.dataset.label}: ${v != null ? v.toFixed(3) : '–'}`];
+                                        const arr = ctx.dataset.original;
+                                        const i = ctx.dataIndex;
+                                        
+                                        if (chart.normalized) {
+                                            const pct = (v * 100) - 100;
+                                            lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
+                                        }
+                                        if (i > 0 && arr[i - 1] != null) {
+                                            const prev = chart.normalized ? arr[i - 1] / arr[0] : arr[i - 1];
+                                            const curr = chart.normalized ? arr[i] / arr[0] : arr[i];
+                                            const pct = ((curr - prev) / prev) * 100;
+                                            lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
+                                        }
+
+                                        // Extract the 'extra' metadata for all currently hovered datapoints
+                                        const allExtras = ctx.chart.data.datasets
+                                            .filter(ds => ds.data[i] !== null && ds.extras && ds.extras[i])
+                                            .map(ds => ds.extras[i]);
+                                        const common = getCommonSubstring(allExtras);
+                                        const extra = ctx.dataset.extras && ctx.dataset.extras[i];
+                                        
+                                        // If this datapoint has extra metadata, strip out the common portion
+                                        // to isolate the variant-specific differences.
+                                        if (extra) {
+                                            const uniqueExtra = common ? extra.replace(common, '').trim() : extra.trim();
+                                            if (uniqueExtra) {
+                                                const wrapped = wordWrap(uniqueExtra, 80);
+                                                wrapped.forEach(line => lines.push(`  ${line}`));
+                                            }
+                                        }
+
+                                        return lines;
+                                    },
+                                    footer: ctxs => {
+                                        if (!ctxs.length) return null;
+                                        const i = ctxs[0].dataIndex;
+                                        const allExtras = ctxs[0].chart.data.datasets
+                                            .filter(ds => ds.data[i] !== null && ds.extras && ds.extras[i])
+                                            .map(ds => ds.extras[i]);
+                                        const common = getCommonSubstring(allExtras);
+                                        
+                                        // If the hovered items share a common metadata substring,
+                                        // display it once at the bottom of the tooltip, wrapping it if necessary.
+                                        if (common) {
+                                            // Clean up stray leading/trailing punctuation that might result from the split
+                                            const commonStr = common.replace(/^[;,\s]+|[;,\s]+$/g, '');
+                                            const lines = ['Details:'];
+                                            const wrapped = wordWrap(commonStr, 80);
+                                            wrapped.forEach(line => lines.push(line));
+                                            return lines;
+                                        }
+                                        return null;
+                                    }
+                                }
+                            }
+                        },
+                        onClick: (_, items) => {
+                            if (items.length) window.open(runUrls[items[0].index]);
+                        }
+                    }
+                });
+                chart.normalized = defaultNorm;
+
+                if (defaultNorm) {
+                    chart.data.datasets.forEach(ds => ds.data = ds.original.map(v => v != null ? v / ds.original[0] : null));
+                    chart.update();
+                }
+
+                wrap.querySelector('.norm-toggle').addEventListener('change', e => {
+                    const norm = e.target.checked;
+                    const windowStart = parseInt(wrap.querySelector('.window-slider').value);
+                    chart.data.datasets.forEach(ds => {
+                        const slicedData = ds.original.slice(windowStart);
+                        ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
+
+                        // Recalculate point colors based on new window
+                        ds.pointBorderColor = ds.data.map((v, i, arr) => {
+                            if (i > 0 && arr[i - 1] != null) {
+                                const pct = (v - arr[i - 1]) / arr[i - 1];
+                                if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                            }
+                            return Chart.defaults.borderColor;
+                        });
+                    });
+                    chart.normalized = norm;
+                    chart.options.scales.y = makeYOptions(norm);
+                    chart.data.labels = labels.slice(windowStart);
+                    chart.resetZoom();
+                    chart.update();
+                });
+
+                wrap.querySelector('.window-slider').addEventListener('input', e => {
+                    const windowStart = parseInt(e.target.value);
+                    wrap.querySelector('.window-label').textContent = labels[windowStart];
+                    const norm = wrap.querySelector('.norm-toggle').checked;
+                    chart.data.datasets.forEach(ds => {
+                        const slicedData = ds.original.slice(windowStart);
+                        ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
+
+                        // Recalculate point colors based on new window
+                        ds.pointBorderColor = ds.data.map((v, i, arr) => {
+                            if (i > 0 && arr[i - 1] != null) {
+                                const pct = (v - arr[i - 1]) / arr[i - 1];
+                                if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                            }
+                            return Chart.defaults.borderColor;
+                        });
+                    });
+                    chart.data.labels = labels.slice(windowStart);
+                    chart.update();
+                });
+
+                resetBtn.addEventListener('click', () => chart.resetZoom());
+            });
+
+            container.appendChild(section);
+        }
+    }
+
+    async function initCharts() {
+        const container = document.getElementById('charts');
+        try {
+            const res = await fetch('data.js');
+            const scriptText = await res.text();
+            eval(scriptText);
+            Chart.register(ChartZoom);
+
+            allRawData = window.BENCHMARK_DATA?.entries || {};
+            if (!Object.keys(allRawData).length) {
+                container.innerHTML = '<p class="text-red-500">No data.</p>';
+                return;
+            }
+
+            // Prepare commit label mapping
+            const allEntries = Object.values(allRawData).flat();
+            const uniqueShorts = [...new Set(allEntries.map(e => e.commit.id.slice(0, 7)))];
+            const releaseMap = {};
+
+            try {
+                const [refs, releases] = await Promise.all([
+                    fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags').then(r => r.json()),
+                    fetch('https://api.github.com/repos/paradedb/paradedb/releases').then(r => r.json())
+                ]);
+
+                const releasesByTag = releases.reduce((acc, r) => {
+                    acc[r.tag_name] = r.created_at;
+                    return acc;
+                }, {});
+
+                for (const ref of refs) {
+                    const tag = ref.ref.replace('refs/tags/', '');
+                    let sha = ref.object.sha;
+                    if (ref.object.type === 'tag') {
+                        const tagObj = await (await fetch(ref.object.url)).json();
+                        sha = tagObj.object.sha;
+                    }
+                    const shortSha = sha.slice(0, 7);
+                    releaseMap[shortSha] = {
+                        label: tag,
+                        url: `https://github.com/paradedb/paradedb/releases/tag/${tag}`,
+                        timestamp: releasesByTag[tag]
+                    };
+                    hashInfo[shortSha] = releaseMap[shortSha];
+                }
+
+                // Get PR info for non-release commits
+                const prRequests = uniqueShorts.filter(short => !releaseMap[short]).map(short =>
+                    fetch(`https://api.github.com/repos/paradedb/paradedb/commits/${short}/pulls`, {
+                        headers: {Accept: 'application/vnd.github.groot-preview+json'}
+                    }).then(r => r.json()).then(prs => {
+                        if (Array.isArray(prs) && prs.length) {
+                            const pr = prs[0];
+                            hashInfo[short] = {label: `#${pr.number}: ${pr.title}`, url: pr.html_url};
+                        } else {
+                            hashInfo[short] = {label: short, url: null};
+                        }
+                    }).catch(() => {
+                        hashInfo[short] = {label: short, url: null};
+                    })
+                );
+
+                await Promise.all(prRequests);
+
+            } catch {
+                uniqueShorts.forEach(short => {
+                    hashInfo[short] = {label: short, url: null};
+                });
+            }
+
+            // Populate dropdown and render charts
+            populateDropdown(allRawData);
+            
+            const datasets = getUniqueDatasets(allRawData);
+            if (datasets.length > 0) {
+                const lastDataset = datasets[datasets.length - 1];
+                document.getElementById('dataset-filter').value = lastDataset;
+                const filtered = filterData(allRawData, lastDataset);
+                renderCharts(filtered);
+            } else {
+                renderCharts(allRawData);
+            }
+
+            // Handle dropdown change
+            document.getElementById('dataset-filter').addEventListener('change', e => {
+                const filtered = filterData(allRawData, e.target.value);
+                renderCharts(filtered);
+            });
+
+        } catch (err) {
+            console.error(err);
+            container.innerHTML = '<p class="text-red-500">Failed to load benchmark data.</p>';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', initCharts);
+</script>
+</body>
+</html>

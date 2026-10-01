@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vector Benchmarks — cohere</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #111827; --muted: #6b7280; --line: #e5e7eb; --card: #ffffff;
+    --pg_search: #2563eb; --hnsw: #dc2626; --ivfflat: #d97706; --vchord: #059669;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b0f19; --fg: #e5e7eb; --muted: #9ca3af; --line: #1f2937; --card: #111827;
+            --pg_search: #60a5fa; --hnsw: #f87171; --ivfflat: #fbbf24; --vchord: #34d399; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 32px 0 8px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+  .bar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+         padding: 10px 0; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .bar label { color: var(--muted); }
+  select, button { font: inherit; padding: 4px 8px; background: var(--card); color: var(--fg);
+                   border: 1px solid var(--line); border-radius: 6px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+  /* Four bars need far less width than a log-scale curve, so they pair up sooner. */
+  .grid.bars { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card);
+          overflow-x: auto; }
+  .card h3 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+  .card .cap { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0 0; font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+  .swatch { width: 18px; height: 0; border-top-width: 2px; border-top-style: solid; display: inline-block; }
+  svg { display: block; max-width: 100%; height: auto; }
+  .ax { stroke: var(--line); }
+  .tick { fill: var(--muted); font-size: 10px; }
+  .lbl { fill: var(--muted); font-size: 11px; }
+  #status { padding: 40px 0; color: var(--muted); }
+  table { border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; }
+</style>
+</head>
+<body>
+
+<h1>Vector benchmarks — cohere</h1>
+<p class="sub">Recall/latency operating points and index build cost for every vector index the
+cohere suite benchmarks. Newest published run per arm.</p>
+
+<div class="bar">
+  <label>Dataset size <select id="size"></select></label>
+  <label>Latency percentile <select id="pct">
+    <option value="p50">p50</option>
+    <option value="p95" selected>p95</option>
+    <option value="p99">p99</option>
+  </select></label>
+  <span id="meta" class="note"></span>
+</div>
+
+<div id="status">Loading data.js…</div>
+<div id="app" hidden>
+  <h2>Recall vs latency</h2>
+  <p class="note" id="curvenote"></p>
+  <div class="grid" id="curves"></div>
+
+  <h2>Index cost</h2>
+  <p class="note">Stacked: every arm except pg_search needs a separate GIN index on
+  <code>text</code> to evaluate the filter, so the total is the comparable number.</p>
+  <div class="grid bars" id="bars"></div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const ARMS = ["pg_search", "hnsw", "ivfflat", "vchord"];
+const ARM_LABEL = { pg_search: "ParadeDB", hnsw: "pgvector hnsw", ivfflat: "pgvector ivfflat", vchord: "VectorChord" };
+const SIZES = ["1m", "10m"];
+const QUERIES = [
+  { key: "unfiltered", label: "Unfiltered", stem: /^knn_top10_unfiltered/ },
+  { key: "10pct",      label: "10% filter", stem: /^knn_top10_10pct/ },
+  { key: "1pct",       label: "1% filter",  stem: /^knn_top10_1pct/ },
+];
+const SUITE = /^pg_search 'cohere \(([^)]+)\)' \((\d+m) rows\)$/;
+const POINT = /^(.+)@r(\d+) - (p\d+)$/;
+const css = (a) => getComputedStyle(document.documentElement).getPropertyValue("--" + a).trim();
+
+/** Newest run per (arm, size), flattened into points/index metrics we can chart. */
+function collect(entries) {
+  const runs = {}, meta = [];
+  for (const [suite, list] of Object.entries(entries)) {
+    const m = suite.match(SUITE);
+    if (!m || !list.length) continue;
+    const [, arm, size] = m, run = list[list.length - 1];
+    const rec = { arm, size, commit: run.commit.id.slice(0, 7), when: run.commit.timestamp.slice(0, 10),
+                  points: [], indexes: {} };
+    for (const b of run.benches) {
+      const p = b.name.match(POINT);
+      if (p) { rec.points.push({ stem: p[1], target: +p[2] / 100, pct: p[3], ms: b.value }); continue; }
+      if (b.unit === "min" || b.unit === "MB") {
+        const idx = b.name.replace(/ (build time|index size)$/, "");
+        const field = b.unit === "min" ? "buildMin" : "sizeMb";
+        (rec.indexes[idx] = rec.indexes[idx] || {})[field] = b.value;
+      }
+    }
+    runs[arm + "|" + size] = rec;
+    meta.push({ arm, size, commit: rec.commit, when: rec.when });
+  }
+  return { runs, meta };
+}
+
+/** One line per arm, plus a line per vchord prefilter variant, at the chosen percentile. */
+function seriesFor(runs, size, query, pct) {
+  const out = [];
+  for (const arm of ARMS) {
+    const rec = runs[arm + "|" + size];
+    if (!rec) continue;
+    const stems = [...new Set(rec.points.filter((p) => query.stem.test(p.stem)).map((p) => p.stem))].sort();
+    for (const stem of stems) {
+      const variant = stem.replace(/^knn_top10_(unfiltered|10pct|1pct)_?/, "").replace(/_/g, " ");
+      const pts = rec.points.filter((p) => p.stem === stem && p.pct === pct)
+                            .map((p) => ({ x: p.ms, y: p.target }))
+                            .sort((a, b) => a.y - b.y);
+      if (pts.length) out.push({ arm, label: ARM_LABEL[arm] + (variant ? ` (${variant})` : ""),
+                                 dashed: /off/.test(variant), pts });
+    }
+  }
+  return out;
+}
+
+function lineChart(series, pct) {
+  const W = 460, H = 300, L = 52, R = 12, T = 10, B = 42;
+  const xs = series.flatMap((s) => s.pts.map((p) => p.x));
+  if (!xs.length) return `<svg viewBox="0 0 ${W} ${H}"><text x="16" y="30" class="lbl">no data</text></svg>`;
+  // Latency spans an order of magnitude between arms, so a log x-axis keeps the fast ones readable.
+  const lo = Math.log10(Math.min(...xs) * 0.8), hi = Math.log10(Math.max(...xs) * 1.25);
+  const X = (v) => L + (Math.log10(v) - lo) / (hi - lo) * (W - L - R);
+  const Y = (v) => T + (1.005 - v) / (1.005 - 0.87) * (H - T - B);
+
+  let g = "";
+  for (const t of [0.9, 0.95, 0.99]) {
+    g += `<line class="ax" x1="${L}" y1="${Y(t).toFixed(1)}" x2="${W - R}" y2="${Y(t).toFixed(1)}"/>` +
+         `<text class="tick" x="${L - 6}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${(t * 100).toFixed(0)}%</text>`;
+  }
+  for (let e = Math.floor(lo); e <= Math.ceil(hi); e++) {
+    for (const m of [1, 2, 5]) {
+      const v = m * 10 ** e;
+      if (Math.log10(v) < lo || Math.log10(v) > hi) continue;
+      g += `<line class="ax" x1="${X(v).toFixed(1)}" y1="${T}" x2="${X(v).toFixed(1)}" y2="${H - B}" opacity=".5"/>` +
+           `<text class="tick" x="${X(v).toFixed(1)}" y="${H - B + 14}" text-anchor="middle">${v < 1000 ? v : v / 1000 + "k"}</text>`;
+    }
+  }
+  g += `<text class="lbl" x="${(L + W - R) / 2}" y="${H - 8}" text-anchor="middle">latency (ms, log)</text>`;
+  g += `<text class="lbl" transform="translate(13,${(T + H - B) / 2}) rotate(-90)" text-anchor="middle">recall target</text>`;
+
+  for (const s of series) {
+    const c = css(s.arm);
+    const d = s.pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ");
+    g += `<path d="${d}" fill="none" stroke="${c}" stroke-width="2"${s.dashed ? ' stroke-dasharray="5 3"' : ""}/>`;
+    for (const p of s.pts) {
+      g += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.5" fill="${c}">` +
+           `<title>${s.label} @ ${(p.y * 100).toFixed(0)}% — ${pct} ${p.x.toFixed(1)} ms</title></circle>`;
+    }
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
+}
+
+function barChart(runs, size, field, unit, fmt) {
+  const W = 460, H = 300, L = 62, R = 12, T = 10, B = 54;
+  const rows = ARMS.map((arm) => {
+    const rec = runs[arm + "|" + size];
+    if (!rec) return null;
+    const parts = Object.entries(rec.indexes)
+      .map(([name, v]) => ({ name, v: v[field] || 0 }))
+      .filter((p) => p.v > 0)
+      .sort((a, b) => (/text_fts/.test(a.name) ? 1 : -1));
+    return { arm, parts, total: parts.reduce((s, p) => s + p.v, 0) };
+  }).filter(Boolean).filter((r) => r.total > 0);
+  if (!rows.length) return `<svg viewBox="0 0 ${W} ${H}"><text x="16" y="30" class="lbl">no data</text></svg>`;
+
+  const max = Math.max(...rows.map((r) => r.total)) * 1.12;
+  const Y = (v) => T + (1 - v / max) * (H - T - B);
+  const bw = (W - L - R) / rows.length;
+  let g = "";
+  for (let i = 0; i <= 4; i++) {
+    const v = (max / 4) * i;
+    g += `<line class="ax" x1="${L}" y1="${Y(v).toFixed(1)}" x2="${W - R}" y2="${Y(v).toFixed(1)}"/>` +
+         `<text class="tick" x="${L - 6}" y="${(Y(v) + 3).toFixed(1)}" text-anchor="end">${fmt(v)}</text>`;
+  }
+  rows.forEach((r, i) => {
+    const x = L + i * bw + bw * 0.22, w = bw * 0.56, c = css(r.arm);
+    let acc = 0;
+    r.parts.forEach((p) => {
+      const y0 = Y(acc + p.v), y1 = Y(acc);
+      // The companion GIN index is the same colour at lower opacity: same arm, separable component.
+      g += `<rect x="${x.toFixed(1)}" y="${y0.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, y1 - y0).toFixed(1)}"` +
+           ` fill="${c}" opacity="${/text_fts/.test(p.name) ? 0.45 : 1}"><title>${p.name}: ${fmt(p.v)} ${unit}</title></rect>`;
+      acc += p.v;
+    });
+    g += `<text class="tick" x="${(x + w / 2).toFixed(1)}" y="${(Y(r.total) - 5).toFixed(1)}" text-anchor="middle">${fmt(r.total)}</text>`;
+    g += `<text class="tick" x="${(x + w / 2).toFixed(1)}" y="${H - B + 15}" text-anchor="middle">${ARM_LABEL[r.arm].split(" ")[0]}</text>`;
+    if (ARM_LABEL[r.arm].includes(" "))
+      g += `<text class="tick" x="${(x + w / 2).toFixed(1)}" y="${H - B + 26}" text-anchor="middle">${ARM_LABEL[r.arm].split(" ")[1]}</text>`;
+  });
+  g += `<text class="lbl" transform="translate(13,${(T + H - B) / 2}) rotate(-90)" text-anchor="middle">${unit}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
+}
+
+function legend(series) {
+  return `<div class="legend">` + series.map((s) =>
+    `<span><i class="swatch" style="border-top-color:${css(s.arm)};border-top-style:${s.dashed ? "dashed" : "solid"}"></i>${s.label}</span>`
+  ).join("") + `</div>`;
+}
+
+function render() {
+  const { runs, meta } = window.__DATA;
+  const size = document.getElementById("size").value;
+  const pct = document.getElementById("pct").value;
+  document.getElementById("meta").textContent = meta
+    .filter((m) => m.size === size)
+    .map((m) => `${m.arm} @ ${m.commit} (${m.when})`)
+    .join(" · ");
+  document.getElementById("curvenote").innerHTML =
+    "Up and to the left is better. The y axis is the <em>target</em> the sweep aimed at, not the recall it achieved \u2014 data.js does " +
+    "not publish achieved recall, so a point an arm could not actually reach still plots at its target.";
+
+  document.getElementById("curves").innerHTML = QUERIES.map((q) => {
+    const s = seriesFor(runs, size, q, pct);
+    return `<div class="card"><h3>${q.label}</h3>
+            <p class="cap">${pct} latency at each recall target</p>${lineChart(s, pct)}${legend(s)}</div>`;
+  }).join("");
+
+  document.getElementById("bars").innerHTML =
+    `<div class="card"><h3>Build time</h3><p class="cap">minutes, lower is better</p>
+     ${barChart(runs, size, "buildMin", "minutes", (v) => v.toFixed(1))}</div>` +
+    `<div class="card"><h3>Index size</h3><p class="cap">MB on disk, lower is better</p>
+     ${barChart(runs, size, "sizeMb", "MB", (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(0)))}</div>`;
+}
+
+(function init() {
+  const d = window.BENCHMARK_DATA;
+  if (!d || !d.entries) { document.getElementById("status").textContent = "Could not read data.js."; return; }
+  window.__DATA = collect(d.entries);
+  const { runs, meta } = window.__DATA;
+  if (!meta.length) { document.getElementById("status").textContent = "No cohere suites in data.js yet."; return; }
+
+  // Offer only sizes that actually published, largest first so 10m is the default view.
+  const sizes = [...new Set(Object.values(runs).map((r) => r.size))]
+    .sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
+  const sel = document.getElementById("size");
+  sel.innerHTML = sizes.map((s) => `<option value="${s}">${s} rows</option>`).join("");
+  sel.addEventListener("change", render);
+  document.getElementById("pct").addEventListener("change", render);
+
+  document.getElementById("status").hidden = true;
+  document.getElementById("app").hidden = false;
+  render();
+})();
+</script>
+</body>
+</html>

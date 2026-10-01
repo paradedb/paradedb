@@ -1,0 +1,6108 @@
+window.BENCHMARK_DATA = {
+  "lastUpdate": 1752433910799,
+  "repoUrl": "https://github.com/paradedb/paradedb",
+  "entries": {
+    "pg_search wide-table.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752237074771,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 37.825549325934574,
+            "unit": "median tps",
+            "extra": "avg tps: 38.10476012239314, max tps: 39.32428486805184, count: 59161"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 202.7817098654163,
+            "unit": "median tps",
+            "extra": "avg tps: 206.11763802798248, max tps: 243.09219735024135, count: 59161"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752238150078,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 36.76214151689536,
+            "unit": "median tps",
+            "extra": "avg tps: 37.02609090387134, max tps: 38.15774112652048, count: 59180"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 202.66915644497536,
+            "unit": "median tps",
+            "extra": "avg tps: 206.94870979720113, max tps: 252.9890260121063, count: 59180"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752239187807,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 37.82234014574883,
+            "unit": "median tps",
+            "extra": "avg tps: 38.186195096009584, max tps: 39.58086860017298, count: 59153"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 201.74464204799588,
+            "unit": "median tps",
+            "extra": "avg tps: 205.23224918969623, max tps: 233.7369525946125, count: 59153"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752240190472,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 36.322322974767935,
+            "unit": "median tps",
+            "extra": "avg tps: 36.81398351471555, max tps: 38.37935597937283, count: 59171"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 200.01435827198972,
+            "unit": "median tps",
+            "extra": "avg tps: 204.28389298607237, max tps: 238.33243225119554, count: 59171"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242269730,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 37.19904665199496,
+            "unit": "median tps",
+            "extra": "avg tps: 37.510360712348565, max tps: 38.69780589761047, count: 59165"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 214.78443922622802,
+            "unit": "median tps",
+            "extra": "avg tps: 216.85950065619, max tps: 246.3335642076657, count: 59165"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242270591,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 37.55215050040496,
+            "unit": "median tps",
+            "extra": "avg tps: 37.86920875539607, max tps: 39.12103939840368, count: 59156"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 200.95279863069567,
+            "unit": "median tps",
+            "extra": "avg tps: 205.07650664493136, max tps: 238.30423395993574, count: 59156"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242297691,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 38.530638674566504,
+            "unit": "median tps",
+            "extra": "avg tps: 38.54578320184089, max tps: 39.69305130939306, count: 59169"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 203.3153258696447,
+            "unit": "median tps",
+            "extra": "avg tps: 204.12094986004436, max tps: 236.93919046235746, count: 59169"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242298112,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 37.09741977565106,
+            "unit": "median tps",
+            "extra": "avg tps: 37.636850036873874, max tps: 39.2388578805394, count: 59111"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 200.2565596201875,
+            "unit": "median tps",
+            "extra": "avg tps: 204.49374794218056, max tps: 222.20521665144904, count: 59111"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242309745,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 38.2119626806918,
+            "unit": "median tps",
+            "extra": "avg tps: 38.47800874983463, max tps: 39.821689152547016, count: 59164"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 204.7102159695084,
+            "unit": "median tps",
+            "extra": "avg tps: 208.70117700234437, max tps: 224.13753765138432, count: 59164"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7d4bc24bfd70b39d516d876904a317cd3a2f5f4",
+          "message": "chore: Avoid impersonating Phil (#2822)\n\n## What\n\nUse the same github token for the stressgres job as for the benchmarks\njob.\n\n## Why\n\nTo avoid impersonating Phil: using the release token results in comments\nfrom him on `perf` PRs, commits, and gh-pages pushes.",
+          "timestamp": "2025-07-11T07:27:20-07:00",
+          "tree_id": "da11aeca2a89a309d5985def5237c0cb6b676df0",
+          "url": "https://github.com/paradedb/paradedb/commit/b7d4bc24bfd70b39d516d876904a317cd3a2f5f4"
+        },
+        "date": 1752245033538,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 36.288242763496385,
+            "unit": "median tps",
+            "extra": "avg tps: 36.766143239941414, max tps: 38.0815200998229, count: 59174"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 204.17603081686661,
+            "unit": "median tps",
+            "extra": "avg tps: 207.86482160704657, max tps: 235.55131576811144, count: 59174"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e0a552a073d66f6de8ad45fc0587a4f2ba39dac",
+          "message": "chore: Run benchmarks on `benchmark`-labeled PRs. (#2826)\n\n## What\n\nAdjust benchmarks jobs to automatically run when the `benchmark` label\nis applied.\n\n## Why\n\n#2820 failed to actually filter to `perf:`-titled PRs, but additionally,\nin practice that would have been too noisy, since they would have re-run\non every push to the PR.\n\n## Tests\n\nManually tested adding/removing the label.",
+          "timestamp": "2025-07-11T09:27:20-07:00",
+          "tree_id": "0d8f5a0d7fda145130d823ec6bc08e217a9677d0",
+          "url": "https://github.com/paradedb/paradedb/commit/0e0a552a073d66f6de8ad45fc0587a4f2ba39dac"
+        },
+        "date": 1752252243234,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 38.96194088043833,
+            "unit": "median tps",
+            "extra": "avg tps: 39.091641575236, max tps: 40.244620676149026, count: 59159"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 201.55868289259345,
+            "unit": "median tps",
+            "extra": "avg tps: 204.59735368339355, max tps: 238.58220830567413, count: 59159"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342424163,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 38.05026273340701,
+            "unit": "median tps",
+            "extra": "avg tps: 38.42804447354306, max tps: 39.911170054564074, count: 59162"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 209.4848893106826,
+            "unit": "median tps",
+            "extra": "avg tps: 211.2074791269545, max tps: 238.03446296004148, count: 59162"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2addc521e247940cb23e898f558c98948de1ed0b",
+          "message": "ci: fix where the custom actions are to be found (#2840)\n\nwe need to fetch the latest action definitions from `main`",
+          "timestamp": "2025-07-13T13:48:21-04:00",
+          "tree_id": "6b28230c866716f60c79b559b861b0764291f6dd",
+          "url": "https://github.com/paradedb/paradedb/commit/2addc521e247940cb23e898f558c98948de1ed0b"
+        },
+        "date": 1752431390621,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.44259791981416,
+            "unit": "median tps",
+            "extra": "avg tps: 28.39237934869592, max tps: 30.308474807232038, count: 57707"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 137.3655400068265,
+            "unit": "median tps",
+            "extra": "avg tps: 137.0908991489817, max tps: 143.82283098271694, count: 57707"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433899973,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.412128775734303,
+            "unit": "median tps",
+            "extra": "avg tps: 28.355343787417613, max tps: 30.588614841849044, count: 57220"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 138.22114965602546,
+            "unit": "median tps",
+            "extra": "avg tps: 137.98474001930987, max tps: 147.4443421142904, count: 57220"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433903782,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.17113660588908,
+            "unit": "median tps",
+            "extra": "avg tps: 28.08175373395458, max tps: 29.887623717333156, count: 57751"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 135.6761365119886,
+            "unit": "median tps",
+            "extra": "avg tps: 135.3196764325807, max tps: 144.8240320945384, count: 57751"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433907733,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.91493582186858,
+            "unit": "median tps",
+            "extra": "avg tps: 28.830117407506297, max tps: 29.70239197624232, count: 57470"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 133.03245772003257,
+            "unit": "median tps",
+            "extra": "avg tps: 132.12882821493272, max tps: 144.94933965360312, count: 57470"
+          }
+        ]
+      }
+    ],
+    "pg_search single-server.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752237088919,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 390.61062538021366,
+            "unit": "median tps",
+            "extra": "avg tps: 394.6734848646864, max tps: 587.3638830351085, count: 58418"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2516.447798620683,
+            "unit": "median tps",
+            "extra": "avg tps: 2452.522804628353, max tps: 2783.7517386232435, count: 58418"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 391.61871424174217,
+            "unit": "median tps",
+            "extra": "avg tps: 397.22787805247185, max tps: 592.9112646606859, count: 58418"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 386.9820676683288,
+            "unit": "median tps",
+            "extra": "avg tps: 387.3600215614747, max tps: 486.7151347332137, count: 58418"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 265.8198623483887,
+            "unit": "median tps",
+            "extra": "avg tps: 264.24797005831863, max tps: 275.9731733626332, count: 116836"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 244.3693135727048,
+            "unit": "median tps",
+            "extra": "avg tps: 241.1945628713284, max tps: 247.34549920140702, count: 58418"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 9.438228530430472,
+            "unit": "median tps",
+            "extra": "avg tps: 14.39237952297812, max tps: 1467.1490652793304, count: 58418"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752238143945,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 424.8040573830263,
+            "unit": "median tps",
+            "extra": "avg tps: 430.26262891612987, max tps: 625.4019075870007, count: 58429"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2669.4671215626186,
+            "unit": "median tps",
+            "extra": "avg tps: 2585.349611022355, max tps: 3103.1823057924116, count: 58429"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 425.5931240671708,
+            "unit": "median tps",
+            "extra": "avg tps: 431.9001976013556, max tps: 636.9263162649956, count: 58429"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 428.99259209280535,
+            "unit": "median tps",
+            "extra": "avg tps: 430.5479095073583, max tps: 560.229864554346, count: 58429"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 293.9350646225956,
+            "unit": "median tps",
+            "extra": "avg tps: 292.02900262617015, max tps: 303.6400647409563, count: 116858"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 269.3806150354518,
+            "unit": "median tps",
+            "extra": "avg tps: 266.1746204223828, max tps: 275.8882036791982, count: 58429"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.308464214984275,
+            "unit": "median tps",
+            "extra": "avg tps: 20.10877557684736, max tps: 1580.3180864244357, count: 58429"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752239192222,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 419.9507849883561,
+            "unit": "median tps",
+            "extra": "avg tps: 425.04714770413767, max tps: 630.6280458892587, count: 58487"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2504.301465772778,
+            "unit": "median tps",
+            "extra": "avg tps: 2359.1891961968727, max tps: 3045.2768244477948, count: 58487"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 415.51375897220925,
+            "unit": "median tps",
+            "extra": "avg tps: 421.2410175397073, max tps: 608.7548401627973, count: 58487"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 418.02264178386986,
+            "unit": "median tps",
+            "extra": "avg tps: 420.50438026908574, max tps: 523.1861176539895, count: 58487"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 287.0577202647603,
+            "unit": "median tps",
+            "extra": "avg tps: 291.91354072135937, max tps: 321.6306651395404, count: 116974"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 259.018805817646,
+            "unit": "median tps",
+            "extra": "avg tps: 253.54578824946495, max tps: 281.59551880155203, count: 58487"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.454366628858304,
+            "unit": "median tps",
+            "extra": "avg tps: 20.92424510888961, max tps: 1789.8276932879673, count: 58487"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752240199154,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 422.78737942877837,
+            "unit": "median tps",
+            "extra": "avg tps: 428.9491122020344, max tps: 617.6369137335371, count: 58484"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2648.23794528854,
+            "unit": "median tps",
+            "extra": "avg tps: 2535.02234211775, max tps: 3028.8331553893854, count: 58484"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 423.59314899254184,
+            "unit": "median tps",
+            "extra": "avg tps: 429.1871024007199, max tps: 625.2070998518259, count: 58484"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 423.78290965200836,
+            "unit": "median tps",
+            "extra": "avg tps: 425.7119938468826, max tps: 535.8722819151196, count: 58484"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 290.705323484711,
+            "unit": "median tps",
+            "extra": "avg tps: 287.24118177604964, max tps: 301.3746025700164, count: 116968"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 271.73480830906306,
+            "unit": "median tps",
+            "extra": "avg tps: 263.54524606254665, max tps: 276.5806397735441, count: 58484"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 11.892687396008617,
+            "unit": "median tps",
+            "extra": "avg tps: 18.462332175309673, max tps: 1662.546322696916, count: 58484"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242267577,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 420.91687397936823,
+            "unit": "median tps",
+            "extra": "avg tps: 424.99157028125353, max tps: 623.0053840875207, count: 58510"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2653.7520182228814,
+            "unit": "median tps",
+            "extra": "avg tps: 2520.5699511161424, max tps: 3096.183607226404, count: 58510"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 421.3652384755941,
+            "unit": "median tps",
+            "extra": "avg tps: 427.5806729862549, max tps: 630.8541623415919, count: 58510"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 426.0759813743613,
+            "unit": "median tps",
+            "extra": "avg tps: 427.0602445313631, max tps: 542.8882534562845, count: 58510"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 290.01794812443103,
+            "unit": "median tps",
+            "extra": "avg tps: 286.1915647693137, max tps: 294.84872362983583, count: 117020"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 264.115255095766,
+            "unit": "median tps",
+            "extra": "avg tps: 259.1327778774077, max tps: 277.2598176966288, count: 58510"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 11.763587604842462,
+            "unit": "median tps",
+            "extra": "avg tps: 18.397809351287904, max tps: 1605.4121654923076, count: 58510"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242275510,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 421.0846198323314,
+            "unit": "median tps",
+            "extra": "avg tps: 426.6024206149527, max tps: 610.0215167131444, count: 58509"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2555.3081517484957,
+            "unit": "median tps",
+            "extra": "avg tps: 2402.861885873489, max tps: 3015.913578334383, count: 58509"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 421.33914273846483,
+            "unit": "median tps",
+            "extra": "avg tps: 426.2360583639731, max tps: 621.5880177582862, count: 58509"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 421.34124513049187,
+            "unit": "median tps",
+            "extra": "avg tps: 423.90369642819525, max tps: 557.1057642452083, count: 58509"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 289.1995655225524,
+            "unit": "median tps",
+            "extra": "avg tps: 297.7753920246677, max tps: 331.7102176499733, count: 117018"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 285.77452956413526,
+            "unit": "median tps",
+            "extra": "avg tps: 281.92246793622684, max tps: 296.44102987387447, count: 58509"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.969513450717152,
+            "unit": "median tps",
+            "extra": "avg tps: 19.127201812216185, max tps: 1420.277010828192, count: 58509"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242287493,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 426.7746932092187,
+            "unit": "median tps",
+            "extra": "avg tps: 433.01058402052513, max tps: 634.626643475137, count: 58467"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2726.771190589186,
+            "unit": "median tps",
+            "extra": "avg tps: 2654.5192862854824, max tps: 3102.5710283182502, count: 58467"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 427.36646488181594,
+            "unit": "median tps",
+            "extra": "avg tps: 433.97764499350416, max tps: 624.5086873061583, count: 58467"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 429.4603086713481,
+            "unit": "median tps",
+            "extra": "avg tps: 431.60982949016335, max tps: 540.6456595912189, count: 58467"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 292.8062642973656,
+            "unit": "median tps",
+            "extra": "avg tps: 291.3301503282136, max tps: 306.1528143403611, count: 116934"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 271.52702802451535,
+            "unit": "median tps",
+            "extra": "avg tps: 269.2492972962839, max tps: 277.68593806235344, count: 58467"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 12.636123097237364,
+            "unit": "median tps",
+            "extra": "avg tps: 19.1632419984933, max tps: 1590.3206722603547, count: 58467"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242300333,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 429.22984855556956,
+            "unit": "median tps",
+            "extra": "avg tps: 435.46898607315154, max tps: 625.4298346164885, count: 58520"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2824.351115567359,
+            "unit": "median tps",
+            "extra": "avg tps: 2791.8626056279327, max tps: 3116.1674863131448, count: 58520"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 427.8219076000739,
+            "unit": "median tps",
+            "extra": "avg tps: 433.9641590739696, max tps: 637.1425581578122, count: 58520"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 430.11195443547155,
+            "unit": "median tps",
+            "extra": "avg tps: 432.4492332657866, max tps: 549.9135948264129, count: 58520"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 295.9500114239412,
+            "unit": "median tps",
+            "extra": "avg tps: 293.533000021387, max tps: 305.7479194777693, count: 117040"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 274.0168310858391,
+            "unit": "median tps",
+            "extra": "avg tps: 270.8722098516149, max tps: 277.45126989182813, count: 58520"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.057231501226926,
+            "unit": "median tps",
+            "extra": "avg tps: 24.232086089574388, max tps: 1669.1063437724808, count: 58520"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242310778,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 421.6242857582653,
+            "unit": "median tps",
+            "extra": "avg tps: 425.33345426764777, max tps: 623.1012971220861, count: 58517"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2606.589693763638,
+            "unit": "median tps",
+            "extra": "avg tps: 2483.77266598526, max tps: 3123.3352222837634, count: 58517"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 421.7229307025697,
+            "unit": "median tps",
+            "extra": "avg tps: 425.92747223300324, max tps: 616.1836317596243, count: 58517"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 429.3841726562211,
+            "unit": "median tps",
+            "extra": "avg tps: 430.5376819449203, max tps: 543.4003242687096, count: 58517"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 290.13684866542326,
+            "unit": "median tps",
+            "extra": "avg tps: 286.57712906538285, max tps: 297.8622849327923, count: 117034"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 265.68227415044765,
+            "unit": "median tps",
+            "extra": "avg tps: 261.54181257271244, max tps: 272.2117785860457, count: 58517"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.216902839826679,
+            "unit": "median tps",
+            "extra": "avg tps: 18.804213195048224, max tps: 1537.8156558860662, count: 58517"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7d4bc24bfd70b39d516d876904a317cd3a2f5f4",
+          "message": "chore: Avoid impersonating Phil (#2822)\n\n## What\n\nUse the same github token for the stressgres job as for the benchmarks\njob.\n\n## Why\n\nTo avoid impersonating Phil: using the release token results in comments\nfrom him on `perf` PRs, commits, and gh-pages pushes.",
+          "timestamp": "2025-07-11T07:27:20-07:00",
+          "tree_id": "da11aeca2a89a309d5985def5237c0cb6b676df0",
+          "url": "https://github.com/paradedb/paradedb/commit/b7d4bc24bfd70b39d516d876904a317cd3a2f5f4"
+        },
+        "date": 1752244967409,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 421.2826013107481,
+            "unit": "median tps",
+            "extra": "avg tps: 428.325355520748, max tps: 616.2326010612538, count: 58492"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2736.17931266536,
+            "unit": "median tps",
+            "extra": "avg tps: 2617.8567420999116, max tps: 3091.7522449634653, count: 58492"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 423.0311407474487,
+            "unit": "median tps",
+            "extra": "avg tps: 429.7644639397119, max tps: 625.2291059432195, count: 58492"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 422.5294389352778,
+            "unit": "median tps",
+            "extra": "avg tps: 427.4669617590523, max tps: 549.6119904231209, count: 58492"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 290.3436499725682,
+            "unit": "median tps",
+            "extra": "avg tps: 289.142625824739, max tps: 306.39042894660054, count: 116984"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 267.6721357924853,
+            "unit": "median tps",
+            "extra": "avg tps: 264.93818993107095, max tps: 279.0778420400053, count: 58492"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.157395946021119,
+            "unit": "median tps",
+            "extra": "avg tps: 18.466957270305603, max tps: 1429.6252666251123, count: 58492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e0a552a073d66f6de8ad45fc0587a4f2ba39dac",
+          "message": "chore: Run benchmarks on `benchmark`-labeled PRs. (#2826)\n\n## What\n\nAdjust benchmarks jobs to automatically run when the `benchmark` label\nis applied.\n\n## Why\n\n#2820 failed to actually filter to `perf:`-titled PRs, but additionally,\nin practice that would have been too noisy, since they would have re-run\non every push to the PR.\n\n## Tests\n\nManually tested adding/removing the label.",
+          "timestamp": "2025-07-11T09:27:20-07:00",
+          "tree_id": "0d8f5a0d7fda145130d823ec6bc08e217a9677d0",
+          "url": "https://github.com/paradedb/paradedb/commit/0e0a552a073d66f6de8ad45fc0587a4f2ba39dac"
+        },
+        "date": 1752252249319,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 422.9282614795088,
+            "unit": "median tps",
+            "extra": "avg tps: 429.5687800923141, max tps: 631.8394721491362, count: 58492"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2604.8651612858453,
+            "unit": "median tps",
+            "extra": "avg tps: 2452.288141621637, max tps: 3114.310870107762, count: 58492"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 420.5582671105377,
+            "unit": "median tps",
+            "extra": "avg tps: 426.7801318782761, max tps: 623.6397579584806, count: 58492"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 422.8547845975581,
+            "unit": "median tps",
+            "extra": "avg tps: 425.5039507494837, max tps: 545.7662673003814, count: 58492"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 287.14507088241055,
+            "unit": "median tps",
+            "extra": "avg tps: 281.4711506432522, max tps: 297.1321756108476, count: 116984"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 262.0414504078653,
+            "unit": "median tps",
+            "extra": "avg tps: 254.11868183108103, max tps: 270.10925993230427, count: 58492"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 11.26868584326516,
+            "unit": "median tps",
+            "extra": "avg tps: 16.916883202126595, max tps: 1662.6541280376691, count: 58492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342414568,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 428.1719141313963,
+            "unit": "median tps",
+            "extra": "avg tps: 433.5517910347915, max tps: 626.412175197602, count: 58448"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2753.300112257466,
+            "unit": "median tps",
+            "extra": "avg tps: 2642.8120667740077, max tps: 3105.2536060620073, count: 58448"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 428.97223478653507,
+            "unit": "median tps",
+            "extra": "avg tps: 435.76052667775485, max tps: 633.68219787507, count: 58448"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 431.077223057264,
+            "unit": "median tps",
+            "extra": "avg tps: 433.6366969040952, max tps: 557.2192574752496, count: 58448"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 294.4416836799739,
+            "unit": "median tps",
+            "extra": "avg tps: 297.27528689756497, max tps: 315.0423057468355, count: 116896"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 265.9758986548301,
+            "unit": "median tps",
+            "extra": "avg tps: 260.4471228031426, max tps: 274.0890555788231, count: 58448"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.437805261168323,
+            "unit": "median tps",
+            "extra": "avg tps: 20.971075768606436, max tps: 1729.7387056711211, count: 58448"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2addc521e247940cb23e898f558c98948de1ed0b",
+          "message": "ci: fix where the custom actions are to be found (#2840)\n\nwe need to fetch the latest action definitions from `main`",
+          "timestamp": "2025-07-13T13:48:21-04:00",
+          "tree_id": "6b28230c866716f60c79b559b861b0764291f6dd",
+          "url": "https://github.com/paradedb/paradedb/commit/2addc521e247940cb23e898f558c98948de1ed0b"
+        },
+        "date": 1752430139479,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 280.187891883012,
+            "unit": "median tps",
+            "extra": "avg tps: 282.4332829451848, max tps: 505.9432251200227, count: 55029"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2409.4477384311695,
+            "unit": "median tps",
+            "extra": "avg tps: 2409.0905963630667, max tps: 2555.922213924888, count: 55029"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 319.82634028482596,
+            "unit": "median tps",
+            "extra": "avg tps: 319.9017629669804, max tps: 533.3850763238679, count: 55029"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 285.3004632571824,
+            "unit": "median tps",
+            "extra": "avg tps: 284.08737263570345, max tps: 414.0074793763209, count: 55029"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 141.055257560854,
+            "unit": "median tps",
+            "extra": "avg tps: 141.19610961918204, max tps: 157.67470255680985, count: 110058"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 127.94477265131181,
+            "unit": "median tps",
+            "extra": "avg tps: 128.49762613185086, max tps: 143.58481237185407, count: 55029"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.7209099181933185,
+            "unit": "median tps",
+            "extra": "avg tps: 9.082389211678999, max tps: 1182.3391634477482, count: 55029"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T11:04:27-07:00",
+          "tree_id": "e032e104cda1d3cdc1d428eff8c4885e410482d9",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752430863106,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 314.9409736455152,
+            "unit": "median tps",
+            "extra": "avg tps: 316.33484990321216, max tps: 545.1104654804325, count: 55120"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2262.5145752777007,
+            "unit": "median tps",
+            "extra": "avg tps: 2263.4486192238273, max tps: 2539.5623410609137, count: 55120"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 282.64644141012116,
+            "unit": "median tps",
+            "extra": "avg tps: 287.25534972427414, max tps: 491.2277557130702, count: 55120"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 254.79757757192263,
+            "unit": "median tps",
+            "extra": "avg tps: 257.68719641811657, max tps: 389.8724851860152, count: 55120"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 144.90692766781413,
+            "unit": "median tps",
+            "extra": "avg tps: 144.6795477457895, max tps: 153.28084782302142, count: 110240"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 146.25230908242128,
+            "unit": "median tps",
+            "extra": "avg tps: 144.89944432876166, max tps: 147.23274150390725, count: 55120"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.694535964358617,
+            "unit": "median tps",
+            "extra": "avg tps: 8.658672291389516, max tps: 982.3800317505226, count: 55120"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752432647847,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 305.32272938205944,
+            "unit": "median tps",
+            "extra": "avg tps: 306.1709513793768, max tps: 509.13367062264086, count: 55139"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2388.9657355529453,
+            "unit": "median tps",
+            "extra": "avg tps: 2387.626860562318, max tps: 2619.0022868153455, count: 55139"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 305.8636876480861,
+            "unit": "median tps",
+            "extra": "avg tps: 306.75450265195326, max tps: 525.4438412704519, count: 55139"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 261.79510178128913,
+            "unit": "median tps",
+            "extra": "avg tps: 263.09855599014736, max tps: 442.6234718092668, count: 55139"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 152.79934931134625,
+            "unit": "median tps",
+            "extra": "avg tps: 153.70933855054793, max tps: 158.50935939015554, count: 110278"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 139.11687804322744,
+            "unit": "median tps",
+            "extra": "avg tps: 138.23560087980655, max tps: 139.44860213896732, count: 55139"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.885432987996397,
+            "unit": "median tps",
+            "extra": "avg tps: 9.287483643011267, max tps: 1119.8358768538883, count: 55139"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752432648116,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 283.9363723751385,
+            "unit": "median tps",
+            "extra": "avg tps: 286.0383760280728, max tps: 538.2504209849611, count: 55231"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2189.642691072867,
+            "unit": "median tps",
+            "extra": "avg tps: 2192.3981522800163, max tps: 2686.0042290952615, count: 55231"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 283.15778469653907,
+            "unit": "median tps",
+            "extra": "avg tps: 285.4281484014078, max tps: 532.5478360804331, count: 55231"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 249.14373875405133,
+            "unit": "median tps",
+            "extra": "avg tps: 250.04185566947297, max tps: 416.59435283025454, count: 55231"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 135.94773764134112,
+            "unit": "median tps",
+            "extra": "avg tps: 136.2005346839254, max tps: 153.66913094753642, count: 110462"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 155.86887115486712,
+            "unit": "median tps",
+            "extra": "avg tps: 153.1622252342047, max tps: 156.805432528729, count: 55231"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.915880137709071,
+            "unit": "median tps",
+            "extra": "avg tps: 9.102878730811579, max tps: 1121.983127617727, count: 55231"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752432655057,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 304.10573982217574,
+            "unit": "median tps",
+            "extra": "avg tps: 304.53919760299937, max tps: 502.0157753878591, count: 55161"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2316.7334568439837,
+            "unit": "median tps",
+            "extra": "avg tps: 2320.2085191947153, max tps: 2630.3683626307657, count: 55161"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 306.6406566152959,
+            "unit": "median tps",
+            "extra": "avg tps: 307.35145607903553, max tps: 519.4274739396178, count: 55161"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 248.21655696336444,
+            "unit": "median tps",
+            "extra": "avg tps: 251.1666138016887, max tps: 418.1799204053067, count: 55161"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 153.6419229623172,
+            "unit": "median tps",
+            "extra": "avg tps: 154.24100321473776, max tps: 157.6770148792676, count: 110322"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 137.75497982017365,
+            "unit": "median tps",
+            "extra": "avg tps: 137.15892343700133, max tps: 140.636191015028, count: 55161"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.608181002540584,
+            "unit": "median tps",
+            "extra": "avg tps: 8.638308812013763, max tps: 1050.8175360430414, count: 55161"
+          }
+        ]
+      }
+    ],
+    "pg_search single-server.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752237097892,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.885071801192753, max cpu: 23.738873, count: 58418"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 97.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 91.59658617367506, max mem: 100.84765625, count: 58418"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.744757178684784, max cpu: 9.538003, count: 58418"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 83,
+            "unit": "median mem",
+            "extra": "avg mem: 76.55455082337636, max mem: 86.0, count: 58418"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.880863164202392, max cpu: 24.242424, count: 58418"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 98.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 92.26902158795234, max mem: 101.1953125, count: 58418"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.477421035393748, max cpu: 4.7832584, count: 58418"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 95.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 88.48916001917217, max mem: 96.58203125, count: 58418"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.611805182822304, max cpu: 19.783615, count: 116836"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 97.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 92.39853566109761, max mem: 106.796875, count: 116836"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7699,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6908.741500907255, max block_count: 7699.0, count: 58418"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 118,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.43637235098771, max segment_count: 369.0, count: 58418"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.526272854948317, max cpu: 14.328358, count: 58418"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 102.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 97.33222670292119, max mem: 110.59765625, count: 58418"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.552238,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.272652448144251, max cpu: 32.844578, count: 58418"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 77.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 72.8856530200452, max mem: 83.0703125, count: 58418"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752238182794,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.606133071552365, max cpu: 28.152493, count: 58429"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 82.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 81.84320072224409, max mem: 87.34375, count: 58429"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.759502174083395, max cpu: 9.595202, count: 58429"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 70.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 69.13551115456366, max mem: 73.1796875, count: 58429"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.606299078939965, max cpu: 23.952095, count: 58429"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 82.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 81.69680937548135, max mem: 87.35546875, count: 58429"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.259818066665957, max cpu: 4.797601, count: 58429"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 77.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 77.43897762134385, max mem: 83.1796875, count: 58429"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.396690470046422, max cpu: 24.615385, count: 116858"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 88.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 87.42538590506213, max mem: 96.4296875, count: 116858"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 5727,
+            "unit": "median block_count",
+            "extra": "avg block_count: 5675.860754077598, max block_count: 6064.0, count: 58429"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 116.52431155761694, max segment_count: 265.0, count: 58429"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.324219863529958, max cpu: 14.180207, count: 58429"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 89.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 89.05469044160434, max mem: 96.11328125, count: 58429"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.138439,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.647324940570195, max cpu: 28.828829, count: 58429"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 70.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 68.47138748256431, max mem: 72.2734375, count: 58429"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752239203936,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.646965346156069, max cpu: 24.767801, count: 58487"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 86.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 87.36479454034658, max mem: 100.41796875, count: 58487"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.74947941634801, max cpu: 9.624061, count: 58487"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 75,
+            "unit": "median mem",
+            "extra": "avg mem: 73.65216201891019, max mem: 86.5, count: 58487"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.649376795385369, max cpu: 28.276878, count: 58487"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 87.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 87.83397565912082, max mem: 102.2265625, count: 58487"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.588910140144389, max cpu: 4.804805, count: 58487"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 82.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 82.6927249858943, max mem: 94.91015625, count: 58487"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.316505723093951, max cpu: 23.564064, count: 116974"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 92.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 93.05821866664814, max mem: 108.53125, count: 116974"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6223,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6380.314685314685, max block_count: 7676.0, count: 58487"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 118,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.81597619983928, max segment_count: 402.0, count: 58487"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.487807291598191, max cpu: 14.43609, count: 58487"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 94.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 93.35109224325491, max mem: 110.828125, count: 58487"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.740849,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.081865130268024, max cpu: 28.828829, count: 58487"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 76.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 74.4542117799682, max mem: 89.26953125, count: 58487"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752240203023,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.596913468053925, max cpu: 24.390244, count: 58484"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 97.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 90.57149671811949, max mem: 100.46875, count: 58484"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.713052404153525, max cpu: 9.481482, count: 58484"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 81.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 75.25564530737039, max mem: 82.94921875, count: 58484"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.5411560787201415, max cpu: 24.390244, count: 58484"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 97.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.43691777612253, max mem: 101.48046875, count: 58484"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.3996947243326785, max cpu: 4.7904196, count: 58484"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 93.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 86.33824609081117, max mem: 94.609375, count: 58484"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.365506951255694, max cpu: 24.767801, count: 116968"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 98.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 94.01243535892296, max mem: 109.1640625, count: 116968"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7720,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6761.632104507215, max block_count: 7720.0, count: 58484"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 118,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.6186820326927, max segment_count: 352.0, count: 58484"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.489308406597192, max cpu: 19.512194, count: 58484"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 106.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 99.48099713970915, max mem: 113.51171875, count: 58484"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.138439,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.504301650257142, max cpu: 28.785606, count: 58484"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 75.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 73.02810644524571, max mem: 80.1875, count: 58484"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242288445,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.610271424460606, max cpu: 29.135054, count: 58510"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 84.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 84.38099637081268, max mem: 99.97265625, count: 58510"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.662249800874041, max cpu: 9.4395275, count: 58510"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 72.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 71.59764656949666, max mem: 81.00390625, count: 58510"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.667693636464605, max cpu: 28.276878, count: 58510"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 84.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 84.93446018842933, max mem: 100.59765625, count: 58510"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.593727807438234, max cpu: 4.804805, count: 58510"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 83.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 81.38928194699623, max mem: 94.59765625, count: 58510"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.414213479338727, max cpu: 23.952095, count: 117020"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 86.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 86.92594074463767, max mem: 105.65625, count: 117020"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 5970,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6003.556862074859, max block_count: 7676.0, count: 58510"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 116.91196376687746, max segment_count: 277.0, count: 58510"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.472635432277946, max cpu: 19.21922, count: 58510"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 92.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 92.39285131548026, max mem: 105.4609375, count: 58510"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.159292,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.210967599513943, max cpu: 28.360415, count: 58510"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 75.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 74.25170490354213, max mem: 77.23828125, count: 58510"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242317418,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.637184258229063, max cpu: 24.615385, count: 58467"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 94.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 91.91918825469924, max mem: 97.609375, count: 58467"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.793934864531813, max cpu: 9.60961, count: 58467"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 83.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 78.11979159985547, max mem: 83.44921875, count: 58467"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.589710423313957, max cpu: 29.135054, count: 58467"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 95.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.19890981504524, max mem: 98.10546875, count: 58467"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.53573482552681, max cpu: 4.776119, count: 58467"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 90.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 87.00079425145809, max mem: 92.296875, count: 58467"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.48395045557315, max cpu: 24.767801, count: 116934"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 95.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 93.45675592107514, max mem: 102.37109375, count: 116934"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7270,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6920.844236919972, max block_count: 7270.0, count: 58467"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 116.6504523919476, max segment_count: 281.0, count: 58467"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.3739551851160865, max cpu: 18.991098, count: 58467"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 99.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.23472582557254, max mem: 104.640625, count: 58467"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 11.455848,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.591184729436383, max cpu: 29.003021, count: 58467"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 78.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 75.23847480202507, max mem: 80.6328125, count: 58467"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242327295,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.551353490927696, max cpu: 34.042553, count: 58509"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 92.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 94.07202157200174, max mem: 102.5390625, count: 58509"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.694829622717155, max cpu: 9.595202, count: 58509"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 78,
+            "unit": "median mem",
+            "extra": "avg mem: 79.20176810405236, max mem: 87.5, count: 58509"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.633696489004427, max cpu: 29.17933, count: 58509"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 93.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 95.04932981731443, max mem: 102.8828125, count: 58509"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.234391175822738, max cpu: 4.8780484, count: 58509"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 88.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 89.69197340366439, max mem: 96.94921875, count: 58509"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.185642336854058, max cpu: 23.59882, count: 117018"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 98.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 99.3022446666859, max mem: 110.05078125, count: 117018"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7080,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7306.942094378643, max block_count: 7959.0, count: 58509"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.13572270932677, max segment_count: 333.0, count: 58509"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.333852683744226, max cpu: 14.222222, count: 58509"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 103.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 101.82232260741937, max mem: 109.1484375, count: 58509"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 15.274464,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.10857933592802, max cpu: 28.785606, count: 58509"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 77.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 77.09715445754073, max mem: 81.39453125, count: 58509"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242345765,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.610174950628639, max cpu: 24.353119, count: 58520"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 87.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 86.70489576213261, max mem: 90.53515625, count: 58520"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.70858916074842, max cpu: 9.509658, count: 58520"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 78.75,
+            "unit": "median mem",
+            "extra": "avg mem: 75.61956596035543, max mem: 79.0, count: 58520"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.554840994557351, max cpu: 23.952095, count: 58520"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 89.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 88.04120112514953, max mem: 92.1640625, count: 58520"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.529323248331103, max cpu: 4.84115, count: 58520"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 85.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 83.37138358146787, max mem: 86.22265625, count: 58520"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.441110792061556, max cpu: 19.753086, count: 117040"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 95.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 93.63217449696685, max mem: 100.79296875, count: 117040"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6660,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6507.844634313055, max block_count: 6660.0, count: 58520"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 116.82067669172932, max segment_count: 373.0, count: 58520"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.336997145323234, max cpu: 19.482496, count: 58520"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 98.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 97.0669074808826, max mem: 104.55859375, count: 58520"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 22.857143,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.712631230288668, max cpu: 28.91566, count: 58520"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 78.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 74.22372459468986, max mem: 80.26953125, count: 58520"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242375236,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.616296357989693, max cpu: 23.66864, count: 58517"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 89.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 85.39837308228805, max mem: 91.5703125, count: 58517"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.748394834250682, max cpu: 9.60961, count: 58517"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 77.5,
+            "unit": "median mem",
+            "extra": "avg mem: 73.58967052309585, max mem: 78.5, count: 58517"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.657813692774051, max cpu: 24.279211, count: 58517"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 89.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 85.7954805734872, max mem: 92.359375, count: 58517"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.806011116004302, max cpu: 9.453471, count: 58517"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 84.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.52497511406942, max mem: 86.17578125, count: 58517"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.508431412623098, max cpu: 23.529411, count: 117034"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 94.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 91.55150583243972, max mem: 101.08203125, count: 117034"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6587,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6135.231300305894, max block_count: 6587.0, count: 58517"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.08373635012047, max segment_count: 299.0, count: 58517"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.383905985788223, max cpu: 14.349776, count: 58517"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 95.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 92.86450091426423, max mem: 101.41796875, count: 58517"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.222222,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.098894780552191, max cpu: 28.444445, count: 58517"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 80.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 76.71651093378847, max mem: 82.73828125, count: 58517"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7d4bc24bfd70b39d516d876904a317cd3a2f5f4",
+          "message": "chore: Avoid impersonating Phil (#2822)\n\n## What\n\nUse the same github token for the stressgres job as for the benchmarks\njob.\n\n## Why\n\nTo avoid impersonating Phil: using the release token results in comments\nfrom him on `perf` PRs, commits, and gh-pages pushes.",
+          "timestamp": "2025-07-11T07:27:20-07:00",
+          "tree_id": "da11aeca2a89a309d5985def5237c0cb6b676df0",
+          "url": "https://github.com/paradedb/paradedb/commit/b7d4bc24bfd70b39d516d876904a317cd3a2f5f4"
+        },
+        "date": 1752244995162,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.686958657605573, max cpu: 24.353119, count: 58492"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 96.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 92.33571785190709, max mem: 101.5546875, count: 58492"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.721218687853342, max cpu: 9.4395275, count: 58492"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 85.70703125,
+            "unit": "median mem",
+            "extra": "avg mem: 80.738690160086, max mem: 87.95703125, count: 58492"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.6703436773161044, max cpu: 24.353119, count: 58492"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 97.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 92.94400075544519, max mem: 101.5625, count: 58492"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.651776512012357, max cpu: 4.8484845, count: 58492"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 92.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 87.0725895875718, max mem: 94.3125, count: 58492"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.4395120814270035, max cpu: 24.806202, count: 116984"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 97.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 94.62648017036518, max mem: 107.06640625, count: 116984"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7451,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6972.813718115298, max block_count: 7852.0, count: 58492"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.04651918211037, max segment_count: 410.0, count: 58492"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.466018142675612, max cpu: 18.768328, count: 58492"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 100.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 96.77958858155816, max mem: 107.27734375, count: 58492"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.768328,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.888955219830907, max cpu: 28.318584, count: 58492"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 87.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 82.37771137505983, max mem: 90.6875, count: 58492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e0a552a073d66f6de8ad45fc0587a4f2ba39dac",
+          "message": "chore: Run benchmarks on `benchmark`-labeled PRs. (#2826)\n\n## What\n\nAdjust benchmarks jobs to automatically run when the `benchmark` label\nis applied.\n\n## Why\n\n#2820 failed to actually filter to `perf:`-titled PRs, but additionally,\nin practice that would have been too noisy, since they would have re-run\non every push to the PR.\n\n## Tests\n\nManually tested adding/removing the label.",
+          "timestamp": "2025-07-11T09:27:20-07:00",
+          "tree_id": "0d8f5a0d7fda145130d823ec6bc08e217a9677d0",
+          "url": "https://github.com/paradedb/paradedb/commit/0e0a552a073d66f6de8ad45fc0587a4f2ba39dac"
+        },
+        "date": 1752252315510,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.644426713048045, max cpu: 24.353119, count: 58492"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 92.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 88.82696091185547, max mem: 95.53515625, count: 58492"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.751831581354724, max cpu: 9.60961, count: 58492"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 81.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 76.04548405123778, max mem: 81.9296875, count: 58492"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.62717238875557, max cpu: 24.353119, count: 58492"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 92.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 88.07761885439461, max mem: 94.9453125, count: 58492"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.746528382548538, max cpu: 9.425626, count: 58492"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 86.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 82.5820028673793, max mem: 88.9296875, count: 58492"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.470178995589224, max cpu: 24.767801, count: 116984"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 94.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.6159397666027, max mem: 103.80859375, count: 116984"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7057,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6589.175066675784, max block_count: 7057.0, count: 58492"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 116.92267318607672, max segment_count: 309.0, count: 58492"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.354371684604528, max cpu: 15.496368, count: 58492"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 97.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 94.7221762831883, max mem: 106.828125, count: 58492"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.055636,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.8638117873788, max cpu: 29.223743, count: 58492"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 76.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 73.28466773501077, max mem: 81.25390625, count: 58492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342425491,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.599052274181254, max cpu: 24.13273, count: 58448"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 92.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.62189367311542, max mem: 99.8828125, count: 58448"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6959462125000995, max cpu: 9.552238, count: 58448"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 78.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 76.64777765866668, max mem: 86.25390625, count: 58448"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.636089999030311, max cpu: 24.13273, count: 58448"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 93.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 91.67168178605341, max mem: 101.54296875, count: 58448"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.807029735909681, max cpu: 9.425626, count: 58448"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 88.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 85.89446067444567, max mem: 95.125, count: 58448"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.255982618569151, max cpu: 19.452888, count: 116896"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 93.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.6378409748302, max mem: 110.4375, count: 116896"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6940,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6765.769333424582, max block_count: 7526.0, count: 58448"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 118,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.88721598686011, max segment_count: 433.0, count: 58448"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.360414301123459, max cpu: 14.479639, count: 58448"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 99.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.3835484640193, max mem: 105.78125, count: 58448"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.035088,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.829943891488863, max cpu: 28.444445, count: 58448"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 78.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 76.63928533429288, max mem: 88.796875, count: 58448"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2addc521e247940cb23e898f558c98948de1ed0b",
+          "message": "ci: fix where the custom actions are to be found (#2840)\n\nwe need to fetch the latest action definitions from `main`",
+          "timestamp": "2025-07-13T13:48:21-04:00",
+          "tree_id": "6b28230c866716f60c79b559b861b0764291f6dd",
+          "url": "https://github.com/paradedb/paradedb/commit/2addc521e247940cb23e898f558c98948de1ed0b"
+        },
+        "date": 1752430141798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.458302249296829, max cpu: 23.645319, count: 55029"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 96.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 98.04854294156263, max mem: 105.26953125, count: 55029"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.670127373493782, max cpu: 9.239654, count: 55029"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 84.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 84.73680461381726, max mem: 89.31640625, count: 55029"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.912164078438817, max cpu: 23.166023, count: 55029"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 97.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 97.15407430059605, max mem: 104.37109375, count: 55029"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.656686357005573, max cpu: 9.257474, count: 55029"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 95.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 96.28134256482946, max mem: 100.94140625, count: 55029"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.111430412240523, max cpu: 23.645319, count: 110058"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 112.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 111.84802934872977, max mem: 121.515625, count: 110058"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7963,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8164.094677351942, max block_count: 8655.0, count: 55029"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 119,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 118.33738574206328, max segment_count: 285.0, count: 55029"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.079977657133921, max cpu: 18.532818, count: 55029"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 116.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 116.23099460909248, max mem: 126.2265625, count: 55029"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.408438,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.800925684295496, max cpu: 32.214767, count: 55029"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 94.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.39075646477312, max mem: 101.93359375, count: 55029"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T11:04:27-07:00",
+          "tree_id": "e032e104cda1d3cdc1d428eff8c4885e410482d9",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752430865277,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.017957564244312, max cpu: 22.966507, count: 55120"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 105.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 101.20490974238027, max mem: 107.53515625, count: 55120"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6088542608689185, max cpu: 9.275363, count: 55120"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 97.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 91.907307493877, max mem: 97.56640625, count: 55120"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 9.17782,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.466004443777896, max cpu: 23.166023, count: 55120"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 108.375,
+            "unit": "median mem",
+            "extra": "avg mem: 103.24500351505806, max mem: 110.17578125, count: 55120"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.474859556002361, max cpu: 9.230769, count: 55120"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 106.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 102.09759027179336, max mem: 108.0859375, count: 55120"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.204219,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.063714533455865, max cpu: 23.529411, count: 110240"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 109.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 109.57026831373594, max mem: 127.3828125, count: 110240"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 9551,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8969.068196661829, max block_count: 9551.0, count: 55120"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 119,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 118.71567489114659, max segment_count: 343.0, count: 55120"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.998687199984452, max cpu: 18.373205, count: 55120"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 114.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 111.1551876162237, max mem: 123.46484375, count: 55120"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 22.944551,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.13413960633507, max cpu: 32.36994, count: 55120"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 106.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 98.99734046171989, max mem: 107.78125, count: 55120"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752432649793,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 9.160305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.347330108618643, max cpu: 23.529411, count: 55139"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 96.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 96.15758299479498, max mem: 104.8203125, count: 55139"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.675665151816466, max cpu: 9.4395275, count: 55139"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 87.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 85.96860037813526, max mem: 92.35546875, count: 55139"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.319782035081007, max cpu: 23.622047, count: 55139"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 98.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 97.52421826826294, max mem: 106.6875, count: 55139"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.576186694979159, max cpu: 9.160305, count: 55139"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 96.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 95.90215367639058, max mem: 102.48046875, count: 55139"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.75198666631646, max cpu: 23.166023, count: 110278"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 111.470703125,
+            "unit": "median mem",
+            "extra": "avg mem: 110.20771088890123, max mem: 124.6953125, count: 110278"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8339,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8263.864161482797, max block_count: 9039.0, count: 55139"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 120,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 119.77669163387077, max segment_count: 327.0, count: 55139"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.973932594478087, max cpu: 18.268316, count: 55139"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 110.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 110.26100832951722, max mem: 121.890625, count: 55139"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.443804,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.489069919480148, max cpu: 32.40116, count: 55139"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 97.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 94.54655301544733, max mem: 104.8828125, count: 55139"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752432652055,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 9.204219,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.7613710240448786, max cpu: 27.799229, count: 55231"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 91.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 90.84936766999058, max mem: 94.72265625, count: 55231"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6083581609112105, max cpu: 4.8144436, count: 55231"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 82.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 82.6281684397123, max mem: 86.33984375, count: 55231"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 9.204219,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.7218351066344795, max cpu: 28.402367, count: 55231"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 92.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 91.60154234318136, max mem: 96.3671875, count: 55231"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.619813132849291, max cpu: 9.221902, count: 55231"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 93.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 93.18825690622114, max mem: 96.203125, count: 55231"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.696901764170372, max cpu: 27.639154, count: 110462"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 101.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 101.15195829504717, max mem: 110.21484375, count: 110462"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7727,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7735.356050044359, max block_count: 7951.0, count: 55231"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 119,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 118.30423131936774, max segment_count: 303.0, count: 55231"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.839643844059074, max cpu: 18.514948, count: 55231"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 106.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 105.62038140095689, max mem: 112.19140625, count: 55231"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.390804,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.696558266610236, max cpu: 28.263002, count: 55231"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 90.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 88.19044105665297, max mem: 92.7890625, count: 55231"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752432657381,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.31681554190518, max cpu: 23.59882, count: 55161"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 98.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 106.35955465874893, max mem: 125.16015625, count: 55161"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.655424315824057, max cpu: 9.430255, count: 55161"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 85.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 93.00110882802161, max mem: 111.07421875, count: 55161"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 7.5412407,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.2695727041610985, max cpu: 23.076923, count: 55161"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 95.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 103.31243881546744, max mem: 122.69921875, count: 55161"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.536097318244937, max cpu: 9.311348, count: 55161"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 97.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 104.6092031309485, max mem: 122.32421875, count: 55161"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.770641734750059, max cpu: 23.715414, count: 110322"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 100.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 108.26356080099617, max mem: 134.78515625, count: 110322"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8121,
+            "unit": "median block_count",
+            "extra": "avg block_count: 9127.813545802288, max block_count: 11195.0, count: 55161"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 120,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 119.34334040354598, max segment_count: 429.0, count: 55161"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.1429846299273025, max cpu: 18.550726, count: 55161"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 104.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 112.00304145195427, max mem: 134.84765625, count: 55161"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.461538,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.672707328699296, max cpu: 32.276657, count: 55161"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 95.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 99.06464422044107, max mem: 119.515625, count: 55161"
+          }
+        ]
+      }
+    ],
+    "pg_search wide-table.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752237110637,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.388316394131813, max cpu: 47.97601, count: 59161"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 173.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 171.8246386845853, max mem: 175.78125, count: 59161"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23776,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21748.436115008197, max block_count: 27509.0, count: 59161"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 75.45557039265732, max segment_count: 169.0, count: 59161"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.715757226466351, max cpu: 28.828829, count: 59161"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 157.37672840057218, max mem: 173.796875, count: 59161"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752238165895,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.4761867534322, max cpu: 47.83259, count: 59180"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 178.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.66108792824858, max mem: 178.55078125, count: 59180"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23773,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21655.293612706995, max block_count: 27284.0, count: 59180"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 74.97571814802298, max segment_count: 186.0, count: 59180"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.702628536523862, max cpu: 33.48281, count: 59180"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 157.74049443963332, max mem: 173.6640625, count: 59180"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752239194558,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.906942,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.369188323011837, max cpu: 48.1203, count: 59153"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.6761738362805, max mem: 176.1796875, count: 59153"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24145,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21959.312731391477, max block_count: 27383.0, count: 59153"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 75.63308707926902, max segment_count: 170.0, count: 59153"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.453471,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.671659018677241, max cpu: 34.408604, count: 59153"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 157.25052690427788, max mem: 174.2734375, count: 59153"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752240232279,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.290300920641997, max cpu: 47.128128, count: 59171"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 177.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 177.22146604227578, max mem: 178.49609375, count: 59171"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23611,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21568.428689729768, max block_count: 27332.0, count: 59171"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 74.72275269980227, max segment_count: 171.0, count: 59171"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.584573042850904, max cpu: 33.432835, count: 59171"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 157.96731236321423, max mem: 174.125, count: 59171"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242305524,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.318624264237442, max cpu: 47.90419, count: 59165"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 178.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 177.99237883461507, max mem: 178.7890625, count: 59165"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23343,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21533.576827516266, max block_count: 28043.0, count: 59165"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 75.30558607284712, max segment_count: 171.0, count: 59165"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.425626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.136747636809142, max cpu: 33.03835, count: 59165"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 158.3868387137666, max mem: 177.0078125, count: 59165"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242310425,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.851252,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.373407485359014, max cpu: 47.97601, count: 59156"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.24412953145074, max mem: 172.23046875, count: 59156"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24183,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21977.2720603151, max block_count: 27129.0, count: 59156"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 75.39847183717627, max segment_count: 186.0, count: 59156"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.425626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.630570022365104, max cpu: 33.58321, count: 59156"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 158.03873966450993, max mem: 175.37890625, count: 59156"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242351579,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.49354657261162, max cpu: 48.04805, count: 59169"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 171.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 170.68180821302118, max mem: 177.328125, count: 59169"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24290,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22062.798357247884, max block_count: 27709.0, count: 59169"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 75.72732342949855, max segment_count: 194.0, count: 59169"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.453471,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.816864018992263, max cpu: 33.532936, count: 59169"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 158.55089922510098, max mem: 174.90625, count: 59169"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242359165,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.768328,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.32087708891552, max cpu: 47.83259, count: 59111"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.57609055949823, max mem: 172.12890625, count: 59111"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24188,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22014.51173216491, max block_count: 27098.0, count: 59111"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 75.15866759148044, max segment_count: 182.0, count: 59111"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.325402659121597, max cpu: 33.48281, count: 59111"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.125,
+            "unit": "median mem",
+            "extra": "avg mem: 155.44182449121146, max mem: 171.0859375, count: 59111"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242363554,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.906942,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.356939682761215, max cpu: 48.192772, count: 59164"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 172.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.03011821483503, max mem: 174.62109375, count: 59164"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23994,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21933.411770671355, max block_count: 27725.0, count: 59164"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 73,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 75.89427692515719, max segment_count: 170.0, count: 59164"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.456331926541239, max cpu: 33.532936, count: 59164"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 156.53082691755122, max mem: 173.48046875, count: 59164"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7d4bc24bfd70b39d516d876904a317cd3a2f5f4",
+          "message": "chore: Avoid impersonating Phil (#2822)\n\n## What\n\nUse the same github token for the stressgres job as for the benchmarks\njob.\n\n## Why\n\nTo avoid impersonating Phil: using the release token results in comments\nfrom him on `perf` PRs, commits, and gh-pages pushes.",
+          "timestamp": "2025-07-11T07:27:20-07:00",
+          "tree_id": "da11aeca2a89a309d5985def5237c0cb6b676df0",
+          "url": "https://github.com/paradedb/paradedb/commit/b7d4bc24bfd70b39d516d876904a317cd3a2f5f4"
+        },
+        "date": 1752245071205,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.435231651229767, max cpu: 48.04805, count: 59174"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 174.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.6064031632347, max mem: 178.47265625, count: 59174"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23974,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21800.552624463446, max block_count: 27859.0, count: 59174"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 74.86713759421367, max segment_count: 188.0, count: 59174"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.522206851802565, max cpu: 32.844578, count: 59174"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 157.11647885103676, max mem: 173.6953125, count: 59174"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e0a552a073d66f6de8ad45fc0587a4f2ba39dac",
+          "message": "chore: Run benchmarks on `benchmark`-labeled PRs. (#2826)\n\n## What\n\nAdjust benchmarks jobs to automatically run when the `benchmark` label\nis applied.\n\n## Why\n\n#2820 failed to actually filter to `perf:`-titled PRs, but additionally,\nin practice that would have been too noisy, since they would have re-run\non every push to the PR.\n\n## Tests\n\nManually tested adding/removing the label.",
+          "timestamp": "2025-07-11T09:27:20-07:00",
+          "tree_id": "0d8f5a0d7fda145130d823ec6bc08e217a9677d0",
+          "url": "https://github.com/paradedb/paradedb/commit/0e0a552a073d66f6de8ad45fc0587a4f2ba39dac"
+        },
+        "date": 1752252303923,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.1373401249354, max cpu: 48.1203, count: 59159"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.1948773643909, max mem: 181.015625, count: 59159"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24046,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21968.797731537044, max block_count: 28000.0, count: 59159"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 73,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 76.31222637299481, max segment_count: 171.0, count: 59159"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.453471,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.722875524282287, max cpu: 33.785824, count: 59159"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 157.65540614065483, max mem: 174.63671875, count: 59159"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342479122,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.851252,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.323969979819214, max cpu: 47.128128, count: 59162"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 174.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 172.3362321095044, max mem: 176.8046875, count: 59162"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23934,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21893.284574557994, max block_count: 27710.0, count: 59162"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 73,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 75.7821743686826, max segment_count: 170.0, count: 59162"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.425626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.468148660057551, max cpu: 28.699553, count: 59162"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.25,
+            "unit": "median mem",
+            "extra": "avg mem: 157.98915550469474, max mem: 173.28125, count: 59162"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2addc521e247940cb23e898f558c98948de1ed0b",
+          "message": "ci: fix where the custom actions are to be found (#2840)\n\nwe need to fetch the latest action definitions from `main`",
+          "timestamp": "2025-07-13T13:48:21-04:00",
+          "tree_id": "6b28230c866716f60c79b559b861b0764291f6dd",
+          "url": "https://github.com/paradedb/paradedb/commit/2addc521e247940cb23e898f558c98948de1ed0b"
+        },
+        "date": 1752431392769,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.451893467014298, max cpu: 57.88945, count: 57707"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 166.55177319530125, max mem: 171.88671875, count: 57707"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19271,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17844.09730188712, max block_count: 22732.0, count: 57707"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.59805569514964, max segment_count: 161.0, count: 57707"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.347614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.41123287662093, max cpu: 33.768845, count: 57707"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 158.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 147.9325578054872, max mem: 164.92578125, count: 57707"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433901958,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.46500996908339, max cpu: 57.773315, count: 57220"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 166.39070180061606, max mem: 169.84765625, count: 57220"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19379,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17927.428399161134, max block_count: 23319.0, count: 57220"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.59437259699406, max segment_count: 170.0, count: 57220"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.365853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.453270612553512, max cpu: 28.886658, count: 57220"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 158.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 149.52537014483573, max mem: 171.15625, count: 57220"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433905733,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.63568452148175, max cpu: 46.60194, count: 57751"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 166.20419133705477, max mem: 174.390625, count: 57751"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19177,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17786.49829440183, max block_count: 22494.0, count: 57751"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.39985454797319, max segment_count: 177.0, count: 57751"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.495549,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.686953713243495, max cpu: 33.7011, count: 57751"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 158.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 149.31030624740265, max mem: 165.83984375, count: 57751"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433909926,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.277371659096847, max cpu: 52.694614, count: 57470"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.8062573407865, max mem: 180.109375, count: 57470"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19170,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17837.218235601184, max block_count: 22992.0, count: 57470"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 83.82763180789978, max segment_count: 159.0, count: 57470"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.99690375459101, max cpu: 38.323357, count: 57470"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 162.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 151.8917560928528, max mem: 172.22265625, count: 57470"
+          }
+        ]
+      }
+    ],
+    "pg_search bulk-updates.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752237116603,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.933620044579112,
+            "unit": "median tps",
+            "extra": "avg tps: 6.8816419883614675, max tps: 10.173375863220695, count: 59115"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 6.89333235698411,
+            "unit": "median tps",
+            "extra": "avg tps: 6.281018090359702, max tps: 7.689324986980393, count: 59115"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752238177595,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.42721053621521,
+            "unit": "median tps",
+            "extra": "avg tps: 7.294552663247997, max tps: 10.752947595238485, count: 59181"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.218829222460416,
+            "unit": "median tps",
+            "extra": "avg tps: 6.61514504053846, max tps: 8.057049558883858, count: 59181"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752239184790,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.237446921617035,
+            "unit": "median tps",
+            "extra": "avg tps: 7.1568245283804215, max tps: 10.65030554696505, count: 59183"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.313414407949339,
+            "unit": "median tps",
+            "extra": "avg tps: 6.652802067942109, max tps: 8.091755012063107, count: 59183"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752240198547,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.398615870216046,
+            "unit": "median tps",
+            "extra": "avg tps: 7.2644077472018695, max tps: 10.740905180962095, count: 59173"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.092793967833161,
+            "unit": "median tps",
+            "extra": "avg tps: 6.4988869915825385, max tps: 7.900682228346816, count: 59173"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242054392,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 4.755065893413038,
+            "unit": "median tps",
+            "extra": "avg tps: 4.793428025161008, max tps: 8.303483377353672, count: 33377"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.692314898414298,
+            "unit": "median tps",
+            "extra": "avg tps: 5.418939368461245, max tps: 6.99685331685685, count: 33377"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242272085,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.397412922095858,
+            "unit": "median tps",
+            "extra": "avg tps: 7.3144380247885135, max tps: 10.85325206277412, count: 59185"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.171085098704748,
+            "unit": "median tps",
+            "extra": "avg tps: 6.575405241031336, max tps: 7.999462532147821, count: 59185"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242307756,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.224287892425368,
+            "unit": "median tps",
+            "extra": "avg tps: 7.127329222062369, max tps: 10.529553794925889, count: 59169"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.08106903276883,
+            "unit": "median tps",
+            "extra": "avg tps: 6.476812767400267, max tps: 7.9144223436467644, count: 59169"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242315552,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.235162930478962,
+            "unit": "median tps",
+            "extra": "avg tps: 7.166231960410151, max tps: 10.691732116504953, count: 59176"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.271492030183408,
+            "unit": "median tps",
+            "extra": "avg tps: 6.6197614761871115, max tps: 8.018599914925678, count: 59176"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242322221,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.200580477761095,
+            "unit": "median tps",
+            "extra": "avg tps: 7.138237934968243, max tps: 10.635968505530807, count: 59153"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.193889762394928,
+            "unit": "median tps",
+            "extra": "avg tps: 6.5537700445783695, max tps: 7.975111543932936, count: 59153"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7d4bc24bfd70b39d516d876904a317cd3a2f5f4",
+          "message": "chore: Avoid impersonating Phil (#2822)\n\n## What\n\nUse the same github token for the stressgres job as for the benchmarks\njob.\n\n## Why\n\nTo avoid impersonating Phil: using the release token results in comments\nfrom him on `perf` PRs, commits, and gh-pages pushes.",
+          "timestamp": "2025-07-11T07:27:20-07:00",
+          "tree_id": "da11aeca2a89a309d5985def5237c0cb6b676df0",
+          "url": "https://github.com/paradedb/paradedb/commit/b7d4bc24bfd70b39d516d876904a317cd3a2f5f4"
+        },
+        "date": 1752245044578,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.340158361083036,
+            "unit": "median tps",
+            "extra": "avg tps: 7.221470988613443, max tps: 10.714219704023472, count: 59163"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.111459649088347,
+            "unit": "median tps",
+            "extra": "avg tps: 6.477631564345534, max tps: 7.948731874010775, count: 59163"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e0a552a073d66f6de8ad45fc0587a4f2ba39dac",
+          "message": "chore: Run benchmarks on `benchmark`-labeled PRs. (#2826)\n\n## What\n\nAdjust benchmarks jobs to automatically run when the `benchmark` label\nis applied.\n\n## Why\n\n#2820 failed to actually filter to `perf:`-titled PRs, but additionally,\nin practice that would have been too noisy, since they would have re-run\non every push to the PR.\n\n## Tests\n\nManually tested adding/removing the label.",
+          "timestamp": "2025-07-11T09:27:20-07:00",
+          "tree_id": "0d8f5a0d7fda145130d823ec6bc08e217a9677d0",
+          "url": "https://github.com/paradedb/paradedb/commit/0e0a552a073d66f6de8ad45fc0587a4f2ba39dac"
+        },
+        "date": 1752252233941,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.31399874568713,
+            "unit": "median tps",
+            "extra": "avg tps: 7.215933433430299, max tps: 10.689965606957953, count: 59168"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.234799631696866,
+            "unit": "median tps",
+            "extra": "avg tps: 6.602329185498556, max tps: 8.082235874900915, count: 59168"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342375589,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.31250667819115,
+            "unit": "median tps",
+            "extra": "avg tps: 7.252239851214647, max tps: 10.740409928196165, count: 59175"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.222759889430297,
+            "unit": "median tps",
+            "extra": "avg tps: 6.570432854609154, max tps: 8.001534935709477, count: 59175"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2addc521e247940cb23e898f558c98948de1ed0b",
+          "message": "ci: fix where the custom actions are to be found (#2840)\n\nwe need to fetch the latest action definitions from `main`",
+          "timestamp": "2025-07-13T13:48:21-04:00",
+          "tree_id": "6b28230c866716f60c79b559b861b0764291f6dd",
+          "url": "https://github.com/paradedb/paradedb/commit/2addc521e247940cb23e898f558c98948de1ed0b"
+        },
+        "date": 1752430777297,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.89946466462661,
+            "unit": "median tps",
+            "extra": "avg tps: 5.901045821640845, max tps: 8.852044702575846, count: 57668"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.688420016582444,
+            "unit": "median tps",
+            "extra": "avg tps: 5.097515608199591, max tps: 6.429369723207545, count: 57668"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433286840,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.947348160954292,
+            "unit": "median tps",
+            "extra": "avg tps: 5.950753613079033, max tps: 8.98653538469761, count: 57358"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.632567406225607,
+            "unit": "median tps",
+            "extra": "avg tps: 5.048109637487355, max tps: 6.343914995799277, count: 57358"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433289023,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.678005924343785,
+            "unit": "median tps",
+            "extra": "avg tps: 5.702418957120403, max tps: 8.552357102988982, count: 57095"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.810976582481202,
+            "unit": "median tps",
+            "extra": "avg tps: 5.199604105548534, max tps: 6.572645880109991, count: 57095"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433293436,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.699209131656615,
+            "unit": "median tps",
+            "extra": "avg tps: 5.747187951748187, max tps: 8.740809344557658, count: 57633"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.763462111887235,
+            "unit": "median tps",
+            "extra": "avg tps: 5.160925321962557, max tps: 6.470660150872511, count: 57633"
+          }
+        ]
+      }
+    ],
+    "pg_search bulk-updates.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752237161360,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 22.829966,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.096259615936148, max cpu: 43.11377, count: 59115"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 227.26424243265245, max mem: 230.93359375, count: 59115"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.55626161246322, max cpu: 33.532936, count: 59115"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 159.38718434143195, max mem: 166.140625, count: 59115"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23229,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21557.03264822803, max block_count: 24786.0, count: 59115"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 53,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.01409117821196, max segment_count: 85.0, count: 59115"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752238191382,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.047619,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.708163573241134, max cpu: 43.90244, count: 59181"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 227.3669952930417, max mem: 231.79296875, count: 59181"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.31500893965218, max cpu: 33.633633, count: 59181"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.5,
+            "unit": "median mem",
+            "extra": "avg mem: 159.75227803528583, max mem: 165.20703125, count: 59181"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23627,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21966.33490478363, max block_count: 25082.0, count: 59181"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 56.20224396343421, max segment_count: 88.0, count: 59181"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752239212554,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.070322,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.715288637380066, max cpu: 43.570347, count: 59183"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 227.43512805355846, max mem: 232.26171875, count: 59183"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.564064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.31953668499028, max cpu: 33.73494, count: 59183"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 158.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.42872530963282, max mem: 166.0, count: 59183"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23345,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21820.544784819966, max block_count: 25084.0, count: 59183"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.86335603129277, max segment_count: 87.0, count: 59183"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752240212272,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.093079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.779726273119223, max cpu: 43.373497, count: 59173"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 228.30338471251667, max mem: 231.94140625, count: 59173"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.564064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.362313705218238, max cpu: 33.633633, count: 59173"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.2041791785316, max mem: 166.10546875, count: 59173"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23598,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21979.04052523955, max block_count: 25298.0, count: 59173"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 56.05233805958799, max segment_count: 87.0, count: 59173"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242080249,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.8986680917799, max cpu: 43.50453, count: 33377"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 227.027518130936, max mem: 231.1328125, count: 33377"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.75369085463789, max cpu: 33.03835, count: 33377"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.05190571445158, max mem: 160.1640625, count: 33377"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 20570,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19589.798334182222, max block_count: 23175.0, count: 33377"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 50,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 52.59238397699014, max segment_count: 84.0, count: 33377"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242297855,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.070322,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.719417704969846, max cpu: 43.243244, count: 59185"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.1227772952395, max mem: 231.3984375, count: 59185"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.564064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.303288006818153, max cpu: 33.633633, count: 59185"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.14453125,
+            "unit": "median mem",
+            "extra": "avg mem: 162.00160810646702, max mem: 166.74609375, count: 59185"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23526,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21991.665624735997, max block_count: 25337.0, count: 59185"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 56.20635296105432, max segment_count: 88.0, count: 59185"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242370604,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.104477,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.93511785434141, max cpu: 43.11377, count: 59169"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 228.02301702802566, max mem: 232.203125, count: 59169"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.408911545629426, max cpu: 33.185184, count: 59169"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.09258358473187, max mem: 166.28125, count: 59169"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23344,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21770.78546198178, max block_count: 24854.0, count: 59169"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 53,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.497405736111816, max segment_count: 87.0, count: 59169"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242372086,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.002375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.708215296829977, max cpu: 43.17841, count: 59153"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.4203882569354, max mem: 231.1328125, count: 59153"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.44152748326559, max cpu: 33.532936, count: 59153"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.31958306214392, max mem: 165.8515625, count: 59153"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23606,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21834.401399759943, max block_count: 25112.0, count: 59153"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 53,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.63952800365155, max segment_count: 87.0, count: 59153"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242383453,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.047619,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.700743482818737, max cpu: 43.768997, count: 59176"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 227.56543536442138, max mem: 231.34375, count: 59176"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.305813993371864, max cpu: 33.532936, count: 59176"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.45589474354045, max mem: 163.42578125, count: 59176"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23537,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21873.933368257403, max block_count: 25307.0, count: 59176"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.921741922400976, max segment_count: 88.0, count: 59176"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7d4bc24bfd70b39d516d876904a317cd3a2f5f4",
+          "message": "chore: Avoid impersonating Phil (#2822)\n\n## What\n\nUse the same github token for the stressgres job as for the benchmarks\njob.\n\n## Why\n\nTo avoid impersonating Phil: using the release token results in comments\nfrom him on `perf` PRs, commits, and gh-pages pushes.",
+          "timestamp": "2025-07-11T07:27:20-07:00",
+          "tree_id": "da11aeca2a89a309d5985def5237c0cb6b676df0",
+          "url": "https://github.com/paradedb/paradedb/commit/b7d4bc24bfd70b39d516d876904a317cd3a2f5f4"
+        },
+        "date": 1752245106221,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.047619,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.808235043851543, max cpu: 43.243244, count: 59163"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 227.7336423841759, max mem: 233.4375, count: 59163"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.564064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.40547352319237, max cpu: 33.532936, count: 59163"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 159.88038349823793, max mem: 163.328125, count: 59163"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23731,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21886.875226070348, max block_count: 25031.0, count: 59163"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.99342494464446, max segment_count: 87.0, count: 59163"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e0a552a073d66f6de8ad45fc0587a4f2ba39dac",
+          "message": "chore: Run benchmarks on `benchmark`-labeled PRs. (#2826)\n\n## What\n\nAdjust benchmarks jobs to automatically run when the `benchmark` label\nis applied.\n\n## Why\n\n#2820 failed to actually filter to `perf:`-titled PRs, but additionally,\nin practice that would have been too noisy, since they would have re-run\non every push to the PR.\n\n## Tests\n\nManually tested adding/removing the label.",
+          "timestamp": "2025-07-11T09:27:20-07:00",
+          "tree_id": "0d8f5a0d7fda145130d823ec6bc08e217a9677d0",
+          "url": "https://github.com/paradedb/paradedb/commit/0e0a552a073d66f6de8ad45fc0587a4f2ba39dac"
+        },
+        "date": 1752252239631,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.047619,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.700339172375795, max cpu: 43.70258, count: 59168"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 228.0810571962463, max mem: 232.52734375, count: 59168"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.310630948730296, max cpu: 33.633633, count: 59168"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.9395260767011, max mem: 161.16796875, count: 59168"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23631,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21897.07831936182, max block_count: 25066.0, count: 59168"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.796106003245, max segment_count: 87.0, count: 59168"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342418413,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.002375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.653063293893776, max cpu: 43.243244, count: 59175"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 227.9667576969793, max mem: 233.37890625, count: 59175"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.2986226085486, max cpu: 33.432835, count: 59175"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.75339366814532, max mem: 161.80078125, count: 59175"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23624,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21977.42781580059, max block_count: 25163.0, count: 59175"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.978977608787496, max segment_count: 88.0, count: 59175"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2addc521e247940cb23e898f558c98948de1ed0b",
+          "message": "ci: fix where the custom actions are to be found (#2840)\n\nwe need to fetch the latest action definitions from `main`",
+          "timestamp": "2025-07-13T13:48:21-04:00",
+          "tree_id": "6b28230c866716f60c79b559b861b0764291f6dd",
+          "url": "https://github.com/paradedb/paradedb/commit/2addc521e247940cb23e898f558c98948de1ed0b"
+        },
+        "date": 1752430779387,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.35312494344189, max cpu: 42.687748, count: 57668"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.65970193879187, max mem: 236.85546875, count: 57668"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.269462451511604, max cpu: 33.168808, count: 57668"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 158.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.1128990108249, max mem: 161.390625, count: 57668"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22368,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20727.106592911146, max block_count: 23639.0, count: 57668"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.67566067836582, max segment_count: 95.0, count: 57668"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433288842,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.4035821219179, max cpu: 42.814667, count: 57358"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 226.36290607075298, max mem: 232.14453125, count: 57358"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.3512345665248, max cpu: 33.23442, count: 57358"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.08871140196223, max mem: 161.375, count: 57358"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22492,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20887.61063844625, max block_count: 23819.0, count: 57358"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.95378151260505, max segment_count: 98.0, count: 57358"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433292552,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.595688881295608, max cpu: 42.561577, count: 57095"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.029506195814, max mem: 230.98046875, count: 57095"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.189103894216284, max cpu: 33.07087, count: 57095"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 157.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 157.122465504313, max mem: 160.05078125, count: 57095"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22325,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20582.10020141869, max block_count: 23536.0, count: 57095"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.3834836675716, max segment_count: 96.0, count: 57095"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433296668,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.241401251774626, max cpu: 43.070786, count: 57633"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 225.16654541180833, max mem: 236.90234375, count: 57633"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.371609693503288, max cpu: 33.168808, count: 57633"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.89324306115853, max mem: 162.203125, count: 57633"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22204,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20647.79891728697, max block_count: 23677.0, count: 57633"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.5145489563271, max segment_count: 97.0, count: 57633"
+          }
+        ]
+      }
+    ]
+  }
+}

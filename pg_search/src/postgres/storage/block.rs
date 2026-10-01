@@ -293,6 +293,7 @@ pub struct SegmentMetaEntryImmutable {
     pub stats: Option<FileEntry>,
     pub ctid_map: Option<FileEntry>,
     pub posting_norms: Option<FileEntry>,
+    pub term_frequencies: Option<FileEntry>,
 }
 
 /// The pre-vector on-disk layout of [`SegmentMetaEntryImmutable`]. Indexes built before vector
@@ -395,6 +396,11 @@ impl SegmentMetaEntryImmutable {
                 self.posting_norms
                     .iter()
                     .map(|fe| (fe, SegmentComponent::PostingNorms)),
+            )
+            .chain(
+                self.term_frequencies
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::TermFrequencies)),
             )
     }
 }
@@ -774,6 +780,11 @@ impl SegmentMetaEntry {
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
+        size += content
+            .term_frequencies
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
         size
     }
 
@@ -918,6 +929,17 @@ impl From<PgItem> for SegmentMetaEntry {
                 } else {
                     None
                 };
+                let term_frequencies: Option<FileEntry> = if content_bytes.len() > offset {
+                    let (entry, len) = bincode::serde::decode_from_slice(
+                        &content_bytes[offset..],
+                        bincode::config::legacy(),
+                    )
+                    .expect("invalid SegmentMetaEntry term frequency file entry");
+                    offset += len;
+                    entry
+                } else {
+                    None
+                };
                 debug_assert_eq!(offset, content_bytes.len());
 
                 SegmentMetaEntryContent::Immutable(SegmentMetaEntryImmutable {
@@ -934,6 +956,7 @@ impl From<PgItem> for SegmentMetaEntry {
                     stats,
                     ctid_map,
                     posting_norms,
+                    term_frequencies,
                 })
             }
             SegmentMetaEntryTag::Mutable => {
@@ -1060,6 +1083,7 @@ mod tests {
         stats: Option<FileEntry>,
         ctid_map: Option<FileEntry>,
         posting_norms: Option<FileEntry>,
+        term_frequencies: Option<FileEntry>,
     ) -> SegmentMetaEntry {
         SegmentMetaEntry::new_immutable(
             SegmentId::generate_random(),
@@ -1075,6 +1099,7 @@ mod tests {
                 stats,
                 ctid_map,
                 posting_norms,
+                term_frequencies,
                 ..Default::default()
             },
         )
@@ -1099,9 +1124,9 @@ mod tests {
                 total_bytes: 100 * block as usize,
             })
         };
-        let full = entry_with(file(8), file(10), file(9), file(11), file(12));
+        let full = entry_with(file(8), file(10), file(9), file(11), file(12), file(13));
         assert_eq!(decoded(encoded(full)), full);
-        assert_eq!(full.byte_size(), 5100);
+        assert_eq!(full.byte_size(), 6400);
         let norm_path = SegmentMetaEntryImmutable::path(
             &full.segment_id().uuid_string(),
             SegmentComponent::PostingNorms,
@@ -1115,24 +1140,38 @@ mod tests {
         );
         assert!(full.get_component_paths().any(|path| path == norm_path));
 
-        let ctid_map_era = entry_with(file(8), file(10), file(9), file(11), None);
+        let freq_path = SegmentMetaEntryImmutable::path(
+            &full.segment_id().uuid_string(),
+            SegmentComponent::TermFrequencies,
+        );
+        assert_eq!(
+            content.file_entry(&full.segment_id().uuid_string(), &freq_path),
+            file(13)
+        );
+        assert!(full.get_component_paths().any(|path| path == freq_path));
+
+        let pnorm_era = entry_with(file(8), file(10), file(9), file(11), file(12), None);
+        let bytes = encoded(pnorm_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 1]), pnorm_era);
+
+        let ctid_map_era = entry_with(file(8), file(10), file(9), file(11), None, None);
         let bytes = encoded(ctid_map_era);
-        assert_eq!(decoded(&bytes[..bytes.len() - 1]), ctid_map_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 2]), ctid_map_era);
 
-        let stats_era = entry_with(file(8), file(10), file(9), None, None);
+        let stats_era = entry_with(file(8), file(10), file(9), None, None, None);
         let bytes = encoded(stats_era);
-        assert_eq!(decoded(&bytes[..bytes.len() - 2]), stats_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 3]), stats_era);
 
-        // The vector generation stopped before the stats, CTID map, and posting norm markers.
-        let vector_era = entry_with(file(8), file(10), None, None, None);
+        // The vector generation stopped before the stats, CTID map, posting norm, and frequency markers.
+        let vector_era = entry_with(file(8), file(10), None, None, None, None);
         let bytes = encoded(vector_era);
         assert_eq!(decoded(bytes), vector_era);
-        assert_eq!(decoded(&bytes[..bytes.len() - 3]), vector_era);
+        assert_eq!(decoded(&bytes[..bytes.len() - 4]), vector_era);
 
         // The first generation stopped before the vector markers too: one `None` byte each for
-        // `vec`, `centroids`, `stats`, `ctid_map`, and `posting_norms`.
-        let first = entry_with(None, None, None, None, None);
+        // `vec`, `centroids`, `stats`, `ctid_map`, `posting_norms`, and `term_frequencies`.
+        let first = entry_with(None, None, None, None, None, None);
         let bytes = encoded(first);
-        assert_eq!(decoded(&bytes[..bytes.len() - 5]), first);
+        assert_eq!(decoded(&bytes[..bytes.len() - 6]), first);
     }
 }

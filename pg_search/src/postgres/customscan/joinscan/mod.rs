@@ -747,20 +747,11 @@ impl JoinScan {
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
         let current_sources = join_clause.plan.sources();
-
-        // The Top-K aggregate keeps only what the projection names, the same constraint
-        // the DISTINCT GROUP BY has, so prefer equivalence-class members in the target
-        // list on that path too. The DISTINCT-only pathkey handling stays keyed on
-        // `has_distinct`.
-        let restrict_to_target_list =
-            join_clause.has_distinct || join_clause.will_compute_topk_as_agg();
-
         let order_by = extract_orderby(
             root,
             &current_sources,
             &output_rtis,
             join_clause.has_distinct,
-            restrict_to_target_list,
         )?;
         join_clause = join_clause.with_order_by(order_by);
 

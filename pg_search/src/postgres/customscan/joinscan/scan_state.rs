@@ -29,10 +29,12 @@
 //! scanned exactly once while achieving distributed execution.
 //!
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
-use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
+use datafusion::common::tree_node::{Transformed, TreeNode};
+use datafusion::common::{DataFusionError, Result, internal_datafusion_err, internal_err};
 use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::{
@@ -51,6 +53,7 @@ use super::window_func::{
     SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
+use crate::gucs;
 use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::datafusion::topk_agg::{TOPK_AGG_ROWS_COL_NAME, topk_as_agg};
@@ -871,21 +874,24 @@ fn build_clause_df<'a>(
         let df = apply_window_functions(df, join_clause)?;
 
         // 4. DISTINCT + Top-(offset + K). When enabled, rows come
-        // back as (offset + k) rows, and the sort, limit
-        // and output projection below resolve through `distinct_col_map` as before.
+        // back as k  sorted rows. and limit + output projection below
+        // resolve through `distinct_col_map` as before.
         //
-        // The rows do come back in sorted order, but we can't tell the planner that, so the below
-        // sort is still necessary.
-        //
-        // When disabled, use apply_distinct_group_by
-        let (df, distinct_col_map) = if let Some(k) = join_clause.k_when_computing_topk_as_agg() {
-            apply_topk_as_agg(df, join_clause, &private_data.output_columns, k)?
+        // When disabled, use apply_distinct_group_by + apply_sort
+        let (df, distinct_col_map) = if gucs::joinscan_force_topk_as_agg()
+            && let Some((offset, k)) = join_clause
+                .limit_offset
+                .as_ref()
+                .and_then(|lo| Some((lo.static_offset()?, lo.static_limit()?)))
+        {
+            apply_topk_as_agg(df, join_clause, &private_data.output_columns, offset + k)?
         } else {
-            apply_distinct_group_by(df, join_clause, &private_data.output_columns)?
+            let (df, distinct_col_map) =
+                apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
+            // 5. Apply Sort
+            let df = apply_sort(df, join_clause, &distinct_col_map)?;
+            (df, distinct_col_map)
         };
-
-        // 5. Apply Sort
-        let df = apply_sort(df, join_clause, &distinct_col_map)?;
 
         // 6. Apply Limit (only when BOTH limit and offset are statically known at
         // planning time). Parameterized LIMIT/OFFSET are injected at execution time in
@@ -921,13 +927,11 @@ fn apply_topk_as_agg(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-    k: usize,
+    fetch: usize,
 ) -> Result<(DataFrame, DistinctColMap)> {
     let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause, true)?
     else {
-        return Err(DataFusionError::Internal(
-            "Bug: Unable to build distinct key expressions for topk aggregate".to_string(),
-        ));
+        return internal_err!("Bug: Unable to build distinct key expressions for topk aggregate");
     };
 
     {
@@ -942,6 +946,10 @@ fn apply_topk_as_agg(
         );
     }
 
+    // Build the sort expressions with an empty distinct column map so they build directly against
+    // the join output.
+    let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
+
     // Only relations whose heap tuples are fetched need a ctid carried through,
     // the same pruning the GROUP BY form applies.
     let needed_ctids = relations_needing_ctid(output_columns);
@@ -951,39 +959,73 @@ fn apply_topk_as_agg(
             .map(|(_, name)| name)
             .collect();
 
-    let num_non_ctid_cols = distinct_key_exprs.len();
-    // The GROUP BY's group list, as a projection: col_{i} exists from here on.
-    let mut select: Vec<Expr> = distinct_key_exprs
-        .into_iter()
+    // the projected key expressions, along with the name we map them to
+    let projected: HashMap<Expr, Expr> = distinct_key_exprs
+        .iter()
         .enumerate()
-        .map(|(i, e)| e.alias(format!("col_{}", i + 1)))
+        .map(|(i, expr)| (expr.clone(), col(format!("col_{}", i + 1))))
+        .collect();
+
+    // will contain additional sort_j columns that are required by the sort expressions
+    let mut sort_extra_cols: Vec<Expr> = Vec::new();
+    // sort expressions, now targeting the actual column names they'll operate on
+    let rebased_sort_exprs: Vec<SortExpr> = sort_exprs
+        .into_iter()
+        .map(|s| {
+            let expr = s
+                .expr
+                .transform(|e| {
+                    let Expr::Column(_) = &e else {
+                        return Ok(Transformed::no(e));
+                    };
+                    if let Some(mapped) = projected.get(&e) {
+                        return Ok(Transformed::yes(mapped.clone()));
+                    }
+                    if join_clause.has_distinct {
+                        return internal_err!("ORDER BY column {e} is not a DISTINCT key");
+                    }
+                    let j = sort_extra_cols.len() + 1;
+                    sort_extra_cols.push(e.alias(format!("sort_{j}")));
+                    Ok(Transformed::yes(col(format!("sort_{j}"))))
+                })?
+                .data;
+            Ok(SortExpr { expr, ..s })
+        })
+        .collect::<Result<_>>()?;
+
+    // The actual projected columns we'll need for the aggregate.
+    let mut select: Vec<Expr> = distinct_key_exprs
+        .iter()
+        .enumerate()
+        .map(|(i, expr)| expr.clone().alias(format!("col_{}", i + 1)))
         .collect();
     select.extend(ctid_names.iter().map(|n| col(n.as_str())));
-    let num_all_cols = select.len();
+    select.extend(sort_extra_cols.iter().cloned());
+
+    // the column index ranges of the various column groups we'll need for renaming later
+    let distinct_key_end = distinct_key_exprs.len();
+    let ctid_end = distinct_key_end + ctid_names.len();
+    let sort_end = ctid_end + sort_extra_cols.len();
+    let distinct_key_col_range = 0..distinct_key_end;
+    let ctid_col_range = distinct_key_end..ctid_end;
+    let sort_col_range = ctid_end..sort_end;
+
     let df = df.select(select)?;
 
-    // The same list, just with the new names
-    let mut all_col_exprs: Vec<Expr> = (0..num_non_ctid_cols)
-        .map(|i| col(format!("col_{}", i + 1)))
-        .chain(ctid_names.iter().map(|n| col(n.as_str())))
+    let ctid_positions: Vec<usize> = ctid_col_range.clone().collect();
+
+    // The same list, just as the column expressions directly
+    let all_col_exprs: Vec<Expr> = df
+        .schema()
+        .columns()
+        .into_iter()
+        .map(Expr::Column)
         .collect();
-
-    let ctid_positions: Vec<usize> = (num_non_ctid_cols..num_all_cols).collect();
-
-    // the sort expressions built from distinct_col_map will be correct thanks to the above SELECT
-    let sort_exprs = build_sort_exprs(join_clause, &distinct_col_map)?;
-    // we must ensure all_col_exprs contains the sort expression. The appended expression is
-    // necessarily a function of key columns, so adding it does not change which rows are distinct
-    for sort in sort_exprs.iter() {
-        if !all_col_exprs.contains(&sort.expr) {
-            all_col_exprs.push(sort.expr.clone());
-        }
-    }
 
     let topk_agg = topk_as_agg(
         &all_col_exprs,
-        sort_exprs,
-        k,
+        rebased_sort_exprs.clone(),
+        fetch,
         &ctid_positions,
         join_clause.has_distinct,
     );
@@ -992,19 +1034,21 @@ fn apply_topk_as_agg(
 
     // Restore the GROUP BY's output names: `col_{i}` for the key, the ctid names
     // for the ctids.
-    let name_restoration_exprs: Vec<Expr> = (0..num_non_ctid_cols)
+    let mut name_restoration_exprs: Vec<Expr> = distinct_key_col_range
         .map(|i| {
             get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(format!("col_{}", i + 1))
         })
-        .chain(ctid_names.iter().enumerate().map(|(j, name)| {
-            get_field(
-                col(TOPK_AGG_ROWS_COL_NAME),
-                format!("c{}", num_non_ctid_cols + j),
-            )
-            .alias(name.as_str())
-        }))
         .collect();
-    Ok((df.select(name_restoration_exprs)?, distinct_col_map))
+    name_restoration_exprs.extend(ctid_col_range.enumerate().map(|(name_idx, i)| {
+        let name = &ctid_names[name_idx];
+        get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(name)
+    }));
+    name_restoration_exprs.extend(sort_col_range.enumerate().map(|(j, i)| {
+        get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(format!("sort_{}", j + 1))
+    }));
+    let df = df.select(name_restoration_exprs)?;
+
+    Ok((df, distinct_col_map))
 }
 
 /// Translate every clause in `custom_exprs` (a Postgres `List*`) into a

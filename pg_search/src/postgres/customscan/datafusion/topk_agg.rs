@@ -106,9 +106,15 @@ impl AggregateUDFImpl for TopKAgg {
 
     /// The state is the same `List<Struct>` as the result: `state()` is `evaluate()`.
     fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
+        let payload = payload_fields(args.input_fields)?;
+        let fields: Vec<_> = payload
+            .iter()
+            .chain(args.ordering_fields)
+            .cloned()
+            .collect();
         Ok(vec![Arc::new(Field::new(
             format!("{}[rows]", args.name),
-            args.return_type().clone(),
+            list_of_rows(&fields),
             true,
         ))])
     }
@@ -150,26 +156,16 @@ impl AggregateUDFImpl for TopKAgg {
         // The accumulator's batches must carry the declared row type exactly, so
         // take the payload schema from the return field rather than the argument
         // fields, whose names differ.
-        let schema = row_schema(&acc_args.return_field)?;
+        let schema = row_schema(&acc_args)?;
 
-        // Only the payload columns reach update_batch, so each sort key must be one
-        // of them; rebase the ORDER BY onto payload positions.
+        // Non-DISTINCT: the ORDER BY keys, in order, each with its own direction/nulls.
+        // Datafusion will place the evaluated order by keys after the payload entries.
         let mut sort: Vec<(usize, Option<SortOptions>)> = acc_args
             .order_bys
             .iter()
-            .map(|s| {
-                acc_args.exprs[..n]
-                    .iter()
-                    .position(|e| e.as_ref() == s.expr.as_ref())
-                    .map(|i| (i, Some(s.options)))
-                    .ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "{name} ORDER BY {} is not one of its arguments",
-                            s.expr
-                        ))
-                    })
-            })
-            .collect::<Result<_>>()?;
+            .enumerate()
+            .map(|(i, s)| (n + i, Some(s.options)))
+            .collect();
 
         let (sort, ctid_positions) = if acc_args.is_distinct {
             let ctids = positions_arg(&acc_args, n + 1, name, "ctid positions", n)?;
@@ -186,17 +182,10 @@ impl AggregateUDFImpl for TopKAgg {
                     "{name} ctid position {p} is not a UInt64 column"
                 )));
             }
-            // The rest of the distinct key: every payload column that is neither a
-            // ctid nor an ORDER BY key. Appended after the ORDER BY keys with default
-            // options, so the full sort key is the distinct key and equal rows sort
-            // adjacent.
-            let rest: Vec<(usize, Option<SortOptions>)> = (0..n)
-                .filter(|p| {
-                    !ctids.iter().any(|ctidp| ctidp == p) && !sort.iter().any(|(s, _)| s == p)
-                })
-                .map(|p| (p, None))
-                .collect();
-            sort.extend(rest);
+            // The rest of the distinct key: every payload column that is not a
+            // ctid, appended after the ORDER BY keys with default options, so the
+            // full sort key is the distinct key and equal rows sort adjacent.
+            sort.extend((0..n).filter(|p| !ctids.contains(p)).map(|p| (p, None)));
             (sort, ctids)
         } else {
             (sort, Vec::new())
@@ -208,6 +197,7 @@ impl AggregateUDFImpl for TopKAgg {
             ctid_positions,
             k,
             acc_args.is_distinct,
+            n,
         )?))
     }
 }
@@ -284,16 +274,34 @@ fn list_of_rows(payload: &[FieldRef]) -> DataType {
     DataType::List(Arc::new(Field::new_list_field(row, true)))
 }
 
-/// The payload schema inside a `List<Struct>` return field.
-fn row_schema(return_field: &Field) -> Result<SchemaRef> {
-    if let DataType::List(item) = return_field.data_type()
+/// The payload schema inside a `List<Struct>` return field. Contains payload columns ++ ordering
+/// columns
+fn row_schema(acc_args: &AccumulatorArgs) -> Result<SchemaRef> {
+    use datafusion::physical_expr::aggregate::utils::ordering_fields;
+
+    if let DataType::List(item) = acc_args.return_field.data_type()
         && let DataType::Struct(fields) = item.data_type()
     {
-        return Ok(Arc::new(Schema::new(fields.clone())));
+        let ordering_types: Vec<_> = acc_args
+            .order_bys
+            .iter()
+            .map(|s| s.expr.data_type(acc_args.schema))
+            .collect::<Result<_>>()?;
+        let mut fields = fields.clone().to_vec();
+        // Named by position after the payload, as `list_of_rows` names the state's
+        // fields: the state batch's struct type must match the declared one exactly.
+        let n = fields.len();
+        fields.extend(
+            ordering_fields(acc_args.order_bys, &ordering_types)
+                .into_iter()
+                .enumerate()
+                .map(|(i, f)| Arc::new(f.as_ref().clone().with_name(format!("c{}", n + i)))),
+        );
+        return Ok(Arc::new(Schema::new(fields)));
     }
     Err(DataFusionError::Internal(format!(
         "a Top-K aggregate's return type must be a list of structs, got {}",
-        return_field.data_type()
+        acc_args.return_field.data_type()
     )))
 }
 
@@ -310,6 +318,8 @@ struct FusedTopK {
     /// At most K rows in `sort` order, so the last row is the worst; in arrival
     /// order when `sort` is empty.
     entries: RecordBatch,
+    /// number of fields in the input payload, so we can slice the output accordingly
+    num_payload_fields: usize,
 }
 
 impl std::fmt::Debug for FusedTopK {
@@ -331,6 +341,7 @@ impl FusedTopK {
         ctid_positions: Vec<usize>,
         k: usize,
         distinct: bool,
+        num_payload_fields: usize,
     ) -> Result<Self> {
         Ok(Self {
             entries: RecordBatch::new_empty(Arc::clone(&schema)),
@@ -339,6 +350,7 @@ impl FusedTopK {
             ctid_positions,
             k,
             distinct,
+            num_payload_fields,
         })
     }
 
@@ -616,8 +628,15 @@ fn sorts_before(col: &ArrayRef, refcol: &ArrayRef, opts: &SortOptions) -> Result
 
 impl Accumulator for FusedTopK {
     fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
-        let n = self.schema.fields().len();
-        let batch = RecordBatch::try_new(Arc::clone(&self.schema), values[..n].to_vec())?;
+        // DataFusion's column layout here is payload ++ trailing literals ++ ORDER BYs, so skip
+        // the literals.
+        let n = self.num_payload_fields;
+        let columns = values[..n]
+            .iter()
+            .chain(&values[n + NUM_TRAILING_ARG_LITERALS..])
+            .cloned()
+            .collect();
+        let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns)?;
         self.absorb(&batch)?;
         self.compact_entries()
     }
@@ -625,24 +644,29 @@ impl Accumulator for FusedTopK {
     /// Other partials' K rows. They go through the same admission, which is what
     /// deduplicates across workers in distinct mode.
     fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
-        let n = self.schema.fields().len();
         for rows in states[0].as_list::<i32>().iter().flatten() {
             if !rows.is_empty() {
                 let columns = rows.as_struct().columns();
-                let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns[..n].to_vec())?;
+                let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns.to_vec())?;
                 self.absorb(&batch)?;
             }
         }
         self.compact_entries()
     }
 
+    /// evaluate only returns the payload fields, so we must cut off the order by fields
     fn evaluate(&mut self) -> Result<ScalarValue> {
         let batch = self.drain();
+        let payload_indices: Vec<_> = (0..self.num_payload_fields).collect();
+        let batch = batch.project(&payload_indices)?;
         Ok(SingleRowListArrayBuilder::new(Arc::new(StructArray::from(batch))).build_list_scalar())
     }
 
     fn state(&mut self) -> Result<Vec<ScalarValue>> {
-        Ok(vec![self.evaluate()?])
+        let batch = self.drain();
+        Ok(vec![
+            SingleRowListArrayBuilder::new(Arc::new(StructArray::from(batch))).build_list_scalar(),
+        ])
     }
 
     fn size(&self) -> usize {
@@ -653,14 +677,14 @@ impl Accumulator for FusedTopK {
     }
 }
 
-/// `topk_as_agg(payload…, k, ctid_positions) ORDER BY sort_exprs`, with the
-/// aggregate's DISTINCT flag set by `distinct`.
+/// `topk_as_agg(payload…, k, ctid_positions) ORDER BY sort_exprs`, with the aggregate's
+/// DISTINCT flag set by `distinct`.
 ///
-/// Sort expressions missing from `payload` are appended to it, since the
-/// accumulator can only sort on columns it receives, so the emitted rows may
-/// carry more columns than `payload`. In distinct mode the distinct key is every
-/// payload column but the `ctid_positions`, and each group is represented by its
-/// row with the smallest ctid tuple, in place of a group-by's `min(ctid)`.
+/// It is required that all of the columns referenced by `sort_exprs` come in the `payload`.
+///
+/// In distinct mode the distinct key is every payload column but the `ctid_positions`, and
+/// each group is represented by its row with the smallest ctid tuple, in place of a group-by's
+/// `min(ctid)`.
 pub fn topk_as_agg(
     payload: &[Expr],
     sort_exprs: Vec<SortExpr>,
@@ -673,11 +697,7 @@ pub fn topk_as_agg(
         .for_each(|p| assert!(*p < payload.len(), "ctid_positions must be valid"));
 
     let mut args = payload.to_vec();
-    for sort in sort_exprs.iter() {
-        if !args.contains(&sort.expr) {
-            args.push(sort.expr.clone());
-        }
-    }
+
     args.push(lit(k as u64));
     args.push(positions_lit(ctid_positions));
 
@@ -712,30 +732,78 @@ mod tests {
     /// A `(score, id)` row: score nullable, id not.
     type Row = (Option<i64>, i64);
 
-    /// `(score, id)`: score nullable, id not.
-    fn schema() -> SchemaRef {
-        Arc::new(Schema::new(vec![
+    /// The `(score, id)` payload: score nullable, id not.
+    fn payload_fields_of_test_rows() -> Vec<Field> {
+        vec![
             Field::new("score", DataType::Int64, true),
             Field::new("id", DataType::Int64, false),
-        ]))
+        ]
     }
 
-    fn batch(rows: &[Row]) -> RecordBatch {
+    /// The accumulator's row under `ORDER BY score DESC NULLS FIRST, id ASC`: the payload,
+    /// then the ordering columns DataFusion evaluates from the ORDER BY, which here are
+    /// copies of `score` and `id` (nullable, as `ordering_fields` declares them).
+    fn schema() -> SchemaRef {
+        let mut fields = payload_fields_of_test_rows();
+        fields.push(Field::new("score", DataType::Int64, true));
+        fields.push(Field::new("id", DataType::Int64, true));
+        Arc::new(Schema::new(fields))
+    }
+
+    /// The accumulator's row without an ORDER BY: the payload alone.
+    fn payload_schema() -> SchemaRef {
+        Arc::new(Schema::new(payload_fields_of_test_rows()))
+    }
+
+    fn score_and_id(rows: &[Row]) -> (ArrayRef, ArrayRef) {
         let score = Int64Array::from(rows.iter().map(|r| r.0).collect::<Vec<_>>());
         let id = Int64Array::from(rows.iter().map(|r| r.1).collect::<Vec<_>>());
-        RecordBatch::try_new(schema(), vec![Arc::new(score) as ArrayRef, Arc::new(id)]).unwrap()
+        (Arc::new(score), Arc::new(id))
     }
 
-    /// Arrival mode, `ORDER BY score DESC NULLS FIRST, id ASC`.
+    /// Stand-ins for the two trailing literal arguments (`k` and the ctid positions),
+    /// which DataFusion evaluates to constant columns and `update_batch` skips.
+    fn literal_columns(num_rows: usize) -> [ArrayRef; NUM_TRAILING_ARG_LITERALS] {
+        let literal: ArrayRef = Arc::new(UInt64Array::from(vec![0u64; num_rows]));
+        [Arc::clone(&literal), literal]
+    }
+
+    /// What DataFusion hands `update_batch` for `rows` under
+    /// `ORDER BY score DESC NULLS FIRST, id ASC`: payload, literals, then the
+    /// evaluated ORDER BY keys.
+    fn values(rows: &[Row]) -> Vec<ArrayRef> {
+        let (score, id) = score_and_id(rows);
+        let mut values = vec![Arc::clone(&score), Arc::clone(&id)];
+        values.extend(literal_columns(rows.len()));
+        values.extend([score, id]);
+        values
+    }
+
+    /// The same without an ORDER BY: payload and literals only.
+    fn values_without_order_by(rows: &[Row]) -> Vec<ArrayRef> {
+        let (score, id) = score_and_id(rows);
+        let mut values = vec![score, id];
+        values.extend(literal_columns(rows.len()));
+        values
+    }
+
+    /// Arrival mode, `ORDER BY score DESC NULLS FIRST, id ASC`: the sort keys are the
+    /// ordering columns after the two payload columns.
     fn accumulator(k: usize) -> FusedTopK {
         FusedTopK::new(
             schema(),
-            vec![(0, Some(DESC_NULLS_FIRST)), (1, Some(ASC_NULLS_LAST))],
+            vec![(2, Some(DESC_NULLS_FIRST)), (3, Some(ASC_NULLS_LAST))],
             vec![],
             k,
             false,
+            2,
         )
         .unwrap()
+    }
+
+    /// Arrival mode without an ORDER BY.
+    fn accumulator_without_order_by(k: usize) -> FusedTopK {
+        FusedTopK::new(payload_schema(), vec![], vec![], k, false, 2).unwrap()
     }
 
     /// Reads a single `List<Struct<score, id, …>>` scalar back as `(score, id)` rows.
@@ -761,7 +829,7 @@ mod tests {
             &[(Some(9), 4), (Some(5), 5)],
             &[(None, 6), (Some(0), 7)],
         ] {
-            acc.update_batch(batch(rows).columns()).unwrap();
+            acc.update_batch(&values(rows)).unwrap();
         }
         // NULLS FIRST puts both nulls ahead of every score; id orders the two nulls.
         assert_eq!(
@@ -770,14 +838,19 @@ mod tests {
         );
     }
 
-    /// No ORDER BY: the prefix is empty, every row ties, and once full nothing
-    /// later can displace an earlier arrival.
+    /// No ORDER BY: there are no sort columns, so rows are appended in arrival
+    /// order, and once full nothing later can displace an earlier arrival.
     #[test]
     fn no_order_by_keeps_first_arrivals() {
-        let mut acc = FusedTopK::new(schema(), vec![], vec![], 2, false).unwrap();
-        acc.update_batch(batch(&[(Some(5), 1), (None, 2), (Some(9), 3)]).columns())
+        let mut acc = accumulator_without_order_by(2);
+        acc.update_batch(&values_without_order_by(&[
+            (Some(5), 1),
+            (None, 2),
+            (Some(9), 3),
+        ]))
+        .unwrap();
+        acc.update_batch(&values_without_order_by(&[(Some(7), 4)]))
             .unwrap();
-        acc.update_batch(batch(&[(Some(7), 4)]).columns()).unwrap();
         assert_eq!(
             rows_of(&acc.evaluate().unwrap()),
             vec![(Some(5), 1), (None, 2)]
@@ -787,9 +860,9 @@ mod tests {
     #[test]
     fn arrival_mode_keeps_identical_rows() {
         let mut acc = accumulator(3);
-        acc.update_batch(batch(&[(Some(5), 1), (Some(5), 1), (Some(2), 2)]).columns())
+        acc.update_batch(&values(&[(Some(5), 1), (Some(5), 1), (Some(2), 2)]))
             .unwrap();
-        acc.update_batch(batch(&[(Some(5), 1)]).columns()).unwrap();
+        acc.update_batch(&values(&[(Some(5), 1)])).unwrap();
         // Three identical rows are three rows, and they beat (2, 2).
         assert_eq!(
             rows_of(&acc.evaluate().unwrap()),
@@ -797,29 +870,34 @@ mod tests {
         );
     }
 
-    /// A `k` of zero admits nothing: the empty map counts as full, so the
-    /// prefilter drops every row, with sort keys and without, and the result is
-    /// an empty list rather than an error.
+    /// A `k` of zero admits nothing: `absorb` returns before looking at the
+    /// batch, with sort keys and without, and the result is an empty list rather
+    /// than an error.
     #[test]
     fn zero_k_keeps_nothing() {
-        let no_order_by = FusedTopK::new(schema(), vec![], vec![], 0, false).unwrap();
-        for mut acc in [accumulator(0), no_order_by] {
-            acc.update_batch(batch(&[(Some(5), 1), (None, 2)]).columns())
-                .unwrap();
-            acc.update_batch(batch(&[(Some(9), 3)]).columns()).unwrap();
-            assert_eq!(rows_of(&acc.evaluate().unwrap()), Vec::<Row>::new());
-        }
+        let mut acc = accumulator(0);
+        acc.update_batch(&values(&[(Some(5), 1), (None, 2)]))
+            .unwrap();
+        acc.update_batch(&values(&[(Some(9), 3)])).unwrap();
+        assert_eq!(rows_of(&acc.evaluate().unwrap()), Vec::<Row>::new());
+
+        let mut acc = accumulator_without_order_by(0);
+        acc.update_batch(&values_without_order_by(&[(Some(5), 1), (None, 2)]))
+            .unwrap();
+        acc.update_batch(&values_without_order_by(&[(Some(9), 3)]))
+            .unwrap();
+        assert_eq!(rows_of(&acc.evaluate().unwrap()), Vec::<Row>::new());
     }
 
     #[test]
     fn merge_combines_partial_states() {
         let mut first = accumulator(2);
         first
-            .update_batch(batch(&[(Some(5), 1), (Some(3), 2), (Some(1), 3)]).columns())
+            .update_batch(&values(&[(Some(5), 1), (Some(3), 2), (Some(1), 3)]))
             .unwrap();
         let mut second = accumulator(2);
         second
-            .update_batch(batch(&[(Some(4), 4), (Some(9), 5)]).columns())
+            .update_batch(&values(&[(Some(4), 4), (Some(9), 5)]))
             .unwrap();
         // A partial that saw no input: its state is an empty list, not a null one.
         let mut idle = accumulator(2);
@@ -869,14 +947,41 @@ mod tests {
         .unwrap()
     }
 
-    /// Distinct mode, `ORDER BY score DESC NULLS FIRST, id ASC`, key `(score, id)`, ctid at 2.
+    /// The distinct accumulator's row: the `(score, id, ctid)` payload, then the
+    /// ordering columns for `ORDER BY score DESC NULLS FIRST, id ASC`.
+    fn distinct_accumulator_schema() -> SchemaRef {
+        let mut fields = distinct_schema().fields().to_vec();
+        fields.push(Arc::new(Field::new("score", DataType::Int64, true)));
+        fields.push(Arc::new(Field::new("id", DataType::Int64, true)));
+        Arc::new(Schema::new(fields))
+    }
+
+    /// What DataFusion hands `update_batch` for distinct rows: payload, literals,
+    /// then the evaluated ORDER BY keys.
+    fn distinct_values(rows: &[(Option<i64>, i64, Option<u64>)]) -> Vec<ArrayRef> {
+        let batch = distinct_batch(rows);
+        let mut values = batch.columns().to_vec();
+        values.extend(literal_columns(rows.len()));
+        values.extend([Arc::clone(batch.column(0)), Arc::clone(batch.column(1))]);
+        values
+    }
+
+    /// Distinct mode, `ORDER BY score DESC NULLS FIRST, id ASC`, key `(score, id)`,
+    /// ctid at 2. The sort is what `accumulator()` builds: the ordering columns
+    /// (positions 3 and 4), then the non-ctid payload columns as the rest of the key.
     fn distinct_accumulator(k: usize) -> FusedTopK {
         FusedTopK::new(
-            distinct_schema(),
-            vec![(0, Some(DESC_NULLS_FIRST)), (1, Some(ASC_NULLS_LAST))],
+            distinct_accumulator_schema(),
+            vec![
+                (3, Some(DESC_NULLS_FIRST)),
+                (4, Some(ASC_NULLS_LAST)),
+                (0, None),
+                (1, None),
+            ],
             vec![2],
             k,
             true,
+            3,
         )
         .unwrap()
     }
@@ -904,27 +1009,21 @@ mod tests {
     #[test]
     fn distinct_mode_collapses_groups_and_keeps_min_ctid() {
         let mut acc = distinct_accumulator(2);
-        acc.update_batch(
-            distinct_batch(&[
-                (Some(5), 1, Some(9)),
-                (Some(5), 1, Some(4)),
-                (Some(3), 2, Some(7)),
-            ])
-            .columns(),
-        )
+        acc.update_batch(&distinct_values(&[
+            (Some(5), 1, Some(9)),
+            (Some(5), 1, Some(4)),
+            (Some(3), 2, Some(7)),
+        ]))
         .unwrap();
         // (9, 3) enters and evicts (3, 2); a later (3, 2) must not come back; the
         // (5, 1) duplicates only lower its ctid, a NULL ctid changes nothing.
-        acc.update_batch(
-            distinct_batch(&[
-                (Some(9), 3, Some(2)),
-                (Some(5), 1, Some(6)),
-                (Some(3), 2, Some(1)),
-                (Some(5), 1, None),
-                (Some(1), 4, Some(8)),
-            ])
-            .columns(),
-        )
+        acc.update_batch(&distinct_values(&[
+            (Some(9), 3, Some(2)),
+            (Some(5), 1, Some(6)),
+            (Some(3), 2, Some(1)),
+            (Some(5), 1, None),
+            (Some(1), 4, Some(8)),
+        ]))
         .unwrap();
         assert_eq!(
             distinct_rows_of(&acc.evaluate().unwrap()),
@@ -936,11 +1035,17 @@ mod tests {
     fn distinct_merge_deduplicates_across_partials() {
         let mut first = distinct_accumulator(2);
         first
-            .update_batch(distinct_batch(&[(Some(5), 1, Some(9)), (Some(3), 2, Some(7))]).columns())
+            .update_batch(&distinct_values(&[
+                (Some(5), 1, Some(9)),
+                (Some(3), 2, Some(7)),
+            ]))
             .unwrap();
         let mut second = distinct_accumulator(2);
         second
-            .update_batch(distinct_batch(&[(Some(5), 1, Some(4)), (Some(9), 3, Some(2))]).columns())
+            .update_batch(&distinct_values(&[
+                (Some(5), 1, Some(4)),
+                (Some(9), 3, Some(2)),
+            ]))
             .unwrap();
         let states = ScalarValue::iter_to_array([
             first.state().unwrap().remove(0),
@@ -968,49 +1073,52 @@ mod tests {
     /// must not become a SortExec under the aggregate, the Partial/Final split must
     /// round-trip the state, and the declared return type must match what
     /// `evaluate` emits.
+    /// A `(g, score, id)` table in two partitions, so the planner has a reason to
+    /// split Partial from Final.
+    fn scores_table() -> MemTable {
+        let table_schema = Arc::new(Schema::new(vec![
+            Field::new("g", DataType::Utf8, false),
+            Field::new("score", DataType::Int64, true),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let part = |rows: &[(&str, Option<i64>, i64)]| {
+            RecordBatch::try_new(
+                Arc::clone(&table_schema),
+                vec![
+                    Arc::new(StringArray::from(
+                        rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+                    )) as ArrayRef,
+                    Arc::new(Int64Array::from(
+                        rows.iter().map(|r| r.1).collect::<Vec<_>>(),
+                    )),
+                    Arc::new(Int64Array::from(
+                        rows.iter().map(|r| r.2).collect::<Vec<_>>(),
+                    )),
+                ],
+            )
+            .unwrap()
+        };
+        MemTable::try_new(
+            Arc::clone(&table_schema),
+            vec![
+                vec![part(&[
+                    ("x", Some(5), 1),
+                    ("x", Some(3), 2),
+                    ("y", None, 3),
+                ])],
+                vec![part(&[
+                    ("x", Some(9), 4),
+                    ("y", Some(7), 5),
+                    ("y", Some(8), 6),
+                ])],
+            ],
+        )
+        .unwrap()
+    }
+
     #[test]
     fn plans_without_a_sort_and_splits_partial_final() {
         runtime().block_on(async {
-            let table_schema = Arc::new(Schema::new(vec![
-                Field::new("g", DataType::Utf8, false),
-                Field::new("score", DataType::Int64, true),
-                Field::new("id", DataType::Int64, false),
-            ]));
-            let part = |rows: &[(&str, Option<i64>, i64)]| {
-                RecordBatch::try_new(
-                    Arc::clone(&table_schema),
-                    vec![
-                        Arc::new(StringArray::from(
-                            rows.iter().map(|r| r.0).collect::<Vec<_>>(),
-                        )) as ArrayRef,
-                        Arc::new(Int64Array::from(
-                            rows.iter().map(|r| r.1).collect::<Vec<_>>(),
-                        )),
-                        Arc::new(Int64Array::from(
-                            rows.iter().map(|r| r.2).collect::<Vec<_>>(),
-                        )),
-                    ],
-                )
-                .unwrap()
-            };
-            // Two partitions so the planner has a reason to split Partial from Final.
-            let table = MemTable::try_new(
-                Arc::clone(&table_schema),
-                vec![
-                    vec![part(&[
-                        ("x", Some(5), 1),
-                        ("x", Some(3), 2),
-                        ("y", None, 3),
-                    ])],
-                    vec![part(&[
-                        ("x", Some(9), 4),
-                        ("y", Some(7), 5),
-                        ("y", Some(8), 6),
-                    ])],
-                ],
-            )
-            .unwrap();
-
             let ctx =
                 SessionContext::new_with_config(SessionConfig::new().with_target_partitions(2));
             let topk = topk_as_agg(
@@ -1021,7 +1129,7 @@ mod tests {
                 false,
             );
             let df = ctx
-                .read_table(Arc::new(table))
+                .read_table(Arc::new(scores_table()))
                 .unwrap()
                 .aggregate(vec![col("g")], vec![topk.alias("topk")])
                 .unwrap();
@@ -1051,6 +1159,54 @@ mod tests {
                     ("y".into(), vec![(None, 3), (Some(8), 6)]),
                 ]
             );
+        });
+    }
+
+    /// An ORDER BY the payload cannot express: `score` is not an argument, and the
+    /// first key is an expression over it. The accumulator sorts on the ordering
+    /// columns DataFusion evaluates and appends, never on the payload, and the
+    /// Partial/Final split carries them in the state.
+    #[test]
+    fn orders_by_evaluated_keys_outside_the_payload() {
+        use datafusion::prelude::lit;
+
+        runtime().block_on(async {
+            let ctx =
+                SessionContext::new_with_config(SessionConfig::new().with_target_partitions(2));
+            // ORDER BY score + 1 DESC NULLS LAST, id ASC
+            let topk = topk_as_agg(
+                &[col("id")],
+                vec![
+                    (col("score") + lit(1)).sort(false, false),
+                    col("id").sort(true, false),
+                ],
+                2,
+                &[],
+                false,
+            );
+            let df = ctx
+                .read_table(Arc::new(scores_table()))
+                .unwrap()
+                .aggregate(vec![], vec![topk.alias("topk")])
+                .unwrap();
+
+            let plan = df.clone().create_physical_plan().await.unwrap();
+            let text = displayable(plan.as_ref()).indent(true).to_string();
+            assert!(text.contains("mode=Partial"), "{text}");
+            assert!(text.contains("mode=Final"), "{text}");
+            assert!(!text.contains("SortExec"), "{text}");
+
+            let batches = df.collect().await.unwrap();
+            let batch =
+                arrow_select::concat::concat_batches(&batches[0].schema(), &batches).unwrap();
+            assert_eq!(batch.num_rows(), 1);
+            let rows = batch.column(0).as_list::<i32>().value(0);
+            let rows = rows.as_struct();
+            // The payload is `id` alone: the ordering columns never reach the result.
+            assert_eq!(rows.num_columns(), 1);
+            let ids: Vec<i64> = rows.column(0).as_primitive::<Int64Type>().values().to_vec();
+            // Scores 9 and 8 win; the NULL score sorts last under NULLS LAST.
+            assert_eq!(ids, vec![4, 6]);
         });
     }
 

@@ -2805,15 +2805,13 @@ unsafe fn pathkey_is_in_sort_pathkeys(
 /// and orders by `b.id`, the planner considers sorting by `a.id` equally valid. Both variables
 /// will be present in the `ec_members` list for that `PathKey`.
 ///
-/// # Schema Pruning (e.g., `SEMI JOIN`, `DISTINCT` and the Top-K aggregate)
-/// When DataFusion executes operations like `SEMI JOIN`, `ANTI JOIN`, or an `Aggregate`,
+/// # Schema Pruning (e.g., `SEMI JOIN` and `DISTINCT`)
+/// When DataFusion executes operations like `SEMI JOIN`, `ANTI JOIN`, or `DISTINCT` (`Aggregate`),
 /// columns that are not part of the output requirements are discarded to save memory and compute.
 /// For example:
 /// 1. If relation `b` is on the right side of a Semi-Join, `b.id` will *not* be available in the output.
 /// 2. If `DISTINCT` groups by `a.id`, then an equivalent column `b.id` (from an equi-join `a.id = b.id`)
 ///    will *not* be preserved by the `Aggregate` node.
-/// 3. The Top-K aggregate (`JoinCSClause::will_compute_topk_as_agg`) keeps only what the projection
-///    names, DISTINCT or not, and resolves its sort keys through that projection afterwards.
 ///
 /// If DataFusion subsequently attempts to sort on a discarded column like `b.id`, it will panic with a
 /// `SchemaError(FieldNotFound)`.
@@ -2821,18 +2819,9 @@ unsafe fn pathkey_is_in_sort_pathkeys(
 /// To prevent this, this function applies two filters when inspecting Equivalence Class members:
 /// - **RTI Filtering:** It accepts `output_rtis` (the Range Table Identifiers that survive the join tree)
 ///   and ignores members from pruned relations.
-/// - **Target List Filtering:** If `restrict_to_target_list` is true, it further restricts members to
-///   only those explicitly present in the query's target list, as these are the only expressions the
-///   `Aggregate` node preserves. The caller sets it for DISTINCT and for the Top-K aggregate alike.
-///   The target list includes the resjunk entries Postgres adds for `ORDER BY` keys outside the
-///   `SELECT` list, so a sort key is only ever unavailable when the member chosen for it is an
-///   equivalence-class substitute (e.g. `b.id` for `a.id`), which this filter passes over.
-///
-/// `has_distinct` is separate from that filter: it governs the pathkeys DISTINCT adds beyond the
-/// `ORDER BY` (`query_pathkeys` is `distinct_pathkeys` then), namely NullTests and expressions on
-/// the distinct keys, which the GROUP BY resolves and which must be acknowledged without being added
-/// to the sort. Without DISTINCT every pathkey is a real sort key, so an expression that cannot be
-/// classified must remain a decline rather than be dropped from the ORDER BY.
+/// - **DISTINCT Target List Filtering:** If `has_distinct` is true, it further restricts members to only
+///   those explicitly present in the query's `SELECT` target list, as these are the only expressions
+///   preserved by the `Aggregate` node.
 ///
 /// # Returns
 /// - `Some(Vec<OrderByInfo>)`: The translated sort instructions containing valid, available columns.
@@ -2844,7 +2833,6 @@ pub(super) unsafe fn extract_orderby(
     sources: &[&JoinSource],
     output_rtis: &[pg_sys::Index],
     has_distinct: bool,
-    restrict_to_target_list: bool,
 ) -> Option<Vec<OrderByInfo>> {
     let mut result = Vec::new();
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
@@ -2853,7 +2841,7 @@ pub(super) unsafe fn extract_orderby(
         return Some(result);
     }
 
-    let distinct_target_list = if restrict_to_target_list {
+    let distinct_target_list = if has_distinct {
         let parse = (*root).parse;
         Some(PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList))
     } else {

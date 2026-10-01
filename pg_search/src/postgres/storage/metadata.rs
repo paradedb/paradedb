@@ -577,7 +577,7 @@ mod tests {
             .max()
             .unwrap();
         drop(indexrel);
-        Spi::run(&format!("ALTER INDEX metadata_vectors_idx SET (layer_sizes='{layer_bytes}B',background_layer_sizes='0',mutable_segment_rows=0)")).unwrap();
+        Spi::run(&format!("ALTER INDEX metadata_vectors_idx SET (layer_sizes='{layer_bytes} bytes',background_layer_sizes='0',mutable_segment_rows=0)")).unwrap();
         let indexrel = PgSearchRelation::open(oid);
         replace_vector_version(&indexrel, 3);
         expect_reindex(

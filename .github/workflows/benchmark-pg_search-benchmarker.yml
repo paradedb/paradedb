@@ -55,6 +55,27 @@ jobs:
       - name: Add post-measurement diagnostics
         working-directory: benchmarker
         run: python3 ../.github/diagnostics/conjunction-6580/capture.py
+      - name: Validate diagnostic SQL on a small index
+        run: |
+          set -euo pipefail
+          docker run -d --name conjunction-smoke --memory=4g --cpus=2 \
+            -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=benchmark \
+            paradedb-crossover:candidate
+          trap 'docker rm -f conjunction-smoke' EXIT
+          for attempt in $(seq 1 60); do
+            if docker exec conjunction-smoke pg_isready -U postgres -d benchmark; then break; fi
+            sleep 1
+          done
+          docker exec -i conjunction-smoke psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+          CREATE TABLE documents (id text, body text);
+          INSERT INTO documents VALUES ('1', 'then you traverse it with iterators');
+          CREATE INDEX documents_body_bm25_idx ON documents USING bm25 ((body::pdb.unicode_words('pnorms=true')));
+          ANALYZE documents;
+          SQL
+          docker exec -i conjunction-smoke psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
+            < .github/diagnostics/conjunction-6580/plans.sql > /tmp/conjunction-smoke-plans.txt
+          test "$(grep -c '^PLAN ' /tmp/conjunction-smoke-plans.txt)" -eq 86
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:

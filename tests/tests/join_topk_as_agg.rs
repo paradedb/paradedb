@@ -117,6 +117,25 @@ enum Mode {
 /// never uses it.
 const TOPK_AGG_ALIAS: &str = "__topk";
 
+/// A one-column `float8` row, compared the way Postgres compares floats: NaN
+/// equals NaN, and `-0` equals `0`. `f64`'s own `PartialEq` would make two
+/// identical results unequal as soon as they held a NaN.
+#[derive(Debug)]
+struct Float8Row(f64);
+
+impl PartialEq for Float8Row {
+    fn eq(&self, other: &Self) -> bool {
+        (self.0.is_nan() && other.0.is_nan()) || self.0 == other.0
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for Float8Row {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self(row.try_get(0)?))
+    }
+}
+
 /// The `EXPLAIN` of `query`, joined into one string.
 fn explain(conn: &mut PgConnection, query: &str) -> String {
     format!("EXPLAIN {query}")
@@ -341,5 +360,48 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
         LIMIT 8
         "#,
         8,
+    );
+
+    // Float keys. The three values that separate float comparison rules: `0`
+    // and `-0`, which Postgres and a GROUP BY treat as equal while a total order
+    // does not, and NaN, which sorts above everything and equals itself. Each
+    // joins two t2 rows.
+    r#"
+    DROP TABLE IF EXISTS tka_floats CASCADE;
+    CREATE TABLE tka_floats (id INTEGER PRIMARY KEY, rating FLOAT8, val TEXT);
+    INSERT INTO tka_floats VALUES
+        (1, 0.0, 'val'), (2, '-0'::float8, 'val'), (3, 'NaN'::float8, 'val');
+    CREATE INDEX tka_floats_idx ON tka_floats USING paradedb (id, rating, val);
+    ANALYZE tka_floats;
+    "#
+    .execute(&mut conn);
+
+    // Ordering on a float key: NaN sorts first under DESC on both paths.
+    assert_paths_agree::<Float8Row>(
+        &mut conn,
+        r#"
+        SELECT f.rating
+        FROM tka_floats f
+        JOIN tka_t2 t2 ON f.id = t2.t1_id
+        WHERE f.val ||| 'val'
+        ORDER BY f.rating DESC, t2.id ASC
+        LIMIT 3
+        "#,
+        3,
+    );
+
+    // DISTINCT on a float key: the two zeros are one group, so LIMIT 2 has room
+    // for NaN. A distinct that tells `-0` from `0` spends both slots on zeros.
+    assert_paths_agree::<Float8Row>(
+        &mut conn,
+        r#"
+        SELECT DISTINCT f.rating
+        FROM tka_floats f
+        JOIN tka_t2 t2 ON f.id = t2.t1_id
+        WHERE f.val ||| 'val'
+        ORDER BY f.rating
+        LIMIT 2
+        "#,
+        2,
     );
 }

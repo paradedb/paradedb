@@ -50,7 +50,7 @@ use arrow_select::filter::filter_record_batch;
 use arrow_select::interleave::interleave_record_batch;
 use arrow_select::take::take;
 use datafusion::arrow::compute::SortColumn;
-use datafusion::common::utils::SingleRowListArrayBuilder;
+use datafusion::common::utils::{SingleRowListArrayBuilder, normalize_float_zero};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::function::{AccumulatorArgs, StateFieldsArgs};
@@ -652,7 +652,8 @@ impl Accumulator for FusedTopK {
         let columns = values[..n]
             .iter()
             .chain(&values[n + NUM_TRAILING_ARG_LITERALS..])
-            .cloned()
+            // incoming batches need their +/- zeroes normalized for sql equality semantics.
+            .map(normalize_float_zero)
             .collect();
         let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns)?;
         let updated = self.absorb(&batch)?;

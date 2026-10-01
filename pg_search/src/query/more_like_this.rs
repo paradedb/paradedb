@@ -58,11 +58,7 @@ impl tantivy::query::QueryEstimate for MoreLikeThisQuery {
         &self,
         reader: &tantivy::SegmentReader,
     ) -> tantivy::Result<Option<(u32, u64)>> {
-        // The rewritten terms are unavailable here, so use a 1% fallback.
-        Ok(Some((
-            reader.max_doc().div_ceil(100),
-            u64::from(reader.max_doc()),
-        )))
+        tantivy::query::QueryEstimate::estimate_docs(&self.mlt.inner, reader)
     }
 }
 

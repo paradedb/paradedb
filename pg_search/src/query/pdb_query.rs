@@ -468,6 +468,7 @@ impl pdb::Query {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn into_tantivy_query<QueryParserCtor: Fn() -> QueryParser>(
         self,
         field: FieldName,
@@ -476,7 +477,34 @@ impl pdb::Query {
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pgrx::pg_sys::Oid,
+        for_estimation: bool,
     ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+        if for_estimation {
+            use pgrx::pg_sys;
+            let prior = match &self {
+                pdb::Query::Range {
+                    lower_bound,
+                    upper_bound,
+                } => Some(super::estimate::range_prior(lower_bound, upper_bound)),
+                pdb::Query::FastFieldRangeWeight {
+                    lower_bound,
+                    upper_bound,
+                } => Some(super::estimate::range_prior(lower_bound, upper_bound)),
+                pdb::Query::RangeContains { .. } | pdb::Query::RangeWithin { .. } => {
+                    Some(pg_sys::DEFAULT_EQ_SEL)
+                }
+                pdb::Query::RangeIntersects { .. } => Some(pg_sys::DEFAULT_MATCHING_SEL),
+                pdb::Query::RangeTerm { .. } => Some(pg_sys::DEFAULT_RANGE_INEQ_SEL),
+                pdb::Query::Exists => Some(pg_sys::DEFAULT_NOT_UNK_SEL),
+                pdb::Query::UnclassifiedString { .. } | pdb::Query::UnclassifiedArray { .. } => {
+                    Some(pg_sys::DEFAULT_MATCH_SEL)
+                }
+                _ => None,
+            };
+            if let Some(prior) = prior {
+                return Ok(Box::new(super::estimate::EstimatedQuery(prior)));
+            }
+        }
         let query: Box<dyn TantivyQuery> = match self {
             pdb::Query::All => Box::new(AllQuery),
             pdb::Query::Empty => Box::new(EmptyQuery),
@@ -484,12 +512,17 @@ impl pdb::Query {
                 key_value,
                 fields,
                 options,
-            } => match MoreLikeThisQueryBuilder::new(options, index_created_by_version)
-                .with_field_value(field, key_value, fields, index_oid)
-            {
-                Some(query) => Box::new(query),
-                None => Box::new(EmptyQuery),
-            },
+            } => {
+                let builder = MoreLikeThisQueryBuilder::new(options, index_created_by_version);
+                if for_estimation {
+                    Box::new(builder.with_document(Vec::new()))
+                } else {
+                    match builder.with_field_value(field, key_value, fields, index_oid) {
+                        Some(query) => Box::new(query),
+                        None => Box::new(EmptyQuery),
+                    }
+                }
+            }
 
             pdb::Query::UnclassifiedString { .. } => {
                 // this would indicate a problem with the various operator SUPPORT functions failing
@@ -514,6 +547,7 @@ impl pdb::Query {
                     parser,
                     searcher,
                     index_oid,
+                    for_estimation,
                 )?;
                 match score.expect("score adjustment value should have been set") {
                     ScoreAdjustStyle::Boost(boost) => Box::new(BoostQuery::new(query, boost)),
@@ -2423,6 +2457,7 @@ mod tests {
                     &|| QueryParser::for_index(&index, vec![field]),
                     &searcher,
                     oid,
+                    false,
                 )
                 .unwrap();
             assert_eq!(searcher.search(&query, &top_docs).unwrap(), expected);

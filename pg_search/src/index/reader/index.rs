@@ -947,7 +947,7 @@ impl SearchIndexReader {
             .expect("weight should be constructable")
     }
 
-    pub(crate) fn make_query(
+    fn make_query(
         &self,
         search_query_input: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
@@ -1867,19 +1867,105 @@ impl SearchIndexReader {
         }
     }
 
-    pub fn estimate_docs(&self, query: &SearchQueryInput, total_docs: RowEstimate) -> DocsEstimate {
-        crate::query::estimate::estimate(self, &self.index_rel, query, total_docs, None)
+    pub fn estimate_docs(&self, query: &SearchQueryInput, rows: RowEstimate) -> DocsEstimate {
+        use crate::query::estimate::EstimateDocs;
+        let query = self.make_estimation_query(query);
+        let mut estimate = EstimateDocs::estimate_docs(query.as_ref(), self);
+        if let RowEstimate::Known(rows) = rows
+            && rows > 0
+        {
+            estimate.query_cost = (estimate.query_cost as f64 * rows as f64
+                / estimate.total_docs.max(1) as f64)
+                .ceil() as u64;
+            estimate.total_docs = rows;
+            estimate.matching_docs = (estimate.selectivity * rows as f64).ceil() as usize;
+        }
+        estimate
     }
 
+    fn make_estimation_query(&self, query: &SearchQueryInput) -> Box<dyn Query> {
+        query
+            .clone()
+            .into_tantivy_query_generic(
+                &crate::query::builder::QueryOnlyBuilder,
+                &self.schema,
+                self.index_created_by_version,
+                &|| {
+                    QueryParser::for_index(
+                        &self.underlying_index,
+                        self.schema.fields().map(|(field, _)| field).collect(),
+                    )
+                },
+                &self.searcher,
+                self.index_rel.oid(),
+                self.index_rel.rel_oid(),
+                None,
+                None,
+                true,
+            )
+            .expect("building estimation query should succeed")
+    }
+
+    /// Build a query tree with recursive estimates for EXPLAIN output.
     pub fn build_query_tree_with_estimates(
         &self,
         query_input: SearchQueryInput,
     ) -> Result<QueryWithEstimates> {
-        Ok(crate::query::estimate::explain(
-            self,
-            &self.index_rel,
-            &query_input,
-        ))
+        let parser_closure = || {
+            QueryParser::for_index(
+                &self.underlying_index,
+                self.schema
+                    .fields()
+                    .map(|(field, _)| field)
+                    .collect::<Vec<_>>(),
+            )
+        };
+
+        let (_tantivy_query, mut query_tree) = query_input.into_tantivy_query_with_tree(
+            &self.schema,
+            self.index_created_by_version,
+            &parser_closure,
+            &self.searcher,
+            self.index_rel.oid(),
+            self.index_rel.rel_oid(),
+            None, // expr_context not needed for estimation
+            None,
+        )?;
+
+        self.estimate_node_recursive(&mut query_tree);
+
+        Ok(query_tree)
+    }
+
+    fn estimate_node_recursive(&self, node: &mut QueryWithEstimates) {
+        use crate::query::SearchQueryInput;
+
+        // First, recursively estimate all children
+        for child in node.children_mut() {
+            self.estimate_node_recursive(child);
+        }
+
+        // For structural wrapper nodes (used for labeling in EXPLAIN output), inherit
+        // estimate from child. These are placeholders created in into_tantivy_query_generic
+        // to wrap children for better tree structure display.
+        //
+        // - Empty: used for Boolean clause labels ("Must Clause [0]", etc.)
+        // - All: used for DisjunctionMax disjunct labels ("Disjunct [0]", etc.)
+        //
+        // Note: We check for exactly 1 child to distinguish structural wrappers from
+        // actual leaf queries (e.g., real "All" query has 0 children and should be estimated).
+        if matches!(&node.query, SearchQueryInput::Empty | SearchQueryInput::All)
+            && node.children().len() == 1
+            && let Some(child_estimate) = node.children()[0].estimated_docs
+        {
+            node.set_estimate(child_estimate);
+            return;
+        }
+
+        node.set_estimate(
+            self.estimate_docs(&node.query, RowEstimate::Unknown)
+                .matching_docs,
+        );
     }
 
     pub fn collect<C: Collector>(&self, collector: C) -> C::Fruit {

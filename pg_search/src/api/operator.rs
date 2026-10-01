@@ -645,28 +645,24 @@ pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
     }
 }
 
-/// Reads index metadata and PostgreSQL statistics without constructing a scorer.
+/// Uses query metadata and cheap defaults without constructing a scorer.
 fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     query: &SearchQueryInput,
-    planner: Option<crate::query::estimate::Planner>,
 ) -> Option<DocsEstimate> {
     let heap = indexrel
         .heap_relation()
         .expect("indexrel should be an index");
     let rows = RowEstimate::from_reltuples(heap.reltuples().map(f64::from));
     let reader = SearchIndexReader::open_for_estimation(indexrel, query).ok()?;
-    Some(crate::query::estimate::estimate(
-        &reader, indexrel, query, rows, planner,
-    ))
+    Some(reader.estimate_docs(query, rows))
 }
 
 pub(crate) fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
     query: SearchQueryInput,
-    planner: Option<crate::query::estimate::Planner>,
 ) -> (Option<f64>, Option<u64>) {
-    let Some(estimate) = open_and_estimate_docs(indexrel, &query, planner) else {
+    let Some(estimate) = open_and_estimate_docs(indexrel, &query) else {
         return (Some(pg_sys::DEFAULT_MATCH_SEL), None);
     };
     (Some(estimate.selectivity), Some(estimate.query_cost))
@@ -675,23 +671,22 @@ pub(crate) fn estimate_selectivity_and_cost(
 pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     query: SearchQueryInput,
-    planner: crate::query::estimate::Planner,
 ) -> Option<f64> {
-    estimate_selectivity_and_cost(indexrel, query, Some(planner)).0
+    estimate_selectivity_and_cost(indexrel, query).0
 }
 
 pub(crate) fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
     query: SearchQueryInput,
 ) -> Option<u64> {
-    open_and_estimate_docs(indexrel, &query, None).map(|estimate| estimate.matching_docs as u64)
+    open_and_estimate_docs(indexrel, &query).map(|estimate| estimate.matching_docs as u64)
 }
 
 pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     query: SearchQueryInput,
 ) -> Option<u64> {
-    estimate_selectivity_and_cost(indexrel, query, None).1
+    estimate_selectivity_and_cost(indexrel, query).1
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

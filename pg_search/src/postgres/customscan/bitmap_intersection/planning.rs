@@ -895,8 +895,47 @@ unsafe fn strip_relabel(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     }
 }
 
-use crate::postgres::utils::make_simple_restrictinfo;
-
 unsafe fn is_pseudoconstant(node: *mut pg_sys::Node) -> bool {
     unsafe { !pg_sys::contain_var_clause(node) && !pg_sys::contain_volatile_functions(node) }
+}
+
+#[cfg(feature = "pg15")]
+unsafe fn make_simple_restrictinfo(
+    root: *mut pg_sys::PlannerInfo,
+    clause: *mut pg_sys::Expr,
+) -> *mut pg_sys::RestrictInfo {
+    unsafe {
+        pg_sys::make_restrictinfo(
+            root,
+            clause,
+            true,
+            false,
+            false,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    }
+}
+
+#[cfg(not(feature = "pg15"))]
+unsafe fn make_simple_restrictinfo(
+    root: *mut pg_sys::PlannerInfo,
+    clause: *mut pg_sys::Expr,
+) -> *mut pg_sys::RestrictInfo {
+    unsafe {
+        pg_sys::make_restrictinfo(
+            root,
+            clause,
+            true,
+            false,
+            false,
+            false,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    }
 }

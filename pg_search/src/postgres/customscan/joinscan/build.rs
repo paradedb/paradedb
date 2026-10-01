@@ -449,7 +449,7 @@ impl JoinSourceCandidate {
         self.heap_rti == rti
     }
 
-    pub fn estimate_rows(&mut self, root: *mut pg_sys::PlannerInfo) {
+    pub fn estimate_rows(&mut self) {
         if !self.has_bm25_index() {
             return;
         }
@@ -460,16 +460,7 @@ impl JoinSourceCandidate {
         let reader = SearchIndexReader::open_for_estimation(&index, &query)
             .expect("opening metadata reader should not fail");
         self.segment_count = Some(reader.total_segment_count());
-        let estimate = crate::query::estimate::estimate(
-            &reader,
-            &index,
-            &query,
-            rows,
-            Some(crate::query::estimate::Planner {
-                root,
-                rti: self.heap_rti,
-            }),
-        );
+        let estimate = reader.estimate_docs(&query, rows);
         self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
     }
 }

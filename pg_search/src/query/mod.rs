@@ -1146,6 +1146,7 @@ impl SearchQueryInput {
             relation_oid,
             expr_context,
             planstate,
+            false,
         )
     }
 
@@ -1162,6 +1163,7 @@ impl SearchQueryInput {
         relation_oid: Option<pg_sys::Oid>,
         expr_context: Option<std::ptr::NonNull<pg_sys::ExprContext>>,
         planstate: Option<std::ptr::NonNull<pg_sys::PlanState>>,
+        for_estimation: bool,
     ) -> Result<B::Output> {
         let recurse = |input: SearchQueryInput| {
             input.into_tantivy_query_generic(
@@ -1174,6 +1176,7 @@ impl SearchQueryInput {
                 relation_oid,
                 expr_context,
                 planstate,
+                for_estimation,
             )
         };
 
@@ -1185,6 +1188,19 @@ impl SearchQueryInput {
         } else {
             None
         };
+
+        if for_estimation
+            && matches!(
+                &self,
+                SearchQueryInput::Uninitialized | SearchQueryInput::PostgresExpression { .. }
+            )
+        {
+            return Ok(builder.build_leaf(
+                Box::new(estimate::EstimatedQuery(crate::PARAMETERIZED_SELECTIVITY)),
+                || "Postgres Expression".to_owned(),
+                cloned_for_estimate,
+            ));
+        }
 
         match self {
             SearchQueryInput::Uninitialized => {
@@ -1329,8 +1345,12 @@ impl SearchQueryInput {
                 bounds,
                 query: inner_query,
             } => {
-                let inner_output =
-                    recurse(*inner_query.expect("ScoreFilter's query should have been set"))?;
+                let inner_query = if for_estimation {
+                    inner_query.unwrap_or_else(|| Box::new(SearchQueryInput::All))
+                } else {
+                    inner_query.expect("ScoreFilter's query should have been set")
+                };
+                let inner_output = recurse(*inner_query)?;
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
                 let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
                 let query = Box::new(ScoreFilter::new(bounds.clone(), inner_tantivy));
@@ -1496,6 +1516,28 @@ impl SearchQueryInput {
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
                 let (indexed_tantivy_query, opt_output) = B::split_for_parent(inner_output);
 
+                if for_estimation {
+                    let query: Box<dyn TantivyQuery> = if always_filters.is_empty()
+                        && recheck_filters.is_empty()
+                    {
+                        indexed_tantivy_query
+                    } else {
+                        Box::new(BooleanQuery::new(vec![
+                            (Occur::Must, indexed_tantivy_query),
+                            (
+                                Occur::Must,
+                                Box::new(estimate::EstimatedQuery(pgrx::pg_sys::DEFAULT_MATCH_SEL)),
+                            ),
+                        ]))
+                    };
+                    return Ok(builder.build_with_children(
+                        query,
+                        || "HeapFilter Query".to_owned(),
+                        |_| opt_output.into_iter().collect(),
+                        cloned_for_estimate,
+                    ));
+                }
+
                 // Is initialized in `begin_custom_scan` if `has_heap_filters`.
                 let expr_context = expr_context
                     .expect("An expression context must be provided when heap filtering.");
@@ -1533,6 +1575,7 @@ impl SearchQueryInput {
                     parser,
                     searcher,
                     index_oid,
+                    for_estimation,
                 )?;
                 Ok(builder.build_leaf(
                     Box::new(query),
@@ -1568,6 +1611,7 @@ impl SearchQueryInput {
             relation_oid,
             expr_context,
             planstate,
+            true,
         )
     }
 }

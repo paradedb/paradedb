@@ -124,15 +124,7 @@ pub(super) fn query_input_selectivity(
             else {
                 return UNKNOWN_SELECTIVITY;
             };
-            estimate_selectivity(
-                &indexrel,
-                search_query_input,
-                crate::query::estimate::Planner {
-                    root: planner_info,
-                    rti: unsafe { (*var).varno as _ },
-                },
-            )
-            .unwrap_or(UNKNOWN_SELECTIVITY)
+            estimate_selectivity(&indexrel, search_query_input).unwrap_or(UNKNOWN_SELECTIVITY)
         }
         pg_sys::NodeTag::T_Param => PARAMETERIZED_SELECTIVITY,
         _ => UNKNOWN_SELECTIVITY,

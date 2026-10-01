@@ -464,6 +464,6 @@ await dbContext
   `partition_by` is currently a Beta feature under active development.
 </Warning>
 
-For aggregates filtered by high-selectivity keys (such as `tenant_id` in multi-tenant applications) or date ranges, configuring [`partition_by`](/reference/indexing/partition-by) allows ParadeDB to prune non-matching segments before computing the aggregate.
+For aggregates filtered by high-selectivity keys (such as `tenant_id` in multi-tenant applications) or date ranges, configuring [`partition_by`](/reference/indexing/partition-by) allows ParadeDB to prune non-matching segments before computing the aggregate, significantly speeding up queries by scanning less data.
 
 See the [Partitioning Guide](/reference/indexing/partition-by) for details on column selection and pruning behavior.

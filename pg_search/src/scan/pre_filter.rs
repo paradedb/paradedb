@@ -104,7 +104,7 @@ use datafusion::physical_plan::joins::HashTableLookupExpr;
 use tantivy::{Score, SegmentOrdinal};
 
 use crate::api::HashSet;
-use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL, WhichFastField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::value_to_term;
 use crate::scan::deferred_encode::is_deferred_field;
@@ -307,6 +307,27 @@ pub fn collect_filters(
             expr: Arc::clone(expr),
             required_columns,
         });
+    }
+}
+
+/// Whether the scanner has this column in hand when pre-filters run, which is
+/// before the visibility check.
+///
+/// The ctid is only known after that check, and it can differ from the ctid the
+/// index stored when the visible row sits further along a HOT chain, so a
+/// pre-filter on it could drop rows the parent join would have matched. The
+/// same goes for `tableoid` and junk columns, which are filled in later too.
+pub fn is_available_for_pre_filter(which_ff: &WhichFastField) -> bool {
+    match which_ff {
+        WhichFastField::Named(..)
+        | WhichFastField::Array(..)
+        | WhichFastField::Deferred(..)
+        | WhichFastField::Score
+        | WhichFastField::MatchTag(_) => true,
+        WhichFastField::Ctid
+        | WhichFastField::TableOid
+        | WhichFastField::Junk(_)
+        | WhichFastField::DeferredCtid(_) => false,
     }
 }
 

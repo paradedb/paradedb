@@ -48,7 +48,7 @@ jobs:
         uses: runs-on/action@v2
 
       - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache: false
           rustflags: "" # Use .cargo/config.toml target-cpu flags

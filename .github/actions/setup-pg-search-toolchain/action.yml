@@ -46,7 +46,7 @@ runs:
         echo "Resolved rust=$rust cargo-pgrx=$pgrx"
 
     - name: Install Rust ${{ steps.versions.outputs.rust }}
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@v2
       with:
         toolchain: ${{ steps.versions.outputs.rust }}
         components: ${{ inputs.rust_components }}

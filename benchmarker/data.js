@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790829481157,
+  "lastUpdate": 1790884760976,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -6452,6 +6452,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 727.198,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "kolhar730@gmail.com",
+            "name": "Sameer Kolhar",
+            "username": "kolharsam"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb8c1290ecf39060de14e9ffa9ee7081a6a5ea7f",
+          "message": "refactor: require Pod for ParallelState, replace unsafe as_bytes (#6016)\n\n## Ticket(s) Closed\n\n- Closes #5552\n\n## What\n\nReplace `ParallelStateType: Copy` with `ParallelStateType:\nbytemuck::Pod`. Replace unsafe `as_bytes()` with safe\n`bytemuck::bytes_of()` and `bytemuck::cast_slice()`. Add `object_raw()`\nfor foreign types that cannot implement `Pod`. Replace the `(SegmentId,\nu32)` tuple with a named `#[repr(C)]` struct.\n\n## Why\n\nThe `parallel_worker` module stores Rust structs as raw bytes in\nPostgres shared memory. The current code has three soundness bugs:\n\n1. `as_bytes()` creates a `&[u8]` over the full struct size, including\nuninitialized padding bytes. This is undefined behavior. `Config` has 15\nbytes of padding; `WorkerConfig` has 14.\n2. `bool` is in the `ParallelStateType` impl list. A `bool` must be `0`\nor `1`. Any other byte value is undefined behavior.\n3. `(SegmentId, u32)` uses unspecified Rust tuple layout. The compiler\nmay reorder or pad fields between versions.\n\nPod guarantees three properties: `#[repr(C)]` layout, no uninitialized\npadding, and every bit pattern is valid. These properties let\n`as_bytes()` and `object()`/`slice()` operate without undefined\nbehaviour. This approach follows the existing `AggregatesPayloadHeader`\npattern at `postgres/mod.rs:168`.\n\n## How\n\n- **Wrapper trait kept.** `ParallelStateType` stays as a one-line\nsupertrait over Pod. No call sites change. The wrapper can be removed in\na follow-up if preferred.\n- **Type-name check left unchanged.** The string identity check in\n`decode_info` is not undefined behavior. It is a separate concern.\n- **`unsafe impl Pod` on 4 structs.** `Oid` and `FullTransactionId` are\nforeign pgrx types that do not implement Pod. The derive macro cannot\nverify its fields. Each `unsafe impl` block includes a SAFETY comment.\n\n## Tests\n\nUpdated the existing `test_parallel_workers` test to add `Pod` and\n`Zeroable` derives to `MyState` so it satisfies the new\n`ParallelStateType: Pod` bound.\n\nAdded the following tests:\n\n**`pg_search/src/parallel_worker/mod.rs`** (`#[pg_test]`):\n- `test_pod_struct_bytes_of_round_trip` — build a Pod struct with\nexplicit padding, serialise it with `bytes_of`, recover it with\n`from_bytes`, and verify the field values match.\n- `test_pod_vec_cast_slice_round_trip` — serialise a `Vec<u32>` with\n`cast_slice`, recover it, and verify the values match.\n\n**`pg_search/src/aggregate/mod.rs`** (`#[test]}`, no Postgres required):\n- `segment_deleted_docs_round_trips` — convert a random `SegmentId` to\n`SegmentDeletedDocs` and back. Verify the id and deleted count survive\nthe `[u8; 16]` round-trip.\n- `segment_deleted_docs_bytes_match_fields` — verify that\n`bytemuck::bytes_of` produces the expected byte layout for known field\nvalues.\n- `config_solve_mvcc_accessor` — verify the `u8`-to-`bool` accessor\nreturns correct values for inputs `0`, `1`, and `2`.\n- `config_new_zeroes_padding` — verify that `Config::new()` zeroes all\nthree padding regions.\n- `state_new_zeroes_padding` — verify that `State::new()` zeroes the\npadding region.",
+          "timestamp": "2026-10-01T11:49:01-07:00",
+          "tree_id": "093432c9130e8e84a85796b1b50a583a6ea91430",
+          "url": "https://github.com/paradedb/paradedb/commit/cb8c1290ecf39060de14e9ffa9ee7081a6a5ea7f"
+        },
+        "date": 1790884758948,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 15.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 148.819,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.142,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 242.523,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.423,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 190.116,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 27.914,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 215.444,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 40.565,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 744.196,
             "unit": "ms"
           }
         ]

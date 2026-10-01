@@ -136,7 +136,7 @@ fn resolve_tag_or_default(
 // (which contain `ParameterizedValue<String>`) cannot use `resolve_mut` to
 // convert Param → Static in place — mutating a key would corrupt the map.
 // The clean fix is to separate identity (field name + param IDs → key) from
-// mutable config (resolved tags, generator, const nodes → value) into a
+// mutable config (resolved tags, generator, placeholder columns → value) into a
 // single `HashMap<SnippetId, SnippetState>`. Until then, snippet resolution
 // uses `resolve()` (clones per call) instead of `resolve_mut()`.
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]

@@ -30,6 +30,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
@@ -89,7 +90,7 @@ pub struct BaseScanState {
     pub quals: Option<Qual>,
 
     pub need_scores: bool,
-    pub const_score_node: Option<*mut pg_sys::Const>,
+    pub score_placeholder: Option<PlaceholderColumn>,
     pub score_funcoids: [pg_sys::Oid; 2],
 
     /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
@@ -98,10 +99,10 @@ pub struct BaseScanState {
     /// TopK scan already provides the ordering and the column is junk-stripped
     /// — so the placeholder just spares `ExecProject` from calling
     /// `l2_distance(embedding, query)` and detoasting the heap vector. We track
-    /// it only so the projection path knows it must use `placeholder_targetlist`.
+    /// it only so the projection path knows it must use `placeholder_projection`.
     pub vector_distance_placeholder: bool,
 
-    pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
+    pub snippet_placeholders: HashMap<SnippetType, Vec<PlaceholderColumn>>,
 
     pub snippet_funcoids: [pg_sys::Oid; 2],
     pub snippets_funcoids: [pg_sys::Oid; 2],
@@ -110,7 +111,7 @@ pub struct BaseScanState {
     pub snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>>,
 
     pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
-    pub placeholder_targetlist: Option<*mut pg_sys::List>,
+    pub placeholder_projection: Option<PlaceholderProjection>,
 
     // Store join-level search predicates for enhanced scoring/snippet generation
     pub join_predicates: Option<SearchQueryInput>,
@@ -128,7 +129,7 @@ pub struct BaseScanState {
     // Window aggregate support
     pub window_aggregates: Vec<WindowAggregateInfo>,
     pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
-    pub const_window_agg_nodes: HashMap<usize, *mut pg_sys::Const>,
+    pub window_agg_placeholders: HashMap<usize, PlaceholderColumn>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,

@@ -57,8 +57,8 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 /// This is called AFTER `replace_aggrefs_in_target_list` has replaced Aggrefs with FuncExprs.
 /// It performs two main tasks:
 /// 1. Replaces `pdb.agg_fn` FuncExprs with Const nodes that will be mutated with actual
-///    aggregate values before each `ExecBuildProjectionInfo` call. This follows the basescan
-///    pattern where Const values are baked in when projection is built.
+///    aggregate values before each `ExecBuildProjectionInfo` call, which bakes the Const values
+///    into the projection.
 /// 2. Replaces grouping column expressions with `INDEX_VAR` nodes. Because `AggregateScan`
 ///    groups by columns directly in Tantivy, it yields a virtual scan slot with only the
 ///    grouping column and aggregate results (unlike `BaseScan` which yields the heap relation).
@@ -218,8 +218,8 @@ pub(crate) fn create_placeholder_targetlist(
 
 /// Create a placeholder Const node from a FuncExpr placeholder.
 /// The Const will be initialized with NULL value and will be mutated with actual
-/// aggregate values before each ExecBuildProjectionInfo call. This follows the
-/// basescan pattern where Const values are baked in when projection is built per-row.
+/// aggregate values before each ExecBuildProjectionInfo call, which bakes the
+/// Const values into the per-row projection.
 unsafe fn make_placeholder_const_from_funcexpr(
     funcexpr: *mut pg_sys::FuncExpr,
 ) -> *mut pg_sys::Const {
@@ -354,6 +354,105 @@ pub unsafe fn pullout_funcexprs(
     matches
 }
 
+/// Index of a column in the slot of a [`PlaceholderProjection`].
+pub type PlaceholderColumn = usize;
+
+/// The types of the placeholder values (score, snippets, window aggregates) that a scan gives to
+/// its projection for each row.
+///
+/// The values live in a virtual slot, and the target list reads them through `OUTER_VAR`s.
+/// A `Const` can't carry them: `ExecBuildProjectionInfo` copies its value, so the scan would
+/// have to build the projection again for each row. Each build initializes every `SubPlan` of
+/// the target list again, in per-tuple memory, and the plan state keeps a pointer to it.
+#[derive(Default)]
+pub struct PlaceholderColumns(Vec<pg_sys::Oid>);
+
+impl PlaceholderColumns {
+    /// Adds a column, and returns it together with a `Var` that reads it.
+    pub unsafe fn add(
+        &mut self,
+        typoid: pg_sys::Oid,
+        collation: pg_sys::Oid,
+    ) -> (PlaceholderColumn, *mut pg_sys::Var) {
+        self.0.push(typoid);
+        let var = pg_sys::makeVar(
+            pg_sys::OUTER_VAR,
+            self.0.len() as pg_sys::AttrNumber,
+            typoid,
+            -1,
+            collation,
+            0,
+        );
+        (self.0.len() - 1, var)
+    }
+
+    /// Builds the projection of `targetlist`, which reads these columns through the `Var`s that
+    /// [`Self::add`] returned.
+    ///
+    /// # Safety
+    /// `targetlist` and the current memory context must live as long as `planstate`.
+    pub unsafe fn build_projection(
+        &self,
+        targetlist: *mut pg_sys::List,
+        planstate: *mut pg_sys::PlanState,
+        scan_tupdesc: pg_sys::TupleDesc,
+    ) -> PlaceholderProjection {
+        let tupdesc = pg_sys::CreateTemplateTupleDesc(self.0.len() as _);
+        for (i, typoid) in self.0.iter().enumerate() {
+            pg_sys::TupleDescInitEntry(
+                tupdesc,
+                (i + 1) as pg_sys::AttrNumber,
+                std::ptr::null(),
+                *typoid,
+                -1,
+                0,
+            );
+        }
+        let slot =
+            pg_sys::ExecInitExtraTupleSlot((*planstate).state, tupdesc, &pg_sys::TTSOpsVirtual);
+        // The slot always holds a valid virtual tuple, so `PlaceholderProjection::set` can write
+        // into its arrays directly.
+        pg_sys::ExecStoreAllNullTuple(slot);
+
+        let proj_info = pg_sys::ExecBuildProjectionInfo(
+            targetlist,
+            (*planstate).ps_ExprContext,
+            (*planstate).ps_ResultTupleSlot,
+            planstate,
+            scan_tupdesc,
+        );
+        PlaceholderProjection { proj_info, slot }
+    }
+}
+
+/// A projection that reads its placeholder values from a virtual slot. It's built one time for
+/// the scan, see [`PlaceholderColumns`].
+#[derive(Clone, Copy)]
+pub struct PlaceholderProjection {
+    proj_info: *mut pg_sys::ProjectionInfo,
+    slot: *mut pg_sys::TupleTableSlot,
+}
+
+impl PlaceholderProjection {
+    /// Sets the value of `column` for the next [`Self::project`]. `None` is `NULL`.
+    #[inline(always)]
+    pub unsafe fn set(&self, column: PlaceholderColumn, datum: Option<pg_sys::Datum>) {
+        *(*self.slot).tts_values.add(column) = datum.unwrap_or_else(pg_sys::Datum::null);
+        *(*self.slot).tts_isnull.add(column) = datum.is_none();
+    }
+
+    #[inline(always)]
+    pub unsafe fn project(
+        &self,
+        scan_slot: *mut pg_sys::TupleTableSlot,
+    ) -> *mut pg_sys::TupleTableSlot {
+        let econtext = (*self.proj_info).pi_exprContext;
+        (*econtext).ecxt_scantuple = scan_slot;
+        (*econtext).ecxt_outertuple = self.slot;
+        pg_sys::ExecProject(self.proj_info)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
 pub unsafe fn inject_placeholders(
@@ -365,10 +464,11 @@ pub unsafe fn inject_placeholders(
     snippet_positions_funcoids: [pg_sys::Oid; 2],
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_generators: &HashMap<SnippetType, Option<SnippetGenerator>>,
+    columns: &mut PlaceholderColumns,
 ) -> (
     *mut pg_sys::List,
-    *mut pg_sys::Const,
-    HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
+    PlaceholderColumn,
+    HashMap<SnippetType, Vec<PlaceholderColumn>>,
 ) {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -384,7 +484,7 @@ pub unsafe fn inject_placeholders(
             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
 
             if data.score_funcoids.contains(&(*funcexpr).funcid) {
-                return Some(data.const_score_node.cast());
+                return Some(data.score_var.cast());
             }
 
             let mut this_snippet_type = None;
@@ -419,22 +519,16 @@ pub unsafe fn inject_placeholders(
             if let Some(this_snippet_type) = this_snippet_type {
                 for snippet_type in data.snippet_generators.keys() {
                     if this_snippet_type == *snippet_type {
-                        let const_ = pg_sys::makeConst(
-                            snippet_type.nodeoid(),
-                            -1,
-                            pg_sys::DEFAULT_COLLATION_OID,
-                            -1,
-                            pg_sys::Datum::null(),
-                            true,
-                            false,
-                        );
+                        let (column, var) = data
+                            .columns
+                            .add(snippet_type.nodeoid(), pg_sys::DEFAULT_COLLATION_OID);
 
-                        data.const_snippet_nodes
+                        data.snippet_placeholders
                             .entry(snippet_type.clone())
                             .or_default()
-                            .push(const_);
+                            .push(column);
 
-                        return Some(const_.cast());
+                        return Some(var.cast());
                     }
                 }
             }
@@ -465,7 +559,7 @@ pub unsafe fn inject_placeholders(
         rti: pg_sys::Index,
 
         score_funcoids: [pg_sys::Oid; 2],
-        const_score_node: *mut pg_sys::Const,
+        score_var: *mut pg_sys::Var,
 
         snippet_funcoids: [pg_sys::Oid; 2],
         snippets_funcoids: [pg_sys::Oid; 2],
@@ -473,34 +567,29 @@ pub unsafe fn inject_placeholders(
         attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 
         snippet_generators: &'a HashMap<SnippetType, Option<SnippetGenerator>>,
-        const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
+        columns: &'a mut PlaceholderColumns,
+        snippet_placeholders: HashMap<SnippetType, Vec<PlaceholderColumn>>,
     }
 
+    let (score_placeholder, score_var) = columns.add(pg_sys::FLOAT4OID, pg_sys::Oid::INVALID);
     let mut data = Data {
         rti,
 
         score_funcoids,
-        const_score_node: pg_sys::makeConst(
-            pg_sys::FLOAT4OID,
-            -1,
-            pg_sys::Oid::INVALID,
-            size_of::<f32>() as _,
-            pg_sys::Datum::null(),
-            true,
-            true,
-        ),
+        score_var,
 
         snippet_funcoids,
         snippets_funcoids,
         snippet_positions_funcoids,
         attname_lookup,
         snippet_generators,
-        const_snippet_nodes: Default::default(),
+        columns,
+        snippet_placeholders: Default::default(),
     };
     let targetlist = walker(targetlist.cast(), addr_of_mut!(data).cast());
     (
         targetlist.cast(),
-        data.const_score_node,
-        data.const_snippet_nodes,
+        score_placeholder,
+        data.snippet_placeholders,
     )
 }

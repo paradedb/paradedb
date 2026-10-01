@@ -72,7 +72,10 @@ use crate::postgres::customscan::orderby::{
 use crate::postgres::customscan::parallel::{
     RowEstimate, compute_nworkers, max_useful_workers, segment_view,
 };
-use crate::postgres::customscan::projections::{inject_placeholders, pullout_funcexprs};
+use crate::postgres::customscan::projections::{
+    PlaceholderColumn, PlaceholderColumns, PlaceholderProjection, inject_placeholders,
+    pullout_funcexprs,
+};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, Qual, QualExtractState, extract_join_predicates, extract_quals, is_subplan,
     optimize_quals_with_heap_expr,
@@ -92,6 +95,7 @@ use crate::postgres::utils::{
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::schema::SearchIndexSchema;
+use crate::vector::metric::VectorMetric;
 use crate::{DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
@@ -231,7 +235,9 @@ impl BaseScan {
         }
 
         unsafe {
-            inject_pdb_placeholders(state);
+            let mut query_context =
+                PgMemoryContexts::For((*state.csstate.ss.ps.state).es_query_cxt);
+            query_context.switch_to(|_| inject_pdb_placeholders(state));
         }
 
         let wrapper_ns = wrapper_start.elapsed().as_nanos() as u64;
@@ -1808,9 +1814,13 @@ impl CustomScan for BaseScan {
                             //
                             // we do need scores or snippets
                             //
-                            // replace their placeholder values and then rebuild the ProjectionInfo
-                            // and project it
+                            // set their placeholder values and project
                             //
+
+                            let projection = state
+                                .custom_state()
+                                .placeholder_projection
+                                .expect("placeholder_projection must be set");
 
                             let mut per_tuple_context = PgMemoryContexts::For(
                                 (*(*state.projection_info()).pi_exprContext).ecxt_per_tuple_memory,
@@ -1818,12 +1828,11 @@ impl CustomScan for BaseScan {
                             per_tuple_context.reset();
 
                             if state.custom_state().need_scores() {
-                                let const_score_node = state
+                                let score_placeholder = state
                                     .custom_state()
-                                    .const_score_node
-                                    .expect("const_score_node should be set");
-                                (*const_score_node).constvalue = score.into_datum().unwrap();
-                                (*const_score_node).constisnull = false;
+                                    .score_placeholder
+                                    .expect("score_placeholder should be set");
+                                projection.set(score_placeholder, score.into_datum());
                             }
 
                             // Update window aggregate values
@@ -1831,11 +1840,10 @@ impl CustomScan for BaseScan {
                                 &state.custom_state().window_aggregate_results
                             {
                                 for (te_idx, datum) in agg_results {
-                                    if let Some(const_node) =
-                                        state.custom_state().const_window_agg_nodes.get(te_idx)
+                                    if let Some(column) =
+                                        state.custom_state().window_agg_placeholders.get(te_idx)
                                     {
-                                        (**const_node).constvalue = *datum;
-                                        (**const_node).constisnull = false;
+                                        projection.set(*column, Some(*datum));
                                     }
                                 }
                             }
@@ -1848,22 +1856,14 @@ impl CustomScan for BaseScan {
                                 // we need during our initial lookup above (but then we'd need to copy
                                 // into the correctly shaped slot for this scan).
                                 let estate = state.csstate.ss.ps.state;
-                                maybe_project_snippets(state.custom_state(), ctid, estate);
-
-                                let planstate = state.planstate();
-
-                                (*(*state.projection_info()).pi_exprContext).ecxt_scantuple = slot;
-                                let proj_info = pg_sys::ExecBuildProjectionInfo(
-                                    state
-                                        .custom_state()
-                                        .placeholder_targetlist
-                                        .expect("placeholder_targetlist must be set"),
-                                    (*planstate).ps_ExprContext,
-                                    (*planstate).ps_ResultTupleSlot,
-                                    planstate,
-                                    (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
+                                maybe_project_snippets(
+                                    state.custom_state(),
+                                    &projection,
+                                    ctid,
+                                    estate,
                                 );
-                                pg_sys::ExecProject(proj_info)
+
+                                projection.project(slot)
                             });
                             finish_result_assembly_accounting(state, result_assembly_accounting);
                             return projected;
@@ -2413,6 +2413,9 @@ unsafe fn satisfies_subplan_quals(
 }
 
 /// Inject ParadeDB-specific placeholders (score, snippets, window aggregates) into the tuple slot
+///
+/// # Safety
+/// The current memory context must live as long as the scan.
 unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) {
     let need_scores = state.custom_state().need_scores();
     let need_snippets = state.custom_state().need_snippets();
@@ -2428,17 +2431,29 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
         ExecMethodType::TopK { .. }
     );
 
-    if !need_scores && !need_snippets && !has_window_aggs && !is_topk {
+    let planstate = state.planstate();
+    let blanks_vector_distance = is_topk
+        && PgList::<pg_sys::TargetEntry>::from_pg((*(*planstate).plan).targetlist)
+            .iter_ptr()
+            .any(|te| is_junk_vector_distance(te));
+
+    if !need_scores && !need_snippets && !has_window_aggs && !blanks_vector_distance {
         // nothing to inject, use whatever we originally setup as our ProjectionInfo
         return;
     }
 
-    // inject score and/or snippet placeholder [`pg_sys::Const`] nodes into what is a copy of the Plan's
-    // targetlist.  We store this in our custom state's "placeholder_targetlist" for use during the
-    // forced projection we must do later.
-    let planstate = state.planstate();
+    if state.custom_state().placeholder_projection.is_some() {
+        // A rescan keeps the projection. To build it again would initialize every `SubPlan` of
+        // the target list again.
+        return;
+    }
 
-    let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
+    // inject score and/or snippet placeholder [`pg_sys::Var`] nodes into what is a copy of the Plan's
+    // targetlist.  We store its projection in our custom state's "placeholder_projection" for use
+    // during the forced projection we must do later.
+    let mut columns = PlaceholderColumns::default();
+
+    let (targetlist, score_placeholder, snippet_placeholders) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
         state.custom_state().score_funcoids,
@@ -2447,15 +2462,20 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
         state.custom_state().snippet_positions_funcoids,
         &state.custom_state().var_attname_lookup,
         &state.custom_state().snippet_generators,
+        &mut columns,
     );
 
     // Now inject window aggregate placeholders
-    let (targetlist, const_window_agg_nodes) = if !state.custom_state().window_aggregates.is_empty()
-    {
-        inject_window_aggregate_placeholders(targetlist, &state.custom_state().window_aggregates)
-    } else {
-        (targetlist, HashMap::default())
-    };
+    let (targetlist, window_agg_placeholders) =
+        if !state.custom_state().window_aggregates.is_empty() {
+            inject_window_aggregate_placeholders(
+                targetlist,
+                &state.custom_state().window_aggregates,
+                &mut columns,
+            )
+        } else {
+            (targetlist, HashMap::default())
+        };
 
     // Blank out the junk vector-distance ORDER BY column. When the ORDER BY is
     // `embedding <-> query`, pg adds that `OpExpr` to the scan's targetlist as
@@ -2464,12 +2484,19 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     // scan already produced the rows in order, so the column's value is unused
     // and junk-stripped; replacing it with a NULL Const skips the recompute.
     // Only safe for TopK (it owns the ordering); other plans Sort by it.
-    let vector_distance_placeholder = is_topk && inject_vector_distance_placeholders(targetlist);
+    let vector_distance_placeholder =
+        blanks_vector_distance && inject_vector_distance_placeholders(targetlist);
 
-    state.custom_state_mut().placeholder_targetlist = Some(targetlist);
-    state.custom_state_mut().const_score_node = Some(const_score_node);
-    state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
-    state.custom_state_mut().const_window_agg_nodes = const_window_agg_nodes;
+    let projection = columns.build_projection(
+        targetlist,
+        planstate,
+        (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
+    );
+
+    state.custom_state_mut().placeholder_projection = Some(projection);
+    state.custom_state_mut().score_placeholder = Some(score_placeholder);
+    state.custom_state_mut().snippet_placeholders = snippet_placeholders;
+    state.custom_state_mut().window_agg_placeholders = window_agg_placeholders;
     state.custom_state_mut().vector_distance_placeholder = vector_distance_placeholder;
 }
 
@@ -2490,23 +2517,13 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
 /// * the caller invokes this only for TopK scans — any other plan has a Sort
 ///   that consumes the distance value, so it cannot be blanked.
 ///
-/// This does NOT use `expression_tree_mutator`: that deep-copies every node it
-/// visits, which would orphan the score/snippet/window `Const` pointers already
-/// collected for this targetlist. The ORDER BY key is always a top-level
-/// `TargetEntry` expr, so an in-place per-entry rewrite is sufficient.
+/// This does NOT use `expression_tree_mutator`: the ORDER BY key is always a
+/// top-level `TargetEntry` expr, so an in-place per-entry rewrite is sufficient.
 unsafe fn inject_vector_distance_placeholders(targetlist: *mut pg_sys::List) -> bool {
-    use crate::vector::metric::VectorMetric;
-
     let mut replaced = false;
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
     for te in tlist.iter_ptr() {
-        if te.is_null() || !(*te).resjunk {
-            continue;
-        }
-        let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, (*te).expr.cast::<pg_sys::Node>()) else {
-            continue;
-        };
-        if VectorMetric::from_opoid((*opexpr).opno).is_some() {
+        if is_junk_vector_distance(te) {
             let const_node = pg_sys::makeConst(
                 pg_sys::FLOAT8OID,
                 -1,
@@ -2523,21 +2540,32 @@ unsafe fn inject_vector_distance_placeholders(targetlist: *mut pg_sys::List) -> 
     replaced
 }
 
-/// Inject placeholder Const nodes for window aggregates at execution time
+/// Returns true if `te` is a junk top-level pgvector distance `OpExpr`, which
+/// `inject_vector_distance_placeholders` blanks.
+unsafe fn is_junk_vector_distance(te: *mut pg_sys::TargetEntry) -> bool {
+    if te.is_null() || !(*te).resjunk {
+        return false;
+    }
+    nodecast!(OpExpr, T_OpExpr, (*te).expr.cast::<pg_sys::Node>())
+        .is_some_and(|opexpr| VectorMetric::from_opoid((*opexpr).opno).is_some())
+}
+
+/// Inject placeholder Var nodes for window aggregates at execution time
 /// At this point, the WindowFunc has been replaced with paradedb.window_agg(json) calls
 /// This function finds those calls (which may be wrapped in other functions)
-/// and replaces them with placeholder Const nodes that will be filled in during execution.
+/// and replaces them with placeholder Var nodes that will be filled in during execution.
 unsafe fn inject_window_aggregate_placeholders(
     targetlist: *mut pg_sys::List,
     window_aggs: &[WindowAggregateInfo],
-) -> (*mut pg_sys::List, HashMap<usize, *mut pg_sys::Const>) {
-    let mut const_nodes = HashMap::default();
+    columns: &mut PlaceholderColumns,
+) -> (*mut pg_sys::List, HashMap<usize, PlaceholderColumn>) {
+    let mut placeholders = HashMap::default();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
     let window_agg_procid = window_agg_oid();
 
     // If window_agg function doesn't exist yet, return original targetlist
     if window_agg_procid == pg_sys::InvalidOid {
-        return (targetlist, const_nodes);
+        return (targetlist, placeholders);
     }
 
     // Process each window aggregate target entry
@@ -2549,10 +2577,11 @@ unsafe fn inject_window_aggregate_placeholders(
 
         if let Some(agg_info) = agg_info {
             // This target entry should contain a window_agg call (possibly wrapped)
-            let (new_expr, const_node_opt) = replace_window_agg_with_const(
+            let (new_expr, placeholder_opt) = replace_window_agg_with_placeholder(
                 (*te).expr as *mut pg_sys::Node,
                 window_agg_procid,
                 agg_info.result_type_oid(),
+                columns,
             );
 
             // Create a new target entry with the modified expression
@@ -2560,8 +2589,8 @@ unsafe fn inject_window_aggregate_placeholders(
             (*new_te).expr = new_expr.cast();
             new_tlist.push(new_te);
 
-            if let Some(const_node) = const_node_opt {
-                const_nodes.insert(idx, const_node);
+            if let Some(placeholder) = placeholder_opt {
+                placeholders.insert(idx, placeholder);
             }
         } else {
             // Not a window aggregate - just copy it
@@ -2569,7 +2598,7 @@ unsafe fn inject_window_aggregate_placeholders(
         }
     }
 
-    (new_tlist.into_pg(), const_nodes)
+    (new_tlist.into_pg(), placeholders)
 }
 
 // Helper function to recursively search and replace window_agg calls
@@ -2577,15 +2606,16 @@ unsafe fn inject_window_aggregate_placeholders(
 // Note: This follows a similar recursive pattern to replace_in_node() in hook.rs,
 // but operates at a different stage:
 // - That function: Planning stage - replaces WindowFunc → window_agg() placeholder
-// - This function: Execution stage - replaces window_agg() → Const placeholder for value injection
+// - This function: Execution stage - replaces window_agg() → Var placeholder for value injection
 //
 // TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
 // See https://github.com/paradedb/paradedb/issues/3455
-fn replace_window_agg_with_const(
+fn replace_window_agg_with_placeholder(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,
     result_type_oid: pg_sys::Oid,
-) -> (*mut pg_sys::Node, Option<*mut pg_sys::Const>) {
+    columns: &mut PlaceholderColumns,
+) -> (*mut pg_sys::Node, Option<PlaceholderColumn>) {
     if node.is_null() {
         return (node, None);
     }
@@ -2594,37 +2624,28 @@ fn replace_window_agg_with_const(
     if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
         let funcexpr = unsafe { &*funcexpr };
         if funcexpr.funcid == window_agg_procid {
-            // Found it! Replace with a Const node
-            let const_node = unsafe {
-                pg_sys::makeConst(
-                    result_type_oid,
-                    -1,
-                    pg_sys::DEFAULT_COLLATION_OID,
-                    if result_type_oid == pg_sys::INT8OID {
-                        8
-                    } else {
-                        -1
-                    },
-                    pg_sys::Datum::null(),
-                    true,                               // constisnull
-                    result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
-                )
-            };
+            // Found it! Replace with a placeholder Var node
+            let (column, var) =
+                unsafe { columns.add(result_type_oid, pg_sys::DEFAULT_COLLATION_OID) };
 
-            return (const_node.cast(), Some(const_node));
+            return (var.cast(), Some(column));
         }
 
         // Not window_agg, but might have window_agg as an argument
         let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
         let mut new_args = PgList::<pg_sys::Node>::new();
-        let mut found_const = None;
+        let mut found_placeholder = None;
         let mut modified = false;
 
         for arg in args.iter_ptr() {
-            let (new_arg, const_opt) =
-                replace_window_agg_with_const(arg, window_agg_procid, result_type_oid);
-            if const_opt.is_some() {
-                found_const = const_opt;
+            let (new_arg, placeholder_opt) = replace_window_agg_with_placeholder(
+                arg,
+                window_agg_procid,
+                result_type_oid,
+                columns,
+            );
+            if placeholder_opt.is_some() {
+                found_placeholder = placeholder_opt;
                 modified = true;
             }
             if new_arg != arg {
@@ -2645,7 +2666,7 @@ fn replace_window_agg_with_const(
                     funcexpr.funcformat,
                 )
             };
-            return (new_funcexpr.cast(), found_const);
+            return (new_funcexpr.cast(), found_placeholder);
         }
     }
 
@@ -2848,12 +2869,17 @@ fn is_range_query_string(query_string: &str) -> bool {
 /// Project configured snippets (if any).
 ///
 /// Must be called inside the per-tuple `MemoryContext`.
-unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64, estate: *mut pg_sys::EState) {
+unsafe fn maybe_project_snippets(
+    state: &BaseScanState,
+    projection: &PlaceholderProjection,
+    ctid: u64,
+    estate: *mut pg_sys::EState,
+) {
     if !state.need_snippets() {
         return;
     }
 
-    for (snippet_type, const_snippet_nodes) in &state.const_snippet_nodes {
+    for (snippet_type, snippet_placeholders) in &state.snippet_placeholders {
         match snippet_type {
             SnippetType::SingleText(_, config, _) => {
                 // Resolve start/end tags once per snippet type; for Static
@@ -2862,17 +2888,8 @@ unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64, estate: *mut 
                 let end_tag = config.resolve_end_tag(estate);
                 let snippet = state.make_snippet(ctid, snippet_type, &start_tag, &end_tag);
 
-                for const_ in const_snippet_nodes {
-                    match &snippet {
-                        Some(text) => {
-                            (**const_).constvalue = text.into_datum().unwrap();
-                            (**const_).constisnull = false;
-                        }
-                        None => {
-                            (**const_).constvalue = pg_sys::Datum::null();
-                            (**const_).constisnull = true;
-                        }
-                    }
+                for column in snippet_placeholders {
+                    projection.set(*column, snippet.as_ref().and_then(|text| text.into_datum()));
                 }
             }
             SnippetType::MultipleText(_, config, _, _) => {
@@ -2880,33 +2897,25 @@ unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64, estate: *mut 
                 let end_tag = config.resolve_end_tag(estate);
                 let snippets = state.make_snippets(ctid, snippet_type, &start_tag, &end_tag);
 
-                for const_ in const_snippet_nodes {
-                    match &snippets {
-                        Some(array) => {
-                            (**const_).constvalue = array.clone().into_datum().unwrap();
-                            (**const_).constisnull = false;
-                        }
-                        None => {
-                            (**const_).constvalue = pg_sys::Datum::null();
-                            (**const_).constisnull = true;
-                        }
-                    }
+                for column in snippet_placeholders {
+                    projection.set(
+                        *column,
+                        snippets
+                            .as_ref()
+                            .and_then(|array| array.clone().into_datum()),
+                    );
                 }
             }
             SnippetType::Positions(..) => {
                 let positions = state.get_snippet_positions(ctid, snippet_type);
 
-                for const_ in const_snippet_nodes {
-                    match &positions {
-                        Some(positions) => {
-                            (**const_).constvalue = positions.clone().into_datum().unwrap();
-                            (**const_).constisnull = false;
-                        }
-                        None => {
-                            (**const_).constvalue = pg_sys::Datum::null();
-                            (**const_).constisnull = true;
-                        }
-                    }
+                for column in snippet_placeholders {
+                    projection.set(
+                        *column,
+                        positions
+                            .as_ref()
+                            .and_then(|positions| positions.clone().into_datum()),
+                    );
                 }
             }
         }

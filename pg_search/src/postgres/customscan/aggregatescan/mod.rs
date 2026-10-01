@@ -948,7 +948,7 @@ impl CustomScan for AggregateScan {
             let plan_targetlist = (*(*planstate).plan).targetlist;
             // This creates a copy of the plan's targetlist with FuncExpr placeholders replaced
             // by Const nodes. The Const nodes will be mutated with actual aggregate values
-            // before each ExecBuildProjectionInfo call in exec_custom_scan (basescan pattern).
+            // before each ExecBuildProjectionInfo call in exec_custom_scan.
             let (placeholder_tlist, const_nodes, needs_projection) =
                 create_placeholder_targetlist(plan_targetlist);
             if needs_projection && !placeholder_tlist.is_null() {
@@ -1859,7 +1859,6 @@ impl AggregateScan {
         // We DON'T use the slot's datums for aggregates because those were converted
         // using the output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
         // but we need the native aggregate type (e.g., JSONB for pdb.agg).
-        // This matches basescan's approach of setting Const values directly.
         let mut agg_iter = row.aggregates.iter();
         let aggregate_clause = &state.custom_state().aggregate_clause;
         for (i, entry) in aggregate_clause.entries().enumerate() {
@@ -1922,7 +1921,7 @@ impl AggregateScan {
         // Set the scan tuple for expression evaluation context
         (*expr_context).ecxt_scantuple = slot;
 
-        // Build projection and execute in per-tuple memory context (basescan pattern)
+        // Build projection and execute in per-tuple memory context
         // This ensures ExecBuildProjectionInfo allocations are cleaned up each row
         per_tuple_context.switch_to(|_| {
             let proj_info = pg_sys::ExecBuildProjectionInfo(

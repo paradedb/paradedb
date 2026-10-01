@@ -115,7 +115,7 @@ pub struct DataFusionAggState {
 /// build a copy of the targetlist with each `FuncExpr`'s aggregate replaced by
 /// a `Const` placeholder. Before each per-row projection we mutate those
 /// `Const`s in place with the live aggregate values, so the compiled projection
-/// bakes in the current row's values. This follows the basescan pattern.
+/// bakes in the current row's values.
 ///
 /// The `const_nodes` pointers alias into `targetlist`'s memory context — if
 /// the targetlist is freed or replaced, the const pointers become dangling.

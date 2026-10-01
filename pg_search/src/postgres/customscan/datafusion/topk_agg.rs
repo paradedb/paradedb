@@ -651,7 +651,7 @@ impl Accumulator for FusedTopK {
             if !rows.is_empty() {
                 let columns = rows.as_struct().columns();
                 let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns.to_vec())?;
-                updated = updated || self.absorb(&batch)?;
+                updated |= self.absorb(&batch)?;
             }
         }
         if updated {

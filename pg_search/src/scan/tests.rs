@@ -705,9 +705,16 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::I64(10));
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is 10 -> Range OR Boolean(All AND NOT Exists)
+        // partition 0: upper is 10 -> All AND NOT Range(at or above 10), which keeps the NULLs
+        // without a union.
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        assert!(matches!(
+            p0,
+            SearchQueryInput::Boolean { ref must, ref should, ref must_not, .. }
+                if matches!(must.as_slice(), [SearchQueryInput::All])
+                    && should.is_empty()
+                    && matches!(must_not.as_slice(), [SearchQueryInput::FieldedQuery { .. }])
+        ));
 
         // partition 1: lower is 10, upper is 10 -> Range
         let p1 = build.partition_bounds(1);

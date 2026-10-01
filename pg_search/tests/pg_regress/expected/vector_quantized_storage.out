@@ -52,9 +52,9 @@ FROM paradedb.vector_info('v4_plain_idx', 'vec');
 (1 row)
 
 SELECT * FROM paradedb.vector_config('v4_plain_idx', 'vec');
- quantized | layers | bytes_per_row | settings_version 
------------+--------+---------------+------------------
- f         |        |               |                 
+    index     | quantized | layers | bytes_per_row | settings_version 
+--------------+-----------+--------+---------------+------------------
+ v4_plain_idx | f         |        |               |                 
 (1 row)
 
 DROP INDEX v4_plain_idx;
@@ -69,9 +69,9 @@ FROM paradedb.vector_info('v4_q14_idx', 'vec');
 (1 row)
 
 SELECT * FROM paradedb.vector_config('v4_q14_idx', 'vec');
- quantized | layers | bytes_per_row | settings_version 
------------+--------+---------------+------------------
- t         | {1,4}  |           668 |                3
+   index    | quantized | layers | bytes_per_row | settings_version 
+------------+-----------+--------+---------------+------------------
+ v4_q14_idx | t         | {1,4}  |           668 |                3
 (1 row)
 
 DROP INDEX v4_q14_idx;
@@ -85,9 +85,31 @@ FROM paradedb.vector_info('v4_q1_idx', 'vec');
 (1 row)
 
 SELECT * FROM paradedb.vector_config('v4_q1_idx', 'vec');
- quantized | layers | bytes_per_row | settings_version 
------------+--------+---------------+------------------
- t         | {1}    |           144 |                3
+   index   | quantized | layers | bytes_per_row | settings_version 
+-----------+-----------+--------+---------------+------------------
+ v4_q1_idx | t         | {1}    |           144 |                3
 (1 row)
 
 DROP TABLE v4_plain;
+CREATE TABLE config_parent (id integer, vec vector(64)) PARTITION BY RANGE (id);
+CREATE TABLE config_low PARTITION OF config_parent FOR VALUES FROM (0) TO (10);
+CREATE TABLE config_high PARTITION OF config_parent FOR VALUES FROM (10) TO (20);
+CREATE INDEX config_parent_idx ON config_parent USING bm25(id, vec vector_l2_ops);
+SELECT index::text, pg_typeof(index), quantized, layers
+FROM paradedb.vector_config('config_parent_idx', 'vec') ORDER BY index::text;
+         index          | pg_typeof | quantized | layers 
+------------------------+-----------+-----------+--------
+ config_high_id_vec_idx | regclass  | t         | {1,1}
+ config_low_id_vec_idx  | regclass  | t         | {1,1}
+(2 rows)
+
+SELECT * FROM paradedb.vector_config('config_parent', 'vec');
+ERROR:  Expected to receive an index argument.
+CREATE INDEX config_btree_idx ON config_low(id);
+SELECT * FROM paradedb.vector_config('config_btree_idx', 'vec');
+ERROR:  relation is not a ParadeDB index
+SELECT * FROM paradedb.vector_config('config_parent_idx', 'id');
+ERROR:  `id` is not a vector field of the index
+SELECT * FROM paradedb.vector_config('config_parent_idx', 'missing');
+ERROR:  `missing` is not a vector field of the index
+DROP TABLE config_parent;

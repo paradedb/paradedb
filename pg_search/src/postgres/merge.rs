@@ -288,19 +288,20 @@ pub unsafe fn do_merge(
     let merge_lock = metadata.acquire_merge_lock();
     let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
 
-    let (needs_background_merge, largest_layer_size) =
-        if layer_sizes.user_configured_background_layers() {
-            let combined_layers = layer_sizes.combined();
-            let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
-            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
+    let (needs_background_merge, largest_layer_size) = if layer_sizes
+        .user_configured_background_layers()
+    {
+        let combined_layers = layer_sizes.combined();
+        let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
+        let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
-            background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-            let (merge_candidates, largest_layer_size) = background_merge_policy.simulate();
+        background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger)?;
+        let (merge_candidates, largest_layer_size) = background_merge_policy.simulate();
 
-            (!merge_candidates.is_empty(), largest_layer_size)
-        } else {
-            (false, 0)
-        };
+        (!merge_candidates.is_empty(), largest_layer_size)
+    } else {
+        (false, 0)
+    };
 
     if needs_background_merge && !need_backpressure {
         // if we need (and think we can do) a background merge then we prefer to do that
@@ -467,7 +468,15 @@ unsafe fn merge_index(
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
-    merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+    let skipped = merge_policy
+        .set_mergeable_segment_entries(&metadata, &merge_lock, &merger)
+        .expect("should be able to validate merge candidates");
+    if skipped > 0 {
+        pgrx::warning!(
+            "index {:?}: skipped {skipped} segment(s) with unsupported vector storage during merge; rebuild with REINDEX",
+            indexrel.name()
+        );
+    }
     let (merge_candidates, _) = merge_policy.simulate();
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
@@ -530,8 +539,13 @@ unsafe fn merge_index(
             if unsafe { pg_sys::InterruptPending } != 0 {
                 pgrx::warning!("failed to merge: {e:?} because of interrupt");
             } else {
-                if let Some(error) = e.downcast_ref::<tantivy::TantivyError>() {
-                    crate::index::reader::index::report_vector_open_error(indexrel.name(), error);
+                if let Some(error) = e.downcast_ref::<tantivy::TantivyError>()
+                    && let Some(report) = crate::index::reader::index::report_vector_open_error(
+                        indexrel.name(),
+                        error,
+                    )
+                {
+                    report.report(pgrx::PgLogLevel::ERROR);
                 }
                 panic!("failed to merge: {e:?}");
             }
@@ -672,6 +686,44 @@ impl MergeSlot {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use crate::api::vector_test_support::*;
+    #[pg_test]
+    fn foreground_vector_merge_skips_unsupported_storage() {
+        let indexrel = vector_metadata_fixture();
+        let oid = indexrel.oid();
+        let layer_bytes = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) }
+            .iter()
+            .map(|entry| entry.byte_size())
+            .max()
+            .unwrap();
+        drop(indexrel);
+        Spi::run(&format!("ALTER INDEX metadata_vectors_idx SET (layer_sizes='{layer_bytes} bytes',background_layer_sizes='0',mutable_segment_rows=0)")).unwrap();
+        let indexrel = PgSearchRelation::open(oid);
+        replace_vector_version(&indexrel, 3);
+        let old = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) }
+            .into_iter()
+            .filter(|entry| !entry.is_deleted())
+            .map(|entry| entry.segment_id())
+            .collect::<Vec<_>>();
+        Spi::run(
+            "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::vector FROM generate_series(2049,4096) g",
+        ).unwrap();
+        let current = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) };
+        assert!(old.iter().all(|id| {
+            current
+                .iter()
+                .any(|entry| entry.segment_id() == *id && !entry.is_deleted())
+        }));
+        expect_reindex(&vector_query());
+        drop(indexrel);
+        Spi::run("REINDEX INDEX metadata_vectors_idx").unwrap();
+        Spi::run(&vector_query()).unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM metadata_vectors").unwrap(),
+            Some(4096)
+        );
+    }
+
     use super::*;
     use crate::postgres::options::{
         DEFAULT_BACKGROUND_LAYER_SIZES, DEFAULT_FOREGROUND_LAYER_SIZES,

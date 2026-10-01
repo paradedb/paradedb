@@ -20,3 +20,29 @@ pub mod io_stats;
 pub mod scorer;
 pub mod segment_component;
 pub mod sort_by_range;
+
+/// Opens a visible vector field and validates its segment headers before reading vector data.
+pub(crate) fn open_vector_field(
+    index: &crate::postgres::rel::PgSearchRelation,
+    field: &str,
+) -> anyhow::Result<(
+    index::SearchIndexReader,
+    tantivy::schema::Field,
+    tantivy::schema::VectorOptions,
+)> {
+    use anyhow::Context;
+    let reader =
+        index::SearchIndexReader::empty(index, crate::index::mvcc::MvccSatisfies::Snapshot)?;
+    let schema = reader.schema().tantivy_schema();
+    let vector_field = schema
+        .get_field(field)
+        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
+    let tantivy::schema::FieldType::Vector(options) =
+        schema.get_field_entry(vector_field).field_type()
+    else {
+        anyhow::bail!("field {field:?} is not a vector field");
+    };
+    let options = options.clone();
+    reader.validate_vector_segments()?;
+    Ok((reader, vector_field, options))
+}

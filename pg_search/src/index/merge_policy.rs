@@ -68,7 +68,7 @@ impl LayeredMergePolicy {
         metadata: &MetaPage,
         merge_lock: &MergeLock,
         merger: &SearchIndexMerger,
-    ) {
+    ) -> tantivy::Result<usize> {
         let mut non_mergeable_segments = metadata.vacuum_list().read_list();
         // `list_segment_ids` borrows the `MergeList`, so it needs a binding that outlives the
         // `extend` call rather than a temporary.
@@ -88,6 +88,10 @@ impl LayeredMergePolicy {
                 !non_mergeable_segments.contains(segment_id)
             })
             .collect();
+        let unsupported = merger.unsupported_vector_segments(&self.mergeable_segments)?;
+        self.mergeable_segments
+            .retain(|id, _| !unsupported.contains(id));
+        Ok(unsupported.len())
     }
 
     #[cfg(any(test, feature = "pg_test"))]

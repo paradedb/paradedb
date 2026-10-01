@@ -1,9 +1,10 @@
--- Report the vector quantization build target for a field.
+-- Report the vector quantization build target for each leaf index.
 
 CREATE  FUNCTION "vector_config"(
-	"index" regclass, /* PgRelation */
+	"index_relation" regclass, /* PgRelation */
 	"field" TEXT /* String */
 ) RETURNS TABLE (
+	"index" regclass,  /* crate :: postgres :: types :: Regclass */
 	"quantized" bool,  /* bool */
 	"layers" INT[],  /* :: std :: option :: Option < Vec < i32 > > */
 	"bytes_per_row" INT,  /* Option < i32 > */

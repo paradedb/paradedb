@@ -19,7 +19,8 @@ use crate::api::{CTID_FIELD_NAME, FieldName, HashMap, HashSet};
 use crate::index::directory::utils::load_index_settings;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, validate_vector_segments};
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::open_vector_field;
 use crate::postgres::index::IndexKind;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -432,22 +433,7 @@ fn vector_info(
         if !index.is_usable() {
             continue;
         }
-        let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-        validate_vector_segments(&index, search_reader.searcher())?;
-        let resolved = search_reader
-            .schema()
-            .fields()
-            .find_map(|(f, field_entry)| {
-                (field_entry.name() == field
-                    && matches!(
-                        search_reader.schema().get_field_type(field_entry.name()),
-                        Some(SearchFieldType::Vector(..))
-                    ))
-                .then_some(f)
-            });
-        let Some(vector_field) = resolved else {
-            anyhow::bail!("`{field}` is not a vector field of the index");
-        };
+        let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
             let Some(info) = vector_index.info() else {
@@ -519,12 +505,13 @@ fn vector_info(
 #[pg_extern]
 #[allow(clippy::type_complexity)]
 fn vector_config(
-    index: PgRelation,
+    index_relation: PgRelation,
     field: String,
 ) -> anyhow::Result<
     TableIterator<
         'static,
         (
+            name!(index, crate::postgres::types::Regclass),
             name!(quantized, bool),
             name!(layers, Option<Vec<i32>>),
             name!(bytes_per_row, Option<i32>),
@@ -532,44 +519,54 @@ fn vector_config(
         ),
     >,
 > {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-    validate_vector_segments(&index, search_reader.searcher())?;
-    let schema = index.schema()?;
-    anyhow::ensure!(
-        matches!(
-            schema.get_field_type(&field),
-            Some(SearchFieldType::Vector(..))
-        ),
-        "`{field}` is not a vector field of the index"
-    );
-    let settings = load_index_settings(&index)?;
-    let config = settings
-        .as_ref()
-        .into_iter()
-        .flat_map(|settings| &settings.vector_quantization)
-        .find(|config| config.field == field);
-    let layers = config.map(|config| {
-        config
-            .layers
-            .iter()
-            .map(|layer| i32::from(layer.bits))
-            .collect()
-    });
-    let bytes = config
-        .map(|config| i32::try_from(config.bytes_per_row()))
-        .transpose()
-        .context("quantized bytes per row exceeds SQL integer range")?;
-    let version = config
-        .map(|config| i32::try_from(config.format_version))
-        .transpose()
-        .context("quantization format exceeds SQL integer range")?;
-    Ok(TableIterator::once((
-        config.is_some(),
-        layers,
-        bytes,
-        version,
-    )))
+    let index = PgSearchRelation::with_lock(index_relation.oid(), pg_sys::AccessShareLock as _);
+    let index_kind = IndexKind::for_index(index.clone())?;
+    if !index.is_usable() {
+        return Ok(TableIterator::new(Vec::new()));
+    }
+    let mut rows = Vec::new();
+    for index in index_kind.partitions() {
+        if !index.is_usable() {
+            continue;
+        }
+        let schema = index.schema()?;
+        anyhow::ensure!(
+            matches!(
+                schema.get_field_type(&field),
+                Some(SearchFieldType::Vector(..))
+            ),
+            "`{field}` is not a vector field of the index"
+        );
+        let settings = load_index_settings(&index)?;
+        let config = settings
+            .as_ref()
+            .into_iter()
+            .flat_map(|settings| &settings.vector_quantization)
+            .find(|config| config.field == field);
+        let layers = config.map(|config| {
+            config
+                .layers
+                .iter()
+                .map(|layer| i32::from(layer.bits))
+                .collect()
+        });
+        let bytes = config
+            .map(|config| i32::try_from(config.bytes_per_row()))
+            .transpose()
+            .context("quantized bytes per row exceeds SQL integer range")?;
+        let version = config
+            .map(|config| i32::try_from(config.format_version))
+            .transpose()
+            .context("quantization format exceeds SQL integer range")?;
+        rows.push((
+            crate::postgres::types::Regclass(index.oid()),
+            config.is_some(),
+            layers,
+            bytes,
+            version,
+        ));
+    }
+    Ok(TableIterator::new(rows))
 }
 
 /// Per-cluster posting-list sizes and ball-bound radii for a single vector
@@ -606,22 +603,7 @@ fn vector_clusters(
         if !index.is_usable() {
             continue;
         }
-        let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-        validate_vector_segments(&index, search_reader.searcher())?;
-        let resolved = search_reader
-            .schema()
-            .fields()
-            .find_map(|(f, field_entry)| {
-                (field_entry.name() == field
-                    && matches!(
-                        search_reader.schema().get_field_type(field_entry.name()),
-                        Some(SearchFieldType::Vector(..))
-                    ))
-                .then_some(f)
-            });
-        let Some(vector_field) = resolved else {
-            anyhow::bail!("`{field}` is not a vector field of the index");
-        };
+        let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
             if vector_index.info().is_none() {

@@ -17,17 +17,16 @@
 
 //! SQL diagnostics for vector quantization.
 
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, validate_vector_segments};
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::open_vector_field;
 use crate::postgres::catalog::{OidExt, is_pgvector_oid};
 use crate::postgres::rel::PgSearchRelation;
 use crate::vector::PgVector;
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 #[cfg(feature = "pg_test")]
 use pgrx::JsonB;
 use pgrx::prelude::*;
 use pgrx::{AnyArray, PgRelation, Spi, pg_sys};
-use tantivy::schema::FieldType;
 #[cfg(feature = "pg_test")]
 use tantivy::vector::{
     VectorAuditMoments, VectorErrorAuditMeasurements, VectorErrorConeAuditMeasurements,
@@ -160,20 +159,7 @@ fn vector_estimator_info_internal(
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
-    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-    validate_vector_segments(&index, search_reader.searcher())?;
-    let vector_field = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field(&field)
-        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
-    let field_entry = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field_entry(vector_field);
-    let FieldType::Vector(vector_options) = field_entry.field_type() else {
-        bail!("field {field:?} is not a vector field");
-    };
+    let (search_reader, vector_field, vector_options) = open_vector_field(&index, &field)?;
     let expected_dim = vector_options.dim();
     ensure_quantized_segments(&search_reader, vector_field, &field)?;
 
@@ -403,20 +389,7 @@ fn vector_error_audit_internal(
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
-    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-    validate_vector_segments(&index, search_reader.searcher())?;
-    let vector_field = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field(&field)
-        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
-    let field_entry = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field_entry(vector_field);
-    let FieldType::Vector(vector_options) = field_entry.field_type() else {
-        bail!("field {field:?} is not a vector field");
-    };
+    let (search_reader, vector_field, vector_options) = open_vector_field(&index, &field)?;
     let expected_dim = vector_options.dim();
     ensure_quantized_segments(&search_reader, vector_field, &field)?;
     let (external_queries, input_query_count) = decode_queries_capped(
@@ -652,20 +625,7 @@ fn vector_error_cone_audit_internal(
     );
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
-    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-    validate_vector_segments(&index, search_reader.searcher())?;
-    let vector_field = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field(&field)
-        .with_context(|| format!("field {field:?} is absent from the index schema"))?;
-    let field_entry = search_reader
-        .schema()
-        .tantivy_schema()
-        .get_field_entry(vector_field);
-    let FieldType::Vector(vector_options) = field_entry.field_type() else {
-        bail!("field {field:?} is not a vector field");
-    };
+    let (search_reader, vector_field, vector_options) = open_vector_field(&index, &field)?;
     let expected_dim = vector_options.dim();
     ensure_quantized_segments(&search_reader, vector_field, &field)?;
     let (external_queries, input_query_count) = decode_queries_capped(
@@ -727,6 +687,7 @@ fn ensure_quantized_segments(
     name: &str,
 ) -> Result<()> {
     let mut quantized = false;
+    let mut skipped = 0;
     for segment in reader.segment_readers() {
         let metadata = segment.vector_metadata(field)?;
         if matches!(
@@ -735,12 +696,11 @@ fn ensure_quantized_segments(
         ) {
             quantized = true;
         } else if metadata.is_some() {
-            pgrx::notice!(
-                "skipping Plain segment {} for vector field {:?}",
-                segment.segment_id().short_uuid_string(),
-                name
-            );
+            skipped += 1;
         }
+    }
+    if skipped > 0 {
+        pgrx::notice!("skipped {skipped} unquantized segment(s) for vector field {name:?}");
     }
     ensure!(
         quantized,
@@ -960,11 +920,33 @@ fn sample_held_out_queries(
     Ok(queries)
 }
 
+fn sql_schedule(schedule: &[(&str, u8)]) -> Vec<(&'static str, u8)> {
+    schedule
+        .iter()
+        .map(|&(kind, bits)| {
+            (
+                match kind {
+                    "SignPlane" => "sign",
+                    "GridPlane" => "grid",
+                    _ => "unknown",
+                },
+                bits,
+            )
+        })
+        .collect()
+}
+
 fn merge_estimator_measurements(
     aggregate: &mut Option<VectorEstimatorMeasurements>,
     segment: VectorEstimatorMeasurements,
 ) -> Result<()> {
     if let Some(aggregate) = aggregate {
+        ensure!(
+            aggregate.schedule() == segment.schedule(),
+            "cannot merge vector measurements with different schedules: {:?} and {:?}",
+            sql_schedule(aggregate.schedule()),
+            sql_schedule(segment.schedule())
+        );
         aggregate.merge(&segment)?;
     } else {
         *aggregate = Some(segment);
@@ -1216,7 +1198,7 @@ fn exact_e_cone_audit_rows(
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::allocate_sample_rows;
 
     #[test]
@@ -1244,5 +1226,187 @@ mod tests {
         let allocations = allocate_sample_rows(&[1, 2, 7, 0], 6);
         assert_eq!(allocations, vec![1, 1, 4, 0]);
         assert_eq!(allocations.iter().sum::<usize>(), 6);
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) mod test_support {
+    use super::*;
+    use crate::postgres::storage::buffer::BufferManager;
+    use crate::postgres::storage::metadata::MetaPage;
+    pub(crate) fn vector_metadata_fixture() -> PgSearchRelation {
+        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;
+            SET paradedb.vector_clustering_threshold = 64;
+            CREATE TABLE metadata_vectors(id int PRIMARY KEY, vec vector(1024));
+            INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
+                FROM generate_series(1,1024) i)::vector FROM generate_series(1,2048) g;
+            CREATE INDEX metadata_vectors_idx ON metadata_vectors USING paradedb(id, vec vector_l2_ops)
+                WITH (vector_fields='{\"vec\":{\"quantization\":{\"layers\":[1,4]}}}', target_segment_count=1);").unwrap();
+        PgSearchRelation::open(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'metadata_vectors_idx'::regclass::oid")
+                .unwrap()
+                .unwrap(),
+        )
+    }
+
+    pub(crate) fn set_single_layer_target(indexrel: &PgSearchRelation) {
+        let mut settings: serde_json::Value = serde_json::from_slice(&unsafe {
+            MetaPage::open(indexrel).settings_bytes().read_all()
+        })
+        .unwrap();
+        settings["vector_quantization"][0]["layers"]
+            .as_array_mut()
+            .unwrap()
+            .truncate(1);
+        settings["vector_quantization"][0]["grids"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|grid| grid["bits"] == 1);
+        MetaPage::replace_settings_for_test(indexrel, &serde_json::to_vec(&settings).unwrap());
+    }
+
+    pub(crate) fn vector_query() -> String {
+        let query = vec!["1"; 1024].join(",");
+        format!(
+            "SELECT id FROM metadata_vectors WHERE id @@@ pdb.all() ORDER BY vec <-> '[{query}]'::vector LIMIT 5"
+        )
+    }
+
+    pub(crate) fn expect_reindex(sql: &str) {
+        Spi::run(&format!(
+            r#"DO $body$
+            DECLARE message text; hint text;
+            BEGIN
+                BEGIN
+                    EXECUTE {query};
+                    RAISE EXCEPTION 'expected vector format failure';
+                EXCEPTION WHEN feature_not_supported THEN
+                    GET STACKED DIAGNOSTICS message = MESSAGE_TEXT, hint = PG_EXCEPTION_HINT;
+                    ASSERT position('metadata_vectors_idx' in message) > 0, message;
+                    ASSERT hint = 'Rebuild index "metadata_vectors_idx" with REINDEX.', hint;
+                END;
+            END $body$;"#,
+            query = quote_literal(sql)
+        ))
+        .unwrap();
+    }
+
+    pub(crate) fn quote_literal(value: &str) -> String {
+        format!("'{}'", value.replace("'", "''"))
+    }
+
+    pub(crate) fn replace_vector_version(indexrel: &PgSearchRelation, version: u32) {
+        use crate::postgres::storage::block::{LinkedListData, SegmentMetaEntryContent};
+        let entries = unsafe { MetaPage::open(indexrel).segment_metas().list(None) };
+        let file = entries
+            .iter()
+            .filter(|entry| !entry.is_deleted())
+            .find_map(|entry| match entry.content {
+                SegmentMetaEntryContent::Immutable(content) => content.vec,
+                _ => None,
+            })
+            .expect("fixture has a vector file");
+        let mut bman = BufferManager::new(indexrel);
+        let block = bman
+            .get_buffer(file.starting_block)
+            .page()
+            .contents::<LinkedListData>()
+            .start_blockno;
+        let mut buffer = bman.get_buffer_mut(block);
+        *buffer.page_mut().contents_mut::<u32>() = version.to_le();
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::test_support::*;
+    use super::*;
+    #[pg_test]
+    fn vector_header_validation_is_cached() {
+        let index = vector_metadata_fixture();
+        let trace = crate::index::reader::io_stats::Trace::default();
+        let reader = SearchIndexReader::open_with_context(
+            &index,
+            crate::query::SearchQueryInput::Empty,
+            false,
+            crate::index::mvcc::MvccSatisfies::Snapshot,
+            None,
+            None,
+            false,
+            Some(trace),
+        )
+        .unwrap();
+        let before = crate::index::reader::io_stats::vector_buffer_reads();
+        reader.validate_vector_segments().unwrap();
+        let after = crate::index::reader::io_stats::vector_buffer_reads();
+        assert!(after > before);
+        reader.validate_vector_segments().unwrap();
+        reader.clone().validate_vector_segments().unwrap();
+        assert_eq!(crate::index::reader::io_stats::vector_buffer_reads(), after);
+    }
+
+    // Stored segment layers are independent of the field build target.
+    #[pg_test]
+    fn vector_metadata_is_independent_of_build_target() {
+        let indexrel = vector_metadata_fixture();
+        set_single_layer_target(&indexrel);
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT layers=ARRAY[1] AND bytes_per_row=144 AND settings_version=3
+            FROM paradedb.vector_config('metadata_vectors_idx','vec')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT bool_and(layers=ARRAY[1,4] AND bytes_per_row=668)
+            FROM paradedb.vector_info('metadata_vectors_idx','vec')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+        Spi::run(&vector_query()).unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT count(*) FROM paradedb.vector_estimator_info('metadata_vectors_idx','vec')"
+            )
+            .unwrap(),
+            Some(2)
+        );
+    }
+
+    #[pg_test]
+    fn unsupported_vector_storage_names_index_and_reindex() {
+        let indexrel = vector_metadata_fixture();
+        Spi::run("SET max_parallel_workers_per_gather=0; SET enable_seqscan=off;").unwrap();
+        for version in [4, 3, 99] {
+            replace_vector_version(&indexrel, version);
+            let before = crate::index::reader::io_stats::vector_buffer_reads();
+            let plan = Spi::get_one::<pgrx::Json>(
+                "EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) SELECT count(*) FROM metadata_vectors WHERE id @@@ pdb.all()"
+            ).unwrap().unwrap();
+            assert_eq!(
+                crate::index::reader::io_stats::vector_buffer_reads(),
+                before,
+                "BM25 query read vector pages"
+            );
+            assert!(
+                !plan.0.to_string().contains("\"Vectors\""),
+                "BM25 query read vector pages: {}",
+                plan.0
+            );
+            assert_eq!(
+                Spi::get_one::<i64>("SELECT count(*) FROM metadata_vectors WHERE id @@@ pdb.all()")
+                    .unwrap(),
+                Some(2048)
+            );
+            Spi::run("SELECT * FROM paradedb.vector_config('metadata_vectors_idx','vec')").unwrap();
+            if version != 4 {
+                expect_reindex(&vector_query());
+                expect_reindex("SELECT * FROM paradedb.vector_info('metadata_vectors_idx','vec')");
+            }
+        }
     }
 }

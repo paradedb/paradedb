@@ -695,15 +695,7 @@ impl Directory for MVCCDirectory {
                     }
                 },
             };
-        let reader = reader?;
-        #[cfg(any(test, feature = "pg_test"))]
-        let reader: Arc<dyn FileHandle> =
-            if path.extension().and_then(|ext| ext.to_str()) == Some("vec") {
-                Arc::new(crate::index::reader::io_stats::VectorReadCounter(reader))
-            } else {
-                reader
-            };
-        Ok(reader)
+        reader
     }
     /// delete is called by Tantivy's garbage collection
     /// We handle this ourselves in amvacuumcleanup

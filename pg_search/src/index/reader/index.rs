@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::OnceCell;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
@@ -189,37 +190,25 @@ impl TopKSearch {
     }
 }
 
-/// Reports unsupported vector storage with the index name and rebuild instruction.
-pub(crate) fn report_vector_open_error(index_name: &str, error: &tantivy::TantivyError) {
-    let message = error.to_string();
-    if matches!(
+/// Builds the PostgreSQL error for an unsupported vector storage version.
+pub(crate) fn report_vector_open_error(
+    index_name: &str,
+    error: &tantivy::TantivyError,
+) -> Option<pgrx::pg_sys::panic::ErrorReport> {
+    matches!(
         error,
         tantivy::TantivyError::IncompatibleIndex(
             tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. }
         )
-    ) {
+    )
+    .then(|| {
         pgrx::pg_sys::panic::ErrorReport::new(
             pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-            format!("index {index_name:?} has an unsupported vector storage format: {message}"),
+            format!("index {index_name:?} has an unsupported vector storage format: {error}"),
             pgrx::function_name!(),
         )
         .set_hint(format!("Rebuild index {index_name:?} with REINDEX."))
-        .report(pgrx::PgLogLevel::ERROR);
-    }
-}
-
-/// Validates visible vector headers before a vector query or diagnostic reads segments.
-pub(crate) fn validate_vector_segments(
-    index_relation: &PgSearchRelation,
-    searcher: &Searcher,
-) -> Result<()> {
-    for segment in searcher.segment_readers() {
-        if let Err(error) = segment.validate_vector_format() {
-            report_vector_open_error(index_relation.name(), &error);
-            return Err(error.into());
-        }
-    }
-    Ok(())
+    })
 }
 
 fn probe_stats_to_segment_info(
@@ -397,6 +386,7 @@ pub struct SearchIndexReader {
     /// [`SegmentView`].
     directory: MVCCDirectory,
 
+    vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
@@ -444,6 +434,7 @@ impl Clone for SearchIndexReader {
             index_created_by_version: self.index_created_by_version,
             scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
+            vector_segments_valid: self.vector_segments_valid.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
@@ -598,6 +589,23 @@ struct IndexComponents {
 }
 
 impl SearchIndexReader {
+    /// Validates this reader's visible vector headers once, including an unsuccessful check.
+    pub(crate) fn validate_vector_segments(&self) -> Result<()> {
+        let result = self.vector_segments_valid.get_or_init(|| {
+            self.searcher
+                .segment_readers()
+                .iter()
+                .try_for_each(SegmentReader::validate_vector_format)
+        });
+        if let Err(error) = result {
+            if let Some(report) = report_vector_open_error(self.index_rel.name(), error) {
+                report.report(pgrx::PgLogLevel::ERROR);
+            }
+            return Err(error.clone().into());
+        }
+        Ok(())
+    }
+
     /// Returns the minimum and maximum heap block numbers represented in the segment.
     pub(crate) fn block_bounds(
         segment: &SegmentReader,
@@ -865,6 +873,7 @@ impl SearchIndexReader {
             scan_init_ns: 0,
             directory,
             _cleanup_lock: cleanup_lock,
+            vector_segments_valid: OnceCell::new(),
             pruning_estimate: OnceLock::new(),
         })
     }
@@ -1416,10 +1425,6 @@ impl SearchIndexReader {
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearch {
-        if orderby_info.iter().any(OrderByInfo::is_vector_distance) {
-            validate_vector_segments(&self.index_rel, &self.searcher)
-                .expect("vector segments must be readable");
-        }
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
@@ -1566,6 +1571,8 @@ impl SearchIndexReader {
                     },
                 ..
             } => {
+                self.validate_vector_segments()
+                    .expect("vector segments must be readable");
                 if orderby_info[1..].iter().any(|o| o.is_score()) {
                     panic!(
                         "pdb.score() cannot tie-break a vector distance ORDER BY: no score is computed when ordering by a vector field"

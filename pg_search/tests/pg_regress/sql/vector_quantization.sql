@@ -229,6 +229,24 @@ SELECT
 FROM segment_info;
 SET paradedb.vector_cluster_max_probe = 1.0;
 
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT count(*) > 0 AND bool_and(COALESCE(
+    jsonb_typeof(segment.value -> required.key) = 'number'
+        AND (segment.value ->> required.key)::numeric >= 0, false)) AS vector_io_counters_nonnegative
+FROM segment_info, jsonb_each(segment_info.value) AS segment,
+     unnest(ARRAY['layer0_reads', 'layer0_bytes_read', 'layer0_storage_blocks',
+                  'layer0_sign_word_fallbacks', 'layer1_reads', 'layer1_bytes_read',
+                  'layer1_storage_blocks', 'layer1_sign_word_fallbacks',
+                  'rerank_reads', 'rerank_bytes_read', 'rerank_storage_blocks']) AS required(key);
+
 SELECT * FROM paradedb.vector_estimator_info(NULL, 'vec');
 SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', NULL);
 SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', 'missing');

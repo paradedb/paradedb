@@ -47,6 +47,44 @@ use thiserror::Error;
 
 use super::jsonb_support::JsonbConversionError;
 
+/// A relation OID returned to SQL as `regclass`.
+#[derive(Clone, Copy)]
+pub(crate) struct Regclass(pub pg_sys::Oid);
+
+impl IntoDatum for Regclass {
+    fn into_datum(self) -> Option<pg_sys::Datum> {
+        self.0.into_datum()
+    }
+    fn type_oid() -> pg_sys::Oid {
+        pg_sys::REGCLASSOID
+    }
+}
+
+unsafe impl pgrx::callconv::BoxRet for Regclass {
+    unsafe fn box_into<'fcx>(
+        self,
+        fcinfo: &mut pgrx::callconv::FcInfo<'fcx>,
+    ) -> pgrx::datum::Datum<'fcx> {
+        unsafe { self.0.box_into(fcinfo) }
+    }
+}
+
+unsafe impl crate::pgrx_sql_entity_graph::metadata::SqlTranslatable for Regclass {
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(Regclass);
+    const TYPE_ORIGIN: crate::pgrx_sql_entity_graph::metadata::TypeOrigin =
+        crate::pgrx_sql_entity_graph::metadata::TypeOrigin::External;
+    const ARGUMENT_SQL: Result<
+        crate::pgrx_sql_entity_graph::metadata::SqlMappingRef,
+        crate::pgrx_sql_entity_graph::metadata::ArgumentError,
+    > = Ok(crate::pgrx_sql_entity_graph::metadata::SqlMappingRef::literal("regclass"));
+    const RETURN_SQL: Result<
+        crate::pgrx_sql_entity_graph::metadata::ReturnsRef,
+        crate::pgrx_sql_entity_graph::metadata::ReturnsError,
+    > = Ok(crate::pgrx_sql_entity_graph::metadata::ReturnsRef::One(
+        crate::pgrx_sql_entity_graph::metadata::SqlMappingRef::literal("regclass"),
+    ));
+}
+
 /// A row-oriented wrapper around Tantivy's OwnedValue.
 ///
 /// When working with large batches of TantivyValues, consider using the `types_arrow` module

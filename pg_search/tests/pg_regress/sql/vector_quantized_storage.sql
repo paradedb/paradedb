@@ -50,3 +50,16 @@ SELECT bool_and(quantized AND layers=ARRAY[1] AND bytes_per_row=144) AS stored_q
 FROM paradedb.vector_info('v4_q1_idx', 'vec');
 SELECT * FROM paradedb.vector_config('v4_q1_idx', 'vec');
 DROP TABLE v4_plain;
+
+CREATE TABLE config_parent (id integer, vec vector(64)) PARTITION BY RANGE (id);
+CREATE TABLE config_low PARTITION OF config_parent FOR VALUES FROM (0) TO (10);
+CREATE TABLE config_high PARTITION OF config_parent FOR VALUES FROM (10) TO (20);
+CREATE INDEX config_parent_idx ON config_parent USING bm25(id, vec vector_l2_ops);
+SELECT index::text, pg_typeof(index), quantized, layers
+FROM paradedb.vector_config('config_parent_idx', 'vec') ORDER BY index::text;
+SELECT * FROM paradedb.vector_config('config_parent', 'vec');
+CREATE INDEX config_btree_idx ON config_low(id);
+SELECT * FROM paradedb.vector_config('config_btree_idx', 'vec');
+SELECT * FROM paradedb.vector_config('config_parent_idx', 'id');
+SELECT * FROM paradedb.vector_config('config_parent_idx', 'missing');
+DROP TABLE config_parent;

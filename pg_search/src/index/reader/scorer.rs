@@ -92,6 +92,15 @@ impl std::fmt::Debug for SharedQuery {
     }
 }
 
+impl tantivy::query::QueryEstimate for SharedQuery {
+    fn estimate_docs(
+        &self,
+        reader: &tantivy::SegmentReader,
+    ) -> tantivy::Result<Option<(u32, u64)>> {
+        self.0.query.estimate_docs(reader)
+    }
+}
+
 impl Query for SharedQuery {
     fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
         assert_eq!(

@@ -2464,6 +2464,15 @@ mod tests {
             }
         }
 
+        impl tantivy::query::QueryEstimate for CountPreparation {
+            fn estimate_docs(
+                &self,
+                reader: &tantivy::SegmentReader,
+            ) -> tantivy::Result<Option<(u32, u64)>> {
+                self.query.estimate_docs(reader)
+            }
+        }
+
         impl Query for CountPreparation {
             fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
                 self.calls.fetch_add(1, Relaxed);

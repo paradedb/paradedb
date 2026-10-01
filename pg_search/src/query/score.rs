@@ -107,6 +107,16 @@ impl DocSet for ScoreFilterScorer {
     }
 }
 
+impl tantivy::query::QueryEstimate for ScoreFilter {
+    fn estimate_docs(
+        &self,
+        _reader: &tantivy::SegmentReader,
+    ) -> tantivy::Result<Option<(u32, u64)>> {
+        // Column statistics do not describe BM25 scores.
+        Ok(None)
+    }
+}
+
 impl Query for ScoreFilter {
     fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
         Ok(Box::new(ScoreFilterWeight {

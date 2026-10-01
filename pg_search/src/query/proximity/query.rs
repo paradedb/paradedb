@@ -73,6 +73,16 @@ impl ProximityQuery {
     }
 }
 
+impl tantivy::query::QueryEstimate for ProximityQuery {
+    fn estimate_docs(
+        &self,
+        _reader: &tantivy::SegmentReader,
+    ) -> tantivy::Result<Option<(u32, u64)>> {
+        // Custom proximity queries do not yet have a metadata estimator.
+        Ok(None)
+    }
+}
+
 impl Query for ProximityQuery {
     fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
         let schema = enable_scoring.schema();

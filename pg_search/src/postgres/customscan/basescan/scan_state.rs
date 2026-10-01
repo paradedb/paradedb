@@ -90,7 +90,6 @@ pub struct BaseScanState {
     pub quals: Option<Qual>,
 
     pub need_scores: bool,
-    pub score_placeholder: Option<PlaceholderColumn>,
     pub score_funcoids: [pg_sys::Oid; 2],
 
     /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
@@ -99,10 +98,8 @@ pub struct BaseScanState {
     /// TopK scan already provides the ordering and the column is junk-stripped
     /// — so the placeholder just spares `ExecProject` from calling
     /// `l2_distance(embedding, query)` and detoasting the heap vector. We track
-    /// it only so the projection path knows it must use `placeholder_projection`.
+    /// it only so the projection path knows it must use `placeholders`.
     pub vector_distance_placeholder: bool,
-
-    pub snippet_placeholders: HashMap<SnippetType, Vec<PlaceholderColumn>>,
 
     pub snippet_funcoids: [pg_sys::Oid; 2],
     pub snippets_funcoids: [pg_sys::Oid; 2],
@@ -111,7 +108,7 @@ pub struct BaseScanState {
     pub snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>>,
 
     pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
-    pub placeholder_projection: Option<PlaceholderProjection>,
+    pub placeholders: Option<BasePlaceholders>,
 
     // Store join-level search predicates for enhanced scoring/snippet generation
     pub join_predicates: Option<SearchQueryInput>,
@@ -129,10 +126,21 @@ pub struct BaseScanState {
     // Window aggregate support
     pub window_aggregates: Vec<WindowAggregateInfo>,
     pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
-    pub window_agg_placeholders: HashMap<usize, PlaceholderColumn>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
+}
+
+/// The projection that gives a row its score, snippets and window aggregates, and the placeholder
+/// columns it reads them from.
+///
+/// One struct holds them, because the columns are valid only for the slot of this projection.
+pub struct BasePlaceholders {
+    pub projection: PlaceholderProjection,
+    pub score: PlaceholderColumn,
+    pub snippets: HashMap<SnippetType, Vec<PlaceholderColumn>>,
+    /// Indexed by target entry position.
+    pub window_aggs: HashMap<usize, PlaceholderColumn>,
 }
 
 impl CustomScanState for BaseScanState {

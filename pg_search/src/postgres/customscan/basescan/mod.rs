@@ -56,7 +56,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
     WindowAggregateInfo, deserialize_window_agg_placeholders,
     resolve_window_aggregate_filters_at_plan_time,
 };
-use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::customscan::basescan::scan_state::{BasePlaceholders, BaseScanState};
 use crate::postgres::customscan::bitmap_intersection;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType, restrict_info,
@@ -73,8 +73,7 @@ use crate::postgres::customscan::parallel::{
     RowEstimate, compute_nworkers, max_useful_workers, segment_view,
 };
 use crate::postgres::customscan::projections::{
-    PlaceholderColumn, PlaceholderColumns, PlaceholderProjection, inject_placeholders,
-    pullout_funcexprs,
+    PlaceholderColumn, PlaceholderColumns, inject_placeholders, pullout_funcexprs,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, Qual, QualExtractState, extract_join_predicates, extract_quals, is_subplan,
@@ -1817,10 +1816,12 @@ impl CustomScan for BaseScan {
                             // set their placeholder values and project
                             //
 
-                            let projection = state
+                            let placeholders = state
                                 .custom_state()
-                                .placeholder_projection
-                                .expect("placeholder_projection must be set");
+                                .placeholders
+                                .as_ref()
+                                .expect("placeholders must be set");
+                            let projection = placeholders.projection;
 
                             let mut per_tuple_context = PgMemoryContexts::For(
                                 (*(*state.projection_info()).pi_exprContext).ecxt_per_tuple_memory,
@@ -1828,11 +1829,7 @@ impl CustomScan for BaseScan {
                             per_tuple_context.reset();
 
                             if state.custom_state().need_scores() {
-                                let score_placeholder = state
-                                    .custom_state()
-                                    .score_placeholder
-                                    .expect("score_placeholder should be set");
-                                projection.set(score_placeholder, score.into_datum());
+                                projection.set(placeholders.score, score.into_datum());
                             }
 
                             // Update window aggregate values
@@ -1840,9 +1837,7 @@ impl CustomScan for BaseScan {
                                 &state.custom_state().window_aggregate_results
                             {
                                 for (te_idx, datum) in agg_results {
-                                    if let Some(column) =
-                                        state.custom_state().window_agg_placeholders.get(te_idx)
-                                    {
+                                    if let Some(column) = placeholders.window_aggs.get(te_idx) {
                                         projection.set(*column, Some(*datum));
                                     }
                                 }
@@ -1858,7 +1853,7 @@ impl CustomScan for BaseScan {
                                 let estate = state.csstate.ss.ps.state;
                                 maybe_project_snippets(
                                     state.custom_state(),
-                                    &projection,
+                                    placeholders,
                                     ctid,
                                     estate,
                                 );
@@ -2442,18 +2437,18 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
         return;
     }
 
-    if state.custom_state().placeholder_projection.is_some() {
+    if state.custom_state().placeholders.is_some() {
         // A rescan keeps the projection. To build it again would initialize every `SubPlan` of
         // the target list again.
         return;
     }
 
     // inject score and/or snippet placeholder [`pg_sys::Var`] nodes into what is a copy of the Plan's
-    // targetlist.  We store its projection in our custom state's "placeholder_projection" for use
-    // during the forced projection we must do later.
+    // targetlist.  We store its projection in our custom state's "placeholders" for use during
+    // the forced projection we must do later.
     let mut columns = PlaceholderColumns::default();
 
-    let (targetlist, score_placeholder, snippet_placeholders) = inject_placeholders(
+    let (targetlist, score, snippets) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
         state.custom_state().score_funcoids,
@@ -2466,16 +2461,15 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     );
 
     // Now inject window aggregate placeholders
-    let (targetlist, window_agg_placeholders) =
-        if !state.custom_state().window_aggregates.is_empty() {
-            inject_window_aggregate_placeholders(
-                targetlist,
-                &state.custom_state().window_aggregates,
-                &mut columns,
-            )
-        } else {
-            (targetlist, HashMap::default())
-        };
+    let (targetlist, window_aggs) = if !state.custom_state().window_aggregates.is_empty() {
+        inject_window_aggregate_placeholders(
+            targetlist,
+            &state.custom_state().window_aggregates,
+            &mut columns,
+        )
+    } else {
+        (targetlist, HashMap::default())
+    };
 
     // Blank out the junk vector-distance ORDER BY column. When the ORDER BY is
     // `embedding <-> query`, pg adds that `OpExpr` to the scan's targetlist as
@@ -2493,10 +2487,12 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
         (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
     );
 
-    state.custom_state_mut().placeholder_projection = Some(projection);
-    state.custom_state_mut().score_placeholder = Some(score_placeholder);
-    state.custom_state_mut().snippet_placeholders = snippet_placeholders;
-    state.custom_state_mut().window_agg_placeholders = window_agg_placeholders;
+    state.custom_state_mut().placeholders = Some(BasePlaceholders {
+        projection,
+        score,
+        snippets,
+        window_aggs,
+    });
     state.custom_state_mut().vector_distance_placeholder = vector_distance_placeholder;
 }
 
@@ -2871,7 +2867,7 @@ fn is_range_query_string(query_string: &str) -> bool {
 /// Must be called inside the per-tuple `MemoryContext`.
 unsafe fn maybe_project_snippets(
     state: &BaseScanState,
-    projection: &PlaceholderProjection,
+    placeholders: &BasePlaceholders,
     ctid: u64,
     estate: *mut pg_sys::EState,
 ) {
@@ -2879,7 +2875,8 @@ unsafe fn maybe_project_snippets(
         return;
     }
 
-    for (snippet_type, snippet_placeholders) in &state.snippet_placeholders {
+    let projection = &placeholders.projection;
+    for (snippet_type, snippet_placeholders) in &placeholders.snippets {
         match snippet_type {
             SnippetType::SingleText(_, config, _) => {
                 // Resolve start/end tags once per snippet type; for Static

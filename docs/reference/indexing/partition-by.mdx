@@ -1,18 +1,16 @@
 ---
-title: Partitioning (partition_by)
-description: Partition ParadeDB indexes for segment pruning and range co-partitioned joins
+title: Index Partitioning
+description: Partition ParadeDB indexes to accelerate filter and JOIN queries
 canonical: https://www.paradedb.com/docs/reference/indexing/partition-by
 ---
 
 <Warning>
-  `partition_by` and range co-partitioned joins are currently Beta features
-  under active development. Query pruning and join planning optimizations are
-  actively evolving. Syntax and internal planner behaviors may change in future
-  releases.
+  `partition_by` is currently a Beta feature under active development. Syntax
+  and internal planner behaviors may change in future releases.
 </Warning>
 
-By default, a ParadeDB index does not partition rows across segments.
-Using the `partition_by` option in `CREATE INDEX`, you can partition the index space along one or more columns:
+By default, a ParadeDB index does not partition rows across segments. By using the `partition_by`
+option in `CREATE INDEX`, you can partition the index space along one or more columns:
 
 ```sql
 CREATE INDEX items_idx ON items
@@ -25,8 +23,8 @@ WITH (
 
 Partitioning an index provides two key benefits:
 
-- Accelerate search and filter queries
-- Accelerate joins
+- Accelerating search and filter queries
+- Accelerating joins
 
 You can also partition along multiple columns by specifying a comma-separated list:
 
@@ -39,16 +37,19 @@ WITH (
 );
 ```
 
-Unlike composite B-tree indexes, multi-column partitioning divides rows multi-dimensionally using a kd-tree, so it has no column order dependency—queries filtering on any partition column benefit from pruning regardless of column order.
+<Note>
+  Because ParadeDB partitions rows multi-dimensionally using a kd-tree, the
+  order in which columns are specified in `partition_by` is not important.
+</Note>
 
-Because `target_segment_count` controls the total number of segments, that segment budget is divided across all partition columns. For most workloads, partitioning on 1 or 2 high-selectivity columns gives the best balance between pruning granularity and overhead.
+Because [`target_segment_count`](/reference/indexing/create-index#index-partitioning-beta) controls the total number of segments, that segment budget is divided across all partition columns. For most workloads, partitioning on 1 or 2 high-selectivity columns gives the best balance between query performance and partitioning overhead.
 
 <Note>
   Partition boundaries are established during `CREATE INDEX` or `REINDEX` and
-  are not yet rebalanced as new data is inserted. Query performance will
-  gradually decline as writes accumulate. Running `REINDEX` restores optimal
-  partition boundaries. Incremental maintenance across ongoing writes is planned
-  for future releases.
+  are not yet rebalanced as new data is inserted. Query performance against
+  partitioned indexes will gradually decline as writes accumulate. Running
+  `REINDEX` restores optimal partition boundaries. Incremental maintenance of
+  partitioned indexes across ongoing writes is being actively worked on.
 </Note>
 
 ---
@@ -65,13 +66,13 @@ Choosing the right column(s) for `partition_by` depends on your query patterns a
 | Multi-Tenant with Joins                              | Shared tenant key on both tables (e.g. `orders.tenant_id` and `items.tenant_id`) | Dual Benefit: Segment pruning for single-tenant searches and worker-local joins within a tenant.                                              |
 | Multiple Query Filters                               | Multiple columns (e.g. `tenant_id, created_at`)                                  | Multi-Dimensional Pruning: Enables pruning on tenant equality, timestamp ranges, or both, with segment granularity divided among the columns. |
 
-### Column Eligibility Rules
+### Requirements for Index Partitioning
 
 Columns specified in `partition_by` must meet the following constraints:
 
 1. Single-valued only: Multi-valued types (such as arrays `TEXT[]`, `INT[]` and JSON/JSONB fields) cannot be used.
 2. Columnar indexed: The column must be columnar indexed. Scalar types (integers, floats, booleans, dates, timestamps, UUIDs) are columnar indexed by default.
-3. Raw ordering for text columns: If a text column is used in `partition_by`, it must use the [`literal`](/reference/tokenizers/available-tokenizers/literal) tokenizer (e.g. `(tenant_code::pdb.literal)`).
+3. Tokenizer: If a text column is used in `partition_by`, it must use the [`literal`](/reference/tokenizers/available-tokenizers/literal) tokenizer (e.g. `(tenant_code::pdb.literal)`).
 4. Low-cardinality columns: Columns with few distinct values (booleans, enums) cap total partitions to their cardinality. To reach `target_segment_count`, pair them with Postgres's internal `ctid` column (e.g. `partition_by = 'is_active, ctid'`). Only use `ctid` in this specific case: it usually cannot prune on its own and should not be used alone or with high-cardinality columns.
 
 ---

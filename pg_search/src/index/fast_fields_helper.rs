@@ -1079,6 +1079,7 @@ mod tests {
     use crate::index::mvcc::MvccSatisfies;
     use pgrx::prelude::*;
 
+    #[cfg(test)]
     fn text_field(cardinality: FieldCardinality, delivery: FieldDelivery) -> WhichFastField {
         WhichFastField::named(
             "f",

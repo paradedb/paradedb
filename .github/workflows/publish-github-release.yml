@@ -120,7 +120,6 @@ jobs:
         if: github.repository == 'paradedb/paradedb'
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
-          build-warnings: warn # Preserve the v1 behavior with empty rustflags.
           cache: false
           rustflags: ""
 

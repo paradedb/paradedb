@@ -37,7 +37,6 @@ jobs:
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
-          build-warnings: warn # Preserve the v1 behavior with empty rustflags.
           cache: false
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 

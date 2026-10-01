@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+Vector storage uses per-segment metadata and a block-major layout. After upgrading to 0.26, every index containing a vector field, quantized or not, must be rebuilt with `REINDEX`.

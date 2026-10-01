@@ -152,7 +152,9 @@ use self::planning::{
     get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
-use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node};
+use self::window_func::{
+    SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node, numeric_window_field,
+};
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -161,7 +163,7 @@ use crate::postgres::node::NodeExt;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
-    create_datafusion_session_context, numeric_window_field,
+    create_datafusion_session_context,
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;

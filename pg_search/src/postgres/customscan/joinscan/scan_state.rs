@@ -34,13 +34,10 @@ use std::sync::Arc;
 
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
-use datafusion::common::{DataFusionError, Result, internal_datafusion_err, internal_err};
+use datafusion::common::{DataFusionError, Result, internal_err};
 use datafusion::functions::expr_fn::get_field;
-use datafusion::logical_expr::expr::{AggregateFunction, WindowFunction};
 use datafusion::logical_expr::{
-    AggregateUDF, Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
-    SortExpr, WindowFunctionDefinition, col,
+    Expr, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions, SortExpr, col,
 };
 use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -51,7 +48,7 @@ use pgrx::pg_sys;
 
 use super::planning::get_source_attno_by_name;
 use super::window_func::{
-    SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggColumn, WindowAggIndex,
+    SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggColumn, WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::gucs;
@@ -59,7 +56,7 @@ use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::datafusion::topk_agg::{TOPK_AGG_ROWS_COL_NAME, topk_as_agg};
 use crate::postgres::customscan::joinscan::build::{
-    self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
+    self as build, ChildProjection, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
@@ -95,7 +92,7 @@ use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 ///
 /// Returns `None` if no source maps the var — the caller decides whether to
 /// fall back to a literal or propagate the absence.
-fn resolve_var_to_df_col(
+pub(crate) fn resolve_var_to_df_col(
     join_clause: &JoinCSClause,
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
@@ -137,7 +134,10 @@ fn resolve_var_to_df_col(
 /// If a column cannot be resolved to an output DataFusion column, but its relation
 /// participates in the join (e.g. the non-preserved side of an Anti Join that was pruned
 /// from output), all its values in the join result are identically NULL.
-fn null_if_source_exists(join_clause: &JoinCSClause, rti: pg_sys::Index) -> Option<Expr> {
+pub(crate) fn null_if_source_exists(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+) -> Option<Expr> {
     if join_clause
         .plan
         .sources()
@@ -948,13 +948,16 @@ fn apply_topk_as_agg(
     };
 
     {
-        let projection = join_clause
+        let num_non_window_projections = join_clause
             .output_projection
             .as_ref()
-            .expect("should always exist by now");
+            .expect("should always exist by now")
+            .iter()
+            .filter(|p| !matches!(p, ChildProjection::WindowAgg { .. }))
+            .count();
         assert_eq!(
             distinct_key_exprs.len(),
-            projection.len() - join_clause.window_aggs.len(),
+            num_non_window_projections,
             "This function is only correct as long as the DISTINCT keys cover all output projection columns that are not window aggregates",
         );
     }
@@ -969,8 +972,7 @@ fn apply_topk_as_agg(
     // The window aggregates read the join's own columns, so their inputs ride
     // along beside the key in the projection below; the Top-K payload leaves
     // them out.
-    let window = window_agg_exprs(join_clause)?;
-    let window_inputs = window.input_column_exprs();
+    let window_exprs_with_index = window_agg_aggregate_exprs(join_clause)?;
 
     // Only relations whose heap tuples are fetched need a ctid carried through,
     // the same pruning the GROUP BY form applies.
@@ -988,30 +990,35 @@ fn apply_topk_as_agg(
         .map(|(i, expr)| (expr.clone(), col(format!("col_{}", i + 1))))
         .collect();
 
-    // will contain additional sort_j columns that are required by the sort expressions
-    let mut sort_extra_cols: Vec<Expr> = Vec::new();
+    // will contain additional columns that are required by the sort and window expressions
+    let mut extra_input_cols: Vec<Expr> = Vec::new();
     // sort expressions, now targeting the actual column names they'll operate on
     let rebased_sort_exprs: Vec<SortExpr> = sort_exprs
         .into_iter()
         .map(|s| {
             let expr = s
                 .expr
-                .transform(|e| {
-                    let Expr::Column(_) = &e else {
-                        return Ok(Transformed::no(e));
-                    };
-                    if let Some(mapped) = projected.get(&e) {
-                        return Ok(Transformed::yes(mapped.clone()));
-                    }
-                    if join_clause.has_distinct {
-                        return internal_err!("ORDER BY column {e} is not a DISTINCT key");
-                    }
-                    let j = sort_extra_cols.len() + 1;
-                    sort_extra_cols.push(e.alias(format!("sort_{j}")));
-                    Ok(Transformed::yes(col(format!("sort_{j}"))))
-                })?
+                .transform(translate_expression_to_use_projected_inputs(
+                    &projected,
+                    &mut extra_input_cols,
+                ))?
                 .data;
             Ok(SortExpr { expr, ..s })
+        })
+        .collect::<Result<_>>()?;
+    // window expressions, now targeting the actual column names they'll operate on, aliased to our
+    // final column names
+    let rebased_window_exprs: Vec<Expr> = window_exprs_with_index
+        .iter()
+        .map(|(idx, e)| {
+            let e = e
+                .clone()
+                .transform(translate_expression_to_use_projected_inputs(
+                    &projected,
+                    &mut extra_input_cols,
+                ))?
+                .data;
+            Ok(e.alias(idx.as_col_name()))
         })
         .collect::<Result<_>>()?;
 
@@ -1022,7 +1029,7 @@ fn apply_topk_as_agg(
         .map(|(i, expr)| expr.clone().alias(format!("col_{}", i + 1)))
         .collect();
     select.extend(ctid_names.iter().map(|n| col(n.as_str())));
-    select.extend(sort_extra_cols.iter().cloned());
+    select.extend(extra_input_cols.iter().cloned());
 
     // The column index ranges of the groups the restore below renames. The `sort_j`
     // columns have no range: they are inputs to the aggregate's ORDER BY only, which
@@ -1054,8 +1061,10 @@ fn apply_topk_as_agg(
         &ctid_positions,
         join_clause.has_distinct,
     );
-    // TODO: include window aggs here
-    let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
+
+    let mut aggregates = vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)];
+    aggregates.extend(rebased_window_exprs);
+    let df = df.aggregate(vec![], aggregates)?;
     let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
 
     // Restore the GROUP BY's output names: `col_{i}` for the key, the ctid names
@@ -1069,10 +1078,32 @@ fn apply_topk_as_agg(
         let name = &ctid_names[name_idx];
         get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(name)
     }));
-    // TODO: Add window outputs here
+    // get the window aggs as well
+    name_restoration_exprs.extend(
+        window_exprs_with_index
+            .iter()
+            .map(|(idx, _)| col(idx.as_col_name())),
+    );
     let df = df.select(name_restoration_exprs)?;
 
     Ok((df, distinct_col_map))
+}
+
+fn translate_expression_to_use_projected_inputs(
+    projection: &HashMap<Expr, Expr>,
+    additional_cols: &mut Vec<Expr>,
+) -> impl FnMut(Expr) -> Result<Transformed<Expr>> {
+    |e: Expr| {
+        let Expr::Column(_) = &e else {
+            return Ok(Transformed::no(e));
+        };
+        if let Some(mapped) = projection.get(&e) {
+            return Ok(Transformed::yes(mapped.clone()));
+        }
+        let j = additional_cols.len() + 1;
+        additional_cols.push(e.alias(format!("expr_input_{j}")));
+        Ok(Transformed::yes(col(format!("expr_input_{j}"))))
+    }
 }
 
 /// Translate every clause in `custom_exprs` (a Postgres `List*`) into a
@@ -1465,7 +1496,7 @@ fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Resu
         .iter_indexed()
         .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
     {
-        let expr = window_expr(info, join_clause)?;
+        let expr = info.as_window_expr(join_clause)?;
         if matches!(expr, Expr::WindowFunction(_)) {
             window_exprs.push(expr.alias(index.as_col_name()));
         } else {
@@ -1482,116 +1513,20 @@ fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Resu
     df.window(window_exprs)
 }
 
-fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
-    use crate::customscan::datafusion::numeric_agg;
-    use datafusion::functions_aggregate::{average, count, min_max, sum};
-
-    let col_expr = match &info.col_info {
-        Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
-            Some(ce) => Some(ce),
-            None => {
-                // The argument's relation participates in the join but was
-                // pruned from the output (e.g. the inner side of an Anti
-                // Join): its values are identically NULL in every output
-                // row, so the aggregate is a plan-time constant — 0 for
-                // COUNT, NULL otherwise. This is the window-input analogue
-                // of the `null_if_source_exists` fallback every other
-                // pruned-column consumer applies.
-                if null_if_source_exists(join_clause, ci.rti).is_some() {
-                    return Ok(match info.agg_type {
-                        SupportedWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
-                        _ => datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null),
-                    });
-                }
-                return Err(internal_datafusion_err!(
-                    "Failed to map column to fast field and column expr. rti: {}, attno: {}",
-                    ci.rti,
-                    ci.attno
-                ));
-            }
-        },
-        None => None,
-    };
-    let numeric_field = numeric_window_field(info.agg_type, info.arg_field_type())?;
-
-    // Match only basic aggregate functions. Missing and filters are not supported in global window
-    // functions
-    //
-    // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
-    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
-    // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-    match info.agg_type {
-        SupportedWindowAggType::Sum => {
-            let ce = col_expr.expect("should always have a column expression for SUM");
-            match numeric_field {
-                None => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
-                    vec![ce],
-                ))),
-                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_sum_udaf()),
-                    vec![ce, scale.lit()],
-                ))),
-                Some(_) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_sum_udaf()),
-                    vec![ce],
-                ))),
-            }
-        }
-        SupportedWindowAggType::Avg => {
-            let ce = col_expr.expect("should always have a column expression for AVG");
-            match numeric_field {
-                None => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
-                    vec![ce],
-                ))),
-                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_avg_udaf()),
-                    vec![ce, scale.lit()],
-                ))),
-                Some(_) => Ok(Expr::from(WindowFunction::new(
-                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_avg_udaf()),
-                    vec![ce],
-                ))),
-            }
-        }
-        SupportedWindowAggType::Min => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(min_max::min_udaf()),
-            vec![col_expr.expect("should always have a column expression for MIN")],
-        ))),
-        SupportedWindowAggType::Max => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(min_max::max_udaf()),
-            vec![col_expr.expect("should always have a column expression for MAX")],
-        ))),
-        SupportedWindowAggType::Count => Ok(Expr::from(WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(count::count_udaf()),
-            vec![col_expr.expect("should always have a column expression for COUNT")],
-        ))),
-        SupportedWindowAggType::CountStar => Ok(count::count_all_window()),
-    }
-}
-
-/// The extracted window aggregates, each paired with its `window_agg_N`
-/// column name.
-#[derive(Default)]
-struct WindowAggExprs {
-    /// Aggregates over the join result; they join the Top-K aggregate node.
-    aggregates: Vec<(String, Expr)>,
-    /// Plan-time constants (the aggregate of a pruned argument column); an
-    /// aggregate node cannot carry them, so they are projected after it.
-    constants: Vec<(String, Expr)>,
-}
-impl WindowAggExprs {
-    fn input_column_exprs(&self) -> Vec<Expr> {
-        let mut refs: Vec<&datafusion::common::Column> = self
-            .aggregates
-            .iter()
-            .flat_map(|(_, expr)| expr.column_refs())
-            .collect();
-        refs.sort();
-        refs.dedup();
-        refs.into_iter().cloned().map(Expr::Column).collect()
-    }
+/// Every extracted window aggregate as `(window_agg_N, expression)`. Driven by
+/// `join_clause.window_aggs` rather than the output projection: an aggregate
+/// embedded in an expression has no `ChildProjection::WindowAgg` entry, only a
+/// sentinel Var referencing the column by name. Only canonical entries are
+/// materialized; duplicates resolve to the canonical column
+/// (see `WindowAggList::canonical_index`).
+#[allow(dead_code)]
+fn window_agg_window_exprs(join_clause: &JoinCSClause) -> Result<Vec<(WindowAggIndex, Expr)>> {
+    join_clause
+        .window_aggs
+        .iter_indexed()
+        .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
+        .map(|(index, info)| Ok((index, info.as_window_expr(join_clause)?)))
+        .collect()
 }
 
 /// Every extracted window aggregate as `(window_agg_N, expression)`. Driven by
@@ -1600,155 +1535,13 @@ impl WindowAggExprs {
 /// sentinel Var referencing the column by name. Only canonical entries are
 /// materialized; duplicates resolve to the canonical column
 /// (see `WindowAggList::canonical_index`).
-fn window_agg_exprs(join_clause: &JoinCSClause) -> Result<WindowAggExprs> {
-    let mut exprs = WindowAggExprs::default();
-    for (index, info) in join_clause
+fn window_agg_aggregate_exprs(join_clause: &JoinCSClause) -> Result<Vec<(WindowAggIndex, Expr)>> {
+    join_clause
         .window_aggs
         .iter_indexed()
         .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
-    {
-        let expr = window_agg_expr(info, join_clause)?;
-        let target = if matches!(expr, Expr::AggregateFunction(_)) {
-            &mut exprs.aggregates
-        } else {
-            &mut exprs.constants
-        };
-        target.push((index.as_col_name(), expr));
-    }
-    Ok(exprs)
-}
-
-fn aggregate_udf(udaf: Arc<AggregateUDF>, args: Vec<Expr>) -> Expr {
-    Expr::AggregateFunction(AggregateFunction::new_udf(
-        udaf,
-        args,
-        false,
-        None,
-        vec![],
-        None,
-    ))
-}
-
-/// The aggregate computing one window aggregate. `agg OVER ()` is the aggregate
-/// over the whole join result, so it is an ordinary aggregate function in the
-/// group-key-free Top-K aggregate node.
-fn window_agg_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
-    use crate::customscan::datafusion::numeric_agg;
-    use datafusion::functions_aggregate::{average, count, min_max, sum};
-
-    let col_expr = match &info.col_info {
-        Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
-            Some(ce) => Some(ce),
-            None => {
-                // The argument's relation participates in the join but was
-                // pruned from the output (e.g. the inner side of an Anti
-                // Join): its values are identically NULL in every output
-                // row, so the aggregate is a plan-time constant — 0 for
-                // COUNT, NULL otherwise. This is the window-input analogue
-                // of the `null_if_source_exists` fallback every other
-                // pruned-column consumer applies.
-                if null_if_source_exists(join_clause, ci.rti).is_some() {
-                    return Ok(match info.agg_type {
-                        SupportedWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
-                        _ => datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null),
-                    });
-                }
-                return Err(internal_datafusion_err!(
-                    "Failed to map column to fast field and column expr. rti: {}, attno: {}",
-                    ci.rti,
-                    ci.attno
-                ));
-            }
-        },
-        None => None,
-    };
-    let numeric_field = numeric_window_field(info.agg_type, info.arg_field_type())?;
-
-    // Match only basic aggregate functions. Missing and filters are not supported in global window
-    // functions
-    //
-    // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
-    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
-    // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-    match info.agg_type {
-        SupportedWindowAggType::Sum => {
-            let ce = col_expr.expect("should always have a column expression for SUM");
-            match numeric_field {
-                None => Ok(aggregate_udf(sum::sum_udaf(), vec![ce])),
-                Some(SearchFieldType::Numeric64(_, scale)) => Ok(aggregate_udf(
-                    numeric_agg::numeric64_sum_udaf(),
-                    vec![ce, scale.lit()],
-                )),
-                Some(_) => Ok(aggregate_udf(
-                    numeric_agg::numeric_bytes_sum_udaf(),
-                    vec![ce],
-                )),
-            }
-        }
-        SupportedWindowAggType::Avg => {
-            let ce = col_expr.expect("should always have a column expression for AVG");
-            match numeric_field {
-                None => Ok(aggregate_udf(average::avg_udaf(), vec![ce])),
-                Some(SearchFieldType::Numeric64(_, scale)) => Ok(aggregate_udf(
-                    numeric_agg::numeric64_avg_udaf(),
-                    vec![ce, scale.lit()],
-                )),
-                Some(_) => Ok(aggregate_udf(
-                    numeric_agg::numeric_bytes_avg_udaf(),
-                    vec![ce],
-                )),
-            }
-        }
-        SupportedWindowAggType::Min => Ok(aggregate_udf(
-            min_max::min_udaf(),
-            vec![col_expr.expect("should always have a column expression for MIN")],
-        )),
-        SupportedWindowAggType::Max => Ok(aggregate_udf(
-            min_max::max_udaf(),
-            vec![col_expr.expect("should always have a column expression for MAX")],
-        )),
-        SupportedWindowAggType::Count => Ok(aggregate_udf(
-            count::count_udaf(),
-            vec![col_expr.expect("should always have a column expression for COUNT")],
-        )),
-        SupportedWindowAggType::CountStar => Ok(aggregate_udf(
-            count::count_udaf(),
-            vec![Expr::Literal(COUNT_STAR_EXPANSION, None)],
-        )),
-    }
-}
-
-/// Determines if the field for this aggregate is a numeric and is supported for pushing
-/// down this aggregate.
-///
-/// Returns:
-/// - `Ok(None)` if the aggregate has no field requirements or this field is not numeric.
-/// - `Ok(Some(_))` if the field is a supported numeric field
-/// - `Err(_)` if the field is an unsupported numeric
-pub fn numeric_window_field(
-    agg_type: SupportedWindowAggType,
-    field_type: Option<&SearchFieldType>,
-) -> Result<Option<&SearchFieldType>> {
-    match (agg_type, field_type) {
-        (SupportedWindowAggType::Count | SupportedWindowAggType::CountStar, _) => Ok(None),
-        (_, Some(ft)) => {
-            let field_type = if ft.is_numeric() {
-                ft
-            } else {
-                return Ok(None);
-            };
-
-            if field_type.numeric_scale().is_none() {
-                return Err(DataFusionError::Plan(
-                    "Non-count window aggregation on an unbounded NUMERIC column is not supported; declare a \
-                     precision and scale to enable aggregate pushdown".to_string(),
-                ));
-            }
-
-            Ok(Some(ft))
-        }
-        _ => Ok(None),
-    }
+        .map(|(index, info)| Ok((index, info.as_aggregate_expr(join_clause)?)))
+        .collect()
 }
 
 /// Apply the join clause's `ORDER BY` to the data frame, choosing column

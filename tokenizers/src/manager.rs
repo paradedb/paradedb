@@ -1192,35 +1192,57 @@ mod tests {
     }
 
     #[rstest]
-    fn test_register_tokenizers_into_does_not_clobber_colliding_legacy_alias() {
-        // If another field in the same batch genuinely uses the plain, unfiltered "default"
-        // tokenizer, the trim field's legacy alias must not overwrite that field's real
-        // registration -- doing so would reintroduce the exact collision the trim fix exists
-        // to prevent for anything indexed going forward. Prove it via tokenized output: the
-        // plain field's own text should NOT come out trimmed if the alias had clobbered it.
-        let tokenizer_manager = TokenizerManager::default();
-        let plain_default = SearchTokenizer::Simple(SearchTokenizerFilters::default());
-        let with_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
+    #[case(vec!["with_trim", "plain"])]
+    #[case(vec!["plain", "with_trim"])]
+    fn test_register_tokenizers_into_does_not_clobber_colliding_legacy_alias(
+        #[case] order: Vec<&str>,
+    ) {
+        // If another field in the same batch genuinely uses the plain, unfiltered
+        // "literal_normalized" tokenizer, the trim field's legacy alias must not overwrite that
+        // field's real registration -- doing so would reintroduce the exact collision the trim
+        // fix exists to prevent for anything indexed going forward, regardless of which order the
+        // two fields happen to be registered in.
+        //
+        // `SimpleTokenizer`/`WhitespaceTokenizer` split on whitespace, so trim (which only strips
+        // leading/trailing whitespace *within* a token) can never produce different output for
+        // them -- a test built on either could pass identically whether or not clobbering
+        // happened. `LiteralNormalized` wraps `RawTokenizer`, which treats the whole input as one
+        // token, so trim has an observable effect: "  Hello  " lowercases to "  hello  "
+        // untrimmed, or "hello" trimmed.
+        let plain = SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default());
+        let with_trim = SearchTokenizer::LiteralNormalized(SearchTokenizerFilters {
             trim: Some(true),
             ..SearchTokenizerFilters::default()
         });
-        assert_eq!(plain_default.name(), "default");
-        assert_eq!(with_trim.legacy_name_before_trim_fix().unwrap(), "default");
-
-        crate::register_tokenizers_into(
-            &tokenizer_manager,
-            vec![with_trim.clone(), plain_default.clone()],
-        );
-
-        // "default" must still be the plain tokenizer's own analyzer. Tantivy's `SimpleTokenizer`
-        // splits on non-alphanumeric, so a leading/trailing space never reaches a filter either
-        // way here -- assert on a case the trim alias's presence could otherwise mask: both
-        // produce the same split, proving "default" wasn't silently replaced by the alias.
+        assert_eq!(plain.name(), "literal_normalized");
         assert_eq!(
-            tokens_via(&tokenizer_manager, "default", "hello world"),
-            vec!["hello".to_string(), "world".to_string()]
+            with_trim.legacy_name_before_trim_fix().unwrap(),
+            "literal_normalized"
         );
-        assert!(tokenizer_manager.get(&with_trim.name()).is_some());
+
+        let tokenizer_manager = TokenizerManager::default();
+        let search_tokenizers = order
+            .iter()
+            .map(|name| match *name {
+                "with_trim" => with_trim.clone(),
+                "plain" => plain.clone(),
+                other => panic!("unexpected case name {other}"),
+            })
+            .collect();
+        crate::register_tokenizers_into(&tokenizer_manager, search_tokenizers);
+
+        // "literal_normalized" must still be the plain tokenizer's own analyzer: lowercased but
+        // NOT trimmed. If the trim alias had clobbered it, this would come out as "hello".
+        assert_eq!(
+            tokens_via(&tokenizer_manager, "literal_normalized", "  Hello  "),
+            vec!["  hello  ".to_string()],
+            "registration order {order:?}: \"literal_normalized\" must resolve to the plain \
+             analyzer, not the trim field's legacy alias"
+        );
+        assert_eq!(
+            tokens_via(&tokenizer_manager, &with_trim.name(), "  Hello  "),
+            vec!["hello".to_string()]
+        );
     }
 
     #[rstest]

@@ -56,9 +56,8 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 ///
 /// This is called AFTER `replace_aggrefs_in_target_list` has replaced Aggrefs with FuncExprs.
 /// It performs two main tasks:
-/// 1. Replaces `pdb.agg_fn` FuncExprs with Const nodes that will be mutated with actual
-///    aggregate values before each `ExecBuildProjectionInfo` call, which bakes the Const values
-///    into the projection.
+/// 1. Replaces `pdb.agg_fn` FuncExprs with placeholder Vars that read the aggregate values of
+///    the current row from the slot of a [`PlaceholderProjection`].
 /// 2. Replaces grouping column expressions with `INDEX_VAR` nodes. Because `AggregateScan`
 ///    groups by columns directly in Tantivy, it yields a virtual scan slot with only the
 ///    grouping column and aggregate results (unlike `BaseScan` which yields the heap relation).
@@ -66,13 +65,18 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 ///    fetch the value from the virtual slot's attributes instead of attempting to evaluate
 ///    the original expressions (which would otherwise fail due to missing base columns).
 ///
-/// Returns: (placeholder_targetlist, const_nodes, needs_projection)
-/// - placeholder_targetlist: target list with FuncExprs replaced by Const nodes and grouping columns converted to `INDEX_VAR`s.
-/// - const_nodes: Vec of Const node pointers for later mutation, indexed by target entry position.
+/// Returns: (placeholder_targetlist, placeholders, needs_projection)
+/// - placeholder_targetlist: target list with FuncExprs replaced by placeholder Vars and grouping columns converted to `INDEX_VAR`s.
+/// - placeholders: the column of `columns` and its type for each placeholder, indexed by target entry position.
 /// - needs_projection: true if projection is needed (e.g., wrapped expressions exist).
 pub(crate) fn create_placeholder_targetlist(
     targetlist: *mut pg_sys::List,
-) -> (*mut pg_sys::List, Vec<Option<*mut pg_sys::Const>>, bool) {
+    columns: &mut PlaceholderColumns,
+) -> (
+    *mut pg_sys::List,
+    Vec<Option<(PlaceholderColumn, pg_sys::Oid)>>,
+    bool,
+) {
     if targetlist.is_null() {
         return (std::ptr::null_mut(), Default::default(), false);
     }
@@ -97,15 +101,16 @@ pub(crate) fn create_placeholder_targetlist(
         return (std::ptr::null_mut(), Default::default(), false);
     }
 
-    // Context for the Const placeholder mutator (defined inside function since only used here)
-    struct ConstPlaceholderContext {
+    // Context for the placeholder mutator (defined inside function since only used here)
+    struct PlaceholderContext<'a> {
         current_te_idx: usize,
         placeholder_funcid: pg_sys::Oid,
-        const_nodes: Vec<Option<*mut pg_sys::Const>>,
+        columns: &'a mut PlaceholderColumns,
+        placeholders: Vec<Option<(PlaceholderColumn, pg_sys::Oid)>>,
     }
 
     #[pg_guard]
-    unsafe extern "C-unwind" fn const_placeholder_mutator(
+    unsafe extern "C-unwind" fn placeholder_mutator(
         node: *mut pg_sys::Node,
         context: *mut core::ffi::c_void,
     ) -> *mut pg_sys::Node {
@@ -113,28 +118,27 @@ pub(crate) fn create_placeholder_targetlist(
             return std::ptr::null_mut();
         }
 
-        let ctx = &mut *(context as *mut ConstPlaceholderContext);
+        let ctx = &mut *(context as *mut PlaceholderContext);
 
-        // If this is our placeholder FuncExpr, replace it with a Const
+        // If this is our placeholder FuncExpr, replace it with a placeholder Var
         if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
             let funcexpr = node as *mut pg_sys::FuncExpr;
             if (*funcexpr).funcid == ctx.placeholder_funcid {
-                // Create a Const node with NULL value (will be mutated before projection)
-                let const_node = make_placeholder_const_from_funcexpr(funcexpr);
-                // Store the pointer for later mutation
+                let result_type = (*funcexpr).funcresulttype;
+                let (column, var) = ctx.columns.add(result_type, (*funcexpr).funccollid);
                 debug_assert!(
-                    ctx.const_nodes[ctx.current_te_idx].is_none(),
+                    ctx.placeholders[ctx.current_te_idx].is_none(),
                     "AggregateScan supports only one aggregate per target entry"
                 );
-                ctx.const_nodes[ctx.current_te_idx] = Some(const_node);
-                return const_node as *mut pg_sys::Node;
+                ctx.placeholders[ctx.current_te_idx] = Some((column, result_type));
+                return var as *mut pg_sys::Node;
             }
         }
 
         // For all other nodes, use the standard mutator to walk children
         #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
-            let fnptr = const_placeholder_mutator as *const ();
+            let fnptr = placeholder_mutator as *const ();
             let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
                 std::mem::transmute(fnptr);
             pg_sys::expression_tree_mutator(node, Some(mutator), context)
@@ -142,18 +146,19 @@ pub(crate) fn create_placeholder_targetlist(
 
         #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
         {
-            pg_sys::expression_tree_mutator_impl(node, Some(const_placeholder_mutator), context)
+            pg_sys::expression_tree_mutator_impl(node, Some(placeholder_mutator), context)
         }
     }
 
     let list_len = targetlist_pg.len();
-    let mut ctx = ConstPlaceholderContext {
+    let mut ctx = PlaceholderContext {
         current_te_idx: 0,
         placeholder_funcid,
-        const_nodes: vec![None; list_len],
+        columns,
+        placeholders: vec![None; list_len],
     };
 
-    // Build a new target list with ALL FuncExpr placeholders replaced by Const nodes.
+    // Build a new target list with ALL FuncExpr placeholders replaced by placeholder Vars.
     // This is critical for mixed wrapped/unwrapped cases like:
     //   SELECT pdb.agg(...), (pdb.agg(...))->'avg' FROM ...
     // If we only replace wrapped ones, ExecProject will try to execute the unwrapped
@@ -184,12 +189,11 @@ pub(crate) fn create_placeholder_targetlist(
             is_top_level_placeholder || te.expr.contains_functions(&[placeholder_funcid]);
 
         if contains_placeholder {
-            // Replace ALL placeholder FuncExprs with Const nodes (both wrapped and top-level)
-            // For top-level: the mutator will replace the FuncExpr directly with a Const
+            // Replace ALL placeholder FuncExprs with placeholder Vars (both wrapped and top-level)
+            // For top-level: the mutator will replace the FuncExpr directly with a Var
             // For wrapped: the mutator will walk the tree and replace nested FuncExprs
-            let ctx_ptr = &mut ctx as *mut ConstPlaceholderContext as *mut core::ffi::c_void;
-            let new_expr =
-                unsafe { const_placeholder_mutator(te.expr as *mut pg_sys::Node, ctx_ptr) };
+            let ctx_ptr = &mut ctx as *mut PlaceholderContext as *mut core::ffi::c_void;
+            let new_expr = unsafe { placeholder_mutator(te.expr as *mut pg_sys::Node, ctx_ptr) };
             unsafe { (*new_te).expr = new_expr as *mut pg_sys::Expr };
         } else {
             // It's a grouping column!
@@ -213,33 +217,7 @@ pub(crate) fn create_placeholder_targetlist(
         new_targetlist = unsafe { pg_sys::lappend(new_targetlist, new_te.cast()) };
     }
 
-    (new_targetlist, ctx.const_nodes, true)
-}
-
-/// Create a placeholder Const node from a FuncExpr placeholder.
-/// The Const will be initialized with NULL value and will be mutated with actual
-/// aggregate values before each ExecBuildProjectionInfo call, which bakes the
-/// Const values into the per-row projection.
-unsafe fn make_placeholder_const_from_funcexpr(
-    funcexpr: *mut pg_sys::FuncExpr,
-) -> *mut pg_sys::Const {
-    let result_type = (*funcexpr).funcresulttype;
-
-    // Get type information for the Const node
-    let mut typlen: i16 = 0;
-    let mut typbyval: bool = false;
-    pg_sys::get_typlenbyval(result_type, &mut typlen, &mut typbyval);
-
-    // Create a Const with NULL value - will be mutated before each projection build
-    pg_sys::makeConst(
-        result_type,
-        -1,                     // typmod
-        (*funcexpr).funccollid, // collation
-        typlen as i32,          // constlen
-        pg_sys::Datum::null(),  // constvalue (NULL initially)
-        true,                   // constisnull (starts as NULL)
-        typbyval,               // constbyval
-    )
+    (new_targetlist, ctx.placeholders, true)
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -357,8 +335,8 @@ pub unsafe fn pullout_funcexprs(
 /// Index of a column in the slot of a [`PlaceholderProjection`].
 pub type PlaceholderColumn = usize;
 
-/// The types of the placeholder values (score, snippets, window aggregates) that a scan gives to
-/// its projection for each row.
+/// The types of the placeholder values (score, snippets, aggregates) that a scan gives to its
+/// projection for each row.
 ///
 /// The values live in a virtual slot, and the target list reads them through `OUTER_VAR`s.
 /// A `Const` can't carry them: `ExecBuildProjectionInfo` copies its value, so the scan would

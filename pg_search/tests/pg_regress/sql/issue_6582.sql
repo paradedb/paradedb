@@ -179,6 +179,65 @@ WHERE body @@@ 'fred' AND id <= 60
 ORDER BY id
 LIMIT 5;
 
+-- 7) An aggregate scan that wraps an aggregate next to a `SubPlan`.
+CREATE TABLE issue_6582_logs (
+    id serial PRIMARY KEY,
+    description text NOT NULL,
+    category text NOT NULL
+);
+
+INSERT INTO issue_6582_logs (description, category)
+SELECT 'error ' || g, 'c' || (g % 500)
+FROM generate_series(1, 1200) AS g;
+
+CREATE INDEX issue_6582_logs_idx ON issue_6582_logs
+USING bm25 (id, description, (category::pdb.literal));
+
+ANALYZE issue_6582_logs;
+
+SET paradedb.enable_aggregate_custom_scan = on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, count(*) + 1 AS n, count(*) IN (SELECT term_id FROM issue_6582_terms) AS hit
+FROM issue_6582_logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category
+LIMIT 5;
+
+SELECT category, count(*) + 1 AS n, count(*) IN (SELECT term_id FROM issue_6582_terms) AS hit
+FROM issue_6582_logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category
+LIMIT 5;
+
+SELECT issue_6582_subplan_loops($$
+    SELECT category, count(*) IN (SELECT term_id FROM issue_6582_terms) AS hit
+    FROM issue_6582_logs
+    WHERE description @@@ 'error'
+    GROUP BY category
+$$) AS subplan_loops;
+
+-- A build of the projection for each row can stay hidden: when all builds
+-- allocate the same sizes, every stale `SubPlanState` points at the last one,
+-- which is valid. This target list is too wide for the first block of the
+-- per-tuple memory, so Postgres frees its blocks at each reset.
+SELECT format(
+    $f$SELECT count(*) AS groups, count(*) FILTER (WHERE hit) AS hits, sum(c150) AS c150
+       FROM (
+           SELECT category, %s, count(*) IN (SELECT term_id FROM issue_6582_terms) AS hit
+           FROM issue_6582_logs
+           WHERE description @@@ 'error'
+           GROUP BY category
+           OFFSET 0
+       ) s$f$,
+    string_agg(format('count(*) + %s AS c%s', i, i), ', ' ORDER BY i))
+FROM generate_series(1, 150) AS i \gexec
+
+RESET paradedb.enable_aggregate_custom_scan;
+
+DROP TABLE issue_6582_logs;
 DROP FUNCTION issue_6582_subplan_loops(text);
 DROP TABLE issue_6582_terms;
 DROP TABLE issue_6582_chunks;

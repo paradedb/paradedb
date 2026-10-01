@@ -109,7 +109,9 @@ use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{
     build_physical_plan, build_task_context, clone_task_context_with_config,
 };
-use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
+use crate::postgres::customscan::projections::{
+    PlaceholderColumns, create_placeholder_targetlist, placeholder_procid,
+};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
 use crate::postgres::datetime::PostgresDateTime;
@@ -944,19 +946,24 @@ impl CustomScan for AggregateScan {
                 pg_sys::MakeTupleTableSlot((*planstate).ps_ResultTupleDesc, &pg_sys::TTSOpsVirtual);
             state.custom_state_mut().scan_slot = Some(scan_slot);
 
-            // Set up placeholder targetlist for wrapped aggregate expression projection.
+            // Set up the projection for wrapped aggregate expressions.
             let plan_targetlist = (*(*planstate).plan).targetlist;
             // This creates a copy of the plan's targetlist with FuncExpr placeholders replaced
-            // by Const nodes. The Const nodes will be mutated with actual aggregate values
-            // before each ExecBuildProjectionInfo call in exec_custom_scan.
-            let (placeholder_tlist, const_nodes, needs_projection) =
-                create_placeholder_targetlist(plan_targetlist);
+            // by Vars. They read the aggregate values that exec_custom_scan writes into the
+            // placeholder columns for each row.
+            let mut columns = PlaceholderColumns::default();
+            let (placeholder_tlist, placeholders, needs_projection) =
+                create_placeholder_targetlist(plan_targetlist, &mut columns);
             if needs_projection && !placeholder_tlist.is_null() {
+                let projection = columns.build_projection(
+                    placeholder_tlist,
+                    planstate,
+                    (*planstate).ps_ResultTupleDesc,
+                );
                 state.custom_state_mut().wrapped_projection = Some(WrappedAggregateProjection {
-                    targetlist: placeholder_tlist,
-                    const_nodes,
+                    projection,
+                    placeholders,
                 });
-                // Note: projection is built per-row in exec_custom_scan, not here
             }
         }
     }
@@ -1817,8 +1824,8 @@ impl AggregateScan {
         row
     }
 
-    /// If `wrapped_projection` is set on the scan state, mutate the
-    /// pre-baked Const nodes with the row's native aggregate values, switch
+    /// If `wrapped_projection` is set on the scan state, write the row's
+    /// native aggregate values into the placeholder columns, switch
     /// into the per-tuple memory context, and `ExecProject` to materialize
     /// the wrapped expressions. Returns the projected slot. When no wrapped
     /// projection is configured, returns the input slot unchanged.
@@ -1829,15 +1836,14 @@ impl AggregateScan {
     ) -> *mut pg_sys::TupleTableSlot {
         // Snapshot the projection state into locals so the immutable borrow
         // on `state.custom_state()` ends before the mutable `state.planstate()`
-        // call below. The targetlist is a raw pointer (Copy) and the const-node
-        // vec is small (one entry per output column).
-        let projection_snapshot: Option<(*mut pg_sys::List, Vec<Option<*mut pg_sys::Const>>)> =
-            state
-                .custom_state()
-                .wrapped_projection
-                .as_ref()
-                .map(|w| (w.targetlist, w.const_nodes.clone()));
-        let Some((placeholder_tlist, const_nodes)) = projection_snapshot else {
+        // call below. The projection is Copy and the placeholder vec is small
+        // (one entry per output column).
+        let projection_snapshot = state
+            .custom_state()
+            .wrapped_projection
+            .as_ref()
+            .map(|w| (w.projection, w.placeholders.clone()));
+        let Some((projection, placeholders)) = projection_snapshot else {
             return slot;
         };
 
@@ -1845,7 +1851,7 @@ impl AggregateScan {
         let expr_context = (*planstate).ps_ExprContext;
 
         // Switch to per-tuple memory context and reset it to avoid memory leaks
-        // from ExecBuildProjectionInfo allocations and wrapper functions
+        // from the wrapper functions
         let mut per_tuple_context = PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory);
         per_tuple_context.reset();
 
@@ -1855,15 +1861,15 @@ impl AggregateScan {
         let datums = std::slice::from_raw_parts((*slot).tts_values, natts);
         let isnull = std::slice::from_raw_parts((*slot).tts_isnull, natts);
 
-        // Mutate Const nodes with values directly from the row results.
+        // Set the placeholder columns with values directly from the row results.
         // We DON'T use the slot's datums for aggregates because those were converted
         // using the output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
         // but we need the native aggregate type (e.g., JSONB for pdb.agg).
         let mut agg_iter = row.aggregates.iter();
         let aggregate_clause = &state.custom_state().aggregate_clause;
         for (i, entry) in aggregate_clause.entries().enumerate() {
-            let Some(const_node) = const_nodes.get(i).copied().flatten() else {
-                // No Const node for this entry, skip the aggregate iterator if
+            let Some((column, typoid)) = placeholders.get(i).copied().flatten() else {
+                // No placeholder for this entry, skip the aggregate iterator if
                 // it's an aggregate that occupies a slot in `row.aggregates`
                 // (doc-count aggregates do not — see `uses_doc_count_path`).
                 if let TargetListEntry::Aggregate(agg_type) = entry
@@ -1876,7 +1882,7 @@ impl AggregateScan {
 
             let (datum, is_null) = match entry {
                 TargetListEntry::Aggregate(agg_type) => {
-                    // Use the native aggregate result type (from the Const node),
+                    // Use the native aggregate result type (from the placeholder),
                     // not the output tuple descriptor's type — those would have
                     // been converted to e.g. TEXT for jsonb_pretty output, but
                     // the wrapped projection wants the raw JSONB / numeric.
@@ -1893,7 +1899,7 @@ impl AggregateScan {
                     match aggregate_value_to_datum(
                         agg_type,
                         row,
-                        (*const_node).consttype,
+                        typoid,
                         aggregate_clause,
                         next_aggregate,
                         state
@@ -1914,25 +1920,10 @@ impl AggregateScan {
                 }
             };
 
-            (*const_node).constvalue = datum;
-            (*const_node).constisnull = is_null;
+            projection.set(column, (!is_null).then_some(datum));
         }
 
-        // Set the scan tuple for expression evaluation context
-        (*expr_context).ecxt_scantuple = slot;
-
-        // Build projection and execute in per-tuple memory context
-        // This ensures ExecBuildProjectionInfo allocations are cleaned up each row
-        per_tuple_context.switch_to(|_| {
-            let proj_info = pg_sys::ExecBuildProjectionInfo(
-                placeholder_tlist,
-                expr_context,
-                (*planstate).ps_ResultTupleSlot,
-                planstate,
-                (*slot).tts_tupleDescriptor,
-            );
-            pg_sys::ExecProject(proj_info)
-        })
+        per_tuple_context.switch_to(|_| projection.project(slot))
     }
 
     /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,
@@ -2352,7 +2343,7 @@ fn uses_doc_count_path(agg_type: &AggregateType, aggregate_clause: &AggregateCSC
 /// aggregate results by one.
 ///
 /// Used by both `fill_slot_from_row` (which targets the tupdesc type) and
-/// `project_wrapped_aggregates` (which targets the Const node's native type).
+/// `project_wrapped_aggregates` (which targets the placeholder's native type).
 /// Returns `None` when the result should be NULL.
 unsafe fn aggregate_value_to_datum(
     agg_type: &AggregateType,

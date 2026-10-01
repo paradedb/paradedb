@@ -349,6 +349,99 @@ LIMIT 5;
   5 |    60 | f
 (5 rows)
 
+-- 7) An aggregate scan that wraps an aggregate next to a `SubPlan`.
+CREATE TABLE issue_6582_logs (
+    id serial PRIMARY KEY,
+    description text NOT NULL,
+    category text NOT NULL
+);
+INSERT INTO issue_6582_logs (description, category)
+SELECT 'error ' || g, 'c' || (g % 500)
+FROM generate_series(1, 1200) AS g;
+CREATE INDEX issue_6582_logs_idx ON issue_6582_logs
+USING bm25 (id, description, (category::pdb.literal));
+ANALYZE issue_6582_logs;
+SET paradedb.enable_aggregate_custom_scan = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, count(*) + 1 AS n, count(*) IN (SELECT term_id FROM issue_6582_terms) AS hit
+FROM issue_6582_logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category
+LIMIT 5;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, ((pdb.agg_fn('COUNT(*)'::text) + 1)), ((ANY (pdb.agg_fn('COUNT(*)'::text) = (hashed SubPlan 1).col1)))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.issue_6582_logs
+         Output: category, (pdb.agg_fn('COUNT(*)'::text) + 1), (ANY (pdb.agg_fn('COUNT(*)'::text) = (hashed SubPlan 1).col1))
+         Index: issue_6582_logs_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+           Applies to Aggregates: COUNT(*), COUNT(*)
+           Group By: category
+           Limit: 5
+           Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+         SubPlan 1
+           ->  Seq Scan on public.issue_6582_terms
+                 Output: issue_6582_terms.term_id
+(13 rows)
+
+SELECT category, count(*) + 1 AS n, count(*) IN (SELECT term_id FROM issue_6582_terms) AS hit
+FROM issue_6582_logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category
+LIMIT 5;
+ category | n | hit 
+----------+---+-----
+ c0       | 3 | t
+ c1       | 4 | f
+ c10      | 4 | f
+ c100     | 4 | f
+ c101     | 4 | f
+(5 rows)
+
+SELECT issue_6582_subplan_loops($$
+    SELECT category, count(*) IN (SELECT term_id FROM issue_6582_terms) AS hit
+    FROM issue_6582_logs
+    WHERE description @@@ 'error'
+    GROUP BY category
+$$) AS subplan_loops;
+ subplan_loops 
+---------------
+ 1
+(1 row)
+
+-- A build of the projection for each row can stay hidden: when all builds
+-- allocate the same sizes, every stale `SubPlanState` points at the last one,
+-- which is valid. This target list is too wide for the first block of the
+-- per-tuple memory, so Postgres frees its blocks at each reset.
+SELECT format(
+    $f$SELECT count(*) AS groups, count(*) FILTER (WHERE hit) AS hits, sum(c150) AS c150
+       FROM (
+           SELECT category, %s, count(*) IN (SELECT term_id FROM issue_6582_terms) AS hit
+           FROM issue_6582_logs
+           WHERE description @@@ 'error'
+           GROUP BY category
+           OFFSET 0
+       ) s$f$,
+    string_agg(format('count(*) + %s AS c%s', i, i), ', ' ORDER BY i))
+FROM generate_series(1, 150) AS i \gexec
+SELECT count(*) AS groups, count(*) FILTER (WHERE hit) AS hits, sum(c150) AS c150
+       FROM (
+           SELECT category, count(*) + 1 AS c1, count(*) + 2 AS c2, count(*) + 3 AS c3, count(*) + 4 AS c4, count(*) + 5 AS c5, count(*) + 6 AS c6, count(*) + 7 AS c7, count(*) + 8 AS c8, count(*) + 9 AS c9, count(*) + 10 AS c10, count(*) + 11 AS c11, count(*) + 12 AS c12, count(*) + 13 AS c13, count(*) + 14 AS c14, count(*) + 15 AS c15, count(*) + 16 AS c16, count(*) + 17 AS c17, count(*) + 18 AS c18, count(*) + 19 AS c19, count(*) + 20 AS c20, count(*) + 21 AS c21, count(*) + 22 AS c22, count(*) + 23 AS c23, count(*) + 24 AS c24, count(*) + 25 AS c25, count(*) + 26 AS c26, count(*) + 27 AS c27, count(*) + 28 AS c28, count(*) + 29 AS c29, count(*) + 30 AS c30, count(*) + 31 AS c31, count(*) + 32 AS c32, count(*) + 33 AS c33, count(*) + 34 AS c34, count(*) + 35 AS c35, count(*) + 36 AS c36, count(*) + 37 AS c37, count(*) + 38 AS c38, count(*) + 39 AS c39, count(*) + 40 AS c40, count(*) + 41 AS c41, count(*) + 42 AS c42, count(*) + 43 AS c43, count(*) + 44 AS c44, count(*) + 45 AS c45, count(*) + 46 AS c46, count(*) + 47 AS c47, count(*) + 48 AS c48, count(*) + 49 AS c49, count(*) + 50 AS c50, count(*) + 51 AS c51, count(*) + 52 AS c52, count(*) + 53 AS c53, count(*) + 54 AS c54, count(*) + 55 AS c55, count(*) + 56 AS c56, count(*) + 57 AS c57, count(*) + 58 AS c58, count(*) + 59 AS c59, count(*) + 60 AS c60, count(*) + 61 AS c61, count(*) + 62 AS c62, count(*) + 63 AS c63, count(*) + 64 AS c64, count(*) + 65 AS c65, count(*) + 66 AS c66, count(*) + 67 AS c67, count(*) + 68 AS c68, count(*) + 69 AS c69, count(*) + 70 AS c70, count(*) + 71 AS c71, count(*) + 72 AS c72, count(*) + 73 AS c73, count(*) + 74 AS c74, count(*) + 75 AS c75, count(*) + 76 AS c76, count(*) + 77 AS c77, count(*) + 78 AS c78, count(*) + 79 AS c79, count(*) + 80 AS c80, count(*) + 81 AS c81, count(*) + 82 AS c82, count(*) + 83 AS c83, count(*) + 84 AS c84, count(*) + 85 AS c85, count(*) + 86 AS c86, count(*) + 87 AS c87, count(*) + 88 AS c88, count(*) + 89 AS c89, count(*) + 90 AS c90, count(*) + 91 AS c91, count(*) + 92 AS c92, count(*) + 93 AS c93, count(*) + 94 AS c94, count(*) + 95 AS c95, count(*) + 96 AS c96, count(*) + 97 AS c97, count(*) + 98 AS c98, count(*) + 99 AS c99, count(*) + 100 AS c100, count(*) + 101 AS c101, count(*) + 102 AS c102, count(*) + 103 AS c103, count(*) + 104 AS c104, count(*) + 105 AS c105, count(*) + 106 AS c106, count(*) + 107 AS c107, count(*) + 108 AS c108, count(*) + 109 AS c109, count(*) + 110 AS c110, count(*) + 111 AS c111, count(*) + 112 AS c112, count(*) + 113 AS c113, count(*) + 114 AS c114, count(*) + 115 AS c115, count(*) + 116 AS c116, count(*) + 117 AS c117, count(*) + 118 AS c118, count(*) + 119 AS c119, count(*) + 120 AS c120, count(*) + 121 AS c121, count(*) + 122 AS c122, count(*) + 123 AS c123, count(*) + 124 AS c124, count(*) + 125 AS c125, count(*) + 126 AS c126, count(*) + 127 AS c127, count(*) + 128 AS c128, count(*) + 129 AS c129, count(*) + 130 AS c130, count(*) + 131 AS c131, count(*) + 132 AS c132, count(*) + 133 AS c133, count(*) + 134 AS c134, count(*) + 135 AS c135, count(*) + 136 AS c136, count(*) + 137 AS c137, count(*) + 138 AS c138, count(*) + 139 AS c139, count(*) + 140 AS c140, count(*) + 141 AS c141, count(*) + 142 AS c142, count(*) + 143 AS c143, count(*) + 144 AS c144, count(*) + 145 AS c145, count(*) + 146 AS c146, count(*) + 147 AS c147, count(*) + 148 AS c148, count(*) + 149 AS c149, count(*) + 150 AS c150, count(*) IN (SELECT term_id FROM issue_6582_terms) AS hit
+           FROM issue_6582_logs
+           WHERE description @@@ 'error'
+           GROUP BY category
+           OFFSET 0
+       ) s
+ groups | hits | c150  
+--------+------+-------
+    500 |  300 | 76200
+(1 row)
+
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE issue_6582_logs;
 DROP FUNCTION issue_6582_subplan_loops(text);
 DROP TABLE issue_6582_terms;
 DROP TABLE issue_6582_chunks;

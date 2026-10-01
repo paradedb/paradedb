@@ -929,8 +929,7 @@ fn apply_topk_as_agg(
     output_columns: &[OutputColumnInfo],
     fetch: usize,
 ) -> Result<(DataFrame, DistinctColMap)> {
-    let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause, true)?
-    else {
+    let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
         return internal_err!("Bug: Unable to build distinct key expressions for topk aggregate");
     };
 
@@ -1108,15 +1107,9 @@ fn surviving_ctid_columns<'a>(
 ///
 /// If `bypass_distinct_clause` is true, `join_clause.has_distinct` is not considered when
 /// generating the response.
-fn distinct_key_exprs(
-    join_clause: &JoinCSClause,
-    bypass_distinct_clause: bool,
-) -> Result<Option<(Vec<Expr>, DistinctColMap)>> {
+fn distinct_key_exprs(join_clause: &JoinCSClause) -> Result<Option<(Vec<Expr>, DistinctColMap)>> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
-    if !(bypass_distinct_clause || join_clause.has_distinct) {
-        return Ok(None);
-    }
     let Some(projection) = &join_clause.output_projection else {
         return Ok(None);
     };
@@ -1183,9 +1176,13 @@ fn apply_distinct_group_by(
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
 ) -> Result<(DataFrame, DistinctColMap)> {
-    let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause, false)? else {
+    if !join_clause.has_distinct {
+        return Ok((df, DistinctColMap::default()));
+    }
+    let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
         return Ok((df, DistinctColMap::default()));
     };
+
     let group_exprs: Vec<Expr> = key_exprs
         .into_iter()
         .enumerate()

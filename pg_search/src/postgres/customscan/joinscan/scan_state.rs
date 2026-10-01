@@ -1001,23 +1001,24 @@ fn apply_topk_as_agg(
     select.extend(ctid_names.iter().map(|n| col(n.as_str())));
     select.extend(sort_extra_cols.iter().cloned());
 
-    // the column index ranges of the various column groups we'll need for renaming later
+    // the column index ranges of the various column groups we'll need for renaming later (sort
+    // columns can be excluded as we produce sorted output)
     let distinct_key_end = distinct_key_exprs.len();
     let ctid_end = distinct_key_end + ctid_names.len();
-    let sort_end = ctid_end + sort_extra_cols.len();
     let distinct_key_col_range = 0..distinct_key_end;
     let ctid_col_range = distinct_key_end..ctid_end;
-    let sort_col_range = ctid_end..sort_end;
 
     let df = df.select(select)?;
 
     let ctid_positions: Vec<usize> = ctid_col_range.clone().collect();
 
-    // The same list, just as the column expressions directly
+    // The same list, just as the column expressions directly, only for the necessary payload
+    // columns (so sort columns excluded)
     let all_col_exprs: Vec<Expr> = df
         .schema()
         .columns()
         .into_iter()
+        .take(ctid_end)
         .map(Expr::Column)
         .collect();
 
@@ -1041,9 +1042,6 @@ fn apply_topk_as_agg(
     name_restoration_exprs.extend(ctid_col_range.enumerate().map(|(name_idx, i)| {
         let name = &ctid_names[name_idx];
         get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(name)
-    }));
-    name_restoration_exprs.extend(sort_col_range.enumerate().map(|(j, i)| {
-        get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(format!("sort_{}", j + 1))
     }));
     let df = df.select(name_restoration_exprs)?;
 

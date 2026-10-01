@@ -29,7 +29,6 @@ use crate::api::OrderByInfo;
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
-use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
@@ -37,7 +36,6 @@ use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::ptr::NonNull;
 
 /// DataFusion-facing relation alias helper.
 ///
@@ -362,7 +360,6 @@ pub enum ChildProjection {
 }
 
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::range_table::{get_plain_relation_relid, get_rte};
 use crate::postgres::rel::PgSearchRelation;
@@ -453,56 +450,26 @@ impl JoinSourceCandidate {
     }
 
     /// Calculate and store the estimated number of rows matching the query.
-    ///
-    /// Uses `MvccSatisfies::LargestSegment` for cheap estimation. When the
-    /// query has heap filters or `PostgresExpression`s (which need executor
-    /// state we don't have at planning time), falls back to `total_docs` as
-    /// an upper bound - looser estimate but avoids evaluating Param-bearing
-    /// expressions during planning (would segfault on unbound PARAM_EXEC).
     pub fn estimate_rows(&mut self) {
         if !self.has_bm25_index() {
             return;
         }
 
-        let indexrelid = self.indexrelid.expect("Index relid missing");
-        let heaprelid = self.heaprelid.expect("Heap relid missing");
-
-        let index_rel = PgSearchRelation::open(indexrelid);
-        let heap_rel = PgSearchRelation::open(heaprelid);
+        let index_rel = PgSearchRelation::open(self.indexrelid.expect("Index relid missing"));
         let query = self.query.clone().unwrap_or(SearchQueryInput::All);
-        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-
-        if query.has_postgres_expressions() || query.has_heap_filters() {
-            let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)
-                .expect("Failed to open index reader for estimation");
-            self.segment_count = Some(reader.total_segment_count());
-            self.estimate = Some(RowEstimate::Known(reader.total_docs()));
-            self.estimate_from_total_docs = true;
-            return;
-        }
-
-        // `expr_context` only lives until the end of this function,
-        // which is fine because it is only used to get estimates
-        let expr_context = ExprContextGuard::new();
-        let needs_tokenizer_manager = query.needs_tokenizer();
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query,
-            false,
-            MvccSatisfies::LargestSegment,
-            NonNull::new(expr_context.as_ptr()),
-            None,
-            needs_tokenizer_manager,
-            None,
-        )
-        .expect("Failed to open index reader for estimation");
-
-        // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
-        // execution may skip some of these segments.
-        self.segment_count = Some(reader.total_segment_count());
-
-        let estimate = reader.estimate_docs(row_estimate);
-        self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
+        let directory = MvccSatisfies::LargestSegment.directory(&index_rel);
+        let segment_count = directory.total_segment_count();
+        let total_docs = directory.total_docs();
+        crate::index::open_index(directory).expect("Failed to open index metadata");
+        self.segment_count = Some(segment_count.load(std::sync::atomic::Ordering::Relaxed));
+        let matching_rows = crate::api::operator::estimate_matching_rows(&index_rel, query)
+            .unwrap_or_else(|| {
+                (total_docs.load(std::sync::atomic::Ordering::Relaxed) as f64
+                    * crate::UNKNOWN_SELECTIVITY)
+                    .ceil() as u64
+            });
+        self.estimate = Some(RowEstimate::Known(matching_rows));
+        self.estimate_from_total_docs = false;
     }
 }
 

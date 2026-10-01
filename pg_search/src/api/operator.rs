@@ -23,8 +23,6 @@ use crate::api::tokenizers::type_can_be_tokenized;
 use crate::api::tokenizers::{AliasTypmod, try_get_alias, type_is_alias, type_is_tokenizer};
 use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::gucs::per_tuple_cost;
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{DocsEstimate, SearchIndexReader};
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::lookup_type_name;
@@ -44,7 +42,6 @@ use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
-use crate::scan::info::RowEstimate;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pg_sys::panic::ErrorReport;
@@ -646,78 +643,12 @@ pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
     }
 }
 
-/// #4172: for queries whose scorer is expensive to build (fuzzy, regex, range),
-/// estimate heuristically rather than opening the index. Both selectivity and the
-/// TopK worker decision honor this so neither pays full scorer construction at
-/// plan time.
-fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
-    crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
-}
-
-/// Open a single-segment (`LargestSegment`) reader and estimate matching docs,
-/// total docs, and the query's Tantivy `DocSet::cost()` in one pass. The single
-/// source for both `estimate_selectivity` and `estimate_query_cost`.
-///
-/// Returns `None` if the reader can't be opened (e.g. a transient/concurrent-DDL
-/// failure); callers degrade gracefully rather than crash planning. The same open
-/// would also fail in the executor, so `None` here doesn't mask a real problem.
-fn open_and_estimate_docs(
-    indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
-) -> Option<DocsEstimate> {
-    let heap_rel = indexrel
-        .heap_relation()
-        .expect("indexrel should be an index");
-    let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-
-    let search_reader = SearchIndexReader::open(
-        indexrel,
-        search_query_input,
-        false,
-        MvccSatisfies::LargestSegment,
-    )
-    .ok()?;
-
-    Some(search_reader.estimate_docs(row_estimate))
-}
-
-/// One index open, both planning answers: selectivity (matching/total docs) and the
-/// query's Tantivy `DocSet::cost()`. basescan path generation needs both for the same
-/// combined query, so it opens once here instead of calling `estimate_selectivity` and
-/// `estimate_query_cost` back-to-back.
-///
-/// Returns `(selectivity, query_cost)`:
-/// - expensive-to-estimate query (#4172): `(selectivity_heuristic, scaled match estimate)`
-///   -- no open; the cost is the heuristic match estimate scaled by
-///   `EXPENSIVE_QUERY_COST_FACTOR` (`None` only when the row count is unknown);
-/// - empty index / no valid total: `(None, Some(0))` -- the cost is a known 0;
-/// - open failure: `(None, None)`.
+/// Temporary selectivity stub; query work cost is unknown.
 pub(crate) fn estimate_selectivity_and_cost(
-    indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
+    _indexrel: &PgSearchRelation,
+    _search_query_input: SearchQueryInput,
 ) -> (Option<f64>, Option<u64>) {
-    if estimate_heuristically(&search_query_input) {
-        // #4172 skips opening the index, so derive the work estimate from the same
-        // heuristic: these shapes drive far more docset work than they match, so scale the
-        // heuristic match estimate (selectivity x rows) by EXPENSIVE_QUERY_COST_FACTOR.
-        let selectivity = search_query_input.selectivity_heuristic();
-        let cost = indexrel
-            .heap_relation()
-            .and_then(|heap| heap.reltuples())
-            .map(|reltuples| {
-                (selectivity * reltuples as f64 * crate::gucs::expensive_query_cost_factor()) as u64
-            });
-        return (Some(selectivity), cost);
-    }
-
-    let Some(estimate) = open_and_estimate_docs(indexrel, search_query_input) else {
-        return (None, None);
-    };
-
-    let total_rows = estimate.total_docs as f64;
-    let selectivity =
-        (total_rows > 0.0).then(|| (estimate.matching_docs as f64 / total_rows).min(1.0));
-    (selectivity, Some(estimate.query_cost))
+    (Some(crate::UNKNOWN_SELECTIVITY), None)
 }
 
 pub(crate) fn estimate_selectivity(
@@ -727,33 +658,15 @@ pub(crate) fn estimate_selectivity(
     estimate_selectivity_and_cost(indexrel, search_query_input).0
 }
 
-/// The estimated number of heap rows matching `search_query_input`, scaled from the
-/// largest segment up to the whole relation. Unlike `estimate_selectivity` this is an
-/// absolute row count, which is what `visibility => 'threshold'` compares against
-/// `paradedb.visibility_threshold`.
-///
-/// `None` when there is nothing to estimate from: an index that can't be opened, or an
-/// expensive-to-estimate query (#4172) over a heap with no `reltuples`.
 pub(crate) fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
-    if estimate_heuristically(&search_query_input) {
-        let selectivity = search_query_input.selectivity_heuristic();
-        return indexrel
-            .heap_relation()
-            .and_then(|heap| heap.reltuples())
-            .map(|reltuples| (selectivity * reltuples as f64) as u64);
-    }
-
-    open_and_estimate_docs(indexrel, search_query_input)
-        .map(|estimate| estimate.matching_docs as u64)
+    let selectivity = estimate_selectivity(indexrel, search_query_input)?;
+    let rows = indexrel.heap_relation()?.reltuples()?;
+    (rows >= 0.0).then(|| (selectivity * rows as f64).ceil() as u64)
 }
 
-/// Estimate the query's Tantivy `DocSet::cost()` -- a synthetic measure of how much work
-/// driving the docset takes -- for the score-DESC TopK worker decision
-/// (`decide_nonprunable_topk_workers`). `None` (caller falls back to the general worker
-/// path) for expensive-to-estimate queries (#4172) and when the index can't be opened.
 pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,

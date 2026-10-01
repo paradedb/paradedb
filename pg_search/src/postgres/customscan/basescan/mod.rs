@@ -1570,10 +1570,7 @@ impl CustomScan for BaseScan {
 
             // Show query with integrated estimates if GUC is enabled and verbose
             if gucs::explain_recursive_estimates() && explainer.is_verbose() {
-                // Get or create a search reader for estimates.
-                // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
-                // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
-                //   reader using MvccSatisfies::LargestSegment for estimation purposes only
+                // Reuse the existing reader, or open one to build the display tree.
                 let query_tree =
                     if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
                         // EXPLAIN ANALYZE: use the existing search reader
@@ -1590,11 +1587,11 @@ impl CustomScan for BaseScan {
 
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            base_query.without_heap_filters(),
-                            false,                         // don't need scores for estimates
-                            MvccSatisfies::LargestSegment, // Use largest segment for estimation
-                            None,                          // No expr_context needed for estimates
-                            None,                          // No planstate needed for estimates
+                            SearchQueryInput::Empty,
+                            false,
+                            MvccSatisfies::LargestSegment,
+                            None,
+                            None,
                             base_query.needs_tokenizer(),
                             None,
                         )

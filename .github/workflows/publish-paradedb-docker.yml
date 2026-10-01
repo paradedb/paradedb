@@ -83,6 +83,7 @@ jobs:
       is_latest: ${{ steps.release_latest.outputs.is_latest }}
       branch: ${{ steps.generated_branch.outputs.branch }}
       has_changes: ${{ steps.generated_branch.outputs.has_changes }}
+      artifact: ${{ steps.rc_dockerfiles.outputs.artifact }}
     steps:
       - name: Generate GitHub App Token
         id: app-token
@@ -160,11 +161,33 @@ jobs:
           PG_MAJORS=$(echo "${JOB_SET_MATRIX_MATRIX}" | jq -r 'map(tostring) | join(" ")')
           docker/generate-dockerfiles.sh "${STEP_VERSION_VERSION}" "$PG_MAJORS"
 
+      # RC Dockerfiles are needed by downstream jobs, but must not create a repository branch.
+      - name: Upload RC Dockerfiles
+        if: contains(steps.version.outputs.version, '-rc.')
+        uses: actions/upload-artifact@v7
+        with:
+          name: rc-dockerfiles
+          path: docker/Dockerfile.*-18
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Select RC Dockerfiles Artifact
+        id: rc_dockerfiles
+        if: contains(steps.version.outputs.version, '-rc.')
+        run: echo "artifact=rc-dockerfiles" >> "$GITHUB_OUTPUT"
+
       - name: Stage Generated Dockerfiles
         id: generated_branch
         env:
           STEP_VERSION_TAG: ${{ steps.version.outputs.tag }}
+          STEP_VERSION_VERSION: ${{ steps.version.outputs.version }}
         run: |
+          if [[ "$STEP_VERSION_VERSION" == *-rc.* ]]; then
+            echo "Using the release commit and Dockerfiles artifact for this RC release."
+            echo "branch=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git add docker
           if git diff --cached --quiet; then
             echo "No generated Dockerfile changes to commit; building from the release commit."
@@ -199,6 +222,7 @@ jobs:
     uses: ./.github/workflows/test-pg_search-docker.yml
     with:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+      dockerfiles_artifact: ${{ needs.generate-dockerfiles.outputs.artifact }}
       spot: false # Disable Spot for tests in the publish workflow
     secrets: inherit
 
@@ -222,6 +246,13 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+
+      - name: Download RC Dockerfiles
+        if: needs.generate-dockerfiles.outputs.artifact != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.generate-dockerfiles.outputs.artifact }}
+          path: docker
 
       - name: Set Up QEMU
         uses: docker/setup-qemu-action@v4

@@ -467,25 +467,26 @@ impl FusedTopK {
         Ok(())
     }
 
-    fn absorb(&mut self, batch: &RecordBatch) -> Result<()> {
+    /// returns a boolean indicating whether or not the `self.entries` batch was updated/replaced
+    fn absorb(&mut self, batch: &RecordBatch) -> Result<bool> {
         use datafusion::arrow::compute::concat;
         use datafusion::arrow::compute::{lexsort_to_indices, partition};
 
         if self.k == 0 {
-            return Ok(());
+            return Ok(false);
         }
 
         // if non-distinct with no sort keys (so arrival mode) and full, we can skip the entire
         // batch.
         if !self.distinct && self.sort.is_empty() && self.entries.num_rows() == self.k {
-            return Ok(());
+            return Ok(false);
         }
 
         // 1) kernel-based prefilter against worst_prefix
         let survivors = filter_record_batch(batch, &self.could_enter(batch)?)?;
         if survivors.num_rows() == 0 {
             // nothing can enter
-            return Ok(());
+            return Ok(false);
         }
 
         // 1a) if no sort columns present (which means we're not in DISTINCT mode and admission is
@@ -494,7 +495,7 @@ impl FusedTopK {
             let sk = (self.k - self.entries.num_rows()).min(survivors.num_rows());
             let enough_survivors = survivors.slice(0, sk);
             self.entries = concat_batches(&self.schema, [&self.entries, &enough_survivors])?;
-            return Ok(());
+            return Ok(true);
         }
 
         // 2) Sort (state ++ survivors)
@@ -566,11 +567,11 @@ impl FusedTopK {
 
             // 5) Construct the new record batch accordingly
             self.entries = interleave_record_batch(&[&self.entries, &survivors], &picks)?;
-            Ok(())
+            Ok(true)
         } else {
             // 3) Interleave the record batches based on sort order
             self.entries = self.new_batch_from_sorted(&order, &survivors)?;
-            Ok(())
+            Ok(true)
         }
     }
 
@@ -637,21 +638,28 @@ impl Accumulator for FusedTopK {
             .cloned()
             .collect();
         let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns)?;
-        self.absorb(&batch)?;
-        self.compact_entries()
+        let updated = self.absorb(&batch)?;
+        if updated {
+            self.compact_entries()?;
+        }
+        Ok(())
     }
 
     /// Other partials' K rows. They go through the same admission, which is what
     /// deduplicates across workers in distinct mode.
     fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
+        let mut updated = false;
         for rows in states[0].as_list::<i32>().iter().flatten() {
             if !rows.is_empty() {
                 let columns = rows.as_struct().columns();
                 let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns.to_vec())?;
-                self.absorb(&batch)?;
+                updated = updated || self.absorb(&batch)?;
             }
         }
-        self.compact_entries()
+        if updated {
+            self.compact_entries()?;
+        }
+        Ok(())
     }
 
     /// evaluate only returns the payload fields, so we must cut off the order by fields

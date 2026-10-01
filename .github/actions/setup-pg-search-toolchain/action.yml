@@ -48,6 +48,7 @@ runs:
     - name: Install Rust ${{ steps.versions.outputs.rust }}
       uses: actions-rust-lang/setup-rust-toolchain@v2
       with:
+        build-warnings: warn # Preserve the v1 behavior with empty rustflags.
         toolchain: ${{ steps.versions.outputs.rust }}
         components: ${{ inputs.rust_components }}
         cache: false

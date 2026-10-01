@@ -225,6 +225,7 @@ jobs:
         if: steps.guard.outputs.build == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
+          build-warnings: warn # Preserve the v1 behavior with empty rustflags.
           cache: false # Disable cache on publish workflows
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 

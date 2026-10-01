@@ -238,20 +238,7 @@ pub(crate) fn text_array_to_boost(
 fn prox_to_boost(input: ProximityClause, typmod: i32, _is_explicit: bool) -> BoostType {
     let boost = deserialize_i32_to_f32(typmod);
 
-    let prox = if let ProximityClause::Proximity {
-        left,
-        right,
-        distance,
-    } = input
-    {
-        pdb::Query::Proximity {
-            left: *left,
-            right: *right,
-            distance,
-        }
-    } else {
-        panic!("invalid ProximityClause variant: {input:?}")
-    };
+    let prox = crate::api::builder_fns::proximity(input);
 
     BoostType(pdb::Query::ScoreAdjusted {
         query: Box::new(prox),

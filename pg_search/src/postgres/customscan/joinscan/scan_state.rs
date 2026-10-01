@@ -39,6 +39,7 @@ use datafusion::common::{
     Column, DFSchema, DataFusionError, Result, TableReference, internal_err, plan_err,
 };
 use datafusion::functions::expr_fn::get_field;
+use datafusion::logical_expr::expr_rewriter::unalias;
 use datafusion::logical_expr::{
     Expr, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions, SortExpr, col,
 };
@@ -1268,11 +1269,13 @@ fn apply_topk_as_agg(
 
     // The window aggregates read the join's own columns, so their inputs ride
     // along beside the payload; the Top-K payload leaves them out.
+    let all_window_exprs = window_agg_aggregate_exprs(join_clause)?;
+
     let finalized = TopKAggSelectedExpressions::new(join_clause)
         .with_payload_exprs(distinct_key_exprs)?
         .with_ctids(ctid_names, df.schema())?
         .with_sort_exprs(sort_exprs)
-        .with_additional_aggs(window_agg_aggregate_exprs(join_clause)?)
+        .with_additional_aggs(all_window_exprs.exprs)
         .finalize()?;
 
     // The actual projected columns we'll need for the aggregate.
@@ -1290,7 +1293,15 @@ fn apply_topk_as_agg(
     let df = df.aggregate(vec![], aggregates)?;
     let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
 
-    let df = df.select(finalized.name_restoration_list)?;
+    let mut name_restoration_list = finalized.name_restoration_list;
+    // fold in the const window expressions
+    name_restoration_list.extend(
+        all_window_exprs
+            .consts
+            .into_iter()
+            .map(|(name, expr)| expr.alias(name)),
+    );
+    let df = df.select(name_restoration_list)?;
 
     Ok((df, distinct_col_map))
 }
@@ -1692,25 +1703,43 @@ fn window_agg_window_exprs(join_clause: &JoinCSClause) -> Result<Vec<(String, Ex
         .collect()
 }
 
-/// Every extracted window aggregate as `(window_agg_N, aggregate)`. Driven by
+/// The extracted window aggregates, each paired with its `window_agg_N` column
+/// name.
+struct SeparatedWindowAggExprs {
+    /// Aggregates over the join result; they join the Top-K aggregate node.
+    exprs: Vec<(String, Expr)>,
+    /// Plan-time constants (the aggregate of a pruned argument column); an
+    /// aggregate node cannot carry them, so they are projected after it.
+    consts: Vec<(String, Expr)>,
+}
+
+/// Every extracted window aggregate as `(window_agg_N, expression)`. Driven by
 /// `join_clause.window_aggs` rather than the output projection: an aggregate
 /// embedded in an expression has no `ChildProjection::WindowAgg` entry, only a
 /// sentinel Var referencing the column by name. Only canonical entries are
 /// materialized; duplicates resolve to the canonical column
 /// (see `WindowAggList::canonical_index`).
-fn window_agg_aggregate_exprs(join_clause: &JoinCSClause) -> Result<Vec<(String, Expr)>> {
-    join_clause
-        .window_aggs
-        .iter_indexed()
-        .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
-        .map(|(index, info)| {
-            let expr = match &info.agg_def {
-                WindowAggDef::Sql(sql) => sql.as_aggregate_expr(join_clause)?,
-                WindowAggDef::PdbAgg(request) => pdb_agg(request, &join_clause.plan)?,
-            };
-            Ok((index.as_col_name(), expr))
-        })
-        .collect()
+fn window_agg_aggregate_exprs(join_clause: &JoinCSClause) -> Result<SeparatedWindowAggExprs> {
+    let mut exprs = Vec::new();
+    let mut consts = Vec::new();
+    for (index, info) in join_clause.window_aggs.iter_indexed() {
+        //only keep cananical definitions
+        if join_clause.window_aggs.canonical_index(index) != index {
+            continue;
+        }
+        let e = match &info.agg_def {
+            WindowAggDef::Sql(sql) => sql.as_aggregate_expr(join_clause)?,
+            WindowAggDef::PdbAgg(request) => pdb_agg(request, &join_clause.plan)?,
+        };
+        match unalias(e.clone()) {
+            Expr::AggregateFunction(_) => exprs.push((index.as_col_name(), e)),
+            Expr::Literal(_, _) => consts.push((index.as_col_name(), e)),
+            _ => {
+                return internal_err!("Found invalid expression type {e:?} for a window aggregate");
+            }
+        }
+    }
+    Ok(SeparatedWindowAggExprs { exprs, consts })
 }
 
 /// Apply the join clause's `ORDER BY` to the data frame, choosing column

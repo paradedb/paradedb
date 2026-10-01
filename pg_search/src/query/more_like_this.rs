@@ -53,6 +53,15 @@ pub struct MoreLikeThisQuery {
     index_created_by_version: Option<Version>,
 }
 
+impl tantivy::query::QueryEstimate for MoreLikeThisQuery {
+    fn estimate_docs(
+        &self,
+        reader: &tantivy::SegmentReader,
+    ) -> tantivy::Result<Option<(u32, u64)>> {
+        tantivy::query::QueryEstimate::estimate_docs(&self.mlt.inner, reader)
+    }
+}
+
 impl Query for MoreLikeThisQuery {
     fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
         let searcher = match enable_scoring {

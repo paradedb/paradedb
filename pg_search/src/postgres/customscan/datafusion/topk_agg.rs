@@ -55,6 +55,8 @@ use datafusion::prelude::{Expr, lit};
 use datafusion::scalar::ScalarValue;
 use std::sync::{Arc, LazyLock};
 
+use crate::postgres::customscan::datafusion::fill_nulls_u64;
+
 use super::literal_arg;
 
 pub const TOPK_AS_AGG_NAME: &str = "topk_as_agg";
@@ -514,16 +516,17 @@ impl FusedTopK {
                 .collect::<Result<_>>()?;
             let ranges = partition(&sorted_keys)?.ranges();
 
-            // prep ctids in the same order
+            // prep ctids in the same order, filling NULLS with u64::MAX so they sort last in min_by
             let ctids: Vec<_> = self
                 .ctid_positions
                 .iter()
                 .map(|idx| {
-                    Ok(take(
+                    let arr = take(
                         &concat(&[self.entries.column(*idx), survivors.column(*idx)])?,
                         &order,
                         None,
-                    )?)
+                    )?;
+                    fill_nulls_u64(arr, u64::MAX)
                 })
                 .collect::<Result<_>>()?;
 
@@ -545,19 +548,14 @@ impl FusedTopK {
                 // whatever the batching.
                 let sorted_order_min_ctid_idx = range
                     .clone()
-                    .min_by_key(|i| {
-                        let tuple: Vec<_> = ctids
+                    .min_by(|a, b| {
+                        let at = ctids
                             .iter()
-                            .map(|col| {
-                                let c = col.as_primitive::<UInt64Type>();
-                                if c.is_valid(*i) {
-                                    c.value(*i)
-                                } else {
-                                    u64::MAX
-                                }
-                            })
-                            .collect();
-                        tuple
+                            .map(|c| c.as_primitive::<UInt64Type>().value(*a));
+                        let bt = ctids
+                            .iter()
+                            .map(|c| c.as_primitive::<UInt64Type>().value(*b));
+                        at.cmp(bt)
                     })
                     .expect("should always produce a value since range.len() > 0");
                 picks.push(

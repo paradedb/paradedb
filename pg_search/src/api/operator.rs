@@ -41,9 +41,9 @@ use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
 use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
-use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
+use crate::query::{SearchQueryInput, TermInput};
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pg_sys::panic::ErrorReport;
@@ -648,10 +648,29 @@ pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
 
 pub(crate) fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
-    mut query: SearchQueryInput,
+    query: SearchQueryInput,
     planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> (Option<f64>, Option<u64>) {
-    let fallback = (Some(crate::UNKNOWN_SELECTIVITY), None);
+    let reader = OnceLock::new();
+    let (clause, cost) = selectivity_clause(indexrel, query, planner, &reader);
+    (
+        Some(unsafe { estimate::Selectivity::estimate(clause, planner) }),
+        cost,
+    )
+}
+
+fn selectivity_clause(
+    indexrel: &PgSearchRelation,
+    mut query: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
+    reader: &OnceLock<anyhow::Result<SearchIndexReader>>,
+) -> (*mut pg_sys::Node, Option<u64>) {
+    let fallback = || {
+        (
+            estimate::Selectivity(crate::UNKNOWN_SELECTIVITY).into(),
+            None,
+        )
+    };
     let query = loop {
         query = match query {
             SearchQueryInput::All
@@ -659,14 +678,17 @@ pub(crate) fn estimate_selectivity_and_cost(
                 query: pdb::Query::All,
                 ..
             } => {
-                return (Some(crate::FULL_RELATION_SELECTIVITY), None);
+                return (
+                    estimate::Selectivity(crate::FULL_RELATION_SELECTIVITY).into(),
+                    None,
+                );
             }
             SearchQueryInput::Empty
             | SearchQueryInput::FieldedQuery {
                 query: pdb::Query::Empty,
                 ..
             } => {
-                return (Some(0.0), Some(0));
+                return (estimate::Selectivity(0.0).into(), Some(0));
             }
             SearchQueryInput::WithIndex { query, .. }
             | SearchQueryInput::Boost { query, .. }
@@ -678,6 +700,76 @@ pub(crate) fn estimate_selectivity_and_cost(
                 field,
                 query: *query,
             },
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => {
+                let minimum_should_match = minimum_should_match.map_or(0, |n| n as usize);
+                if must.is_empty() && should.is_empty() || minimum_should_match > should.len() {
+                    return (estimate::Selectivity(0.0).into(), Some(0));
+                }
+                let mut cost = Some(0u64);
+                let mut clauses = |queries: Vec<SearchQueryInput>| {
+                    queries
+                        .into_iter()
+                        .map(|query| {
+                            let (clause, child_cost) =
+                                selectivity_clause(indexrel, query, planner, reader);
+                            cost = cost
+                                .zip(child_cost)
+                                .map(|(total, child)| total.saturating_add(child));
+                            clause
+                        })
+                        .collect()
+                };
+                let boolean = estimate::BooleanClause {
+                    must: clauses(must),
+                    should: clauses(should),
+                    must_not: clauses(must_not),
+                    minimum_should_match,
+                };
+                return (unsafe { boolean.into_clause(planner) }, cost);
+            }
+            // DisjunctionMax has the same matches as OR; only scoring differs.
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => SearchQueryInput::Boolean {
+                must: vec![],
+                should: disjuncts,
+                must_not: vec![],
+                minimum_should_match: None,
+            },
+            SearchQueryInput::FieldedQuery {
+                field,
+                query: pdb::Query::TermSet { terms },
+            } => SearchQueryInput::TermSet {
+                terms: terms
+                    .into_iter()
+                    .map(|value| TermInput {
+                        field: field.clone(),
+                        value,
+                    })
+                    .collect(),
+            },
+            SearchQueryInput::TermSet { terms } => {
+                let mut seen = std::collections::HashSet::new();
+                SearchQueryInput::Boolean {
+                    must: vec![],
+                    should: terms
+                        .into_iter()
+                        .filter_map(|TermInput { field, value }| {
+                            seen.insert((field.clone(), value.clone())).then_some(
+                                SearchQueryInput::FieldedQuery {
+                                    field,
+                                    query: pdb::Query::Term { value },
+                                },
+                            )
+                        })
+                        .collect(),
+                    must_not: vec![],
+                    minimum_should_match: None,
+                }
+            }
             // Term supports both text and non-text equality; only text uses Tantivy estimates.
             // Check the logical type: SearchField::is_text() also includes UUID string storage.
             SearchQueryInput::FieldedQuery {
@@ -728,38 +820,45 @@ pub(crate) fn estimate_selectivity_and_cost(
             } => {
                 return planner
                     .and_then(|(root, rti)| unsafe {
-                        estimate::non_text_selectivity(root, rti, indexrel, &field, &query)
+                        estimate::non_text_clause(root, rti, indexrel, &field, &query)
                     })
-                    .map(|selectivity| (Some(selectivity), None))
-                    .unwrap_or(fallback);
+                    .map(|clause| (clause, None))
+                    .unwrap_or_else(fallback);
             }
             SearchQueryInput::FieldedQuery {
                 query:
                     pdb::Query::FastFieldRangeWeight { .. }
                     | pdb::Query::Proximity { .. }
-                    | pdb::Query::TermSet { .. }
                     | pdb::Query::UnclassifiedString { .. }
                     | pdb::Query::UnclassifiedArray { .. },
                 ..
             }
             | SearchQueryInput::Uninitialized
-            | SearchQueryInput::Boolean { .. }
-            | SearchQueryInput::DisjunctionMax { .. }
-            | SearchQueryInput::TermSet { .. }
             | SearchQueryInput::ScoreFilter { .. }
             | SearchQueryInput::HeapFilter { .. }
-            | SearchQueryInput::PostgresExpression { .. } => return fallback,
+            | SearchQueryInput::PostgresExpression { .. } => return fallback(),
         };
     };
 
-    let Ok(reader) = SearchIndexReader::open(indexrel, query, false, MvccSatisfies::Estimation)
-    else {
-        return fallback;
+    let Ok(reader) = reader.get_or_init(|| {
+        SearchIndexReader::open_with_context(
+            indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Estimation,
+            None,
+            None,
+            true,
+            None,
+        )
+    }) else {
+        return fallback();
     };
+    let query = reader.make_query(&query, None);
     reader
-        .estimate_docs(reader.query())
-        .map(|(selectivity, cost)| (Some(selectivity), Some(cost)))
-        .unwrap_or(fallback)
+        .estimate_docs(estimate::query_estimate(query.as_ref()).as_ref())
+        .map(|(selectivity, cost)| (estimate::Selectivity(selectivity).into(), Some(cost)))
+        .unwrap_or_else(fallback)
 }
 
 pub(crate) fn estimate_selectivity(

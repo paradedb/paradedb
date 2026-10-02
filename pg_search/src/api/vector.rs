@@ -193,7 +193,7 @@ fn vector_estimator_info_internal(
         .iter()
         .map(|segment_reader| -> Result<u64> {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset()))
+            u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset())?)
                 .context("live posting-membership row count exceeds u64")
         })
         .collect::<Result<Vec<_>>>()?;
@@ -462,7 +462,7 @@ fn vector_error_audit_internal(
         .iter()
         .map(|segment_reader| -> Result<u64> {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset()))
+            u64::try_from(vector_index.live_posting_row_count(segment_reader.alive_bitset())?)
                 .context("live posting-membership row count exceeds u64")
         })
         .collect::<Result<Vec<_>>>()?;
@@ -477,7 +477,7 @@ fn vector_error_audit_internal(
         .iter()
         .map(|segment_reader| -> Result<u64> {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset()))
+            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset())?)
                 .context("live distinct-vector count exceeds u64")
         })
         .collect::<Result<Vec<_>>>()?;
@@ -887,7 +887,7 @@ fn sample_held_out_queries(
         .iter()
         .map(|segment_reader| -> Result<u64> {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset()))
+            u64::try_from(vector_index.live_distinct_vector_count(segment_reader.alive_bitset())?)
                 .context("live distinct-vector count exceeds u64")
         })
         .collect::<Result<Vec<_>>>()?;

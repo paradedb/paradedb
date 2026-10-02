@@ -2684,13 +2684,14 @@ unsafe fn detect_join_aggregate_topk(
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
-/// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
+/// This is called at plan time or at executor startup to avoid "Aggref found in non-Agg plan node" errors
 /// Uses expression_tree_mutator to handle nested Aggrefs (e.g., COALESCE(COUNT(*), 0))
 ///
 /// The new target list lives in the memory context of the one it replaces. PostgreSQL
 /// can cache a plan and run it again (a prepared statement, or a statement in a
 /// function), so the plan can outlive the execution that calls this. The next
-/// execution finds no Aggref and changes nothing.
+/// execution finds no Aggref and changes nothing, so a plan keeps one old list
+/// and no more.
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     use pgrx::pg_guard;
 
@@ -2757,8 +2758,9 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     }
 
     // Build a new target list with Aggrefs replaced by placeholders and UNNEST stripped
-    let plan_context = pg_sys::GetMemoryChunkContext((*plan).targetlist.cast());
-    (*plan).targetlist = PgMemoryContexts::For(plan_context).switch_to(|_| {
+    let mut plan_context = PgMemoryContexts::of((*plan).targetlist.cast())
+        .expect("the target list should be in a memory context");
+    (*plan).targetlist = plan_context.switch_to(|_| {
         let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
         for te in targetlist.iter_ptr() {
             let new_te = pg_sys::flatCopyTargetEntry(te);

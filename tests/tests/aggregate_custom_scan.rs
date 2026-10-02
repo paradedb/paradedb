@@ -216,35 +216,39 @@ fn test_bound_parameters_tantivy_groupby_survives_reuse(mut conn: PgConnection) 
 
     "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
 
-    fn run(conn: &mut PgConnection, plan_cache_mode: &str, min_rating: i32) -> Vec<(i32, i64)> {
-        // The comment gives each mode its own statement.
-        let query = format!(
-            r#"
-            /* {plan_cache_mode} */
-            SELECT rating, COUNT(*)
-            FROM paradedb.bm25_search
-            WHERE rating >= $1 AND description @@@ 'shoes'
-            GROUP BY rating
-            ORDER BY rating
-            "#
-        );
+    // The comment gives each mode its own statement.
+    const AUTO: &str = r#"
+        /* auto */
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE rating >= $1 AND description @@@ 'shoes'
+        GROUP BY rating
+        ORDER BY rating
+    "#;
+    const FORCE_GENERIC_PLAN: &str = r#"
+        /* force_generic_plan */
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE rating >= $1 AND description @@@ 'shoes'
+        GROUP BY rating
+        ORDER BY rating
+    "#;
+
+    fn run(conn: &mut PgConnection, query: &'static str, min_rating: i32) -> Vec<(i32, i64)> {
         block_on(
-            sqlx::query_as::<_, (i32, i64)>(sqlx::AssertSqlSafe(query))
+            sqlx::query_as::<_, (i32, i64)>(query)
                 .bind(min_rating)
                 .fetch_all(conn),
         )
         .expect("the prepared aggregate should run")
     }
 
-    for plan_cache_mode in ["auto", "force_generic_plan"] {
+    for (plan_cache_mode, query) in [("auto", AUTO), ("force_generic_plan", FORCE_GENERIC_PLAN)] {
         format!("SET plan_cache_mode = {plan_cache_mode};").execute(&mut conn);
         for _ in 0..4 {
-            assert_eq!(
-                run(&mut conn, plan_cache_mode, 3),
-                vec![(3, 1), (4, 1), (5, 1)]
-            );
-            assert_eq!(run(&mut conn, plan_cache_mode, 4), vec![(4, 1), (5, 1)]);
-            assert_eq!(run(&mut conn, plan_cache_mode, 6), vec![]);
+            assert_eq!(run(&mut conn, query, 3), vec![(3, 1), (4, 1), (5, 1)]);
+            assert_eq!(run(&mut conn, query, 4), vec![(4, 1), (5, 1)]);
+            assert_eq!(run(&mut conn, query, 6), vec![]);
         }
     }
 }

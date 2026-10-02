@@ -25,4 +25,17 @@ SELECT id, t FROM regex_patterns WHERE (t::pdb.regex_pattern('[0-9]+', 'alias=di
 SELECT id, t FROM regex_patterns WHERE (t::pdb.regex_pattern('[a-z]+', 'alias=letters')) === 'abc' ORDER BY id;
 SELECT id, t FROM regex_patterns WHERE (t::pdb.regex_pattern('[a-z]+', 'alias=letters')) === 'def' ORDER BY id;
 
+-- Query input must be split by the field's analyzer to match its indexed terms.
+SET plpgsql.check_asserts = on;
+DO $$
+BEGIN
+    ASSERT (SELECT array_agg(id ORDER BY id) FROM regex_patterns
+        WHERE (t::pdb.regex_pattern('[0-9]+', 'alias=digits')) ||| 'abc123') = ARRAY[1::bigint],
+        'digits query must extract 123 from abc123';
+    ASSERT (SELECT array_agg(id ORDER BY id) FROM regex_patterns
+        WHERE (t::pdb.regex_pattern('[a-z]+', 'alias=letters')) ||| 'abc123') = ARRAY[1::bigint],
+        'letters query must extract abc from abc123';
+END;
+$$;
+
 DROP TABLE regex_patterns;

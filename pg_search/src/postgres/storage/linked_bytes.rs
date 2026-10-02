@@ -35,7 +35,19 @@ use parking_lot::Mutex;
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::directory::OwnedBytes;
 
-const BLOCK_CACHE_SIZE: usize = 16;
+// Simulated LRU stack-distance measurements on the `stackexchange` dataset
+// (11.1M total block accesses across 10.7k active lists, 87.7% repeat accesses)
+// showed the following hit rates on repeat accesses:
+//   size 16:  99.31% (67.7k evicted misses)
+//   size 32:  99.47% (51.8k evicted misses, -23.4% evictions)
+//   size 64:  99.54% (44.8k evicted misses, -33.8% evictions)
+//   size 128: 99.63% (36.6k evicted misses, -45.9% evictions)
+//   size 256: 99.72% (27.0k evicted misses, -60.0% evictions)
+//   size 512: 99.92% ( 7.8k evicted misses, -88.5% evictions)
+// Size 32 eliminates nearly a quarter of eviction misses while keeping the
+// `VecDeque` small enough (~768 B) to easily fit in L1 and avoid search/shift
+// overhead on the hot path without needing a more complex cache structure.
+const BLOCK_CACHE_SIZE: usize = 32;
 
 /// Unified cache entry: stores OwnedBytes which wraps an Arc'd ImmutablePage.
 /// get_byte indexes directly into the pre-resolved &[u8] slice (no vtable dispatch).

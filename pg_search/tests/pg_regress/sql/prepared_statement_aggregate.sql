@@ -21,7 +21,8 @@ SELECT
 FROM generate_series(1, 60) g;
 
 CREATE INDEX prepared_agg_sales_idx ON prepared_agg_sales
-USING paradedb (id, (region::pdb.literal), rating, amount, (tags::pdb.literal));
+USING paradedb (id, (region::pdb.literal), rating, amount, (tags::pdb.literal))
+WITH (key_field = 'id');
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 

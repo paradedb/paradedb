@@ -22,7 +22,8 @@ SELECT
     CASE WHEN g % 2 = 0 THEN ARRAY['new', 'sale'] ELSE ARRAY['new'] END
 FROM generate_series(1, 60) g;
 CREATE INDEX prepared_agg_sales_idx ON prepared_agg_sales
-USING paradedb (id, (region::pdb.literal), rating, amount, (tags::pdb.literal));
+USING paradedb (id, (region::pdb.literal), rating, amount, (tags::pdb.literal))
+WITH (key_field = 'id');
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
 -- SECTION 1: No parameter -> PostgreSQL caches the plan on the first run
@@ -173,8 +174,8 @@ FROM prepared_agg_sales
 WHERE id @@@ pdb.all()
 ORDER BY COUNT(*);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_scalar;
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
  Sort
    Output: (pdb.agg_fn('COUNT(*)'::text))
    Sort Key: (pdb.agg_fn('COUNT(*)'::text))
@@ -183,7 +184,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_scalar;
          Index: prepared_agg_sales_idx
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
            Applies to Aggregates: COUNT(*)
-           Aggregate Definition: {"0":{"filter":"*"}}
+           Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (9 rows)
 
 EXECUTE prepared_agg_scalar;

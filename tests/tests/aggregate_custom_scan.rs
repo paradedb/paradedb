@@ -191,6 +191,25 @@ fn test_group_by(mut conn: PgConnection) {
     );
 }
 
+#[rstest]
+fn test_group_by_null_bucket(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+
+    assert_uses_custom_scan(
+        &mut conn,
+        true,
+        r#"
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE description ||| 'keyboard'
+        GROUP BY rating
+        ORDER BY rating NULLS FIRST
+    "#,
+    );
+}
+
 // On PG16 and later, PostgreSQL puts the sort keys of an ordered aggregate
 // after the GROUP BY keys in `group_pathkeys`. The scan must not group on them.
 #[rstest]
@@ -236,25 +255,6 @@ fn test_ordered_aggregate_is_not_a_group_key(mut conn: PgConnection) {
 
         assert_eq!(pushed_down, expected, "{query}");
     }
-}
-
-#[rstest]
-fn test_group_by_null_bucket(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
-
-    assert_uses_custom_scan(
-        &mut conn,
-        true,
-        r#"
-        SELECT rating, COUNT(*)
-        FROM paradedb.bm25_search
-        WHERE description ||| 'keyboard'
-        GROUP BY rating
-        ORDER BY rating NULLS FIRST
-    "#,
-    );
 }
 
 #[rstest]

@@ -2686,6 +2686,10 @@ unsafe fn detect_join_aggregate_topk(
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
 /// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
 /// Uses expression_tree_mutator to handle nested Aggrefs (e.g., COALESCE(COUNT(*), 0))
+///
+/// The new target list lives in the memory context of the one it replaces. PostgreSQL
+/// caches the plan of a prepared statement and runs it again, so the plan can outlive
+/// the execution that calls this.
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     use pgrx::pg_guard;
 
@@ -2752,18 +2756,20 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     }
 
     // Build a new target list with Aggrefs replaced by placeholders and UNNEST stripped
-    let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
-    for te in targetlist.iter_ptr() {
-        let new_te = pg_sys::flatCopyTargetEntry(te);
+    let plan_context = pg_sys::GetMemoryChunkContext((*plan).targetlist.cast());
+    (*plan).targetlist = PgMemoryContexts::For(plan_context).switch_to(|_| {
+        let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
+        for te in targetlist.iter_ptr() {
+            let new_te = pg_sys::flatCopyTargetEntry(te);
 
-        // Use the mutator to replace any Aggref or UNNEST nodes in the expression
-        let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, std::ptr::null_mut());
-        (*new_te).expr = new_expr as *mut pg_sys::Expr;
+            // Use the mutator to replace any Aggref or UNNEST nodes in the expression
+            let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, std::ptr::null_mut());
+            (*new_te).expr = new_expr as *mut pg_sys::Expr;
 
-        new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
-    }
-
-    (*plan).targetlist = new_targetlist;
+            new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
+        }
+        new_targetlist
+    });
 }
 
 /// Creates a placeholder `FuncExpr` for a PostgreSQL `Aggref`.

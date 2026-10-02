@@ -1,7 +1,7 @@
 -- Report the vector quantization build target for each leaf index.
 
 CREATE  FUNCTION "vector_config"(
-	"index_relation" regclass, /* PgRelation */
+	"index" regclass, /* PgRelation */
 	"field" TEXT /* String */
 ) RETURNS TABLE (
 	"index_oid" oid,  /* pg_sys :: Oid */

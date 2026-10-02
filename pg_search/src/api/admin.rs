@@ -499,7 +499,7 @@ fn vector_info(
 #[pg_extern]
 #[allow(clippy::type_complexity)]
 fn vector_config(
-    index_relation: PgRelation,
+    index: PgRelation,
     field: String,
 ) -> anyhow::Result<
     TableIterator<
@@ -513,7 +513,7 @@ fn vector_config(
         ),
     >,
 > {
-    let index = PgSearchRelation::with_lock(index_relation.oid(), pg_sys::AccessShareLock as _);
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     let index_kind = IndexKind::for_index(index.clone())?;
     if !index.is_usable() {
         return Ok(TableIterator::new(Vec::new()));

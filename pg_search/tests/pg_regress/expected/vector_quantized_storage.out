@@ -52,7 +52,7 @@ FROM paradedb.vector_info('v4_plain_idx', 'vec');
 (1 row)
 
 SELECT index_oid::regclass AS index_name, quantized, layers, bytes_per_row, settings_version
-FROM paradedb.vector_config('v4_plain_idx', 'vec');
+FROM paradedb.vector_config(index => 'v4_plain_idx', field => 'vec');
   index_name  | quantized | layers | bytes_per_row | settings_version 
 --------------+-----------+--------+---------------+------------------
  v4_plain_idx | f         |        |               |                 

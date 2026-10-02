@@ -36,7 +36,7 @@ WITH (vector_fields='{"vec":{"quantization":false}}', target_segment_count=1);
 SELECT vector_format, quantized, layers, quantizer_kinds, bytes_per_row
 FROM paradedb.vector_info('v4_plain_idx', 'vec');
 SELECT index_oid::regclass AS index_name, quantized, layers, bytes_per_row, settings_version
-FROM paradedb.vector_config('v4_plain_idx', 'vec');
+FROM paradedb.vector_config(index => 'v4_plain_idx', field => 'vec');
 DROP INDEX v4_plain_idx;
 CREATE INDEX v4_q14_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
 WITH (vector_fields='{"vec":{"quantization":{"layers":[1,4]}}}', target_segment_count=1);

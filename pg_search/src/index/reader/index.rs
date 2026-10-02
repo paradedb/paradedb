@@ -1109,20 +1109,21 @@ impl SearchIndexReader {
         Ok(self.underlying_index.validate_checksum()?)
     }
 
-    /// Snippet generators for `column`, one per indexed field the column is stored under.
+    /// The snippet generator for `column`, built over every indexed field the column is stored
+    /// under.
     ///
     /// A column can back more than one field: an alias carries its own tokenizer over the same
     /// text, and a column indexed only through an aliased expression has no field of its own.
     /// Which of those fields a query matched cannot be read off the index, because term
     /// lookups go through the segment readers and an empty index reports that nothing is
-    /// addressed at all. So the list comes from the index settings, and a field the query
-    /// never touched yields a generator with no terms, which renders nothing.
-    pub fn snippet_generators(
+    /// addressed at all. So the fields come from the index settings, and the generator selects
+    /// fragments over the union of their matches. The returned field is the first of them.
+    pub fn snippet_generator(
         &self,
         field_name: impl AsRef<str> + Display,
         query: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
-    ) -> Vec<(tantivy::schema::Field, SnippetGenerator)> {
+    ) -> (tantivy::schema::Field, SnippetGenerator) {
         let named = self.schema.search_field(&field_name);
         if let Some(field) = &named
             && !(field.is_text() || field.is_json())
@@ -1141,25 +1142,21 @@ impl SearchIndexReader {
             .filter(|sibling| !fields.contains(sibling))
             .collect();
         fields.extend(siblings);
-        if fields.is_empty() {
+        let Some(&first) = fields.first() else {
             panic!(
                 "cannot generate snippet for field {field_name} because it was not found in the index"
             )
-        }
+        };
 
-        let query = self.make_query(query, expr_context);
-        fields
-            .into_iter()
-            .map(|field| {
-                let generator = SnippetGenerator::create(&self.searcher, &*query, field)
-                    .unwrap_or_else(|err| {
-                        panic!(
-                            "failed to create snippet generator for field: {field_name}... {err}"
-                        )
-                    });
-                (field, generator)
-            })
-            .collect()
+        let generator = SnippetGenerator::create_for_fields(
+            &self.searcher,
+            &self.make_query(query, expr_context),
+            fields,
+        )
+        .unwrap_or_else(|err| {
+            panic!("failed to create snippet generator for field: {field_name}... {err}")
+        });
+        (first, generator)
     }
 
     /// Every indexed field whose text comes from the heap column `column`.

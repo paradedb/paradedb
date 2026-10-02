@@ -17,23 +17,19 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: id, rating
-         ->  HashAggregate
-               Group Key: id
-               ->  Custom Scan (ParadeDB Base Scan) on mock_items
-                     Table: mock_items
-                     Index: mock_items_id_description_rating_category_metadata_idx
-                     Exec Method: ColumnarExecState
-                     Columnar: id, rating
-                     Scores: false
-                     Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+         ->  Custom Scan (ParadeDB Aggregate Scan) on mock_items
+               Index: mock_items_id_description_rating_category_metadata_idx
+               Tantivy Query: {"with_index":{"query":"all"}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: id, rating
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"rating","segment_size":65000,"size":65000}}},"terms":{"field":"id","segment_size":65000,"size":65000}}}
+(10 rows)
 
 SELECT id, rating, COUNT(*)
 FROM mock_items
@@ -41,7 +37,6 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
  id | rating | count 
 ----+--------+-------
   1 |      4 |     1

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed aggregate pushdown being skipped when a `GROUP BY` column is also filtered to a single value, such as `WHERE account_id = 1 ... GROUP BY account_id, kind`. These queries now use the aggregate custom scan instead of falling back to PostgreSQL's aggregation.

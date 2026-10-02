@@ -367,32 +367,32 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY GROUPING SETS ((name_c), ());
 ERROR:  Cannot execute pdb.agg: GROUPING SETS are not supported
-\echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined'
-Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined
+\echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> aggregate pushdown'
+Test 2.7: constant-equality GROUP BY key with no pathkeys -> aggregate pushdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*)
 FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
-WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   ->  Custom Scan (ParadeDB Base Scan) on collation_test
-         Table: collation_test
-         Index: collation_test_idx
-         Exec Method: ColumnarExecState
-         Columnar: name_c
-         Scores: false
-         Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
-(9 rows)
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on collation_test
+   Index: collation_test_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: name_c
+     Aggregate Definition: {"grouped":{"terms":{"field":"name_c","segment_size":65000,"size":65000}}}
+(6 rows)
 
 SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
-ERROR:  Cannot execute pdb.agg: could not verify GROUP BY semantics
+ name_c |      agg       
+--------+----------------
+ apple  | {"value": 1.0}
+(1 row)
+
 \echo 'Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined'
 Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined
 SET enable_sort TO off;

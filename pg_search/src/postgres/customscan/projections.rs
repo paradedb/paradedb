@@ -55,7 +55,7 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 /// Create a placeholder target list for aggregate custom scans.
 ///
 /// This is called AFTER `replace_aggrefs_in_target_list` has replaced Aggrefs with FuncExprs.
-/// It performs two main tasks:
+/// It performs three main tasks:
 /// 1. Replaces `pdb.agg_fn` FuncExprs with placeholder Vars that read the aggregate values of
 ///    the current row from the slot of a [`PlaceholderProjection`].
 /// 2. Replaces grouping column expressions with `INDEX_VAR` nodes. Because `AggregateScan`
@@ -64,6 +64,9 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 ///    By converting the original base relation Vars into `INDEX_VAR`s, `ExecProject` knows to
 ///    fetch the value from the virtual slot's attributes instead of attempting to evaluate
 ///    the original expressions (which would otherwise fail due to missing base columns).
+/// 3. In mixed expressions like `COUNT(*)::text || category`, rewrites grouping `Var`s to
+///    `INDEX_VAR`s at the grouping column's slot attribute so `ExecProject` reads the
+///    virtual slot instead of the heap attno.
 ///
 /// Returns: (placeholder_targetlist, placeholders, needs_projection)
 /// - placeholder_targetlist: target list with FuncExprs replaced by placeholder Vars and grouping columns converted to `INDEX_VAR`s.
@@ -101,12 +104,36 @@ pub(crate) fn create_placeholder_targetlist(
         return (std::ptr::null_mut(), Default::default(), false);
     }
 
+    // Pure grouping TEs → slot attr; used to rewrite grouping Vars in mixed expressions.
+    let mut grouping_var_slots: HashMap<(Varno, pg_sys::AttrNumber), pg_sys::AttrNumber> =
+        HashMap::default();
+    for (i, te) in targetlist_pg.iter_ptr().enumerate() {
+        if te.is_null() || unsafe { (*te).expr.is_null() } {
+            continue;
+        }
+        let te = unsafe { &*te };
+        let is_top_level_placeholder = unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_FuncExpr
+            && unsafe { (*(te.expr as *mut pg_sys::FuncExpr)).funcid } == placeholder_funcid;
+        let contains_placeholder =
+            is_top_level_placeholder || te.expr.contains_functions(&[placeholder_funcid]);
+        if contains_placeholder {
+            continue;
+        }
+        for var in te.expr.collect_nodes::<pg_sys::Var>() {
+            let var = unsafe { &*var };
+            grouping_var_slots
+                .entry((var.varno as Varno, var.varattno))
+                .or_insert((i + 1) as pg_sys::AttrNumber);
+        }
+    }
+
     // Context for the placeholder mutator (defined inside function since only used here)
     struct PlaceholderContext<'a> {
         current_te_idx: usize,
         placeholder_funcid: pg_sys::Oid,
         columns: &'a mut PlaceholderColumns,
         placeholders: Vec<Option<(PlaceholderColumn, pg_sys::Oid)>>,
+        grouping_var_slots: &'a HashMap<(Varno, pg_sys::AttrNumber), pg_sys::AttrNumber>,
     }
 
     #[pg_guard]
@@ -135,6 +162,24 @@ pub(crate) fn create_placeholder_targetlist(
             }
         }
 
+        // Mixed agg+group exprs: map grouping Vars to the virtual slot, not heap attnos.
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            if let Some(&slot_attr) = ctx
+                .grouping_var_slots
+                .get(&((*var).varno as Varno, (*var).varattno))
+            {
+                return pg_sys::makeVar(
+                    pg_sys::INDEX_VAR,
+                    slot_attr,
+                    (*var).vartype,
+                    (*var).vartypmod,
+                    (*var).varcollid,
+                    0,
+                ) as *mut pg_sys::Node;
+            }
+        }
+
         // For all other nodes, use the standard mutator to walk children
         #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
@@ -156,6 +201,7 @@ pub(crate) fn create_placeholder_targetlist(
         placeholder_funcid,
         columns,
         placeholders: vec![None; list_len],
+        grouping_var_slots: &grouping_var_slots,
     };
 
     // Build a new target list with ALL FuncExpr placeholders replaced by placeholder Vars.

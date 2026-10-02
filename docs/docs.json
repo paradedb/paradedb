@@ -55,7 +55,8 @@
                       "reference/indexing/create-index",
                       "reference/indexing/indexing-partial",
                       "reference/indexing/columnar",
-                      "reference/indexing/partition-by"
+                      "reference/indexing/partition-by",
+                      "reference/indexing/faster-bm25-queries"
                     ]
                   },
                   {

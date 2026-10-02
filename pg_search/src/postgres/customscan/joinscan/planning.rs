@@ -49,7 +49,9 @@ use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+};
 use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
@@ -174,6 +176,12 @@ pub(super) unsafe fn collect_join_sources_base_rel(
 
         classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 
+        // SECURITY: lifted SubPlans (e.g. an RLS policy) become joins above this scan, so a
+        // leaky filter in it would run first.
+        if has_leaky_heap_filter(root, rel, rti, &bm25_index, &classified.search_ri) {
+            return None;
+        }
+
         if !classified.search_ri.is_empty() {
             let context = PlannerContext::from_planner(root);
             let mut state = QualExtractState::default();
@@ -213,7 +221,8 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         return None;
     };
     current_node = node;
-    current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys);
+    // Same for OR-nested SubPlans, which may be RLS policies.
+    current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys)?;
 
     Some(CollectedJoinRel::new(current_node, all_keys))
 }
@@ -411,20 +420,20 @@ pub unsafe fn wrap_with_semi_anti(
 /// SubPlan (`col IS NULL OR col IN (SELECT ...)` style). The LeftMark join
 /// produces all left rows plus a boolean "mark" column; the Filter then keeps
 /// rows where `mark = true OR col IS NULL` (or the inverted form for NOT IN).
+///
+/// Returns `None` if any SubPlan can't be lowered, rather than dropping its predicate.
 unsafe fn wrap_with_mark_filter(
     mut current_node: RelNode,
     or_subplans: Vec<OrSubPlanExtraction>,
     all_keys: &mut Vec<JoinKeyPair>,
-) -> RelNode {
+) -> Option<RelNode> {
     for or_ext in or_subplans {
         let inner_rel = find_final_rel(or_ext.inner_root);
         if inner_rel.is_null() {
-            continue;
+            return None;
         }
 
-        let Some(inner_collected) = collect_join_sources(or_ext.inner_root, inner_rel) else {
-            continue;
-        };
+        let inner_collected = collect_join_sources(or_ext.inner_root, inner_rel)?;
         let inner_node = inner_collected.plan;
         let inner_keys = inner_collected.join_keys;
 
@@ -473,7 +482,7 @@ unsafe fn wrap_with_mark_filter(
         current_node = RelNode::Filter(Box::new(filter_node));
     }
 
-    current_node
+    Some(current_node)
 }
 
 /// Recursively reconstructs the intermediate relational tree from standard PostgreSQL join paths.

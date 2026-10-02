@@ -22,7 +22,9 @@ use crate::postgres::customscan::aggregatescan::{
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{RestrictInfoType, restrict_info};
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+};
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::{filter_implied_predicates, missing_partial_index_predicate};
 use crate::query::SearchQueryInput;
@@ -106,6 +108,23 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
 
         // Filter out predicates implied by the partial index predicate
         let filtered_restrict_info = filter_implied_predicates(index.rd_indpred, &restrict_info);
+
+        // SECURITY: nothing runs above this scan, so a leaky filter would run before RLS.
+        let has_leaky_filter = unsafe {
+            has_leaky_heap_filter(
+                args.root,
+                args.input_rel,
+                heap_rti,
+                index,
+                &filtered_restrict_info,
+            )
+        };
+        if has_leaky_filter {
+            return Err(
+                "WHERE clause has a predicate that must be evaluated after row-level security policies"
+                    .into(),
+            );
+        }
 
         let quals = match extract_quals(
             &PlannerContext::from_planner(args.root),

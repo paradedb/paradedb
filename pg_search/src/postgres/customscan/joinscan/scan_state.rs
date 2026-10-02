@@ -1010,8 +1010,6 @@ impl<'a> TopKAggSelectedExpressions<'a> {
     /// Take the ctid names, qualifying them according to the provided schema
     fn with_ctids(mut self, ctid_names: Vec<String>, df_schema: &DFSchema) -> Result<Self> {
         for unqualified_name in ctid_names {
-            // See if this ctid has already been selected, and track the position in the upcoming SELECT
-            // either way
             let name = QualifiedName::from_unqualified_name(&unqualified_name, df_schema)?;
             self.ctid_names.push(name);
         }
@@ -1033,6 +1031,8 @@ impl<'a> TopKAggSelectedExpressions<'a> {
 
         let mut next_ctid_position = self.payload_names.len();
         for name in old_ctids {
+            // See if this ctid has already been selected, and track the position in the upcoming SELECT
+            // either way
             if let Some(pos) = self.payload_names.iter().position(|en| name == *en) {
                 self.ctid_positions.push(pos);
             } else {
@@ -1147,8 +1147,10 @@ struct FinalizedTopKAgg {
 ///
 /// DISTINCT and non-DISTINCT take the same path: the columns the aggregate must
 /// carry are the output projection's expressions either way, which is what
-/// `distinct_key_exprs` produces, so they are projected to `col_N` through it in
-/// both modes. The two differ in the aggregate's DISTINCT flag, which turns the
+/// `distinct_key_exprs` produces. DISTINCT projects them to `col_N`, while non-distinct retains
+/// their original names.
+///
+/// The two differ in the aggregate's DISTINCT flag, which turns the
 /// payload into the distinct key, and in what a sort key outside the projection
 /// means: without DISTINCT it is carried as an extra `sort_j` input, with DISTINCT it
 /// cannot occur (Postgres requires the ORDER BY to be in the select list).
@@ -1165,7 +1167,7 @@ fn apply_topk_as_agg(
     // Only relations whose heap tuples are fetched need a ctid carried through,
     let needed_ctids = relations_needing_ctid(output_columns);
     let ctid_names: Vec<_> = surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
-        .filter(|(pos, _)| !needed_ctids.contains(pos))
+        .filter(|(pos, _)| needed_ctids.contains(pos))
         .map(|(_, name)| name)
         .collect();
 

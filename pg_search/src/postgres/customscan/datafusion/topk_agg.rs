@@ -42,7 +42,10 @@
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::UInt64Type;
-use arrow_array::{Array, ArrayRef, BooleanArray, RecordBatch, Scalar, StructArray, UInt32Array};
+use arrow_array::{
+    Array, ArrayRef, BooleanArray, RecordBatch, RecordBatchOptions, Scalar, StructArray,
+    UInt32Array,
+};
 use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaRef, SortOptions};
 use arrow_select::coalesce::BatchCoalescer;
 use arrow_select::concat::concat_batches;
@@ -221,9 +224,9 @@ const NUM_TRAILING_ARG_LITERALS: usize = 2;
 /// Every argument but the `trailing` literals.
 fn payload_fields(arg_fields: &[FieldRef]) -> Result<&[FieldRef]> {
     match arg_fields.len().checked_sub(NUM_TRAILING_ARG_LITERALS) {
-        Some(n) if n > 0 => Ok(&arg_fields[..n]),
+        Some(n) => Ok(&arg_fields[..n]),
         _ => Err(DataFusionError::Internal(format!(
-            "a Top-K aggregate takes at least one payload column and {NUM_TRAILING_ARG_LITERALS} trailing literal(s)"
+            "a Top-K aggregate takes at least zero payload columns and {NUM_TRAILING_ARG_LITERALS} trailing literal(s)"
         ))),
     }
 }
@@ -655,7 +658,11 @@ impl Accumulator for FusedTopK {
             // incoming batches need their +/- zeroes normalized for sql equality semantics.
             .map(normalize_float_zero)
             .collect();
-        let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns)?;
+
+        // we must specify a row count to cover for the case where there are no payload columns
+        let num_rows = values.first().map_or(0, |a| a.len());
+        let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
+        let batch = RecordBatch::try_new_with_options(Arc::clone(&self.schema), columns, &options)?;
         let updated = self.absorb(&batch)?;
         if updated {
             self.compact_entries()?;
@@ -673,7 +680,13 @@ impl Accumulator for FusedTopK {
         for rows in states[0].as_list::<i32>().iter().flatten() {
             if !rows.is_empty() {
                 let columns = rows.as_struct().columns();
-                let batch = RecordBatch::try_new(Arc::clone(&self.schema), columns.to_vec())?;
+                // we must specify a row count to cover for the case where there are no payload columns
+                let options = RecordBatchOptions::new().with_row_count(Some(rows.len()));
+                let batch = RecordBatch::try_new_with_options(
+                    Arc::clone(&self.schema),
+                    columns.to_vec(),
+                    &options,
+                )?;
                 updated |= self.absorb(&batch)?;
             }
         }

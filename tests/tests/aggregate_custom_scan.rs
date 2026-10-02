@@ -17,6 +17,7 @@
 
 // Tests for ParadeDB's Aggregate Custom Scan implementation
 
+use futures::executor::block_on;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use serde_json::Value;
@@ -169,6 +170,87 @@ fn test_count_with_group_by(mut conn: PgConnection) {
     assert_eq!(results[0], (3, 1)); // rating 3, count 1
     assert_eq!(results[1], (4, 1)); // rating 4, count 1
     assert_eq!(results[2], (5, 1)); // rating 5, count 1
+}
+
+// PostgreSQL caches the plan of a prepared statement and runs it again. The
+// scan must leave the plan in a state that the next run can use.
+#[rstest]
+fn test_prepared_tantivy_groupby_survives_reuse(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+
+    let query = r#"
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE description @@@ 'shoes'
+        GROUP BY rating
+        ORDER BY rating
+    "#;
+
+    assert_uses_custom_scan(&mut conn, true, query);
+    let (plan,) = format!("EXPLAIN (FORMAT JSON) {query}").fetch_one::<(Value,)>(&mut conn);
+    let plan = plan.to_string();
+    assert!(
+        !plan.contains("DataFusion Physical Plan"),
+        "expected the Tantivy aggregate backend:\n{plan}"
+    );
+
+    let expected: Vec<(i32, i64)> = query.fetch(&mut conn);
+    assert_eq!(expected, vec![(3, 1), (4, 1), (5, 1)]);
+
+    format!("PREPARE group_by_rating AS {query}").execute(&mut conn);
+
+    for _ in 0..8 {
+        let actual: Vec<(i32, i64)> = "EXECUTE group_by_rating".fetch(&mut conn);
+        assert_eq!(actual, expected);
+    }
+}
+
+// A driver sends the parameters apart from the statement. PostgreSQL makes
+// custom plans for the first runs, and then it can change to a cached generic
+// plan.
+#[rstest]
+fn test_bound_parameters_tantivy_groupby_survives_reuse(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+
+    // The comment gives each mode its own statement.
+    const AUTO: &str = r#"
+        /* auto */
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE rating >= $1 AND description @@@ 'shoes'
+        GROUP BY rating
+        ORDER BY rating
+    "#;
+    const FORCE_GENERIC_PLAN: &str = r#"
+        /* force_generic_plan */
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE rating >= $1 AND description @@@ 'shoes'
+        GROUP BY rating
+        ORDER BY rating
+    "#;
+
+    fn run(conn: &mut PgConnection, query: &'static str, min_rating: i32) -> Vec<(i32, i64)> {
+        block_on(
+            sqlx::query_as::<_, (i32, i64)>(query)
+                .bind(min_rating)
+                .fetch_all(conn),
+        )
+        .expect("the prepared aggregate should run")
+    }
+
+    for (plan_cache_mode, query) in [("auto", AUTO), ("force_generic_plan", FORCE_GENERIC_PLAN)] {
+        format!("SET plan_cache_mode = {plan_cache_mode};").execute(&mut conn);
+        for _ in 0..4 {
+            assert_eq!(run(&mut conn, query, 3), vec![(3, 1), (4, 1), (5, 1)]);
+            assert_eq!(run(&mut conn, query, 4), vec![(4, 1), (5, 1)]);
+            assert_eq!(run(&mut conn, query, 6), vec![]);
+        }
+    }
 }
 
 #[rstest]

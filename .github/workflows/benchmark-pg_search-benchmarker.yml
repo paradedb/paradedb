@@ -30,6 +30,10 @@ on:
         required: false
         type: string
         default: "all"
+      profile:
+        description: "Collect conjunction CPU profiles and per-query timings"
+        type: boolean
+        default: false
       commit:
         description: "pg_search commit/ref to benchmark. Defaults to the triggering ref (main on a manual run)."
         required: false
@@ -253,6 +257,8 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
           base_image: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
           image_tag: ${{ env.IMAGE_TAG }}
+          build_profile: ${{ inputs.profile && 'release-with-debug' || 'release' }}
+          cache_scope: ${{ inputs.profile && 'bp128-profile-pg18-arm64' || 'benchmarker-source-pg18-arm64' }}
 
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
@@ -261,6 +267,19 @@ jobs:
           ref: ${{ inputs.benchmarker_stackexchange_ref || 'datasets' }}
           patch_file: .github/patches/benchmarker.patch
           lfs: "false"
+
+      - name: Install profiling tools
+        if: inputs.profile
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y linux-tools-generic python3-venv
+          perf_bin=$(find /usr/lib/linux-tools -type f -name perf | sort -V | tail -1)
+          test -x "$perf_bin"
+          echo "PERF_BIN=$perf_bin" >> "$GITHUB_ENV"
+          sudo sysctl kernel.perf_event_paranoid=-1
+          sudo "$perf_bin" stat -e cpu-clock -- sleep 0.1
+          python3 -m venv "$RUNNER_TEMP/profile-venv"
+          "$RUNNER_TEMP/profile-venv/bin/pip" install 'psycopg[binary]==3.2.10'
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -294,6 +313,7 @@ jobs:
             MEMORY=64g
 
       - name: Run benchmark
+        if: ${{ !inputs.profile }}
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
@@ -332,6 +352,58 @@ jobs:
             PARADEDB_IMAGE="${IMAGE_TAG}" \
             VOLUME_ROOT="${VOLUME_ROOT}"
 
+      - name: Profile conjunction queries
+        if: inputs.profile
+        working-directory: benchmarker
+        env:
+          POSTGRES_CPUSET: "0-7"
+          PROFILE_COMMIT: ${{ steps.determine-ref.outputs.ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p results/profiles
+          taskset -c 8-11 make -f Makefile.stackexchange run \
+            BACKENDS=paradedb WORKLOAD=topk QUERY_STYLE=conjunction VUS=1 \
+            PREWARM=30s DURATION=300s OUTPUT=json,html OUT_DIR="$PWD/results" \
+            PARADEDB_IMAGE="$IMAGE_TAG" VOLUME_ROOT="$VOLUME_ROOT"
+          container=$(docker ps -aq --filter label=io.benchmarker.project=bench-datasets-stackexchange)
+          test "$(wc -w <<< "$container")" -eq 1
+          docker start "$container"
+          for attempt in $(seq 1 60); do
+            if docker exec "$container" pg_isready -U postgres -d benchmark; then break; fi
+            sleep 2
+          done
+          symfs="$RUNNER_TEMP/profile-symbols"
+          mkdir -p "$symfs/usr/lib/postgresql/18/lib" "$symfs/usr/lib/postgresql/18/bin"
+          docker cp "$container:/usr/lib/postgresql/18/lib/pg_search.so" "$symfs/usr/lib/postgresql/18/lib/"
+          docker cp "$container:/usr/lib/postgresql/18/bin/postgres" "$symfs/usr/lib/postgresql/18/bin/"
+          sha256sum "$symfs/usr/lib/postgresql/18/lib/pg_search.so" > results/profiles/library.sha256
+          cp benchmarks/queries.js results/profiles/queries.mjs
+          node --input-type=module <<'JS' > results/profiles/requests.json
+          import fs from 'node:fs';
+          import {selectQueries, buildRequest} from './results/profiles/queries.mjs';
+          const pool = JSON.parse(fs.readFileSync('datasets/stackexchange/queries.json'));
+          console.log(JSON.stringify(selectQueries(pool, 'conjunction', 1592614637).map(entry => ({
+            id: entry.record.source_id, request: buildRequest('paradedb', 'topk', entry, 10)
+          }))));
+          JS
+          taskset -c 8-11 "$RUNNER_TEMP/profile-venv/bin/python" ../.github/scripts/bp128_profile.py results/profiles
+          for data in results/profiles/*.data; do
+            sudo "$PERF_BIN" report -i "$data" --symfs "$symfs" --stdio --no-children \
+              --inline --percent-limit 0.1 -g none > "$data.self.txt"
+            sudo "$PERF_BIN" report -i "$data" --symfs "$symfs" --stdio --children \
+              --inline --percent-limit 0.5 -g graph,0.5,caller > "$data.stacks.txt"
+          done
+          sudo chown -R "$USER" results
+          docker stop "$container"
+
+      - name: Upload profiles
+        if: always() && inputs.profile
+        uses: actions/upload-artifact@v7
+        with:
+          name: bp128-profiles-${{ steps.build_image.outputs.short_commit }}
+          path: benchmarker/results
+          retention-days: 7
+
       - name: Dump database logs on failure
         if: failure() || cancelled()
         run: |
@@ -343,7 +415,7 @@ jobs:
           sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 
       - name: Publish Benchmarker Results
-        if: success()
+        if: success() && !inputs.profile
         uses: ./.github/actions/publish-benchmarker-results
         with:
           dataset: ${{ env.DATASET }}

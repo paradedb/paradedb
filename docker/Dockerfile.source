@@ -32,7 +32,8 @@ RUN rust=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml) && \
 
 WORKDIR /build
 COPY . .
-RUN cargo pgrx package --package pg_search --profile release \
+ARG BUILD_PROFILE=release
+RUN cargo pgrx package --package pg_search --profile "${BUILD_PROFILE}" \
     --pg-config /usr/lib/postgresql/18/bin/pg_config --out-dir /package && \
     mkdir -p /artifacts/usr/lib/postgresql/18/lib /artifacts/usr/share/postgresql/18/extension && \
     find /package -type f -name 'pg_search*.so' -exec cp {} /artifacts/usr/lib/postgresql/18/lib/ \; && \

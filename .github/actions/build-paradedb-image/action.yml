@@ -18,6 +18,11 @@ inputs:
     required: false
     default: "benchmarker-source-pg18-arm64"
 
+  build_profile:
+    description: "Cargo build profile"
+    required: false
+    default: "release"
+
 outputs:
   short_commit:
     description: "Short commit SHA of pg_search ref"
@@ -51,7 +56,9 @@ runs:
       with:
         context: pg_search_source
         file: docker/Dockerfile.source
-        build-args: BASE_IMAGE=${{ inputs.base_image }}
+        build-args: |
+          BASE_IMAGE=${{ inputs.base_image }}
+          BUILD_PROFILE=${{ inputs.build_profile }}
         pull: true
         load: true
         tags: ${{ inputs.image_tag }}

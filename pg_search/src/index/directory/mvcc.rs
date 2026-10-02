@@ -1175,7 +1175,7 @@ mod tests {
     #[pg_test]
     unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('test test');").unwrap();
         Spi::run(
             "CREATE INDEX t_idx ON t USING paradedb \
              (id, data, (data::pdb.simple('alias=with_pnorms', 'pnorms=true')))",
@@ -1195,6 +1195,7 @@ mod tests {
         };
         assert!(entry.field_norms.is_some());
         assert!(entry.posting_norms.is_some());
+        assert!(entry.term_frequencies.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());
         assert!(entry.positions.is_some());
@@ -1217,6 +1218,7 @@ mod tests {
                     .unwrap()
                     .unwrap();
                 assert_eq!(postings.fieldnorm_id().is_some(), pnorms);
+                assert_eq!(postings.term_freq(), 2);
             }
             assert!(segment.get_fieldnorms_reader(enabled).is_ok());
         }

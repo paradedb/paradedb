@@ -138,6 +138,7 @@ enum GroupingPushdownDeclineReason {
     GroupingSets,
     MissingPathKeys,
     NondeterministicCollation,
+    NondeterministicAggregateKey,
 }
 
 impl GroupingPushdownDeclineReason {
@@ -146,6 +147,9 @@ impl GroupingPushdownDeclineReason {
             Self::GroupingSets => "GROUPING SETS are not supported",
             Self::MissingPathKeys => "could not verify GROUP BY semantics",
             Self::NondeterministicCollation => "GROUP BY uses a nondeterministic collation",
+            Self::NondeterministicAggregateKey => {
+                "an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation"
+            }
         }
     }
 }
@@ -166,7 +170,30 @@ unsafe fn validate_grouping_pushdown(
         return Err(GroupingPushdownDeclineReason::GroupingSets);
     }
 
-    if args.root().group_pathkeys.is_null() {
+    // On PG16 and later, the sort keys of ordered and DISTINCT aggregates follow
+    // the GROUP BY keys in `group_pathkeys`. This checks them too: the DataFusion
+    // backend compares them by their bytes, like the GROUP BY keys.
+    let num_group_by_keys = args.group_by_pathkeys().len();
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys);
+    for (i, pathkey) in pathkeys.iter_ptr().enumerate() {
+        let equivalence_class = (*pathkey).pk_eclass;
+        if equivalence_class.is_null() {
+            return Err(GroupingPushdownDeclineReason::MissingPathKeys);
+        }
+
+        let collation = (*equivalence_class).ec_collation;
+        if assess_collation(collation, CollationOperation::Equality)
+            == CollationSafety::NondeterministicEquality
+        {
+            return Err(if i < num_group_by_keys {
+                GroupingPushdownDeclineReason::NondeterministicCollation
+            } else {
+                GroupingPushdownDeclineReason::NondeterministicAggregateKey
+            });
+        }
+    }
+
+    if num_group_by_keys == 0 {
         // A scalar aggregate has no grouping keys.
         if parse.is_null() || (*parse).groupClause.is_null() {
             return Ok(());
@@ -199,20 +226,6 @@ unsafe fn validate_grouping_pushdown(
         return Err(GroupingPushdownDeclineReason::MissingPathKeys);
     }
 
-    for pathkey in PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys).iter_ptr() {
-        let equivalence_class = (*pathkey).pk_eclass;
-        if equivalence_class.is_null() {
-            return Err(GroupingPushdownDeclineReason::MissingPathKeys);
-        }
-
-        let collation = (*equivalence_class).ec_collation;
-        if assess_collation(collation, CollationOperation::Equality)
-            == CollationSafety::NondeterministicEquality
-        {
-            return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
-        }
-    }
-
     Ok(())
 }
 
@@ -221,20 +234,19 @@ unsafe fn validate_grouping_pushdown(
 /// This is stricter than grouping equality: deterministic ICU collations are
 /// safe for grouping, but PostgreSQL must still perform their ordering.
 unsafe fn grouping_key_order_is_pushdown_safe(args: &CreateUpperPathsHookArgs) -> bool {
-    if args.root().group_pathkeys.is_null() {
+    let pathkeys = args.group_by_pathkeys();
+    if pathkeys.is_empty() {
         return false;
     }
 
-    PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys)
-        .iter_ptr()
-        .all(|pathkey| {
-            let equivalence_class = (*pathkey).pk_eclass;
-            !equivalence_class.is_null()
-                && collation_supports(
-                    (*equivalence_class).ec_collation,
-                    CollationOperation::Ordering,
-                )
-        })
+    pathkeys.into_iter().all(|pathkey| {
+        let equivalence_class = (*pathkey).pk_eclass;
+        !equivalence_class.is_null()
+            && collation_supports(
+                (*equivalence_class).ec_collation,
+                CollationOperation::Ordering,
+            )
+    })
 }
 
 /// A collection of index information that is necessary for making result-rewriting decisions

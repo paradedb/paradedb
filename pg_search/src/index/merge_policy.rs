@@ -68,7 +68,7 @@ impl LayeredMergePolicy {
         metadata: &MetaPage,
         merge_lock: &MergeLock,
         merger: &SearchIndexMerger,
-    ) -> tantivy::Result<usize> {
+    ) {
         let mut non_mergeable_segments = metadata.vacuum_list().read_list();
         // `list_segment_ids` borrows the `MergeList`, so it needs a binding that outlives the
         // `extend` call rather than a temporary.
@@ -88,10 +88,6 @@ impl LayeredMergePolicy {
                 !non_mergeable_segments.contains(segment_id)
             })
             .collect();
-        let unsupported = merger.unsupported_vector_segments(&self.mergeable_segments)?;
-        self.mergeable_segments
-            .retain(|id, _| !unsupported.contains(id));
-        Ok(unsupported.len())
     }
 
     #[cfg(any(test, feature = "pg_test"))]
@@ -144,6 +140,39 @@ impl LayeredMergePolicy {
         self.retain(segment_ids);
 
         (candidates, largest_layer_size)
+    }
+
+    /// Checks vector headers only for selected candidates and repeats selection after exclusions.
+    /// Writes without merge candidates do not read vector components.
+    pub fn simulate_supported(
+        &mut self,
+        merger: &SearchIndexMerger,
+    ) -> tantivy::Result<(Vec<MergeCandidate>, u64, usize)> {
+        self.simulate_with_validation(|candidates| merger.unsupported_vector_segments(candidates))
+    }
+
+    fn simulate_with_validation(
+        &mut self,
+        mut unsupported: impl FnMut(
+            &HashMap<SegmentId, SegmentMetaEntry>,
+        ) -> tantivy::Result<HashSet<SegmentId>>,
+    ) -> tantivy::Result<(Vec<MergeCandidate>, u64, usize)> {
+        let mut skipped = 0;
+        loop {
+            let (candidates, largest_layer_size) = self.simulate();
+            if candidates.is_empty() {
+                return Ok((candidates, largest_layer_size, skipped));
+            }
+            let excluded = unsupported(&self.mergeable_segments)?;
+            if excluded.is_empty() {
+                return Ok((candidates, largest_layer_size, skipped));
+            }
+            let before = self.mergeable_segments.len();
+            self.mergeable_segments
+                .retain(|id, _| !excluded.contains(id));
+            skipped += before - self.mergeable_segments.len();
+            self.already_processed.store(false, Ordering::Relaxed);
+        }
     }
 
     fn retain(&mut self, to_keep: HashSet<SegmentId>) {
@@ -495,6 +524,64 @@ mod tests {
 
         assert_eq!(candidates.len(), 0);
         assert_eq!(largest_layer_size, 0);
+    }
+
+    #[pg_test]
+    fn merge_validation_does_not_open_unselected_segments() {
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        let large = create_segment_meta_entry(2000, 200, 0);
+        let large_id = large.segment_id();
+        policy.set_mergeable_segments_for_test(vec![
+            create_segment_meta_entry(700, 70, 0),
+            create_segment_meta_entry(700, 70, 0),
+            large,
+        ]);
+        let (candidates, _, skipped) = policy
+            .simulate_with_validation(|selected| {
+                assert_eq!(selected.len(), 2);
+                assert!(!selected.contains_key(&large_id));
+                Ok(HashSet::default())
+            })
+            .unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(skipped, 0);
+
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        policy.set_mergeable_segments_for_test(vec![
+            create_segment_meta_entry(400, 40, 0),
+            create_segment_meta_entry(400, 40, 0),
+        ]);
+        let (candidates, _, skipped) = policy
+            .simulate_with_validation(|_| panic!("no candidate may open a vector component"))
+            .unwrap();
+        assert!(candidates.is_empty());
+        assert_eq!(skipped, 0);
+    }
+
+    #[pg_test]
+    fn merge_validation_repeats_selection_after_exclusions() {
+        let segments = (0..3)
+            .map(|_| create_mutable_segment_meta_entry(100, 0, false))
+            .collect::<Vec<_>>();
+        let mut excluded = segments[..2]
+            .iter()
+            .map(SegmentMetaEntry::segment_id)
+            .collect::<Vec<_>>();
+        let retained = segments[2].segment_id();
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        policy.set_mergeable_segments_for_test(segments);
+        let mut checks = 0;
+        let (candidates, _, skipped) = policy
+            .simulate_with_validation(|selected| {
+                checks += 1;
+                assert!(selected.contains_key(&retained));
+                Ok(excluded.pop().into_iter().collect())
+            })
+            .unwrap();
+        assert_eq!(checks, 3);
+        assert_eq!(skipped, 2);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].0, vec![retained]);
     }
 
     #[pg_test]

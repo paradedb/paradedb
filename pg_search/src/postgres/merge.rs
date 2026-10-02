@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashSet;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
@@ -32,9 +33,24 @@ use crate::postgres::storage::metadata::MetaPage;
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
 use pgrx::{FromDatum, IntoDatum, PgTryBuilder, check_for_interrupts, pg_guard, pg_sys};
+use std::cell::RefCell;
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
 use tantivy::index::SegmentMeta;
+
+thread_local! {
+    static WARNED_VECTOR_INDEXES: RefCell<HashSet<pg_sys::Oid>> = RefCell::new(HashSet::default());
+}
+
+/// Warns once per backend and index when merge selection drops unsupported vector storage.
+fn warn_unsupported_vector_merge(index: &PgSearchRelation, skipped: usize) {
+    if skipped > 0 && WARNED_VECTOR_INDEXES.with(|warned| warned.borrow_mut().insert(index.oid())) {
+        pgrx::warning!(
+            "index {:?}: skipped {skipped} segment(s) with unsupported vector storage during merge; rebuild with REINDEX",
+            index.name()
+        );
+    }
+}
 
 /// The DST details payload for a background-merge worker crash, or `None` when `caught` is not a
 /// bug. Returns `Some` only for bug-class errors — internal-error / corruption SQLSTATEs and Rust
@@ -288,20 +304,21 @@ pub unsafe fn do_merge(
     let merge_lock = metadata.acquire_merge_lock();
     let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
 
-    let (needs_background_merge, largest_layer_size) = if layer_sizes
-        .user_configured_background_layers()
-    {
-        let combined_layers = layer_sizes.combined();
-        let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
-        let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
+    let (needs_background_merge, largest_layer_size) =
+        if layer_sizes.user_configured_background_layers() {
+            let combined_layers = layer_sizes.combined();
+            let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
+            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
-        background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger)?;
-        let (merge_candidates, largest_layer_size) = background_merge_policy.simulate();
+            background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+            let (merge_candidates, largest_layer_size, skipped) =
+                background_merge_policy.simulate_supported(&merger)?;
+            warn_unsupported_vector_merge(index, skipped);
 
-        (!merge_candidates.is_empty(), largest_layer_size)
-    } else {
-        (false, 0)
-    };
+            (!merge_candidates.is_empty(), largest_layer_size)
+        } else {
+            (false, 0)
+        };
 
     if needs_background_merge && !need_backpressure {
         // if we need (and think we can do) a background merge then we prefer to do that
@@ -468,16 +485,11 @@ unsafe fn merge_index(
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
-    let skipped = merge_policy
-        .set_mergeable_segment_entries(&metadata, &merge_lock, &merger)
+    merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+    let (merge_candidates, _, skipped) = merge_policy
+        .simulate_supported(&merger)
         .expect("should be able to validate merge candidates");
-    if skipped > 0 {
-        pgrx::warning!(
-            "index {:?}: skipped {skipped} segment(s) with unsupported vector storage during merge; rebuild with REINDEX",
-            indexrel.name()
-        );
-    }
-    let (merge_candidates, _) = merge_policy.simulate();
+    warn_unsupported_vector_merge(indexrel, skipped);
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
         .adjust_pins(merge_policy.mergeable_segments())
@@ -678,7 +690,13 @@ impl MergeSlot {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use super::*;
     use crate::api::vector_test_support::*;
+    use crate::postgres::options::{
+        DEFAULT_BACKGROUND_LAYER_SIZES, DEFAULT_FOREGROUND_LAYER_SIZES,
+    };
+    use pgrx::prelude::*;
+
     #[pg_test]
     fn foreground_vector_merge_skips_unsupported_storage() {
         let indexrel = vector_metadata_fixture();
@@ -706,6 +724,10 @@ mod tests {
                 .iter()
                 .any(|entry| entry.segment_id() == *id && !entry.is_deleted())
         }));
+        assert!(WARNED_VECTOR_INDEXES.with(|warned| warned.borrow().contains(&oid)));
+        // A repeated write keeps the same backend warning state while skipping the unsupported segment.
+        Spi::run("UPDATE metadata_vectors SET vec = vec WHERE id = 4096").unwrap();
+        assert!(WARNED_VECTOR_INDEXES.with(|warned| warned.borrow().contains(&oid)));
         expect_reindex(&vector_query());
         drop(indexrel);
         Spi::run("REINDEX INDEX metadata_vectors_idx").unwrap();
@@ -715,12 +737,6 @@ mod tests {
             Some(4096)
         );
     }
-
-    use super::*;
-    use crate::postgres::options::{
-        DEFAULT_BACKGROUND_LAYER_SIZES, DEFAULT_FOREGROUND_LAYER_SIZES,
-    };
-    use pgrx::prelude::*;
 
     enum LayerSizes {
         Default,

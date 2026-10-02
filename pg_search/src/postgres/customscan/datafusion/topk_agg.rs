@@ -551,6 +551,10 @@ impl FusedTopK {
                     fill_nulls_u64(arr, u64::MAX)
                 })
                 .collect::<Result<_>>()?;
+            let ctids: Vec<_> = ctids
+                .iter()
+                .map(|a| a.as_primitive::<UInt64Type>())
+                .collect();
 
             // 4) For each of the first k groups, pick one row to represent it.
             let mut picks = Vec::with_capacity(self.k.min(ranges.len()));
@@ -571,12 +575,8 @@ impl FusedTopK {
                 let sorted_order_min_ctid_idx = range
                     .clone()
                     .min_by(|a, b| {
-                        let at = ctids
-                            .iter()
-                            .map(|c| c.as_primitive::<UInt64Type>().value(*a));
-                        let bt = ctids
-                            .iter()
-                            .map(|c| c.as_primitive::<UInt64Type>().value(*b));
+                        let at = ctids.iter().map(|c| c.value(*a));
+                        let bt = ctids.iter().map(|c| c.value(*b));
                         at.cmp(bt)
                     })
                     .expect("should always produce a value since range.len() > 0");

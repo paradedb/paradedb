@@ -882,13 +882,13 @@ fn build_clause_df<'a>(
         // `distinct_col_map` as before. Otherwise DISTINCT is a GROUP BY and the
         // sort is its own step.
         let (df, distinct_col_map, expressions_evaluated) = if gucs::joinscan_force_topk_as_agg()
-            && let Some((offset, k)) = join_clause
+            && let Some(fetch) = join_clause
                 .limit_offset
                 .as_ref()
-                .and_then(|lo| Some((lo.static_offset()?, lo.static_limit()?)))
+                .and_then(|lo| lo.static_fetch())
         {
             let (df, distinct_col_map) =
-                apply_topk_as_agg(df, join_clause, &private_data.output_columns, offset + k)?;
+                apply_topk_as_agg(df, join_clause, &private_data.output_columns, fetch)?;
             (df, distinct_col_map, true)
         } else {
             let (df, distinct_col_map, expressions_evaluated) =
@@ -976,14 +976,19 @@ fn apply_topk_as_agg(
     // `col_N` projection below.
     let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
 
-    // Only relations whose heap tuples are fetched need a ctid carried through,
-    // the same pruning the GROUP BY form applies.
-    let needed_ctids = relations_needing_ctid(output_columns);
-    let ctid_names: Vec<String> =
+    let ctid_names: Vec<String> = if join_clause.has_distinct {
+        // Only relations whose heap tuples are fetched need a ctid carried through,
+        // the same pruning the GROUP BY form applies.
+        let needed_ctids = relations_needing_ctid(output_columns);
+
         surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
             .filter(|(pos, _)| needed_ctids.contains(pos))
             .map(|(_, name)| name)
-            .collect();
+            .collect()
+    } else {
+        // No ctids needed for non-distinct queries
+        Vec::new()
+    };
 
     // the projected key expressions, along with the name we map them to
     let projected: HashMap<Expr, Expr> = distinct_exprs_with_names

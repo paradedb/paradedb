@@ -134,7 +134,6 @@ pub struct AggregateScan;
 /// PostgreSQL, while `pdb.agg()` queries error at plan time with the reason.
 enum GroupingPushdownDeclineReason {
     GroupingSets,
-    MissingPathKeys,
     NondeterministicCollation,
 }
 
@@ -142,7 +141,6 @@ impl GroupingPushdownDeclineReason {
     fn detail(&self) -> &'static str {
         match self {
             Self::GroupingSets => "GROUPING SETS are not supported",
-            Self::MissingPathKeys => "could not verify GROUP BY semantics",
             Self::NondeterministicCollation => "GROUP BY uses a nondeterministic collation",
         }
     }
@@ -160,51 +158,21 @@ unsafe fn validate_grouping_pushdown(
     args: &CreateUpperPathsHookArgs,
 ) -> Result<(), GroupingPushdownDeclineReason> {
     let parse = args.root().parse;
-    if !parse.is_null() && !(*parse).groupingSets.is_null() {
+    if parse.is_null() {
+        return Ok(());
+    }
+    if !(*parse).groupingSets.is_null() {
         return Err(GroupingPushdownDeclineReason::GroupingSets);
     }
 
-    if args.root().group_pathkeys.is_null() {
-        // A scalar aggregate has no grouping keys.
-        if parse.is_null() || (*parse).groupClause.is_null() {
-            return Ok(());
-        }
-
-        // For multi-table join aggregates (which execute on DataFusion), grouping columns
-        // are extracted directly from the target list expressions rather than group_pathkeys.
-        // When all grouping keys are constant (e.g. `WHERE orders.color = 'blue' GROUP BY orders.color`),
-        // PostgreSQL's optimizer omits them from group_pathkeys via `EC_has_const`.
-        // We verify collation safety directly from `parse.groupClause`.
-        if args.input_rel().reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL {
-            let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
-            for gc in group_clauses.iter_ptr() {
-                let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
-                if expr.is_null() {
-                    return Err(GroupingPushdownDeclineReason::MissingPathKeys);
-                }
-                let collation = pg_sys::exprCollation(expr);
-                if assess_collation(collation, CollationOperation::Equality)
-                    == CollationSafety::NondeterministicEquality
-                {
-                    return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
-                }
-            }
-            return Ok(());
-        }
-
-        // For single-table aggregates on Tantivy, missing pathkeys prevent Tantivy
-        // from discovering grouping columns (see `groupby.rs`).
-        return Err(GroupingPushdownDeclineReason::MissingPathKeys);
-    }
-
-    for pathkey in PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys).iter_ptr() {
-        let equivalence_class = (*pathkey).pk_eclass;
-        if equivalence_class.is_null() {
-            return Err(GroupingPushdownDeclineReason::MissingPathKeys);
-        }
-
-        let collation = (*equivalence_class).ec_collation;
-        if assess_collation(collation, CollationOperation::Equality)
+    // Check the GROUP BY keys as written, not `group_pathkeys`. PostgreSQL
+    // leaves a key out of the pathkeys when sorting by it is redundant (for
+    // example `WHERE color = 'blue' GROUP BY color`), but both backends still
+    // group by that key.
+    let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+    for clause in group_clauses.iter_ptr() {
+        let expr = pg_sys::get_sortgroupclause_expr(clause, (*parse).targetList);
+        if assess_collation(pg_sys::exprCollation(expr), CollationOperation::Equality)
             == CollationSafety::NondeterministicEquality
         {
             return Err(GroupingPushdownDeclineReason::NondeterministicCollation);

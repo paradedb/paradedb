@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::customscan::aggregatescan::groupby::resolve_grouping_column;
 use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScan;
@@ -124,8 +125,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
             return Err("Target list is empty".into());
         }
 
-        let groupby_clause = GroupByClause::from_pg(args, heap_rti, index)?;
-        let grouping_columns = groupby_clause.grouping_columns();
+        let mut groupby_clause = GroupByClause::from_pg(args, heap_rti, index)?;
         let mut entries = Vec::new();
         let mut uses_our_operator = false;
 
@@ -148,20 +148,23 @@ impl CustomScanClause<AggregateScan> for TargetList {
             // Try to extract field name from the expression (handles both Var and JSON operators)
             if let Some(field_name) = maybe_field_name {
                 // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
-                // Find which grouping column this is
-                let mut found = false;
-                for (i, gc) in grouping_columns.iter().enumerate() {
-                    // For JSON projections, the field_name will be like "metadata_json.value"
-                    // and gc.field_name should match
-                    if gc.field_name == field_name {
-                        entries.push(TargetListEntry::GroupingColumn(i));
-                        found = true;
-                        break;
+                // For JSON projections, the field_name will be like "metadata_json.value"
+                // and the grouping column's field_name should match
+                let position = match groupby_clause.position(&field_name) {
+                    Some(position) => position,
+                    // PostgreSQL only lets a non-aggregated column into the output
+                    // when it is a GROUP BY key or the keys determine it, and it
+                    // leaves a key out of `group_pathkeys` when sorting by it is
+                    // redundant (the key is equal to a constant). Either way the
+                    // column has one value per group, so grouping by it too leaves
+                    // the groups unchanged. It goes last so that the pathkey
+                    // columns keep the nesting order the scan's sort order relies on.
+                    None => {
+                        let column = resolve_grouping_column(args, heap_rti, index, expr.cast())?;
+                        groupby_clause.push(column)
                     }
-                }
-                if !found {
-                    return Err(format!("Field '{}' is not a grouping column", field_name).into());
-                }
+                };
+                entries.push(TargetListEntry::GroupingColumn(position));
             } else if let Some(aggref) = expr.find_single_node::<pg_sys::Aggref>() {
                 // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
                 // TODO: Support DISTINCT
@@ -198,6 +201,18 @@ impl CustomScanClause<AggregateScan> for TargetList {
             } else {
                 return Err("Expression is neither a grouping column nor a single Aggref".into());
             }
+        }
+
+        // A grouped query returns no rows when nothing matches, where an ungrouped
+        // one returns a single row. Every GROUP BY key is in the output (as a junk
+        // entry when it is not selected), so a grouped query that reaches this
+        // point without a grouping column cannot be answered correctly.
+        let parse = args.root().parse;
+        if groupby_clause.grouping_columns().is_empty()
+            && !parse.is_null()
+            && unsafe { !(*parse).groupClause.is_null() }
+        {
+            return Err("could not find the GROUP BY columns in the query output".into());
         }
 
         Ok(TargetList {

@@ -1,0 +1,606 @@
+-- Tests that AggregateScan groups by columns that PostgreSQL leaves out of
+-- group_pathkeys but keeps in the output: a key equal to a constant, and a
+-- column determined by a primary key in the GROUP BY.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS pruned_keys;
+CREATE TABLE pruned_keys (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER,
+    kind TEXT,
+    amount NUMERIC(10, 2),
+    metadata JSONB
+);
+INSERT INTO pruned_keys (account_id, kind, amount, metadata) VALUES
+    (1, 'invoice', 10.50, '{"color": "red"}'),
+    (1, 'invoice', 20.25, '{"color": "red"}'),
+    (1, 'refund',   5.00, '{"color": "blue"}'),
+    (1, 'payout',  40.00, '{"color": "red"}'),
+    (1, NULL,       1.00, '{"color": "blue"}'),
+    (2, 'invoice', 30.00, '{"color": "red"}'),
+    (2, 'refund',   7.75, '{"color": "blue"}'),
+    (2, 'refund',   2.25, '{"color": "red"}'),
+    (3, 'payout',  99.00, '{"color": "green"}'),
+    (3, 'invoice', 15.00, NULL);
+CREATE INDEX pruned_keys_idx ON pruned_keys USING paradedb
+    (id, account_id, (kind::pdb.unicode_words('columnar=true')), amount,
+     (metadata::pdb.simple('columnar=true')));
+ANALYZE pruned_keys;
+\echo 'Test 1: a single key equal to a constant'
+Test 1: a single key equal to a constant
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT account_id, COUNT(*) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pruned_keys
+   Index: pruned_keys_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: account_id
+     Aggregate Definition: {"grouped":{"terms":{"field":"account_id","segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT account_id, COUNT(*) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ account_id | count 
+------------+-------
+          1 |     5
+(1 row)
+
+\echo 'Test 2: two keys, one equal to a constant'
+Test 2: two keys, one equal to a constant
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS count_all, account_id, kind FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id, kind;
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pruned_keys
+   Index: pruned_keys_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: kind, account_id
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"account_id","segment_size":65000,"size":65000}}},"terms":{"field":"kind","segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT COUNT(*) AS count_all, account_id, kind FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id, kind
+ORDER BY kind;
+ count_all | account_id |  kind   
+-----------+------------+---------
+         2 |          1 | invoice
+         1 |          1 | payout
+         1 |          1 | refund
+         1 |          1 | 
+(4 rows)
+
+\echo 'Test 3: the constant key is not selected'
+Test 3: the constant key is not selected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pruned_keys
+   Index: pruned_keys_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: account_id
+     Aggregate Definition: {"grouped":{"terms":{"field":"account_id","segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT COUNT(*) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ count 
+-------
+     5
+(1 row)
+
+\echo 'Test 4: no matching rows returns no groups'
+Test 4: no matching rows returns no groups
+SELECT account_id, COUNT(*) FROM pruned_keys
+WHERE account_id = 99 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ account_id | count 
+------------+-------
+(0 rows)
+
+SELECT COUNT(*) FROM pruned_keys
+WHERE account_id = 99 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ count 
+-------
+(0 rows)
+
+\echo 'Test 5: a single-element IN list is an equality'
+Test 5: a single-element IN list is an equality
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT account_id, kind, COUNT(*) FROM pruned_keys
+WHERE account_id IN (2) AND id @@@ paradedb.all()
+GROUP BY account_id, kind;
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pruned_keys
+   Index: pruned_keys_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":2}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: kind, account_id
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"account_id","segment_size":65000,"size":65000}}},"terms":{"field":"kind","segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT account_id, kind, COUNT(*) FROM pruned_keys
+WHERE account_id IN (2) AND id @@@ paradedb.all()
+GROUP BY account_id, kind
+ORDER BY kind;
+ account_id |  kind   | count 
+------------+---------+-------
+          2 | invoice |     1
+          2 | refund  |     2
+(2 rows)
+
+\echo 'Test 6: a key equal to a parameter in a generic plan'
+Test 6: a key equal to a parameter in a generic plan
+-- Executed once: a cached AggregateScan plan fails when it is executed again (#6136).
+SET plan_cache_mode = force_generic_plan;
+PREPARE pruned_keys_by_account(INTEGER) AS
+SELECT account_id, kind, COUNT(*) FROM pruned_keys
+WHERE account_id = $1 AND id @@@ paradedb.all()
+GROUP BY account_id, kind
+ORDER BY kind;
+EXECUTE pruned_keys_by_account(2);
+ account_id |  kind   | count 
+------------+---------+-------
+          2 | invoice |     1
+          2 | refund  |     2
+(2 rows)
+
+DEALLOCATE pruned_keys_by_account;
+RESET plan_cache_mode;
+\echo 'Test 7: a column determined by the primary key'
+Test 7: a column determined by the primary key
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, kind, COUNT(*) FROM pruned_keys
+WHERE id @@@ paradedb.all()
+GROUP BY id, kind
+ORDER BY id;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pruned_keys
+   Index: pruned_keys_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: id, kind
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","segment_size":65000,"size":65000}}},"terms":{"field":"id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT id, kind, COUNT(*) FROM pruned_keys
+WHERE id @@@ paradedb.all()
+GROUP BY id, kind
+ORDER BY id;
+ id |  kind   | count 
+----+---------+-------
+  1 | invoice |     1
+  2 | invoice |     1
+  3 | refund  |     1
+  4 | payout  |     1
+  5 |         |     1
+  6 | invoice |     1
+  7 | refund  |     1
+  8 | refund  |     1
+  9 | payout  |     1
+ 10 | invoice |     1
+(10 rows)
+
+\echo 'Test 8: ORDER BY the constant key and LIMIT'
+Test 8: ORDER BY the constant key and LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT account_id, kind, COUNT(*) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id, kind
+ORDER BY account_id, kind
+LIMIT 2;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: kind
+         ->  Custom Scan (ParadeDB Aggregate Scan) on pruned_keys
+               Index: pruned_keys_idx
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: kind, account_id
+                 Limit: 2
+                 Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"account_id","segment_size":65000,"size":65000}}},"terms":{"field":"kind","segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT account_id, kind, COUNT(*) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id, kind
+ORDER BY account_id, kind
+LIMIT 2;
+ account_id |  kind   | count 
+------------+---------+-------
+          1 | invoice |     2
+          1 | payout  |     1
+(2 rows)
+
+\echo 'Test 9: a JSON path key equal to a constant'
+Test 9: a JSON path key equal to a constant
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT metadata->>'color' AS color, kind, COUNT(*) FROM pruned_keys
+WHERE metadata->>'color' = 'red' AND id @@@ paradedb.all()
+GROUP BY metadata->>'color', kind;
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pruned_keys
+   Index: pruned_keys_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"((metadata ->> 'color'::text) = 'red'::text)"}]}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: kind, metadata.color
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"metadata.color","segment_size":65000,"size":65000}}},"terms":{"field":"kind","segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT metadata->>'color' AS color, kind, COUNT(*) FROM pruned_keys
+WHERE metadata->>'color' = 'red' AND id @@@ paradedb.all()
+GROUP BY metadata->>'color', kind
+ORDER BY kind;
+ color |  kind   | count 
+-------+---------+-------
+ red   | invoice |     3
+ red   | payout  |     1
+ red   | refund  |     1
+(3 rows)
+
+\echo 'Test 10: a NUMERIC aggregate runs on DataFusion'
+Test 10: a NUMERIC aggregate runs on DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT account_id, SUM(amount) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: pruned_keys_idx (pruned_keys)
+   Group By: account_id
+   Aggregates: SUM(amount)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[account_id@0 as account_id], aggr=[numeric64_sum(pruned_keys_0.amount, 2) as agg_0]
+     :   CooperativeExec
+     :     PgSearchScan: table=pruned_keys, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
+(9 rows)
+
+SELECT account_id, SUM(amount) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ account_id |  sum  
+------------+-------
+          1 | 76.75
+(1 row)
+
+\echo 'Test 11: pdb.agg() with a constant key'
+Test 11: pdb.agg() with a constant key
+SELECT account_id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ account_id |      agg       
+------------+----------------
+          1 | {"value": 5.0}
+(1 row)
+
+\echo 'Test 12: a constant key with a nondeterministic collation is not pushed down'
+Test 12: a constant key with a nondeterministic collation is not pushed down
+CREATE COLLATION pruned_keys_case_insensitive (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
+CREATE TABLE pruned_keys_collation (
+    id SERIAL PRIMARY KEY,
+    label TEXT COLLATE pruned_keys_case_insensitive,
+    kind TEXT
+);
+INSERT INTO pruned_keys_collation (label, kind) VALUES
+    ('Red', 'invoice'),
+    ('red', 'invoice'),
+    ('blue', 'invoice');
+CREATE INDEX pruned_keys_collation_idx ON pruned_keys_collation USING paradedb
+    (id, (label::pdb.unicode_words('columnar=true')), (kind::pdb.unicode_words('columnar=true')));
+SELECT COUNT(*) FROM pruned_keys_collation
+WHERE label = 'red' AND id @@@ paradedb.all()
+GROUP BY label;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pruned_keys_collation)
+ count 
+-------
+     2
+(1 row)
+
+SELECT kind, COUNT(*) FROM pruned_keys_collation
+WHERE label = 'red' AND id @@@ paradedb.all()
+GROUP BY label, kind;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pruned_keys_collation)
+  kind   | count 
+---------+-------
+ invoice |     2
+(1 row)
+
+DROP TABLE pruned_keys_collation;
+DROP COLLATION pruned_keys_case_insensitive;
+\echo 'Test 13: a JSON path determined by the primary key'
+Test 13: a JSON path determined by the primary key
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, metadata->>'color' AS color, COUNT(*) FROM pruned_keys
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pruned_keys
+   Index: pruned_keys_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: id, metadata.color
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"metadata.color","segment_size":65000,"size":65000}}},"terms":{"field":"id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT id, metadata->>'color' AS color, COUNT(*) FROM pruned_keys
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id;
+ id | color | count 
+----+-------+-------
+  1 | red   |     1
+  2 | red   |     1
+  3 | blue  |     1
+  4 | red   |     1
+  5 | blue  |     1
+  6 | red   |     1
+  7 | blue  |     1
+  8 | red   |     1
+  9 | green |     1
+ 10 |       |     1
+(10 rows)
+
+\echo 'Test 14: a constant key under a pulled-up subquery'
+Test 14: a constant key under a pulled-up subquery
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT s.account_id, s.kind, COUNT(*)
+FROM (SELECT * FROM pruned_keys WHERE account_id = 1 AND id @@@ paradedb.all()) s
+GROUP BY s.account_id, s.kind;
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pruned_keys
+   Index: pruned_keys_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: kind, account_id
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"account_id","segment_size":65000,"size":65000}}},"terms":{"field":"kind","segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT s.account_id, s.kind, COUNT(*)
+FROM (SELECT * FROM pruned_keys WHERE account_id = 1 AND id @@@ paradedb.all()) s
+GROUP BY s.account_id, s.kind
+ORDER BY s.kind;
+ account_id |  kind   | count 
+------------+---------+-------
+          1 | invoice |     2
+          1 | payout  |     1
+          1 | refund  |     1
+          1 |         |     1
+(4 rows)
+
+\echo 'Test 15: a key equal to an outer column in a correlated subquery'
+Test 15: a key equal to an outer column in a correlated subquery
+SELECT a.id,
+       (SELECT COUNT(*) FROM pruned_keys b
+        WHERE b.account_id = a.account_id AND b.id @@@ paradedb.all()
+        GROUP BY b.account_id) AS same_account
+FROM pruned_keys a
+WHERE a.id IN (1, 6, 9)
+ORDER BY a.id;
+ id | same_account 
+----+--------------
+  1 |            5
+  6 |            3
+  9 |            2
+(3 rows)
+
+\echo 'Test 16: a key equal to an outer column in a LATERAL subquery'
+Test 16: a key equal to an outer column in a LATERAL subquery
+SELECT a.id, l.kind, l.count
+FROM pruned_keys a,
+     LATERAL (SELECT b.account_id, b.kind, COUNT(*) FROM pruned_keys b
+              WHERE b.account_id = a.account_id AND b.id @@@ paradedb.all()
+              GROUP BY b.account_id, b.kind) l
+WHERE a.id IN (6, 9)
+ORDER BY a.id, l.kind;
+ id |  kind   | count 
+----+---------+-------
+  6 | invoice |     1
+  6 | refund  |     2
+  9 | invoice |     1
+  9 | payout  |     1
+(4 rows)
+
+\echo 'PostgreSQL returns the same rows without AggregateScan'
+PostgreSQL returns the same rows without AggregateScan
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT account_id, COUNT(*) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ account_id | count 
+------------+-------
+          1 |     5
+(1 row)
+
+SELECT COUNT(*) AS count_all, account_id, kind FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id, kind
+ORDER BY kind;
+ count_all | account_id |  kind   
+-----------+------------+---------
+         2 |          1 | invoice
+         1 |          1 | payout
+         1 |          1 | refund
+         1 |          1 | 
+(4 rows)
+
+SELECT COUNT(*) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ count 
+-------
+     5
+(1 row)
+
+SELECT account_id, COUNT(*) FROM pruned_keys
+WHERE account_id = 99 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ account_id | count 
+------------+-------
+(0 rows)
+
+SELECT COUNT(*) FROM pruned_keys
+WHERE account_id = 99 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ count 
+-------
+(0 rows)
+
+SELECT account_id, kind, COUNT(*) FROM pruned_keys
+WHERE account_id IN (2) AND id @@@ paradedb.all()
+GROUP BY account_id, kind
+ORDER BY kind;
+ account_id |  kind   | count 
+------------+---------+-------
+          2 | invoice |     1
+          2 | refund  |     2
+(2 rows)
+
+SELECT id, kind, COUNT(*) FROM pruned_keys
+WHERE id @@@ paradedb.all()
+GROUP BY id, kind
+ORDER BY id;
+ id |  kind   | count 
+----+---------+-------
+  1 | invoice |     1
+  2 | invoice |     1
+  3 | refund  |     1
+  4 | payout  |     1
+  5 |         |     1
+  6 | invoice |     1
+  7 | refund  |     1
+  8 | refund  |     1
+  9 | payout  |     1
+ 10 | invoice |     1
+(10 rows)
+
+SELECT account_id, kind, COUNT(*) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id, kind
+ORDER BY account_id, kind
+LIMIT 2;
+ account_id |  kind   | count 
+------------+---------+-------
+          1 | invoice |     2
+          1 | payout  |     1
+(2 rows)
+
+SELECT metadata->>'color' AS color, kind, COUNT(*) FROM pruned_keys
+WHERE metadata->>'color' = 'red' AND id @@@ paradedb.all()
+GROUP BY metadata->>'color', kind
+ORDER BY kind;
+ color |  kind   | count 
+-------+---------+-------
+ red   | invoice |     3
+ red   | payout  |     1
+ red   | refund  |     1
+(3 rows)
+
+SELECT account_id, SUM(amount) FROM pruned_keys
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+ account_id |  sum  
+------------+-------
+          1 | 76.75
+(1 row)
+
+SELECT id, metadata->>'color' AS color, COUNT(*) FROM pruned_keys
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id;
+ id | color | count 
+----+-------+-------
+  1 | red   |     1
+  2 | red   |     1
+  3 | blue  |     1
+  4 | red   |     1
+  5 | blue  |     1
+  6 | red   |     1
+  7 | blue  |     1
+  8 | red   |     1
+  9 | green |     1
+ 10 |       |     1
+(10 rows)
+
+SELECT s.account_id, s.kind, COUNT(*)
+FROM (SELECT * FROM pruned_keys WHERE account_id = 1 AND id @@@ paradedb.all()) s
+GROUP BY s.account_id, s.kind
+ORDER BY s.kind;
+ account_id |  kind   | count 
+------------+---------+-------
+          1 | invoice |     2
+          1 | payout  |     1
+          1 | refund  |     1
+          1 |         |     1
+(4 rows)
+
+SELECT a.id,
+       (SELECT COUNT(*) FROM pruned_keys b
+        WHERE b.account_id = a.account_id AND b.id @@@ paradedb.all()
+        GROUP BY b.account_id) AS same_account
+FROM pruned_keys a
+WHERE a.id IN (1, 6, 9)
+ORDER BY a.id;
+ id | same_account 
+----+--------------
+  1 |            5
+  6 |            3
+  9 |            2
+(3 rows)
+
+SELECT a.id, l.kind, l.count
+FROM pruned_keys a,
+     LATERAL (SELECT b.account_id, b.kind, COUNT(*) FROM pruned_keys b
+              WHERE b.account_id = a.account_id AND b.id @@@ paradedb.all()
+              GROUP BY b.account_id, b.kind) l
+WHERE a.id IN (6, 9)
+ORDER BY a.id, l.kind;
+ id |  kind   | count 
+----+---------+-------
+  6 | invoice |     1
+  6 | refund  |     2
+  9 | invoice |     1
+  9 | payout  |     1
+(4 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE pruned_keys;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

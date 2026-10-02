@@ -38,6 +38,10 @@ on:
         description: "Compare scoring and norm-read modes on one index (requires profile)"
         type: boolean
         default: false
+      layout_commit:
+        description: "Optional boxed-decoder commit for the same-index layout comparison"
+        type: string
+        default: ""
       commit:
         description: "pg_search commit/ref to benchmark. Defaults to the triggering ref (main on a manual run)."
         required: false
@@ -294,6 +298,42 @@ jobs:
           build_profile: ${{ inputs.profile && 'release-with-debug' || 'release' }}
           cache_scope: ${{ inputs.profile && 'bp128-profile-pg18-arm64' || 'benchmarker-source-pg18-arm64' }}
 
+      - name: Build boxed-decoder image
+        if: inputs.score_ablation && inputs.layout_commit != ''
+        uses: ./.github/actions/build-paradedb-image
+        with:
+          ref: ${{ inputs.layout_commit }}
+          base_image: ${{ inputs.base_paradedb_image }}
+          image_tag: paradedb-boxed:ci
+          build_profile: release-with-debug
+          cache_scope: bp128-boxed-pg18-arm64
+
+      - name: Smoke test norm modes
+        if: inputs.score_ablation
+        env:
+          LAYOUT_COMMIT: ${{ inputs.layout_commit }}
+        run: |
+          set -euo pipefail
+          images=("$IMAGE_TAG")
+          if [ -n "$LAYOUT_COMMIT" ]; then images+=(paradedb-boxed:ci); fi
+          trap 'docker rm -f bp128-smoke >/dev/null 2>&1 || true' EXIT
+          for image in "${images[@]}"; do
+            modes=(full quantized legacy bounded)
+            if [ "$image" = paradedb-boxed:ci ]; then modes+=(fieldnorms); fi
+            for mode in "${modes[@]}"; do
+              echo "Checking image=$image mode=$mode"
+              docker run -d --name bp128-smoke -e POSTGRES_PASSWORD=postgres \
+                -e POSTGRES_DB=benchmark -e TANTIVY_BP128_MODE="$mode" "$image"
+              for attempt in $(seq 1 60); do
+                if docker exec bp128-smoke pg_isready -h 127.0.0.1 -U postgres -d benchmark; then break; fi
+                sleep 1
+              done
+              docker exec -i -e PGPASSWORD=postgres bp128-smoke psql -X -h 127.0.0.1 -U postgres -d benchmark \
+                -v ON_ERROR_STOP=1 < .github/scripts/bp128_smoke.sql
+              docker rm -f bp128-smoke
+            done
+          done
+
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
@@ -429,6 +469,7 @@ jobs:
         env:
           POSTGRES_CPUSET: "0-7"
           PROFILE_COMMIT: ${{ steps.determine-ref.outputs.ref }}
+          LAYOUT_COMMIT: ${{ inputs.layout_commit }}
         run: |
           set -euo pipefail
           python3 <<'PY'
@@ -439,15 +480,24 @@ jobs:
           assert source.count(anchor) == 1
           path.write_text(source.replace(anchor, anchor + '    TANTIVY_BP128_MODE: ${TANTIVY_BP128_MODE:-full}\n'))
           PY
-          for label in full-before quantized legacy fieldnorms bounded full-after; do
+          labels=(full-before quantized legacy bounded full-after)
+          if [ -n "$LAYOUT_COMMIT" ]; then labels=(full-before bounded boxed-full boxed-fieldnorms full-after); fi
+          for label in "${labels[@]}"; do
             export TANTIVY_BP128_MODE="${label%%-*}"
+            pass_image="$IMAGE_TAG"
+            export PROFILE_COMMIT="${{ steps.determine-ref.outputs.ref }}"
+            if [[ "$label" == boxed-* ]]; then
+              export TANTIVY_BP128_MODE="${label#boxed-}"
+              pass_image=paradedb-boxed:ci
+              export PROFILE_COMMIT="$LAYOUT_COMMIT"
+            fi
             out="$PWD/results/$label"
             mkdir -p "$out"
             cp results/profiles/requests.json "$out/requests.json"
             taskset -c 8-11 make -f Makefile.stackexchange run \
               BACKENDS=paradedb WORKLOAD=topk QUERY_STYLE=conjunction VUS=1 \
               PREWARM=30s DURATION=60s OUTPUT=json,html OUT_DIR="$out" \
-              PARADEDB_IMAGE="$IMAGE_TAG" VOLUME_ROOT="$VOLUME_ROOT"
+              PARADEDB_IMAGE="$pass_image" VOLUME_ROOT="$VOLUME_ROOT"
             container=$(docker ps -aq --filter label=io.benchmarker.project=bench-datasets-stackexchange)
             test "$(wc -w <<< "$container")" -eq 1
             docker start "$container"
@@ -464,16 +514,19 @@ jobs:
           python3 <<'PY'
           import json
           from pathlib import Path
-          roots = [Path('results') / name for name in ('full-before', 'quantized', 'legacy', 'fieldnorms', 'bounded', 'full-after')]
-          reference = json.loads((roots[0] / 'metadata.json').read_text())
-          library_hash = (roots[0] / 'library.sha256').read_text()
-          for root in roots[1:]:
+          roots = sorted(path.parent for path in Path('results').glob('*/metadata.json'))
+          reference = json.loads(Path('results/full-before/metadata.json').read_text())
+          library_hash = Path('results/full-before/library.sha256').read_text()
+          for root in roots:
               current = json.loads((root / 'metadata.json').read_text())
               assert current['index_bytes'] == reference['index_bytes'], root
               assert sorted(current['segments']) == sorted(reference['segments']), root
               assert current['settings'] == reference['settings'], root
-              assert (root / 'library.sha256').read_text() == library_hash, root
-          print('Verified identical index layout, index size, PostgreSQL settings and extension binary across all modes')
+              if not root.name.startswith('boxed-'):
+                  assert (root / 'library.sha256').read_text() == library_hash, root
+          if Path('results/boxed-full').exists():
+              assert Path('results/boxed-full/library.sha256').read_text() == Path('results/boxed-fieldnorms/library.sha256').read_text()
+          print('Verified identical index layout, index size and PostgreSQL settings across all passes; binary hashes match within each variant')
           PY
 
       - name: Upload profiles

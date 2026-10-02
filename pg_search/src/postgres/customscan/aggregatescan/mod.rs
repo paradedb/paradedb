@@ -2688,8 +2688,9 @@ unsafe fn detect_join_aggregate_topk(
 /// Uses expression_tree_mutator to handle nested Aggrefs (e.g., COALESCE(COUNT(*), 0))
 ///
 /// The new target list lives in the memory context of the one it replaces. PostgreSQL
-/// caches the plan of a prepared statement and runs it again, so the plan can outlive
-/// the execution that calls this.
+/// can cache a plan and run it again (a prepared statement, or a statement in a
+/// function), so the plan can outlive the execution that calls this. The next
+/// execution finds no Aggref and changes nothing.
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     use pgrx::pg_guard;
 

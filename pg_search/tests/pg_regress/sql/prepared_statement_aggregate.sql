@@ -8,18 +8,20 @@ CREATE TABLE prepared_agg_sales (
     id SERIAL PRIMARY KEY,
     region TEXT NOT NULL,
     rating INTEGER NOT NULL,
-    amount FLOAT8 NOT NULL
+    amount FLOAT8 NOT NULL,
+    tags TEXT[] NOT NULL
 );
 
-INSERT INTO prepared_agg_sales (region, rating, amount)
+INSERT INTO prepared_agg_sales (region, rating, amount, tags)
 SELECT
     (ARRAY['east', 'north', 'west'])[(g % 3) + 1],
     (g % 4) + 1,
-    g
+    g,
+    CASE WHEN g % 2 = 0 THEN ARRAY['new', 'sale'] ELSE ARRAY['new'] END
 FROM generate_series(1, 60) g;
 
 CREATE INDEX prepared_agg_sales_idx ON prepared_agg_sales
-USING paradedb (id, (region::pdb.literal), rating, amount);
+USING paradedb (id, (region::pdb.literal), rating, amount, (tags::pdb.literal));
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -90,6 +92,19 @@ EXECUTE prepared_agg_custom;
 EXECUTE prepared_agg_custom;
 EXECUTE prepared_agg_custom;
 
+\echo 'Test 1.6: UNNEST in the GROUP BY'
+PREPARE prepared_agg_unnest AS
+SELECT UNNEST(tags) AS tag, COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY tag
+ORDER BY tag;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_unnest;
+EXECUTE prepared_agg_unnest;
+EXECUTE prepared_agg_unnest;
+EXECUTE prepared_agg_unnest;
+
 -- =====================================================================
 -- SECTION 2: Parameters
 -- =====================================================================
@@ -130,7 +145,38 @@ EXECUTE prepared_agg_default(3);
 EXECUTE prepared_agg_default(4);
 
 -- =====================================================================
--- SECTION 3: Same results from PostgreSQL
+-- SECTION 3: A statement in a function
+-- =====================================================================
+-- PL/pgSQL caches the plan of each statement. The function calls itself in
+-- its loop, so the plan runs again while an earlier run is still open.
+
+CREATE FUNCTION prepared_agg_walk(depth int) RETURNS SETOF text
+LANGUAGE plpgsql AS $$
+DECLARE
+    row record;
+BEGIN
+    FOR row IN
+        SELECT region, COUNT(*) AS count
+        FROM prepared_agg_sales
+        WHERE id @@@ pdb.all()
+        GROUP BY region
+        ORDER BY region
+    LOOP
+        RETURN NEXT depth || ':' || row.region || ':' || row.count;
+        IF depth < 1 AND row.region = 'east' THEN
+            RETURN QUERY SELECT prepared_agg_walk(depth + 1);
+        END IF;
+    END LOOP;
+END;
+$$;
+
+SELECT prepared_agg_walk(0);
+SELECT prepared_agg_walk(0);
+
+DROP FUNCTION prepared_agg_walk(int);
+
+-- =====================================================================
+-- SECTION 4: Same results from PostgreSQL
 -- =====================================================================
 
 SET paradedb.enable_aggregate_custom_scan TO off;
@@ -164,6 +210,16 @@ FROM prepared_agg_sales
 WHERE rating = 2 AND id @@@ pdb.all()
 GROUP BY region
 ORDER BY region;
+
+SELECT UNNEST(tags) AS tag, COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY tag
+ORDER BY tag;
+
+SELECT COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all();
 
 DEALLOCATE ALL;
 RESET paradedb.enable_aggregate_custom_scan;

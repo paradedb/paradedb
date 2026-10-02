@@ -70,6 +70,7 @@ mod atatat;
 pub(crate) mod boost;
 pub(crate) mod const_score;
 mod eqeqeq;
+mod estimate;
 pub(crate) mod fuzzy;
 mod hashhashhash;
 mod ororor;
@@ -648,6 +649,7 @@ pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
 pub(crate) fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
     mut query: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> (Option<f64>, Option<u64>) {
     let fallback = (Some(crate::UNKNOWN_SELECTIVITY), None);
     let query = loop {
@@ -676,10 +678,28 @@ pub(crate) fn estimate_selectivity_and_cost(
                 field,
                 query: *query,
             },
+            // Term supports both text and non-text equality; only text uses Tantivy estimates.
+            // Check the logical type: SearchField::is_text() also includes UUID string storage.
+            SearchQueryInput::FieldedQuery {
+                ref field,
+                query: pdb::Query::Term { .. },
+            } if indexrel
+                .schema()
+                .ok()
+                .and_then(|schema| schema.search_field(field))
+                .is_some_and(|field| {
+                    matches!(
+                        field.field_type(),
+                        crate::schema::SearchFieldType::Text(..)
+                            | crate::schema::SearchFieldType::Tokenized(..)
+                    )
+                }) =>
+            {
+                break query;
+            }
             query @ (SearchQueryInput::FieldedQuery {
                 query:
-                    pdb::Query::Term { .. }
-                    | pdb::Query::Match { .. }
+                    pdb::Query::Match { .. }
                     | pdb::Query::MatchArray { .. }
                     | pdb::Query::Phrase { .. }
                     | pdb::Query::PhraseArray { .. }
@@ -696,14 +716,26 @@ pub(crate) fn estimate_selectivity_and_cost(
             | SearchQueryInput::Parse { .. }
             | SearchQueryInput::MoreLikeThis { .. }) => break query,
             SearchQueryInput::FieldedQuery {
+                field,
                 query:
-                    pdb::Query::Exists
-                    | pdb::Query::FastFieldRangeWeight { .. }
+                    query @ (pdb::Query::Term { .. }
+                    | pdb::Query::Exists
                     | pdb::Query::Range { .. }
                     | pdb::Query::RangeContains { .. }
                     | pdb::Query::RangeIntersects { .. }
                     | pdb::Query::RangeTerm { .. }
-                    | pdb::Query::RangeWithin { .. }
+                    | pdb::Query::RangeWithin { .. }),
+            } => {
+                return planner
+                    .and_then(|(root, rti)| unsafe {
+                        estimate::non_text_selectivity(root, rti, indexrel, &field, &query)
+                    })
+                    .map(|selectivity| (Some(selectivity), None))
+                    .unwrap_or(fallback);
+            }
+            SearchQueryInput::FieldedQuery {
+                query:
+                    pdb::Query::FastFieldRangeWeight { .. }
                     | pdb::Query::Proximity { .. }
                     | pdb::Query::TermSet { .. }
                     | pdb::Query::UnclassifiedString { .. }
@@ -733,15 +765,16 @@ pub(crate) fn estimate_selectivity_and_cost(
 pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<f64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).0
+    estimate_selectivity_and_cost(indexrel, search_query_input, planner).0
 }
 
 pub(crate) fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
-    let selectivity = estimate_selectivity(indexrel, search_query_input)?;
+    let selectivity = estimate_selectivity(indexrel, search_query_input, None)?;
     let rows = indexrel.heap_relation()?.reltuples()?;
     (rows >= 0.0).then(|| (selectivity * rows as f64).ceil() as u64)
 }
@@ -750,7 +783,7 @@ pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).1
+    estimate_selectivity_and_cost(indexrel, search_query_input, None).1
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

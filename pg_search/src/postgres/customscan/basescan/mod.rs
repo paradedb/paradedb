@@ -857,9 +857,7 @@ impl CustomScan for BaseScan {
                 UNASSIGNED_SELECTIVITY
             };
 
-            // Seeded only by the final `else` branch's selectivity open (every other branch leaves
-            // it `None`). It feeds the TopK cost memo so the worker decision reuses that open
-            // instead of opening the index a second time.
+            // Reuse any work estimate returned alongside selectivity for TopK costing.
             let mut precomputed_query_cost: Option<u64> = None;
 
             let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
@@ -873,9 +871,8 @@ impl CustomScan for BaseScan {
                 // if the query has expressions then it's parameterized and we have to guess something
                 PARAMETERIZED_SELECTIVITY
             } else {
-                // Ask the index. This is the one branch that opens, so reuse that same
-                // open's cost for the TopK worker decision instead of opening twice.
-                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone());
+                let (sel, cost) =
+                    estimate_selectivity_and_cost(&bm25_index, query.clone(), Some((root, rti)));
                 precomputed_query_cost = cost;
                 sel.unwrap_or(UNKNOWN_SELECTIVITY)
             };

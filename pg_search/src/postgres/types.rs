@@ -1255,6 +1255,91 @@ impl ConstNode {
     }
 }
 
+impl TryFrom<(&PdbOwnedValue, pg_sys::Oid)> for ConstNode {
+    type Error = TantivyValueError;
+
+    fn try_from((value, oid): (&PdbOwnedValue, pg_sys::Oid)) -> Result<Self, Self::Error> {
+        if let Some((min, max)) = match oid {
+            pg_sys::INT2OID => Some((i16::MIN as i128, i16::MAX as i128)),
+            pg_sys::INT4OID => Some((i32::MIN as i128, i32::MAX as i128)),
+            pg_sys::INT8OID => Some((i64::MIN as i128, i64::MAX as i128)),
+            pg_sys::OIDOID => Some((0, u32::MAX as i128)),
+            _ => None,
+        } {
+            let integer = match value {
+                PdbOwnedValue::I64(value) => Some(*value as i128),
+                PdbOwnedValue::U64(value) => Some(*value as i128),
+                PdbOwnedValue::F64(_) => {
+                    return Err(TantivyValueError::NumericConversion(
+                        "expected an integer".into(),
+                    ));
+                }
+                _ => None,
+            };
+            if integer.is_some_and(|value| !(min..=max).contains(&value)) {
+                return Err(TantivyValueError::NumericConversion(
+                    "integer is out of range for the column type".into(),
+                ));
+            }
+        }
+        unsafe {
+            let datum = match value {
+                PdbOwnedValue::Str(value) => {
+                    let value = std::ffi::CString::new(value.as_str())
+                        .map_err(|_| TantivyValueError::DatumDeref)?;
+                    let mut input = pg_sys::InvalidOid;
+                    let mut param = pg_sys::InvalidOid;
+                    pg_sys::getTypeInputInfo(oid, &mut input, &mut param);
+                    pg_sys::OidInputFunctionCall(input, value.as_ptr().cast_mut(), param, -1)
+                }
+                _ => TantivyValue(value.clone())
+                    .try_into_datum(PgOid::from(oid))?
+                    .ok_or(TantivyValueError::DatumDeref)?,
+            };
+            let mut len = 0;
+            let mut byval = false;
+            pg_sys::get_typlenbyval(oid, &mut len, &mut byval);
+            Ok(Self(pg_sys::makeConst(
+                oid,
+                -1,
+                pg_sys::get_typcollation(oid),
+                len as _,
+                datum,
+                false,
+                byval,
+            )))
+        }
+    }
+}
+
+impl<T: pgrx::datum::RangeSubType> From<pgrx::Range<T>> for ConstNode {
+    fn from(range: pgrx::Range<T>) -> Self {
+        unsafe {
+            Self(pg_sys::makeConst(
+                T::range_type_oid(),
+                -1,
+                pg_sys::InvalidOid,
+                -1,
+                range.into_datum().expect("a range is never NULL"),
+                false,
+                false,
+            ))
+        }
+    }
+}
+
+impl From<&ConstNode> for *mut pg_sys::Const {
+    fn from(value: &ConstNode) -> Self {
+        value.0
+    }
+}
+
+impl From<ConstNode> for *mut pg_sys::Const {
+    fn from(value: ConstNode) -> Self {
+        (&value).into()
+    }
+}
+
 impl TryFrom<ConstNode> for TantivyValue {
     type Error = TantivyValueError;
 

@@ -124,7 +124,10 @@ pub(super) fn query_input_selectivity(
             else {
                 return UNKNOWN_SELECTIVITY;
             };
-            estimate_selectivity(&indexrel, search_query_input).unwrap_or(UNKNOWN_SELECTIVITY)
+            estimate_selectivity(&indexrel, search_query_input, unsafe {
+                ((*var).varlevelsup == 0).then_some((planner_info, (*var).varno as pg_sys::Index))
+            })
+            .unwrap_or(UNKNOWN_SELECTIVITY)
         }
         pg_sys::NodeTag::T_Param => PARAMETERIZED_SELECTIVITY,
         _ => UNKNOWN_SELECTIVITY,

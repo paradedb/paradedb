@@ -24,6 +24,7 @@ with psycopg.connect(
     )
     metadata = {
         "commit": os.environ["PROFILE_COMMIT"],
+        "perf_event": os.environ["PERF_EVENT"],
         "settings": connection.execute(
             "SELECT name, setting FROM pg_settings"
         ).fetchall(),
@@ -71,7 +72,7 @@ with psycopg.connect(
                     "-C",
                     "0-7",
                     "-e",
-                    "cpu-clock:u",
+                    os.environ["PERF_EVENT"],
                     "-F",
                     "99",
                     "--call-graph",

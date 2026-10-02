@@ -261,8 +261,20 @@ jobs:
           echo "PERF_BIN=$perf_bin" >> "$GITHUB_ENV"
           sudo sysctl kernel.perf_event_paranoid=-1
           sudo "$perf_bin" stat -e cpu-clock -- sleep 0.1
-          sudo "$perf_bin" record -a -C 0 -e cpu-clock:u -F 99 --call-graph dwarf,16384 \
-            -o "$RUNNER_TEMP/perf-preflight.data" -- taskset -c 0 python3 -c 'sum(range(5000000))'
+          sample_event=""
+          for event in cycles:u cpu-clock task-clock cycles; do
+            if sudo "$perf_bin" record -a -C 0 -e "$event" -F 99 --call-graph dwarf,16384 \
+              -o "$RUNNER_TEMP/perf-preflight.data" -- taskset -c 0 python3 -c 'sum(range(50000000))'; then
+              sudo "$perf_bin" script -i "$RUNNER_TEMP/perf-preflight.data" -F ip > "$RUNNER_TEMP/perf-preflight.samples"
+              if [ -s "$RUNNER_TEMP/perf-preflight.samples" ]; then
+                sample_event="$event"
+                break
+              fi
+            fi
+          done
+          test -n "$sample_event"
+          echo "PERF_EVENT=$sample_event" >> "$GITHUB_ENV"
+          echo "Verified sampling event: $sample_event"
           sudo "$perf_bin" report -i "$RUNNER_TEMP/perf-preflight.data" --stdio --inline \
             --no-children --percent-limit 0.1 -g none
           python3 -m venv --system-site-packages "$RUNNER_TEMP/profile-venv"

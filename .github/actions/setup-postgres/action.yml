@@ -24,7 +24,7 @@ runs:
           | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
 
     - name: Install PostgreSQL Packages
-      uses: paradedb/actions/apt-install@v12
+      uses: paradedb/actions/apt-install@v14
       with:
         packages: >-
           postgresql-${{ inputs.pg_version }}
@@ -33,4 +33,6 @@ runs:
 
     - name: Configure PostgreSQL PATH
       shell: bash
-      run: echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> "$GITHUB_PATH"
+      env:
+        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+      run: echo "/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin" >> "$GITHUB_PATH"

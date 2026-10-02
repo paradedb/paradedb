@@ -169,7 +169,7 @@ SELECT
 
 -- 5. Compare pushed `<@` with existing ParadeDB ltree facet query path.
 --    This asserts that `<@` lowering is semantically equivalent to the existing
---    `category @@@ 'Top.Science'` facet search path.
+--    `category @@@ pdb.term('Top.Science')` facet search path.
 SELECT
     (
         SELECT array_agg(id ORDER BY id)
@@ -179,7 +179,7 @@ SELECT
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
-        WHERE category @@@ 'Top.Science'
+        WHERE category @@@ pdb.term('Top.Science')
     ) AS ltree_descendant_pushdown_matches_facet_query_top_science;
 
 -- 6. Deep ancestor semantics:
@@ -211,7 +211,7 @@ SELECT
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
-        WHERE category @@@ 'Top.Science.Astronomy'
+        WHERE category @@@ pdb.term('Top.Science.Astronomy')
     ) AS ltree_desc_pushdown_matches_facet_query_top_science_astron;
 
 -- 7. Explicit equality case:

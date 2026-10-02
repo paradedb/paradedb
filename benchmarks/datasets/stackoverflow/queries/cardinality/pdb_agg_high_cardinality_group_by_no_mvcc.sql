@@ -1,0 +1,2 @@
+-- high-cardinality aggregate scan using pdb.agg (mvcc disabled)
+SET paradedb.enable_aggregate_custom_scan TO off; SET work_mem = '4GB'; SELECT tags, pdb.agg('{"value_count": {"field": "tags"}}', false) as count, pdb.agg('{"min": {"field": "score"}}', false) as min, pdb.agg('{"max": {"field": "score"}}', false) as max, pdb.agg('{"sum": {"field": "score"}}', false) as sum FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY tags LIMIT 65000;

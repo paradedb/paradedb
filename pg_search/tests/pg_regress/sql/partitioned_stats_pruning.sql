@@ -25,12 +25,8 @@ INSERT INTO sp_posts (owner_user_id, title, body)
 SELECT 1 + ((g * 7919) % 20000), CASE WHEN g % 3 = 0 THEN 'error in build ' ELSE 'note ' END || g, repeat('b', 900) || g
 FROM generate_series(1, 20000) g;
 
-CREATE INDEX sp_users_idx ON sp_users USING paradedb (id, display_name)
-WITH (partition_by = 'id', target_segment_count = 4,
-      text_fields = '{"display_name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
-CREATE INDEX sp_posts_idx ON sp_posts USING paradedb (id, owner_user_id, title)
-WITH (partition_by = 'owner_user_id', target_segment_count = 4,
-      numeric_fields = '{"owner_user_id": {"fast": true}}');
+CREATE INDEX sp_users_idx ON sp_users USING paradedb (id, (display_name::pdb.literal)) WITH (partition_by = 'id', target_segment_count = 4);
+CREATE INDEX sp_posts_idx ON sp_posts USING paradedb (id, owner_user_id, title) WITH (partition_by = 'owner_user_id', target_segment_count = 6);
 
 SELECT relname, count(*) AS segments
 FROM (SELECT 'sp_users_idx' AS relname FROM paradedb.index_info('sp_users_idx')
@@ -46,24 +42,24 @@ SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT u.id, p.id
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
 
 SELECT u.id, p.id
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
 -- =====================================================================
 -- MPP: the scans show the build's boundaries, and the rows match.
@@ -74,24 +70,34 @@ SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT u.id, p.id
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
 
 SELECT u.id, p.id
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error'
 ORDER BY u.id, p.id
 LIMIT 10;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+
+-- A range that reaches one of the four user segments: candidate segments size this scan's partitions.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*)
+FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND u.id BETWEEN 100 AND 200 AND p.title @@@ 'error';
+
+SELECT count(*)
+FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND u.id BETWEEN 100 AND 200 AND p.title @@@ 'error';
 
 -- =====================================================================
 -- One side's split points are enough. `sp_votes` is indexed empty and
@@ -100,10 +106,7 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 -- =====================================================================
 
 CREATE TABLE sp_votes (id bigserial PRIMARY KEY, post_id bigint, kind text);
-CREATE INDEX sp_votes_idx ON sp_votes USING paradedb (id, post_id, kind)
-WITH (partition_by = 'post_id', target_segment_count = 4,
-      numeric_fields = '{"post_id": {"fast": true}}',
-      text_fields = '{"kind": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX sp_votes_idx ON sp_votes USING paradedb (id, post_id, (kind::pdb.literal)) WITH (partition_by = 'post_id', target_segment_count = 4);
 INSERT INTO sp_votes (post_id, kind)
 SELECT 1 + ((g * 31) % 10000), CASE WHEN g <= 10000 THEN 'up' ELSE 'down' END
 FROM generate_series(1, 20000) g;
@@ -113,18 +116,18 @@ SET max_parallel_workers_per_gather TO 0;
 
 SELECT count(*)
 FROM sp_users u JOIN sp_votes v ON u.id = v.post_id
-WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
+WHERE u.id @@@ pdb.all() AND v.kind ||| 'up';
 
 SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM sp_users u JOIN sp_votes v ON u.id = v.post_id
-WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
+WHERE u.id @@@ pdb.all() AND v.kind ||| 'up';
 
 SELECT count(*)
 FROM sp_users u JOIN sp_votes v ON u.id = v.post_id
-WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
+WHERE u.id @@@ pdb.all() AND v.kind ||| 'up';
 
 -- =====================================================================
 -- No split points on either side: the join is not range partitioned.
@@ -133,11 +136,11 @@ WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM sp_votes a JOIN sp_votes b ON a.post_id = b.post_id
-WHERE a.kind @@@ 'up' AND b.kind @@@ 'down';
+WHERE a.kind ||| 'up' AND b.kind ||| 'down';
 
 SELECT count(*)
 FROM sp_votes a JOIN sp_votes b ON a.post_id = b.post_id
-WHERE a.kind @@@ 'up' AND b.kind @@@ 'down';
+WHERE a.kind ||| 'up' AND b.kind ||| 'down';
 
 -- =====================================================================
 -- More workers than the split points seat: the plan caps its tasks, so
@@ -149,12 +152,40 @@ SET max_parallel_workers_per_gather TO 6;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
+SELECT count(*)
+FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+
+DROP TABLE sp_votes;
+
+-- A cached plan may retain the exhaustive value grid, but not ownership by the segments visible
+-- when it was planned. Late immutable segments must be mapped to the grid at execution and the
+-- range predicate must return their matching row exactly once.
+SET plan_cache_mode TO force_generic_plan;
+PREPARE sp_cached_range_join AS
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 
-DROP TABLE sp_votes;
+EXECUTE sp_cached_range_join;
+
+SET paradedb.global_mutable_segment_rows TO 0;
+INSERT INTO sp_users (id, display_name, about_me)
+VALUES (25001, 'late_user', repeat('a', 900));
+INSERT INTO sp_posts (id, owner_user_id, title, body)
+VALUES (25001, 25001, 'error after cached plan', repeat('b', 900));
+RESET paradedb.global_mutable_segment_rows;
+
+SELECT relname, count(*) AS segments
+FROM (SELECT 'sp_users_idx' AS relname FROM paradedb.index_info('sp_users_idx')
+      UNION ALL SELECT 'sp_posts_idx' FROM paradedb.index_info('sp_posts_idx')) s
+GROUP BY relname ORDER BY relname;
+
+EXECUTE sp_cached_range_join;
+DEALLOCATE sp_cached_range_join;
+RESET plan_cache_mode;
+
 DROP TABLE sp_posts;
 DROP TABLE sp_users;

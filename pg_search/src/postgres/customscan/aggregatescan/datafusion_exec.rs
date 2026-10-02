@@ -50,7 +50,7 @@ use crate::postgres::customscan::joinscan::build::{
 };
 use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
 use crate::postgres::customscan::joinscan::scan_state::{
-    create_datafusion_session_context, register_source_table,
+    create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
@@ -307,7 +307,28 @@ pub async fn build_join_aggregate_plan(
             plan,
         )?,
         None => {
-            let df = df.aggregate(group_exprs, agg_exprs)?;
+            // Deliberately *not* `DataFrame::aggregate`: that hardcodes
+            // `add_implicit_group_by_exprs(true)`, which appends every column
+            // functionally determined by the group key to the group expression
+            // list (MySQL-style `SELECT col ... GROUP BY pk`). If any scanned
+            // columns are unique or functionally dependent, that expansion would
+            // widen the group key behind our back and invalidate
+            // `group_df_indices` - the aggregate columns would no longer start
+            // where `project_aggregate_row_to_slot` expects them, and the
+            // projection would silently read a grouping column as an aggregate
+            // result.
+            //
+            // Postgres has already validated and fully enumerated the GROUP BY
+            // clause by the time we get here, so the implicit expansion has
+            // nothing to add. Functional dependencies still reach the optimizer
+            // via the plan schema; only the group-key rewrite is suppressed.
+            let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
+            let (state, plan) = df.into_parts();
+            let aggregated = LogicalPlanBuilder::from(plan)
+                .with_options(options)
+                .aggregate(group_exprs, agg_exprs)?
+                .build()?;
+            let df = DataFrame::new(state, aggregated);
             match having_expr {
                 Some(expr) => df.filter(expr)?,
                 None => df,
@@ -321,15 +342,15 @@ pub async fn build_join_aggregate_plan(
     // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
     // bounded TopK heap.
     if let Some(topk) = topk {
-        let sort_col_name = topk.sort_target.resolve_sort_col_name(targetlist, plan);
-        let sort_expr = datafusion::prelude::col(&sort_col_name)
+        let sort_column = topk.sort_target.resolve_sort_column(targetlist, plan);
+        let sort_expr = Expr::Column(sort_column)
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         df = df.sort(vec![sort_expr])?;
         df = df.limit(0, Some(topk.k))?;
     }
 
     Ok(JoinAggregatePlan {
-        logical: df.into_optimized_plan()?,
+        logical: optimize_logical_plan(df)?,
         group_df_indices,
         pdb_plan,
         pdb_root_having,
@@ -383,8 +404,9 @@ fn build_pdb_aggregate_plan(
             }
         })
         .collect();
-
-    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(true);
+    // Suppress implicit group-by widening (matching `build_join_aggregate_plan`),
+    // so functionally dependent columns are not appended to the group key.
+    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
     if array_keys.is_empty() {
         return LogicalPlanBuilder::from(input)
             .with_options(options)
@@ -1073,7 +1095,10 @@ async fn build_source_df(
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
-    let source_idx = mpp_manifests.map(|_| plan_position);
+    let is_mpp = mpp_manifests.is_some()
+        || (crate::postgres::customscan::mpp::glue::mpp_is_active()
+            && ctx.state().config().target_partitions() > 1);
+    let source_idx = is_mpp.then_some(plan_position);
     let mut provider = PgSearchTableProvider::new(scan_info, fields.clone(), source_idx);
     // The leader claims segments out of the DSM pool the same manifests populate, so its own
     // reader is built from the source's manifest. This plan never crosses the codec that
@@ -1092,7 +1117,7 @@ async fn build_source_df(
         }
     }
     // HeapFilter queries (e.g. `=` on a column indexed via a
-    // `pdb.literal(...)` cast) compile to runtime Postgres expressions
+    // `pdb.literal` cast) compile to runtime Postgres expressions
     // that can only be evaluated with a live ExprContext + PlanState.
     // The provider's `scan()` reaches for them via
     // `init_postgres_expressions` / `solve_postgres_expressions` only
@@ -1101,37 +1126,31 @@ async fn build_source_df(
     provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
 
-    // Deferring an aggregate source's visibility trades an in-scan check for a
-    // post-join one. `DeferredPlacementRule` places a string lookup, not a
-    // visibility check, so it cannot pick the shapes where that trade pays.
-    // Until something can, the source keeps its eager, in-scan check.
-    if crate::gucs::enable_aggregate_late_materialization() {
-        let mut required_early: crate::api::HashSet<String> = Default::default();
-        for jk in plan.join_keys() {
-            if source.contains_rti(jk.outer_rti)
-                && let Some(col) = source.column_name(jk.outer_attno)
-            {
-                required_early.insert(col);
-            }
-            if source.contains_rti(jk.inner_rti)
-                && let Some(col) = source.column_name(jk.inner_attno)
-            {
-                required_early.insert(col);
-            }
+    // Strings leave the scan deferred, so the placement rule can put each half of their
+    // lookup where it pays and the aggregate can group on term ordinals. Visibility stays in
+    // the scan: a post-join check trades one check per scanned row for one per joined row,
+    // and nothing models when that pays.
+    let mut required_early: crate::api::HashSet<String> = Default::default();
+    for jk in plan.join_keys() {
+        if source.contains_rti(jk.outer_rti)
+            && let Some(col) = source.column_name(jk.outer_attno)
+        {
+            required_early.insert(col);
         }
-        for (rti, attno) in plan.filter_input_vars() {
-            if source.contains_rti(rti)
-                && let Some(col) = source.column_name(attno)
-            {
-                required_early.insert(col);
-            }
+        if source.contains_rti(jk.inner_rti)
+            && let Some(col) = source.column_name(jk.inner_attno)
+        {
+            required_early.insert(col);
         }
-
-        provider.configure_deferred_outputs(
-            &required_early,
-            crate::scan::VisibilityMode::Deferred { plan_position },
-        );
     }
+    for (rti, attno) in plan.filter_input_vars() {
+        if source.contains_rti(rti)
+            && let Some(col) = source.column_name(attno)
+        {
+            required_early.insert(col);
+        }
+    }
+    provider.configure_deferred_outputs(&required_early, crate::scan::VisibilityMode::Eager);
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 

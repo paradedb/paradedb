@@ -27,7 +27,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
-use crate::schema::{SearchFieldConfig, SearchFieldType};
+use crate::schema::{MIN_QUANTIZATION_DIMENSIONS, SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
 use tantivy::Index;
@@ -44,15 +44,12 @@ pub extern "C-unwind" fn ambuild(
     let mut index_relation = unsafe { PgSearchRelation::from_pg(indexrel) };
     index_relation.set_is_create_index();
 
-    // Capture the relation's inherent WAL-needed flag before any deferred-WAL override.
+    // Capture the relation's inherent WAL-needed flag before suppressing WAL during build.
     let needs_wal = index_relation.need_wal();
 
-    let deferred_wal = cfg!(feature = "deferred_wal");
-    if deferred_wal {
-        // we don't need to WAL log if our deferred_wal feature is turned on
-        // otherwise we'll let Postgres decide for us if this new index needs WAL or not
-        index_relation.set_need_wal(false);
-    }
+    // Do not emit WAL records inside the tuple insertion/page building loop.
+    // Instead, log all pages to the WAL at the end of the build via log_newpage_range.
+    index_relation.set_need_wal(false);
 
     unsafe {
         build_empty(&index_relation);
@@ -83,8 +80,8 @@ pub extern "C-unwind" fn ambuild(
 
     pgrx::debug1!("build_index: flushing buffers");
 
-    // if we're configured to defer WAL logging, now is the time to do it
-    if deferred_wal && needs_wal {
+    // At the conclusion of the build, log all pages to the WAL if required.
+    if needs_wal {
         let nblocks = unsafe {
             pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM)
         };
@@ -195,6 +192,22 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
+    let vector_configs = options.vector_config();
+    for (field_name, config) in vector_configs.iter().flatten() {
+        validate_field_config(field_name, config, options, |t| {
+            matches!(t, SearchFieldType::Vector(..))
+        });
+        let Some(SearchFieldType::Vector(_, schema_dims, _)) = options.get_field_type(field_name)
+        else {
+            unreachable!("vector field validation accepted a non-vector field")
+        };
+        if config.quantization_layers().is_some() && schema_dims < MIN_QUANTIZATION_DIMENSIONS {
+            panic!(
+                "quantization requires dimension ≥ 64; the quantization error model is not validated below this"
+            );
+        }
+    }
+
     // Validate that `sort_by` and `partition_by` fields are single-valued
     let check_single_valued = |field_name: &FieldName, context: &str| {
         if options.get_field_type(field_name).is_none() {
@@ -281,7 +294,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let schema = planned_schema(index_relation);
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
-    let settings = index_settings(index_relation.options(), &schema);
+    let settings = index_settings(index_relation.options(), &schema)?;
     let _ = Index::create(directory, schema, settings)?;
     Ok(())
 }
@@ -530,10 +543,8 @@ mod tests {
     fn a_non_fast_partition_key_is_rejected() {
         Spi::run(
             r#"
-            CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX unroutable_key_idx ON unroutable_key USING bm25 (id, tenant_id, name)
-                WITH (partition_by = 'tenant_id', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": false}}');
+            CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id TEXT, name TEXT);
+            CREATE INDEX unroutable_key_idx ON unroutable_key USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 4);
             "#,
         )
         .unwrap();
@@ -548,9 +559,7 @@ mod tests {
         Spi::run(
             r#"
             CREATE TABLE mixed_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX mixed_key_idx ON mixed_key USING bm25 (id, tenant_id, name)
-                WITH (partition_by = 'tenant_id, name', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": true}}');
+            CREATE INDEX mixed_key_idx ON mixed_key USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id, name', target_segment_count = 4);
             "#,
         )
         .unwrap();
@@ -563,9 +572,7 @@ mod tests {
         Spi::run(
             r#"
             CREATE TABLE normalized_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
-            CREATE INDEX normalized_sort_idx ON normalized_sort USING bm25 (id, name)
-                WITH (sort_by = 'name ASC NULLS FIRST',
-                      text_fields = '{"name": {"fast": true, "normalizer": "lowercase"}}');
+            CREATE INDEX normalized_sort_idx ON normalized_sort USING paradedb (id, (name::pdb.unicode_words('normalizer=lowercase', 'columnar=true'))) WITH (sort_by = 'name ASC NULLS FIRST');
             INSERT INTO normalized_sort (name)
             SELECT 'Lorem Ipsum ' || i FROM generate_series(1, 500) i;
             "#,

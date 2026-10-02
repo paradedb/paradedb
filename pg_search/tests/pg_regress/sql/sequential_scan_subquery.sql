@@ -103,9 +103,8 @@ DECLARE
     input text;
     matches bigint[];
 BEGIN
-    FOREACH op IN ARRAY ARRAY['===', '&&&', '|||', '###', '@@@'] LOOP
+    FOREACH op IN ARRAY ARRAY['===', '&&&', '|||', '###'] LOOP
         FOREACH rhs_type IN ARRAY ARRAY['text', 'text[]'] LOOP
-            CONTINUE WHEN op = '@@@' AND rhs_type = 'text[]';
             input := CASE WHEN rhs_type = 'text' THEN 'bob' ELSE '{bob}' END;
             EXECUTE format($query$
                 SELECT array_agg(p.id ORDER BY p.id) FROM products p

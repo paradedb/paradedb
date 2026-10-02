@@ -1,0 +1,171 @@
+---
+title: Indexing Text Arrays
+description: Add text arrays to the index
+canonical: https://www.paradedb.com/docs/reference/indexing/indexing-arrays
+---
+
+The ParadeDB index accepts arrays of type `text[]` or `varchar[]`.
+
+```sql
+CREATE TABLE array_demo (id SERIAL PRIMARY KEY, categories TEXT[]);
+INSERT INTO array_demo (categories) VALUES
+    ('{"food","groceries and produce"}'),
+    ('{"electronics","computers"}'),
+    ('{"books","fiction","mystery"}');
+```
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON array_demo
+USING paradedb (id, categories)
+WITH (key_field = 'id');
+```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing.paradedbIndex("search_idx").on(arrayDemo.id, arrayDemo.categories);
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        ArrayDemo,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "categories": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(ArrayDemo.id),
+    indexing.ParadeDBField(ArrayDemo.categories),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :array_demo,
+  fields: {
+    id: {},
+    categories: {}
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<ArrayDemo>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Categories);
+```
+
+</CodeGroup>
+
+Under the hood, each element in the array is indexed as a separate entry. This means that an array is considered a
+match if **any** of its entries is a match.
+
+```sql
+SELECT * FROM array_demo WHERE categories === 'food';
+```
+
+```ini Expected Response
+ id |           categories
+----+--------------------------------
+  1 | {food,"groceries and produce"}
+(1 row)
+```
+
+Text arrays can be [tokenized](/reference/tokenizers/overview) and [filtered](/reference/token-filters/overview) in the same way as text fields:
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON array_demo
+USING paradedb (id, (categories::pdb.literal))
+WITH (key_field = 'id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(
+    arrayDemo.id,
+    indexing.paradedbField(arrayDemo.categories, tokenizer.literal()),
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+from paradedb.search import Tokenizer
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        ArrayDemo,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "categories": {"tokenizer": Tokenizer.literal()},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing, tokenizer
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(ArrayDemo.id),
+    indexing.ParadeDBField(ArrayDemo.categories, tokenizer=tokenizer.literal()),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :array_demo,
+  fields: {
+    id: {},
+    categories: { tokenizer: ParadeDB::Tokenizer.literal() }
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<ArrayDemo>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Categories, Tokenizer.Literal());
+```
+
+</CodeGroup>

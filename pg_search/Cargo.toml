@@ -12,18 +12,16 @@ workspace = true
 crate-type = ["cdylib"]
 
 [features]
-default = ["pg18", "deferred_wal"]
+default = ["pg18"]
 pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
 pg18 = ["pgrx/pg18", "pgrx-tests/pg18"]
 pg_test = ["dep:proptest"]
-deferred_wal = []
 # direct dep so the coverage shim survives into the cdylib (see lib.rs)
 dst = ["dst/enabled", "dep:antithesis-instrumentation"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released
-io_stats = [] # per-component buffer hit/read counts in EXPLAIN Segment Info
 debug-logging = [
   "dep:env_logger",
 ] # enables env_logger for dependency debug output
@@ -56,6 +54,7 @@ serde_json = { version = "1.0.149", features = [
 ] }
 serde_cbor = "0.11.2"
 tantivy.workspace = true
+tantivy-common.workspace = true
 thiserror = "2.0.18"
 ordered-float = "5.3.0"
 uuid = "1.23.1"
@@ -79,7 +78,7 @@ regex = { version = "1.12.3", default-features = false, features = [
   "perf",
   "unicode",
 ] }
-tantivy-fst = { git = "https://github.com/paradedb/fst.git" }
+tantivy-fst = { git = "https://github.com/paradedb/fst.git", rev = "1d2e473c6de63d17749030eb8538ba4d647f3430" }
 lazy_static = "1.5.0"
 macros = { path = "../macros" }
 half = "2.7.1"
@@ -93,9 +92,9 @@ tokio-util = "0.7"
 bytes = { version = "1", features = ["serde"] }
 # Here and the equivalent in our datafusion-distributed fork will need to be updated in sync so that
 # both point to the same datafusion ref.
-datafusion = { version = "55.0.0", default-features = false }
-datafusion-proto = { version = "55.0.0", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-08-20-204632", default-features = false }
+datafusion = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
+datafusion-proto = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", tag = "snapshot-main-2026-09-28-172238", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"
@@ -103,12 +102,12 @@ prost = "0.14.3"
 # SuperKMeans IVF clusterer (pure-Rust port). BLAS backend is target-specific:
 # Accelerate on macOS, OpenBLAS on Linux (already required by the build env).
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
   "openblas",
 ] }
 

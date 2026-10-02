@@ -29,6 +29,7 @@ use pgrx::{
     PgLogLevel, PgRelation, PgSqlErrorCode, function_name, iter::TableIterator, name, pg_extern,
     pg_sys,
 };
+use tantivy::IndexSettings;
 
 /// The metadata stored on the `Metadata` page
 #[derive(Debug, Copy, Clone)]
@@ -141,7 +142,7 @@ impl MetaPage {
                 "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
                 function_name!(),
             )
-            .set_detail("Please contact ParadeDB for access to ParadeDB Enterprise")
+            .set_detail("ParadeDB Enterprise is commercially licensed and included with ParadeDB Cloud. To self-host ParadeDB Enterprise, contact sales@paradedb.com.")
             .report(PgLogLevel::ERROR);
         }
 
@@ -359,6 +360,11 @@ impl MetaPage {
             self.data.settings_start
         };
         LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    pub fn settings(&self) -> tantivy::Result<IndexSettings> {
+        let bytes = unsafe { self.settings_bytes().read_all() };
+        Ok(serde_json::from_slice(&bytes)?)
     }
 
     pub fn segment_metas(&self) -> LinkedItemList<SegmentMetaEntry> {

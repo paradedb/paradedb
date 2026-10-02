@@ -860,8 +860,7 @@ pub unsafe fn field_name_from_node(
     if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node)
         && type_is_alias((*relabel).resulttype)
     {
-        let typmod =
-            AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| panic!("{e}"));
+        let typmod = AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| e.report());
         if let Some(alias) = typmod.alias() {
             return Some(FieldName::from(alias));
         }

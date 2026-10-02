@@ -89,7 +89,7 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
 
     let search_results: Vec<(String,)> = r#"
         SELECT id::text FROM lt
-        WHERE lt @@@ 'description:payment'
+        WHERE description ||| 'payment'
         ORDER BY id
     "#
     .fetch(&mut conn);

@@ -24,6 +24,7 @@ pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
 mod score;
+pub(crate) mod segment_pruning;
 pub mod tid_bitmap_stream;
 
 use crate::query::tid_bitmap_stream::BitmapCell;

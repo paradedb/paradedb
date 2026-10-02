@@ -33,7 +33,7 @@ fn test_subselect(mut conn: PgConnection) {
 
     let (id,) = r#"
         select id from (select random(), * from (select random(), t, id from test_subselect) x) test_subselect 
-        where id @@@ 't:test';"#
+        where t ||| 'test';"#
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(id, 1);
 }
@@ -53,7 +53,7 @@ fn test_cte(mut conn: PgConnection) {
     let (id,) = r#"
         with my_cte as (select * from test_cte)
         select * from my_cte a inner join my_cte b on a.id = b.id
-        where a.id @@@ 't:beer' and b.id @@@ 't:cheese' order by a.id;"#
+        where a.t ||| 'beer' and b.t ||| 'cheese' order by a.id;"#
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(id, 1);
 }
@@ -72,7 +72,7 @@ fn test_cte2(mut conn: PgConnection) {
 
     let (id,) = r#"
         with my_cte as (select * from test_cte)
-        select * from my_cte where id @@@ 't:beer' order by id;"#
+        select * from my_cte where t ||| 'beer' order by id;"#
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(id, 1);
 }
@@ -89,6 +89,6 @@ fn test_plain_relation(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let (id,) =
-        "select id from test_plain_relation where id @@@ 't:beer'".fetch_one::<(i64,)>(&mut conn);
+        "select id from test_plain_relation where t ||| 'beer'".fetch_one::<(i64,)>(&mut conn);
     assert_eq!(id, 1);
 }

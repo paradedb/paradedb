@@ -26,11 +26,11 @@ ON mock_items
 --
 -- @@@ (parse)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'running shoes';
-SELECT * FROM mock_items WHERE description @@@ 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ pdb.parse_with_field('running shoes');
+SELECT * FROM mock_items WHERE description @@@ pdb.parse_with_field('running shoes');
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) @@@ 'running shoes';
-SELECT * FROM mock_items WHERE lower(description) @@@ 'running shoes' ORDER BY id;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) @@@ pdb.parse_with_field('running shoes');
+SELECT * FROM mock_items WHERE lower(description) @@@ pdb.parse_with_field('running shoes') ORDER BY id;
 
 
 --
@@ -92,7 +92,7 @@ SELECT * FROM mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] OR
 ---
 --- the rhs of the operator is an expression that must be evaluated at execution time
 ---
-select * from mock_items where description @@@ case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from mock_items where description @@@ pdb.parse_with_field(case when id = 1 then 'keyboard' else 'DoesNotExist' end);
 select * from mock_items where description &&& case when id = 1 then 'keyboard' else 'DoesNotExist' end;
 select * from mock_items where description ||| case when id = 1 then 'keyboard' else 'DoesNotExist' end;
 select * from mock_items where description ### case when id = 1 then 'keyboard' else 'DoesNotExist' end;
@@ -103,12 +103,12 @@ select * from mock_items where description === case when id = 1 then 'keyboard' 
 -- other supported types on the lhs
 -- these are types that postgres will coerce to TEXT
 --
-SELECT * FROM mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
+SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
 SELECT * FROM mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
 SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
 SELECT * FROM mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
 SELECT * FROM mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
-SELECT * FROM mock_items WHERE category @@@ 'footwear' ORDER BY id;
+SELECT * FROM mock_items WHERE category ||| 'footwear' ORDER BY id;
 SELECT * FROM mock_items WHERE category &&& 'footwear' ORDER BY id;
 SELECT * FROM mock_items WHERE category ||| 'footwear' ORDER BY id;
 SELECT * FROM mock_items WHERE category ### 'footwear' ORDER BY id;

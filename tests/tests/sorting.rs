@@ -28,29 +28,10 @@ fn field_sort_fixture(conn: &mut PgConnection) -> Value {
         CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
         CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-        WITH (
-            text_fields = '{
-                "description": {},
-                "category": {
-                    "tokenizer": {"type": "keyword"},
-                    "fast": true,
-                    "normalizer": "lowercase"
-                }
-            }',
-            numeric_fields = '{
-                "rating": {}
-            }',
-            boolean_fields = '{
-                "in_stock": {}
-            }',
-            json_fields = '{
-                "metadata": {}
-            }'
-        );
+        USING paradedb (id, description, (category::pdb.literal_normalized('lowercase=false', 'normalizer=lowercase')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#.execute(conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY lower(category) LIMIT 5".fetch_one::<(Value,)>(conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE (description ||| 'keyboard' OR description ||| 'shoes') ORDER BY lower(category) LIMIT 5".fetch_one::<(Value,)>(conn);
     eprintln!("{plan:#?}");
     plan
 }
@@ -144,7 +125,7 @@ fn parallel_topk_limit_visibility_retry(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let actual = "SELECT id FROM t WHERE NOT (name @@@ 'bob') \
+    let actual = "SELECT id FROM t WHERE NOT (name ||| 'bob') \
              ORDER BY id DESC NULLS FIRST LIMIT 3"
         .fetch::<(i64,)>(&mut conn)
         .into_iter()
@@ -165,29 +146,10 @@ fn sort_by_raw(mut conn: PgConnection) {
         CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
         CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-        WITH (
-            text_fields = '{
-                "description": {},
-                "category": {
-                    "tokenizer": {"type": "keyword"},
-                    "fast": true,
-                    "normalizer": "raw"
-                }
-            }',
-            numeric_fields = '{
-                "rating": {}
-            }',
-            boolean_fields = '{
-                "in_stock": {}
-            }',
-            json_fields = '{
-                "metadata": {}
-            }'
-        );
+        USING paradedb (id, description, (category::pdb.literal_normalized('normalizer=raw', 'lowercase=false')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#.execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE (description ||| 'keyboard' OR description ||| 'shoes') ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
     let plan = plan
         .pointer("/0/Plan/Plans/0")
@@ -210,7 +172,7 @@ async fn test_compound_sort(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT id FROM paradedb.bm25_search
-        WHERE description @@@ 'shoes' ORDER BY rating DESC, created_at DESC LIMIT 10"#
+        WHERE description ||| 'shoes' ORDER BY rating DESC, created_at DESC LIMIT 10"#
         .fetch_one(&mut conn);
 
     eprintln!("plan: {plan:#?}");
@@ -232,7 +194,7 @@ async fn compound_sort_expression(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT *, pdb.score(id) * 2 FROM paradedb.bm25_search
-        WHERE description @@@ 'shoes' ORDER BY 2, pdb.score(id) LIMIT 10"#
+        WHERE description ||| 'shoes' ORDER BY 2, pdb.score(id) LIMIT 10"#
         .fetch_one(&mut conn);
 
     eprintln!("plan: {plan:#?}");
@@ -269,7 +231,7 @@ async fn compound_sort_partitioned(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT id, sale_date, amount FROM sales
-        WHERE description @@@ 'wine'
+        WHERE description ||| 'wine'
         ORDER BY sale_date, amount LIMIT 10;"#
         .fetch_one(&mut conn);
 
@@ -326,7 +288,7 @@ fn sort_partitioned_early_cutoff(mut conn: PgConnection) {
         EXPLAIN (ANALYZE, FORMAT JSON)
         SELECT description, sale_date
         FROM sales
-        WHERE description @@@ 'keyboard'
+        WHERE description ||| 'keyboard'
         ORDER BY sale_date
         LIMIT 1;
         "#

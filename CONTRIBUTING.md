@@ -42,7 +42,7 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
 4. Install [prek](https://github.com/j178/prek) hooks within your fork with `prek install` to ensure code quality and consistency with upstream.
 5. Make your changes. If you've added new functionality, please add tests. We will not merge a feature without appropriate tests.
 6. Add release fragments (if applicable):
-   - Changelog fragment: If your PR introduces a user-facing feature, fix, or improvement, add a fragment in `docs/changelog/unreleased/<PR_NUMBER>.<category>.mdx` (e.g. `1234.bugfix.mdx` or `1234.feature.mdx`). Include frontmatter specifying the section header:
+   - Changelog fragment: If your PR introduces a user-facing feature, fix, or improvement, add a fragment in `docs/project/changelog/unreleased/<PR_NUMBER>.<category>.mdx` (e.g. `1234.bugfix.mdx` or `1234.feature.mdx`). Include frontmatter specifying the section header:
 
      ```markdown
      ---
@@ -53,6 +53,20 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
      ```
 
      Available `header` keys in `.changelog_headers.json` include `features`, `performance`, `stability`, `breaking`, and `docs`.
+
+     For significant features spanning multiple paragraphs or including code examples, specify a `title` in frontmatter so the fragment renders as a dedicated subsection (`### <Title>`):
+
+     ```markdown
+     ---
+     header: features
+     title: Window Aggregate Pushdown over Joins
+     ---
+
+     Global window aggregates are now pushed down over joins via the ParadeDB Join Scan.
+     ...
+     ```
+
+     Any fragment that is not formatted as a single bullet point must declare a `title` in its frontmatter (enforced in CI).
 
    - SQL migration fragment: If your PR modifies the SQL schema/DDL of `pg_search` (such as adding or modifying functions, procedures, types, or opclasses), add a migration fragment in `pg_search/sql/unreleased/<PR_NUMBER>.<short_description>.sql`. SchemaBot enforces this in CI and will suggest the exact SQL statements if missing.
 

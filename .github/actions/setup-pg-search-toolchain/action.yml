@@ -53,10 +53,18 @@ runs:
         cache: false
         rustflags: "" # Respect .cargo/config.toml target-cpu flags.
 
+    - name: Identify Build OS
+      id: build_os
+      shell: bash
+      run: |
+        source /etc/os-release
+        echo "id=${ID}-${VERSION_ID}" >> "$GITHUB_OUTPUT"
+
+    # Native artifacts must not cross distribution versions (libc, ICU, etc.).
     - name: Install Rust Cache
       uses: Swatinem/rust-cache@v2
       with:
-        prefix-key: ${{ inputs.cache_prefix_key }}
+        prefix-key: ${{ inputs.cache_prefix_key }}-${{ steps.build_os.outputs.id }}
         shared-key: pg${{ inputs.pg_version }}
         cache-targets: true
         cache-all-crates: true
@@ -66,8 +74,10 @@ runs:
     - name: Install cargo-pgrx ${{ steps.versions.outputs.pgrx }}
       if: inputs.install_cargo_pgrx == 'true'
       shell: bash
+      env:
+        STEP_VERSIONS_PGRX: ${{ steps.versions.outputs.pgrx }}
       run: |
-        version="${{ steps.versions.outputs.pgrx }}"
+        version="${STEP_VERSIONS_PGRX}"
         installed="$(cargo pgrx --version 2>/dev/null || true)"
         if [ "${installed}" = "cargo-pgrx ${version}" ]; then
           echo "cargo-pgrx ${version} restored from rust-cache"

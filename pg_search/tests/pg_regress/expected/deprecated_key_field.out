@@ -6,7 +6,7 @@ CREATE INDEX deprecated_key_field_idx ON deprecated_key_field
 USING paradedb (description) WITH (key_field = 'id');
 WARNING:  key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided
 SET enable_seqscan = off;
-SELECT * FROM deprecated_key_field WHERE description @@@ 'keyboard' ORDER BY id NULLS FIRST;
+SELECT * FROM deprecated_key_field WHERE description ||| 'keyboard' ORDER BY id NULLS FIRST;
  id | description 
 ----+-------------
     | keyboard
@@ -18,7 +18,7 @@ CREATE INDEX deprecated_key_field_idx ON deprecated_key_field
 USING paradedb (description) WITH (key_field = 'nonexistent');
 WARNING:  key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided
 INSERT INTO deprecated_key_field VALUES (NULL, 'keyboard');
-SELECT * FROM deprecated_key_field WHERE description @@@ 'keyboard' ORDER BY id NULLS FIRST;
+SELECT * FROM deprecated_key_field WHERE description ||| 'keyboard' ORDER BY id NULLS FIRST;
  id | description 
 ----+-------------
     | keyboard
@@ -28,7 +28,7 @@ SELECT * FROM deprecated_key_field WHERE description @@@ 'keyboard' ORDER BY id 
 
 DROP INDEX deprecated_key_field_idx;
 CREATE INDEX deprecated_key_field_idx ON deprecated_key_field USING paradedb (description);
-SELECT * FROM deprecated_key_field WHERE description @@@ 'keyboard' ORDER BY id NULLS FIRST;
+SELECT * FROM deprecated_key_field WHERE description ||| 'keyboard' ORDER BY id NULLS FIRST;
  id | description 
 ----+-------------
     | keyboard

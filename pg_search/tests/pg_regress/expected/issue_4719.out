@@ -43,24 +43,13 @@ INSERT INTO issue_4719_companies (id, body) VALUES
     (10, 'co'), (20, 'co'), (30, 'co');
 CREATE INDEX issue_4719_people_idx
     ON issue_4719_people
-    USING paradedb (id, company_id, body)
-    WITH (
-        numeric_fields = '{"company_id": {"fast": true}}',
-        text_fields = '{"body": {"fast": true}}'
-    );
+    USING paradedb (id, company_id, (body::pdb.unicode_words('columnar=true')));
 CREATE INDEX issue_4719_experiences_idx
     ON issue_4719_experiences
-    USING paradedb (id, person_id, company_id, body)
-    WITH (
-        numeric_fields = '{"person_id": {"fast": true}, "company_id": {"fast": true}}',
-        text_fields = '{"body": {"fast": true}}'
-    );
+    USING paradedb (id, person_id, company_id, (body::pdb.unicode_words('columnar=true')));
 CREATE INDEX issue_4719_companies_idx
     ON issue_4719_companies
-    USING paradedb (id, body)
-    WITH (
-        text_fields = '{"body": {"fast": true}}'
-    );
+    USING paradedb (id, (body::pdb.unicode_words('columnar=true')));
 ANALYZE issue_4719_people;
 ANALYZE issue_4719_experiences;
 ANALYZE issue_4719_companies;
@@ -81,8 +70,8 @@ WHERE p.id NOT IN (
        OR p.company_id IN (SELECT c.id FROM issue_4719_companies c))
 ORDER BY p.id DESC
 LIMIT 26;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -98,15 +87,14 @@ LIMIT 26;
            :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
            :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
            :         VisibilityFilterExec: tables=[p]
-           :           TantivyFetchExec: fetch=[ctid_0]
-           :             HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, person_id@0)], null_aware
-           :               CooperativeExec
-           :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
-           :               CooperativeExec
-           :                 PgSearchScan: table=x, segments=1, visibility=eager, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
+           :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, person_id@0)], null_aware
+           :             CooperativeExec
+           :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
+           :             CooperativeExec
+           :               PgSearchScan: table=x, segments=1, visibility=eager, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
            :         CooperativeExec
            :           PgSearchScan: table=c, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(23 rows)
+(22 rows)
 
 SELECT p.id
 FROM issue_4719_people p

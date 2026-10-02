@@ -42,6 +42,10 @@ impl Explainer {
         unsafe { (*self.state.as_ptr()).analyze }
     }
 
+    pub fn is_buffers(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).buffers }
+    }
+
     pub fn is_costs(&self) -> bool {
         unsafe { (*self.state.as_ptr()).costs }
     }
@@ -119,6 +123,30 @@ impl Explainer {
                 value.as_ref().as_pg_cstr(),
                 self.state.as_ptr(),
             );
+        }
+    }
+
+    /// Groups related properties in text and structured EXPLAIN formats.
+    pub fn add_group(&mut self, key: &str, properties: impl FnOnce(&mut Self)) {
+        let state = self.state.as_ptr();
+        unsafe {
+            pg_sys::ExplainOpenGroup(key.as_pg_cstr(), key.as_pg_cstr(), true, state);
+            if (*state).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT {
+                let header = format!(
+                    "{:indent$}{key}:\n",
+                    "",
+                    indent = 2 * (*state).indent as usize
+                );
+                pg_sys::appendStringInfoString((*state).str_, header.as_pg_cstr());
+                (*state).indent += 1;
+            }
+        }
+        properties(self);
+        unsafe {
+            if (*state).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT {
+                (*state).indent -= 1;
+            }
+            pg_sys::ExplainCloseGroup(key.as_pg_cstr(), key.as_pg_cstr(), true, state);
         }
     }
 

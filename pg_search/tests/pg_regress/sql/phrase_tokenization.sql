@@ -11,14 +11,7 @@ INSERT INTO test_phrase_table (flavour) VALUES
     ('apple, cherry, banana');
 
 
-CREATE INDEX test_phrase_index ON test_phrase_table USING paradedb (id, flavour)
-    WITH (
-    text_fields = '{
-            "flavour": {
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    );
+CREATE INDEX test_phrase_index ON test_phrase_table USING paradedb (id, (flavour::pdb.simple));
 
 SELECT flavour FROM test_phrase_table
 WHERE id @@@ '{

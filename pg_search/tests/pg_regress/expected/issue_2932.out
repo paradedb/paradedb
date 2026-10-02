@@ -10,7 +10,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 CREATE INDEX on mock_items USING paradedb (id, description, rating);
 -- Expressions involving pdb.score currently use a normal scan rather than Top K.
-SELECT description, pdb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
+SELECT description, pdb.score(id) * 2 AS score FROM mock_items WHERE description ||| 'shoes' ORDER BY score DESC LIMIT 3;
 WARNING:  Query has LIMIT 3 but is not using Top K scan (using Normal instead). Reason: ORDER BY expressions containing pdb.score() cannot be evaluated in the index. This may cause poor performance on large datasets. Remedies: Only standalone pdb.score() or sums of pdb.score() across tables are supported in ORDER BY. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
      description     |       score       
 ---------------------+-------------------
@@ -19,7 +19,7 @@ WARNING:  Query has LIMIT 3 but is not using Top K scan (using Normal instead). 
  White jogging shoes | 4.969813346862793
 (3 rows)
 
-SELECT description, rating, pdb.score(id) * rating AS score FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score DESC, rating LIMIT 3;
+SELECT description, rating, pdb.score(id) * rating AS score FROM mock_items WHERE description ||| 'shoes' OR rating > 2 ORDER BY score DESC, rating LIMIT 3;
 WARNING:  Query has LIMIT 3 but is not using Top K scan (using Normal instead). Reason: ORDER BY expressions containing pdb.score() cannot be evaluated in the index. This may cause poor performance on large datasets. Remedies: Only standalone pdb.score() or sums of pdb.score() across tables are supported in ORDER BY. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
      description     | rating |       score        
 ---------------------+--------+--------------------
@@ -28,7 +28,7 @@ WARNING:  Query has LIMIT 3 but is not using Top K scan (using Normal instead). 
  White jogging shoes |      3 |  10.45472002029419
 (3 rows)
 
-SELECT description, rating, pdb.score(id) AS score, pdb.score(id) * rating AS score_times_rating FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score_times_rating DESC LIMIT 3;
+SELECT description, rating, pdb.score(id) AS score, pdb.score(id) * rating AS score_times_rating FROM mock_items WHERE description ||| 'shoes' OR rating > 2 ORDER BY score_times_rating DESC LIMIT 3;
 WARNING:  Query has LIMIT 3 but is not using Top K scan (using Normal instead). Reason: ORDER BY expressions containing pdb.score() cannot be evaluated in the index. This may cause poor performance on large datasets. Remedies: Only standalone pdb.score() or sums of pdb.score() across tables are supported in ORDER BY. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
      description     | rating |   score   | score_times_rating 
 ---------------------+--------+-----------+--------------------
@@ -37,7 +37,7 @@ WARNING:  Query has LIMIT 3 but is not using Top K scan (using Normal instead). 
  White jogging shoes |      3 | 3.4849067 |  10.45472002029419
 (3 rows)
 
-SELECT description, rating, pdb.score(id) AS score, pdb.score(id) * rating AS score_times_rating FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score DESC LIMIT 3;
+SELECT description, rating, pdb.score(id) AS score, pdb.score(id) * rating AS score_times_rating FROM mock_items WHERE description ||| 'shoes' OR rating > 2 ORDER BY score DESC LIMIT 3;
      description     | rating |   score   | score_times_rating 
 ---------------------+--------+-----------+--------------------
  Generic shoes       |      4 | 3.8772602 | 15.509040832519531
@@ -46,9 +46,9 @@ SELECT description, rating, pdb.score(id) AS score, pdb.score(id) * rating AS sc
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, pdb.score(id) AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, pdb.score(id) AS score FROM mock_items WHERE description ||| 'shoes' ORDER BY score DESC LIMIT 3;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -57,14 +57,14 @@ SELECT id, pdb.score(id) AS score FROM mock_items WHERE description @@@ 'shoes' 
          Scores: true
             TopK Order By: pdb.score() desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, pdb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
+SELECT id, pdb.score(id) * 2 AS score FROM mock_items WHERE description ||| 'shoes' ORDER BY score DESC LIMIT 3;
 WARNING:  Query has LIMIT 3 but is not using Top K scan (using Normal instead). Reason: ORDER BY expressions containing pdb.score() cannot be evaluated in the index. This may cause poor performance on large datasets. Remedies: Only standalone pdb.score() or sums of pdb.score() across tables are supported in ORDER BY. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((pdb.score(id) * '2'::double precision)) DESC
@@ -73,7 +73,7 @@ WARNING:  Query has LIMIT 3 but is not using Top K scan (using Normal instead). 
                Index: mock_items_id_description_rating_idx
                Exec Method: NormalScanExecState
                Scores: true
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 DROP TABLE mock_items;

@@ -1,6 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_custom_scan_without_operator TO on;
 
 
 CREATE TABLE issue_5751_series (
@@ -404,7 +405,7 @@ SELECT issue_5751_plan_uses(
   $$SELECT count(*)
     FROM issue_5751_js_right r
     JOIN issue_5751_js_left l ON l.id = r.left_id
-    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+    WHERE l.body ||| 'alpha' AND r.body ||| 'gamma'$$,
   'ParadeDB Aggregate Scan') AS both_scans_on_uses_aggregate_scan;
 
 -- With AggregateScan out of the way, JoinScan still declines: it does not
@@ -418,7 +419,7 @@ SELECT issue_5751_plan_uses(
   $$SELECT count(*)
     FROM issue_5751_js_right r
     JOIN issue_5751_js_left l ON l.id = r.left_id
-    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+    WHERE l.body ||| 'alpha' AND r.body ||| 'gamma'$$,
   'ParadeDB Base Scan') AS joinscan_declines_falls_back_to_base_scans;
 SET paradedb.enable_aggregate_custom_scan = on;
 
@@ -426,13 +427,13 @@ SELECT issue_5751_result(
   $$SELECT count(*)
     FROM issue_5751_js_right r
     JOIN issue_5751_js_left l ON l.id = r.left_id
-    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+    WHERE l.body ||| 'alpha' AND r.body ||| 'gamma'$$,
   true
 ) = issue_5751_result(
   $$SELECT count(*)
     FROM issue_5751_js_right r
     JOIN issue_5751_js_left l ON l.id = r.left_id
-    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+    WHERE l.body ||| 'alpha' AND r.body ||| 'gamma'$$,
   false
 ) AS joinscan_interaction_matches_postgres;
 RESET paradedb.enable_join_custom_scan;
@@ -476,6 +477,7 @@ SELECT issue_5751_result(
   false
 ) AS partitionwise_matches_postgres;
 RESET enable_partitionwise_join;
+RESET paradedb.enable_custom_scan_without_operator;
 
 DROP FUNCTION issue_5751_plan_uses(text, text), issue_5751_result(text, boolean);
 DROP TABLE issue_5751_js_left, issue_5751_js_right;

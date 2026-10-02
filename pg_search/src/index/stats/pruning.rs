@@ -14,24 +14,22 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-
-//! What range partitioning takes from the component: the split points a partitioned build
-//! recorded, and the segments a partition has to search.
+//! What the planner and the executor take from the component: logical split points stamped
+//! by a partitioned build, and the execution segments a range partition has to search. The
+//! planner keeps only the values; segment ownership is resolved at execution.
 
 use std::cmp::Ordering;
 use std::ops::Bound;
 
-use tantivy::Index;
-use tantivy::index::{SegmentId, SegmentReader};
+use tantivy::index::SegmentId;
 
 use super::SegmentStats;
+use crate::api::HashSet;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::types::is_datetime_type;
 use crate::scan::range_partitioning::RangePartitioning;
-use crate::schema::SearchFieldType;
 
 /// Split points for `partition_by`, collected from the boxes of the visible segments: every
 /// box edge is a split point. `None` if no segment has a box. A segment without a box is not
@@ -43,21 +41,12 @@ pub(crate) fn persisted_split_points(
     if indexrel.options().partition_by().is_empty() {
         return Ok(None);
     }
-    let directory = MvccSatisfies::Snapshot.directory(indexrel);
-    let index = Index::open(directory.clone())?;
+    let index = crate::index::open_index(MvccSatisfies::Snapshot.directory(indexrel))?;
     let Ok(field) = index.schema().get_field(partition_by) else {
         return Ok(None);
     };
     let mut points = Vec::new();
     for segment in index.searchable_segments()? {
-        // Opening a component of a mutable segment materializes the whole segment first, and its
-        // entry already says it has no `.stats`.
-        let has_stats = directory
-            .segment_meta_entry(&segment.id())
-            .is_some_and(|entry| entry.stats().is_some());
-        if !has_stats {
-            continue;
-        }
         let Some(stats) = SegmentStats::of_segment(&segment)? else {
             continue;
         };
@@ -75,74 +64,106 @@ pub(crate) fn persisted_split_points(
     Ok((!points.is_empty()).then_some(points))
 }
 
-/// The segments of `reader` that can hold a row of `partition`. A segment without statistics
-/// it can be ranked against is kept, so the query the caller still applies stays the source of
-/// truth.
+/// How a segment's bounds relate to a partition's range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SegmentInclusion {
+    /// The segment is fully contained within the partition; no range filter needed.
+    FullyIncluded,
+    /// The segment overlaps the partition boundary; range filter must be applied.
+    PartiallyIncluded,
+    /// The segment does not intersect the partition; excluded from execution.
+    Excluded,
+}
+
+/// The classified segments for a given partition. Pruned segments are listed by ID, not
+/// counted, so a receiver can prove the decisions were made over its own segment view.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PartitionSegments {
+    pub(crate) included: Vec<SegmentId>,
+    pub(crate) partially_included: Vec<SegmentId>,
+    pub(crate) pruned: Vec<SegmentId>,
+}
+
+impl PartitionSegments {
+    /// Whether these decisions were made over exactly `reader`'s segment view: the three lists
+    /// name every segment of the view once and nothing else. Mutable segments keep their ID
+    /// across views and are always partially included, so ID identity is sufficient.
+    pub(crate) fn covers_view(&self, reader: &SearchIndexReader) -> bool {
+        let snapshot = reader.segment_stats_snapshot();
+        let listed: HashSet<SegmentId> = self
+            .included
+            .iter()
+            .chain(&self.partially_included)
+            .chain(&self.pruned)
+            .copied()
+            .collect();
+        listed.len() == self.included.len() + self.partially_included.len() + self.pruned.len()
+            && listed.len() == reader.segment_readers().len()
+            && listed
+                .iter()
+                .all(|id| snapshot.segment_index(*id).is_some())
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+impl PartitionSegments {
+    pub(crate) fn len(&self) -> usize {
+        self.included.len() + self.partially_included.len()
+    }
+
+    pub(crate) fn contains(&self, id: &SegmentId) -> bool {
+        self.included.contains(id) || self.partially_included.contains(id)
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+impl IntoIterator for PartitionSegments {
+    type Item = SegmentId;
+    type IntoIter = std::vec::IntoIter<SegmentId>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut all = self.included;
+        all.extend(self.partially_included);
+        all.into_iter()
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+impl From<PartitionSegments> for Vec<SegmentId> {
+    fn from(segments: PartitionSegments) -> Self {
+        segments.into_iter().collect()
+    }
+}
+
+/// The segments of `reader` that can hold a row of `partition`, classified by whether they
+/// require a partition `RangeQuery` or are fully contained within the partition range.
 pub(crate) fn segments_for_partition(
     reader: &SearchIndexReader,
     boundaries: &RangePartitioning,
     partition: usize,
-) -> Vec<SegmentId> {
-    let all = reader.segment_ids();
+) -> PartitionSegments {
+    let all = || PartitionSegments {
+        included: Vec::new(),
+        partially_included: reader.segment_ids(),
+        pruned: Vec::new(),
+    };
     let Some(range) = boundaries.partition_range(partition) else {
-        return all;
+        return PartitionSegments {
+            included: reader.segment_ids(),
+            partially_included: Vec::new(),
+            pruned: Vec::new(),
+        };
     };
-    let field_name = boundaries.partition_by.as_ref();
-    let Ok(field) = reader.schema().tantivy_schema().get_field(field_name) else {
-        return all;
-    };
-    // A recent index keeps datetimes in an `I64` column, so its statistics need the same lift
-    // as its values; a legacy index stored them as `Date` already.
-    let is_date = match reader
+    let Some(field) = reader
         .schema()
-        .search_field(field_name)
-        .map(|f| f.field_type())
-    {
-        Some(SearchFieldType::Date(_)) => true,
-        Some(SearchFieldType::I64(oid)) => is_datetime_type(oid),
-        _ => false,
+        .search_field(boundaries.partition_by.as_ref())
+    else {
+        return all();
     };
-
+    if !field.stats_order_matches_values() {
+        return all();
+    }
     reader
-        .segment_readers()
-        .iter()
-        .filter(|segment_reader| {
-            let Ok(Some(stats)) = SegmentStats::of_reader(segment_reader) else {
-                return true;
-            };
-            let Ok(logical) = stats.logical(field) else {
-                return true;
-            };
-            let Ok(empirical) = stats.empirical(field) else {
-                return true;
-            };
-            let empirical = match empirical {
-                Some(empirical) if is_date => match empirical.into_dates() {
-                    Some(empirical) => Some(empirical),
-                    None => return true,
-                },
-                other => other,
-            };
-            let (lower, upper) = (&range.lower, &range.upper);
-            match (logical, empirical) {
-                (None, None) => true,
-                (Some(bounds), None) => {
-                    (range.includes_nulls && bounds.may_hold_nulls())
-                        || bounds.intersects(lower, upper)
-                }
-                (None, Some(empirical)) => {
-                    (range.includes_nulls && empirical.nullable)
-                        || empirical.intersects(lower, upper)
-                }
-                // The box holds what the build routed here and the empirical range what the
-                // segment holds now, so a partition has to reach both. The empirical range is
-                // the tighter of the two once a partition cuts inside a box.
-                (Some(bounds), Some(empirical)) => {
-                    (range.includes_nulls && empirical.nullable)
-                        || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
-                }
-            }
-        })
-        .map(SegmentReader::segment_id)
-        .collect()
+        .segment_stats_snapshot()
+        .classify_partition_segments(&field, &range)
 }

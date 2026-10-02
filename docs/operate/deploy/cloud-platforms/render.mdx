@@ -1,0 +1,50 @@
+---
+title: Render
+description: Deploy ParadeDB on Render
+canonical: https://www.paradedb.com/docs/operate/deploy/cloud-platforms/render
+---
+
+<Note>
+  For Render's official tutorial, see [Deploy ParadeDB on
+  Render](https://render.com/docs/deploy-paradedb).
+</Note>
+
+[Render](https://render.com) is a cloud platform for deploying and managing applications. The
+[ParadeDB Render Blueprint](https://github.com/paradedb/render-blueprint) provides a one-click deployment
+that runs ParadeDB Community as a [private service](https://render.com/docs/private-services) with persistent
+SSD storage.
+
+## One-Click Deploy
+
+Deploy ParadeDB to your Render account with our Blueprint. You can customize the settings before deploying.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/paradedb/render-blueprint)
+
+The Blueprint automatically:
+
+1. Creates a private service named `paradedb` running `paradedb/paradedb:latest`.
+2. Attaches a 10 GB persistent disk for your database data, mounted at `/var/lib/postgresql`.
+3. Sets up `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` environment variables.
+
+## Connecting to ParadeDB
+
+ParadeDB runs as a **private service** on Render, which means it is not exposed to the public internet.
+
+### From Another Render Service
+
+Connect from any other service in your Render private network using the service name as the host:
+
+```bash
+psql -h paradedb -U postgres -d paradedb
+```
+
+### From Your Local Machine
+
+Since the service isn't exposed publicly, [SSH into the service](https://render.com/docs/ssh) and run `psql` from inside the container:
+
+```bash
+ssh srv-XXXXXXXXXXXXX@ssh.<region>.render.com
+psql -U postgres -d paradedb
+```
+
+Replace `srv-XXXXXXXXXXXXX` with your service ID from the Render dashboard, and make sure you've added an SSH key to your Render account first.

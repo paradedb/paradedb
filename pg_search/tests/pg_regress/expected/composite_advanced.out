@@ -122,7 +122,7 @@ SELECT COUNT(*) AS deleted_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('co
    Index: idx_mvcc
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_beta_two","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS deleted_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_beta_two');
@@ -140,7 +140,7 @@ SELECT COUNT(*) AS old_content_not_visible FROM mvcc_test WHERE id @@@ pdb.parse
    Index: idx_mvcc
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_alpha_one","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS old_content_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_alpha_one');
@@ -158,7 +158,7 @@ SELECT COUNT(*) AS new_content_visible FROM mvcc_test WHERE id @@@ pdb.parse('co
    Index: idx_mvcc
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_delta_updated","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS new_content_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_delta_updated');
@@ -176,7 +176,7 @@ SELECT COUNT(*) AS unchanged_visible FROM mvcc_test WHERE id @@@ pdb.parse('cont
    Index: idx_mvcc
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_gamma_three","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS unchanged_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_gamma_three');
@@ -194,7 +194,7 @@ SELECT COUNT(*) AS new_row_visible FROM mvcc_test WHERE id @@@ pdb.parse('conten
    Index: idx_mvcc
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_epsilon_new","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS new_row_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_epsilon_new');
@@ -264,7 +264,7 @@ SELECT COUNT(*) AS modified_found FROM catchup_test WHERE id @@@ pdb.parse('cont
    Index: idx_catchup
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:modified_one","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS modified_found FROM catchup_test WHERE id @@@ pdb.parse('content:modified_one');
@@ -282,7 +282,7 @@ SELECT COUNT(*) AS original_not_found FROM catchup_test WHERE id @@@ pdb.parse('
    Index: idx_catchup
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:original_one","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS original_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_one');
@@ -300,7 +300,7 @@ SELECT COUNT(*) AS deleted_not_found FROM catchup_test WHERE id @@@ pdb.parse('c
    Index: idx_catchup
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:original_two","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS deleted_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_two');
@@ -318,7 +318,7 @@ SELECT COUNT(*) AS inserted_found FROM catchup_test WHERE id @@@ pdb.parse('cont
    Index: idx_catchup
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:inserted_six","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS inserted_found FROM catchup_test WHERE id @@@ pdb.parse('content:inserted_six');
@@ -336,7 +336,7 @@ SELECT COUNT(*) AS unchanged_found FROM catchup_test WHERE id @@@ pdb.parse('con
    Index: idx_catchup
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:original_three","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS unchanged_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_three');
@@ -398,7 +398,7 @@ SELECT COUNT(*) AS t01_count FROM fast_test_50 WHERE id @@@ pdb.parse('t01:first
    Index: idx_fast_50
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t01:first_text","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS t01_count FROM fast_test_50 WHERE id @@@ pdb.parse('t01:first_text');
@@ -416,7 +416,7 @@ SELECT COUNT(*) AS t20_count FROM fast_test_50 WHERE id @@@ pdb.parse('t20:middl
    Index: idx_fast_50
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t20:middle_text","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS t20_count FROM fast_test_50 WHERE id @@@ pdb.parse('t20:middle_text');
@@ -434,7 +434,7 @@ SELECT COUNT(*) AS t40_count FROM fast_test_50 WHERE id @@@ pdb.parse('t40:last_
    Index: idx_fast_50
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t40:last_text","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS t40_count FROM fast_test_50 WHERE id @@@ pdb.parse('t40:last_text');
@@ -563,7 +563,7 @@ SELECT COUNT(*) AS first_field_found FROM max_fields_test WHERE id @@@ pdb.parse
    Index: idx_max_fields
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f001:first_field","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS first_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f001:first_field');
@@ -580,7 +580,7 @@ SELECT COUNT(*) AS middle_field_found FROM max_fields_test WHERE id @@@ pdb.pars
    Index: idx_max_fields
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f250:middle_field","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS middle_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f250:middle_field');
@@ -597,7 +597,7 @@ SELECT COUNT(*) AS last_field_found FROM max_fields_test WHERE id @@@ pdb.parse(
    Index: idx_max_fields
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f500:last_field","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS last_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f500:last_field');
@@ -696,7 +696,7 @@ SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:fir
    Index: idx_dual_comp
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0001:first_a","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:first_a');
@@ -713,7 +713,7 @@ SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0400:last
    Index: idx_dual_comp
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0400:last_a","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0400:last_a');
@@ -730,7 +730,7 @@ SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:fir
    Index: idx_dual_comp
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0001:first_b","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:first_b');
@@ -747,7 +747,7 @@ SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last
    Index: idx_dual_comp
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0400:last_b","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last_b');
@@ -768,7 +768,7 @@ SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a'
    Index: idx_dual_comp
    Tantivy Query: {"with_index":{"query":{"term":{"field":"a0001","value":"first_a"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
@@ -786,7 +786,7 @@ SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b'
    Index: idx_dual_comp
    Tantivy Query: {"with_index":{"query":{"term":{"field":"b0001","value":"first_b"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
@@ -804,7 +804,7 @@ SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a'
    Index: idx_dual_comp
    Tantivy Query: {"with_index":{"query":{"match":{"field":"a0200","value":"mid_a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
@@ -822,7 +822,7 @@ SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*
    Index: idx_dual_comp
    Tantivy Query: {"with_index":{"query":{"regex":{"field":"b0400","pattern":"last.*"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*');
@@ -840,7 +840,7 @@ SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_g
    Index: idx_mvcc
    Tantivy Query: {"with_index":{"query":{"term":{"field":"content","value":"unique_gamma_three"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
@@ -857,7 +857,7 @@ SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique
    Index: idx_mvcc
    Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"unique_delta_updated","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique_delta_updated');
@@ -874,7 +874,7 @@ SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique
    Index: idx_mvcc
    Tantivy Query: {"with_index":{"query":{"regex":{"field":"content","pattern":"unique_.*_new"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique_.*_new');
@@ -892,7 +892,7 @@ SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field
    Index: idx_parallel
    Tantivy Query: {"with_index":{"query":{"term":{"field":"f1","value":"field1_100"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
@@ -909,7 +909,7 @@ SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('fie
    Index: idx_parallel
    Tantivy Query: {"with_index":{"query":{"match":{"field":"f2","value":"field2_500","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('field2_500');
@@ -927,7 +927,7 @@ SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_tex
    Index: idx_fast_50
    Tantivy Query: {"with_index":{"query":{"term":{"field":"t01","value":"first_text"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
@@ -944,7 +944,7 @@ SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_
    Index: idx_fast_50
    Tantivy Query: {"with_index":{"query":{"match":{"field":"t20","value":"middle_text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
@@ -1073,10 +1073,10 @@ WHERE name = 'priority';
 -- and NO Sort node because sorted path is available
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority FROM columnar_comp_test
-WHERE content @@@ 'item'
+WHERE content ||| 'item'
 ORDER BY priority DESC NULLS LAST;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on columnar_comp_test
@@ -1085,12 +1085,12 @@ ORDER BY priority DESC NULLS LAST;
          Exec Method: ColumnarExecState
          Columnar: id, priority
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 -- Verify correct sorted results
 SELECT id, priority FROM columnar_comp_test
-WHERE content @@@ 'item'
+WHERE content ||| 'item'
 ORDER BY priority DESC NULLS LAST;
  id | priority 
 ----+----------
@@ -1119,15 +1119,15 @@ CREATE INDEX expr_test_idx ON expr_test
 USING paradedb (id, name, ((a + b)::pdb.alias('sum_val')));
 -- Currently uses NormalScanExecState because a + b is not in the scan target list.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, a + b FROM expr_test WHERE name @@@ 'foo';
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, a + b FROM expr_test WHERE name ||| 'foo';
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on expr_test
    Table: expr_test
    Index: expr_test_idx
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (6 rows)
 
 -- Test 2: Simple aliased expression - SELECT + ORDER BY (sorted index)
@@ -1137,9 +1137,9 @@ USING paradedb (id, name, ((a + b)::pdb.alias('sum_val')))
 WITH (sort_by = 'sum_val DESC NULLS LAST');
 -- Currently uses NormalScanExecState and keeps a Sort for a + b.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, a + b FROM expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NULLS LAST;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, a + b FROM expr_test WHERE name ||| 'foo' ORDER BY a + b DESC NULLS LAST;
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((a + b)) DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on expr_test
@@ -1147,7 +1147,7 @@ SELECT id, a + b FROM expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NULLS L
          Index: expr_test_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 DROP TABLE expr_test CASCADE;
@@ -1162,9 +1162,9 @@ USING paradedb (id, name, (ROW(priority, created)::my_comp))
 WITH (sort_by = 'priority DESC NULLS LAST');
 -- Should use ColumnarExecState and NO Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, priority FROM comp_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, priority FROM comp_test WHERE name ||| 'foo' ORDER BY priority DESC NULLS LAST;
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on comp_test
@@ -1173,7 +1173,7 @@ SELECT id, priority FROM comp_test WHERE name @@@ 'foo' ORDER BY priority DESC N
          Exec Method: ColumnarExecState
          Columnar: id, priority
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 DROP TABLE comp_test CASCADE;
@@ -1189,9 +1189,9 @@ USING paradedb (id, name, (ROW(a + b)::comp_expr))
 WITH (sort_by = 'sum_val DESC NULLS LAST');
 -- Currently uses NormalScanExecState and keeps a Sort for a + b.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, a + b FROM comp_expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NULLS LAST;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, a + b FROM comp_expr_test WHERE name ||| 'foo' ORDER BY a + b DESC NULLS LAST;
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((a + b)) DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on comp_expr_test
@@ -1199,7 +1199,7 @@ SELECT id, a + b FROM comp_expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NU
          Index: comp_expr_test_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 DROP TABLE comp_expr_test CASCADE;
@@ -1215,9 +1215,9 @@ USING paradedb (id, name, (ROW(a + b, priority)::comp_mixed))
 WITH (sort_by = 'priority DESC NULLS LAST');
 -- Currently uses NormalScanExecState; a + b is not matched, so a Sort remains.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT a + b, priority FROM comp_mixed_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT a + b, priority FROM comp_mixed_test WHERE name ||| 'foo' ORDER BY priority DESC NULLS LAST;
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on comp_mixed_test
@@ -1225,7 +1225,7 @@ SELECT a + b, priority FROM comp_mixed_test WHERE name @@@ 'foo' ORDER BY priori
          Index: comp_mixed_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 DROP TABLE comp_mixed_test CASCADE;
@@ -1239,9 +1239,9 @@ USING paradedb (id, name, (ABS(val)::pdb.alias('abs_val')))
 WITH (sort_by = 'abs_val DESC NULLS LAST');
 -- ColumnarExecState is used for projection, but ORDER BY still sorts.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, ABS(val) FROM func_expr_test WHERE name @@@ 'foo' ORDER BY ABS(val) DESC NULLS LAST;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, ABS(val) FROM func_expr_test WHERE name ||| 'foo' ORDER BY ABS(val) DESC NULLS LAST;
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (abs(val)) DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on func_expr_test
@@ -1250,7 +1250,7 @@ SELECT id, ABS(val) FROM func_expr_test WHERE name @@@ 'foo' ORDER BY ABS(val) D
          Exec Method: ColumnarExecState
          Columnar: abs_val, id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 DROP TABLE func_expr_test CASCADE;

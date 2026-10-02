@@ -9,7 +9,7 @@
    "license": "agpl_3",
    "provides": {
       "pg_search": {
-         "abstract": "Search without a second system",
+         "abstract": "Just use Postgres",
          "file": "pg_search/src/lib.rs",
          "docfile": "pg_search/README.md",
          "version": "@CRATE_VERSION@"

@@ -97,7 +97,6 @@ use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
-use tantivy::Index;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -106,23 +105,24 @@ pub struct BaseScan;
 impl BaseScan {
     /// (Re-)initializes the search reader for the current execution context.
     ///
-    /// This function handles three distinct execution scenarios:
+    /// This function handles two distinct execution scenarios:
     ///
-    /// 1. **Leader Execution** (`ParallelWorkerNumber == -1`):
-    ///    The scan is running in the main backend process. It uses `MvccSatisfies::Snapshot`
-    ///    to see all segments visible to the current transaction's snapshot.
+    /// 1. **Parallel-Aware Participant** (leader or worker with `parallel_state`):
+    ///    The scan is part of a `parallel_aware` path (Partial Scan). Participants divide the
+    ///    segments the leader published in shared memory, so every one of them replays that
+    ///    segment view with `MvccSatisfies::ParallelWorker`.
     ///
-    /// 2. **Parallel-Aware Worker** (Worker with `parallel_state`):
-    ///    The scan is part of a `parallel_aware` path (Partial Scan). Workers coordinate
-    ///    via shared memory (DSM) to divide segments. It uses `MvccSatisfies::ParallelWorker`
-    ///    to ensure it only queries segments explicitly identified and pinned by the leader.
-    ///
-    /// 3. **Replicated Worker** (Worker with NO `parallel_state`):
-    ///    The scan is `parallel_safe` but NOT `parallel_aware`. This happens when a serial
-    ///    scan runs inside a worker context (e.g., on the inner side of a Parallel Hash Join).
-    ///    In this case, every worker executes the full scan independently using its own
-    ///    transaction snapshot (`MvccSatisfies::Snapshot`).
+    /// 2. **Serial or Replicated Scan** (no `parallel_state`):
+    ///    Either the main backend running a serial path, or a `parallel_safe` but not
+    ///    `parallel_aware` scan inside a worker (e.g. the inner side of a Parallel Hash Join).
+    ///    Each such scan reads the full data set on its own, so it opens with
+    ///    `MvccSatisfies::Snapshot`. The leader's very first open falls here too: it runs from
+    ///    `estimate_dsm_custom_scan`, before any DSM is attached, and it is the open the
+    ///    published view is captured from.
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
+        let wrapper_start = std::time::Instant::now();
+        let executor_scan_init_ns =
+            std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
         state
@@ -146,25 +146,23 @@ impl BaseScan {
             search_query_input.clone(),
             need_scores,
             unsafe {
-                if pg_sys::ParallelWorkerNumber == -1 {
-                    // the leader only sees snapshot-visible segments
-                    MvccSatisfies::Snapshot
-                } else if let Some(parallel_state) = state.custom_state().parallel_state() {
-                    // the workers have their own rules, which is literally every segment
-                    // this is because the workers pick a specific segment to query that
-                    // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                    // visibility test due to concurrent merges/garbage collects
+                if let Some(parallel_state) = state.custom_state().parallel_state() {
+                    // Claims come out of the published view, so a participant has to resolve that
+                    // exact set. The leader needs this as much as a worker does: a
+                    // `Gather`/`Gather Merge` re-scans its child on the first `ExecProcNode`,
+                    // which re-opens the leader's reader after it published, and a `::Snapshot`
+                    // open lists only what is undeleted at that moment.
                     MvccSatisfies::ParallelWorker(segment_view(parallel_state))
                 } else {
-                    // We are in a worker, but this is not a parallel-aware scan (e.g. we are running
-                    // a serial scan inside a parallel worker, like in a Parallel Nested Loop Join).
-                    // In this case, we behave like a normal snapshot scan.
+                    // Not a parallel-aware scan: this process reads the whole data set on its own,
+                    // against its own snapshot.
                     MvccSatisfies::Snapshot
                 }
             },
             std::ptr::NonNull::new(expr_context),
             std::ptr::NonNull::new(planstate),
             needs_tokenizer_manager,
+            state.custom_state().io_trace.clone(),
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
@@ -240,6 +238,15 @@ impl BaseScan {
         unsafe {
             inject_pdb_placeholders(state);
         }
+
+        let wrapper_ns = wrapper_start.elapsed().as_nanos() as u64;
+        let reader = state
+            .custom_state_mut()
+            .search_reader
+            .as_mut()
+            .expect("search reader was initialized above");
+        let wrapper_residual_ns = wrapper_ns.saturating_sub(reader.scan_init_ns());
+        reader.add_scan_init_ns(executor_scan_init_ns.saturating_add(wrapper_residual_ns));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -612,6 +619,24 @@ unsafe fn is_limit_pushdown_safe(
         && !classify_target_list_srf(root).is_unsafe()
 }
 
+fn finish_result_assembly_accounting(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    accounting: Option<(std::time::Instant, u64)>,
+) {
+    let Some((start, stages_before)) = accounting else {
+        return;
+    };
+    let stage_delta = state
+        .custom_state()
+        .telemetry
+        .stage_elapsed_ns()
+        .saturating_sub(stages_before);
+    state
+        .custom_state_mut()
+        .telemetry
+        .add_result_assembly_ns((start.elapsed().as_nanos() as u64).saturating_sub(stage_delta));
+}
+
 impl CustomScan for BaseScan {
     const NAME: &'static CStr = c"ParadeDB Base Scan";
 
@@ -739,10 +764,13 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
+            // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
+            // execution may skip some of these segments.
             let segment_count = {
                 let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
                 let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-                Index::open(directory).expect("custom_scan: should be able to open index");
+                crate::index::open_index(directory)
+                    .expect("custom_scan: should be able to open index");
                 segment_count.load(Ordering::Relaxed)
             };
             let schema = bm25_index
@@ -1479,10 +1507,25 @@ impl CustomScan for BaseScan {
                 if let Some(explain_data) = state.custom_state().telemetry.parallel_explain() {
                     explainer.add_json("Parallel Workers", &explain_data.workers);
                 }
-                let segment_info = state.custom_state().segment_info_for_explain();
-                if !segment_info.is_empty() {
-                    explainer.add_json("Segment Info", &segment_info);
+                if gucs::vector_stats() {
+                    let segment_info = state.custom_state().segment_info_for_explain();
+                    if !segment_info.is_empty() {
+                        explainer.add_json("Segment Info", &segment_info);
+                    }
                 }
+            }
+            if explainer.is_buffers() {
+                explainer.add_group("Buffer Hits", |explainer| {
+                    for (component, hits) in state
+                        .custom_state()
+                        .io_trace
+                        .as_ref()
+                        .map(|stats| stats.hits())
+                        .unwrap_or_else(|| vec![("Total".into(), 0)])
+                    {
+                        explainer.add_unsigned_integer(&component, hits, None);
+                    }
+                });
             }
         }
 
@@ -1558,6 +1601,7 @@ impl CustomScan for BaseScan {
                             None,                          // No expr_context needed for estimates
                             None,                          // No planstate needed for estimates
                             base_query.needs_tokenizer(),
+                            None,
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 
@@ -1581,6 +1625,13 @@ impl CustomScan for BaseScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
+        let begin_start = std::time::Instant::now();
+        let explain_analyze = unsafe { (*estate).es_instrument != 0 };
+        state.custom_state_mut().io_trace = unsafe {
+            (*estate).es_instrument & pg_sys::InstrumentOption::INSTRUMENT_BUFFERS as i32 != 0
+        }
+        .then(crate::index::reader::io_stats::Trace::default);
+        state.custom_state_mut().explain_stage_accounting = explain_analyze;
         unsafe {
             // open the heap and index relations with the proper locks
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
@@ -1636,6 +1687,7 @@ impl CustomScan for BaseScan {
             {
                 let plan = state.csstate.ss.ps.plan;
                 if !(*plan).qual.is_null() {
+                    state.csstate.ss.ps.subPlan = std::ptr::null_mut();
                     state.csstate.ss.ps.qual =
                         pg_sys::ExecInitQual((*plan).qual, state.planstate());
                 }
@@ -1652,6 +1704,10 @@ impl CustomScan for BaseScan {
                 .init_expr_context(estate, planstate);
             state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
         }
+        let begin_ns = begin_start.elapsed().as_nanos() as u64;
+        let custom_state = state.custom_state_mut();
+        custom_state.executor_scan_init_ns =
+            custom_state.executor_scan_init_ns.saturating_add(begin_ns);
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
@@ -1663,6 +1719,16 @@ impl CustomScan for BaseScan {
         if state.custom_state().search_reader.is_some() {
             state.custom_state_mut().reset_exec_results();
         }
+        // A merge can retire a segment the shared work queue still hands out, and a retired
+        // segment stays readable only while something pins it. `TopKScanExecState` happens to
+        // keep a reader clone through `reset_exec_results`, but the normal and columnar methods
+        // do not, so hold the pins until this function returns, which is after the replacement
+        // reader has taken its own.
+        let _pins = state
+            .custom_state()
+            .search_reader
+            .as_ref()
+            .map(SearchIndexReader::segment_pins);
         drop(state.custom_state_mut().search_reader.take());
         state.custom_state_mut().bitmap_cell = None;
         if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
@@ -1674,17 +1740,30 @@ impl CustomScan for BaseScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        let result_assembly_accounting = state.custom_state().explain_stage_accounting.then(|| {
+            (
+                std::time::Instant::now(),
+                state.custom_state().telemetry.stage_elapsed_ns(),
+            )
+        });
+        let _io = state
+            .custom_state()
+            .io_trace
+            .as_ref()
+            .map(|stats| stats.enter());
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }
 
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
+            let next = exec_method.next(state.custom_state_mut());
 
             // get the next matching document from our search results and look for it in the heap
-            match exec_method.next(state.custom_state_mut()) {
+            match next {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
+                    finish_result_assembly_accounting(state, result_assembly_accounting);
                     return std::ptr::null_mut();
                 }
 
@@ -1727,7 +1806,9 @@ impl CustomScan for BaseScan {
                             //
 
                             (*(*state.projection_info()).pi_exprContext).ecxt_scantuple = slot;
-                            return pg_sys::ExecProject(state.projection_info());
+                            let projected = pg_sys::ExecProject(state.projection_info());
+                            finish_result_assembly_accounting(state, result_assembly_accounting);
+                            return projected;
                         } else {
                             //
                             // we do need scores or snippets
@@ -1765,7 +1846,7 @@ impl CustomScan for BaseScan {
                             }
 
                             // finally, do the projection
-                            return per_tuple_context.switch_to(|_| {
+                            let projected = per_tuple_context.switch_to(|_| {
                                 // TODO: We go _back_ to the heap to get snippet information here
                                 // inside of `make_snippet` and `get_snippet_positions`. It's possible
                                 // that we could use a wider tuple slot to fetch the extra columns that
@@ -1789,12 +1870,15 @@ impl CustomScan for BaseScan {
                                 );
                                 pg_sys::ExecProject(proj_info)
                             });
+                            finish_result_assembly_accounting(state, result_assembly_accounting);
+                            return projected;
                         }
                     }
                 }
 
                 ExecState::Virtual { slot } => {
                     state.custom_state_mut().virtual_tuple_count += 1;
+                    finish_result_assembly_accounting(state, result_assembly_accounting);
                     return slot;
                 }
             }
@@ -1804,7 +1888,7 @@ impl CustomScan for BaseScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Leader-only: last chance to read DSM before Postgres destroys it.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel
+        if let Some(parallel) = scan_state.parallel.take()
             && parallel.is_leader()
         {
             parallel.finalize_explain(&mut scan_state.telemetry);
@@ -1816,7 +1900,7 @@ impl CustomScan for BaseScan {
         // Leader: do not touch DSM — Shutdown already ran (or serial path).
         {
             let scan_state = state.custom_state_mut();
-            if let Some(parallel) = scan_state.parallel
+            if let Some(parallel) = scan_state.parallel.take()
                 && !parallel.is_leader()
             {
                 parallel.publish_telemetry(&scan_state.telemetry);
@@ -2304,6 +2388,11 @@ fn check_visibility(
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
+    let _io = state
+        .custom_state()
+        .io_trace
+        .as_ref()
+        .map(|stats| stats.external("Heap"));
     state
         .custom_state_mut()
         .visibility_checker()

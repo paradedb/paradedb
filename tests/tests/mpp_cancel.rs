@@ -39,14 +39,11 @@ CREATE TABLE mpp_users    (id bigserial primary key, uuid uuid, name text, age i
 CREATE TABLE mpp_products (id bigserial primary key, uuid uuid, name text, age int);
 CREATE TABLE mpp_orders   (id bigserial primary key, uuid uuid, name text, age int);
 
-CREATE INDEX mpp_users_idx ON mpp_users USING paradedb (id, uuid, name, age, category)
-WITH (text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true},"category":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_users_idx ON mpp_users USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age, (category::pdb.literal));
 
-CREATE INDEX mpp_products_idx ON mpp_products USING paradedb (id, uuid, name, age)
-WITH (text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_products_idx ON mpp_products USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age);
 
-CREATE INDEX mpp_orders_idx ON mpp_orders USING paradedb (id, uuid, name, age)
-WITH (text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_orders_idx ON mpp_orders USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age);
 
 SET paradedb.global_mutable_segment_rows = 0;
 
@@ -104,7 +101,7 @@ const MPP_QUERY: &str = r#"
 SELECT mpp_users.id, mpp_users.name, mpp_users.age, mpp_products.age
 FROM mpp_users JOIN mpp_products ON mpp_users.age = mpp_products.age
 JOIN mpp_orders ON mpp_products.uuid = mpp_orders.uuid
-WHERE NOT ((mpp_users.name @@@ 'bob') AND (mpp_users.name @@@ 'bob'))
+WHERE NOT ((mpp_users.name ||| 'bob') AND (mpp_users.name ||| 'bob'))
   AND mpp_users.age >= mpp_products.age
 ORDER BY mpp_users.id LIMIT 31
 "#;
@@ -147,13 +144,11 @@ async fn signal_running_mpp_backend(
     loop {
         // Parallel workers inherit the leader's `application_name`, so pin to the client backend
         // to signal the leader (the connection running the top-level query), not a worker.
-        let pid: Option<i32> = sqlx::query_scalar(
-            "SELECT pid FROM pg_stat_activity \
-             WHERE application_name = $1 AND backend_type = 'client backend' \
-             AND state = 'active' AND query LIKE '%mpp_users.age = mpp_products.age%'",
+        let pid = client_backend_pid(
+            killer,
+            victim_app,
+            "state = 'active' AND query LIKE '%mpp_users.age = mpp_products.age%'",
         )
-        .bind(victim_app)
-        .fetch_optional(&mut *killer)
         .await?;
 
         if let Some(pid) = pid {

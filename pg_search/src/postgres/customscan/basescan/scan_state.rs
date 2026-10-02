@@ -46,6 +46,7 @@ use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct BaseScanState {
+    pub io_trace: Option<crate::index::reader::io_stats::Trace>,
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,
     /// Set when this scan is parallel-aware (DSM attached).
@@ -62,6 +63,15 @@ pub struct BaseScanState {
     base_search_query_input: SearchQueryInput,
     search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
+    /// Executor startup before `SearchIndexReader::open`; consumed into the
+    /// reader's flat `scan_init_ns` metric on first execution.
+    pub executor_scan_init_ns: u64,
+    /// End-to-end CustomScan execution interval used to assign only the
+    /// residual around named nested stages to result assembly.
+    /// Whether the current execution is collecting stage timings for
+    /// `EXPLAIN ANALYZE`.  Timed queries leave the executor delivery path
+    /// uninstrumented.
+    pub explain_stage_accounting: bool,
 
     pub targetlist_len: usize,
 

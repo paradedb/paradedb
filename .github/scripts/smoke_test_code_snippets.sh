@@ -75,7 +75,10 @@ run_psql_file() {
     printf '%s\n' "$output" >&2
   fi
 
-  if grep -Eq '(^|:) WARNING:' <<<"$output"; then
+  # Published 0.25 docs require key_field; the 0.26 test extension warns on it.
+  # TODO: Remove this exception once key_field is removed from the docs.
+  if grep -E '(^|:) WARNING:' <<<"$output" |
+    grep -Ev 'WARNING:  key_field is deprecated as of 0\.26\.0 and is a no-op; it no longer needs to be provided$' >/dev/null; then
     return 1
   fi
 }
@@ -124,7 +127,7 @@ if [[ $ORMS =~ "django" ]]; then
 
   echo "Installing Django ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "django-paradedb==0.12.0" \
+    "django-paradedb==0.13.0" \
     "django-cte>=2.0" \
     "psycopg[binary]"
 
@@ -133,7 +136,7 @@ if [[ $ORMS =~ "django" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Eq 'schema_editor\.add_index' "$snippet_file"; then
+    if ! grep -Eq 'schema_editor\.add_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -170,7 +173,7 @@ if [[ $ORMS =~ "rails" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Fq 'add_paradedb_index' "$snippet_file"; then
+    if ! grep -Eq 'add_paradedb_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -213,7 +216,7 @@ if [[ $ORMS =~ "sqlalchemy" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Fq 'idx.create' "$snippet_file"; then
+    if ! grep -Eq 'idx\.create|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -253,7 +256,7 @@ if [[ $ORMS =~ "drizzle" ]]; then
     run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
     drop_snippet_indexes
 
-    if ! grep -Fq 'paradedbIndex' "$snippet_file"; then
+    if ! grep -Eq 'paradedbIndex|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 

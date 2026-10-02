@@ -1,0 +1,125 @@
+---
+title: Upgrading ParadeDB
+description: Upgrade ParadeDB to a newer version
+canonical: https://www.paradedb.com/docs/operate/deploy/upgrading
+---
+
+## Overview
+
+ParadeDB ships its functionality packaged as a Postgres extension, `pg_search`. To upgrade, first install the new extension binary, then update the extension in the Postgres catalog.
+
+<Note>
+  ParadeDB uses `pgvector`'s vector types for [native vector
+  search](/reference/vector/overview). This extension is not managed by
+  ParadeDB. Please refer to the [pgvector
+  documentation](https://github.com/pgvector/pgvector?tab=readme-ov-file#upgrading)
+  for instructions on how to upgrade it.
+</Note>
+
+## Getting the Current Version
+
+To inspect the current version of the extension, run the following command.
+
+```sql
+SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
+```
+
+Verify that it matches `paradedb.version_info()`:
+
+```sql
+SELECT * FROM paradedb.version_info();
+```
+
+The reason that there are two statements is because `paradedb.version_info()` is the actual version of the `pg_search` binary that is installed,
+whereas `pg_extension` is what Postgres' catalog thinks the version of the extension is.
+
+If `paradedb.version_info()` is greater than `pg_extension`, it means that `ALTER EXTENSION` was not run after the previous upgrade, and that the SQL upgrade scripts were not applied.
+If `pg_extension` is greater than `paradedb.version_info()`, it means that the extension didn't fully upgrade, and that Postgres needs to be restarted.
+
+## Getting the Latest Version
+
+The latest version of `pg_search` is `0.25.11`. The list of available `pg_search` versions can be found on our [GitHub releases page](https://github.com/paradedb/paradedb/releases).
+
+## Upgrading the ParadeDB Binary
+
+<Tabs>
+<Tab title="Kubernetes">
+
+To upgrade `pg_search` in a cluster deployed with the ParadeDB Helm chart:
+
+1. Refresh the local chart repository index.
+
+```bash
+helm repo update paradedb
+```
+
+2. List the available chart versions.
+
+```bash
+helm search repo paradedb/paradedb --versions
+```
+
+3. Choose a chart version and a ParadeDB extension version. The chart version
+   and extension version are separate: `--version` selects the Helm chart,
+   while `version.paradedb` selects the ParadeDB version deployed by that chart.
+
+4. Upgrade the existing Helm release, preserving its configured values and
+   setting the new ParadeDB version.
+
+```bash
+helm upgrade paradedb paradedb/paradedb \
+  --namespace paradedb \
+  --reuse-values \
+  --version <chart_version> \
+  --set-string version.paradedb=<paradedb_version> \
+  --atomic
+```
+
+Replace `<chart_version>` and `<paradedb_version>` with your chosen versions.
+Use your existing release name and namespace if they differ from `paradedb`.
+
+</Tab>
+<Tab title="Docker">
+
+To upgrade the ParadeDB Docker image while preserving your data volume:
+
+1. Stop the ParadeDB Docker image via `docker stop paradedb`.
+
+2. Run the following command to pull a specific version of the Docker image. You can find the full list of available tags on [Docker Hub](https://hub.docker.com/r/paradedb/paradedb/tags).
+
+```bash
+docker pull paradedb/paradedb:0.25.11
+```
+
+3. Start the new ParadeDB Docker image via `docker run paradedb`.
+
+</Tab>
+<Tab title="Self-Hosted PostgreSQL">
+
+To upgrade the extension running in a self-managed Postgres:
+
+1. Stop Postgres (e.g. `pg_ctl stop -D </path/to/data/directory>`).
+2. Download and install the extension version you wish to upgrade to in the same way that it was initially installed.
+3. Start Postgres (e.g. `pg_ctl start -D </path/to/data/directory>`).
+
+</Tab>
+</Tabs>
+
+## Upgrading the PostgreSQL Catalog
+
+After the ParadeDB binary has been upgraded, connect to it and run the following command in all databases that `pg_search` is installed in. This step is required regardless of the environment that ParadeDB is installed in.
+
+```sql
+ALTER EXTENSION pg_search UPDATE TO '0.25.11';
+```
+
+## Verifying the Upgrade
+
+After upgrading the extension and restarting Postgres, verify that the version numbers returned by the following commands match:
+
+```sql
+SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
+SELECT * FROM paradedb.version_info();
+```
+
+If the two versions do not match, restart Postgres and try again.

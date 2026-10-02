@@ -85,8 +85,7 @@ INSERT INTO events_nullable (created_at, region, amount) VALUES
     (NULL, 'west', 200);
 
 CREATE INDEX events_nullable_idx ON events_nullable
-USING paradedb (id, created_at, region, amount)
-WITH (text_fields = '{"region": {"fast": true}}');
+USING paradedb (id, created_at, (region::pdb.unicode_words('columnar=true')), amount);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DATE(created_at), COUNT(*), SUM(amount)
@@ -101,10 +100,11 @@ GROUP BY DATE(created_at)
 ORDER BY day NULLS LAST;
 
 -- =====================================================================
--- Test 4: descending sort with LIMIT retains the NULL date group
+-- Test 4: transformed date group-key TopK retains the NULL group
 -- =====================================================================
--- DESC uses NULLS FIRST by default, so the NULL group must be the first
--- result rather than disappearing before the LIMIT is applied.
+-- DataFusion sorts and limits the transformed Date32 grouping output.
+-- DESC uses NULLS FIRST by default, so the NULL group must be retained
+-- as the first result.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DATE(created_at) AS day, COUNT(*) AS cnt
 FROM events_nullable

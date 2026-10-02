@@ -1,0 +1,41 @@
+---
+title: Getting Started
+sidebarTitle: Getting Started
+description: Configure ParadeDB as a logical subscriber of an existing Postgres primary
+canonical: https://www.paradedb.com/docs/operate/deploy/logical-replication/getting-started
+---
+
+<Note>
+  In order for ParadeDB to run as a logical subscriber, ParadeDB must be using
+  Postgres 17+.
+</Note>
+
+Logical replication lets you deploy ParadeDB alongside your existing managed Postgres infrastructure. Your application continues writing to your primary database while ParadeDB receives those changes and serves search and analytics queries.
+
+This deployment approach lets you:
+
+- **Add search without migrating.** Run ParadeDB alongside an existing Postgres service, such as AWS RDS, while your application continues writing to its current database.
+- **Start alongside your existing infrastructure and consolidate later.** Evaluate ParadeDB at scale before choosing to bring your transactional and search workloads together in a single Postgres cluster.
+- **Keep indexing off your OLTP write path.** With asynchronous logical replication, transactions commit without waiting for ParadeDB to index the changes. Search results are eventually consistent with your primary database.
+
+For self-hosted Postgres, we recommend [installing the extension directly](/operate/deploy/self-hosted/extension).
+
+## Configuring Logical Replication
+
+<Warning>
+  Logical replication copies row changes, not schema changes or indexes. The
+  published tables must already exist on ParadeDB, and any DDL must be applied
+  on both sides. For safe DDL rollout steps, see [Schema
+  Changes](/operate/deploy/logical-replication/schema-changes).
+</Warning>
+
+Follow your provider's guide to enable logical replication, using your managed Postgres database as the **publisher** and ParadeDB as the **subscriber**:
+
+- [AWS RDS/Aurora](https://aws.amazon.com/blogs/database/using-logical-replication-to-replicate-managed-amazon-rds-for-postgresql-and-amazon-aurora-to-self-managed-postgresql/)
+- [AlloyDB for PostgreSQL](https://cloud.google.com/alloydb/docs/omni/replicate-data-omni-other-db)
+- [Cloud SQL for PostgreSQL](https://cloud.google.com/sql/docs/postgres/replication/configure-logical-replication#set-up-native-postgresql-logical-replication)
+- [Azure Database for PostgreSQL](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-logical)
+- [Supabase](https://supabase.com/docs/guides/database/postgres/setup-replication-external)
+- [Neon](https://neon.com/docs/guides/logical-replication-guide)
+
+After configuring replication, continue to [Initial Sync and Indexing](/operate/deploy/logical-replication/bootstrapping).

@@ -37,17 +37,10 @@ CREATE TABLE mpp_wm_pages (
 );
 
 CREATE INDEX mpp_wm_files_idx ON mpp_wm_files
-USING paradedb (id, title, content)
-WITH (
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content);
 
 CREATE INDEX mpp_wm_pages_idx ON mpp_wm_pages
-USING paradedb (id, file_id, page_text, size_bytes)
-WITH (
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {}}'
-);
+USING paradedb (id, file_id, page_text, size_bytes);
 
 SET paradedb.global_mutable_segment_rows = 0;
 
@@ -86,7 +79,7 @@ DO $$
 BEGIN
     PERFORM f.title, p.size_bytes
     FROM mpp_wm_files f JOIN mpp_wm_pages p ON f.id = p.file_id
-    WHERE f.content @@@ 'Section'
+    WHERE f.content ||| 'Section'
     ORDER BY p.size_bytes, p.id
     LIMIT 200000;
     INSERT INTO mpp_wm_outcome VALUES ('join: unexpected success under 64kB work_mem');
@@ -101,7 +94,7 @@ DO $$
 BEGIN
     PERFORM p.id, count(*)
     FROM mpp_wm_files f JOIN mpp_wm_pages p ON f.id = p.file_id
-    WHERE f.content @@@ 'Section'
+    WHERE f.content ||| 'Section'
     GROUP BY p.id;
     INSERT INTO mpp_wm_outcome VALUES ('agg: unexpected success under 64kB work_mem');
 EXCEPTION WHEN OTHERS THEN
@@ -115,7 +108,7 @@ SELECT msg FROM mpp_wm_outcome ORDER BY msg;
 -- connection and the expected output won't match.)
 SELECT count(*) AS files_still_readable
 FROM mpp_wm_files
-WHERE content @@@ 'Section';
+WHERE content ||| 'Section';
 
 DROP TABLE mpp_wm_outcome;
 

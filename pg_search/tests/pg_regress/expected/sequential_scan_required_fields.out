@@ -21,7 +21,7 @@ SELECT array_agg(id ORDER BY id) FROM required_fields WHERE body === 'alpha';
  {1,2}
 (1 row)
 
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ 'body:alpha';
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE body ||| 'alpha';
  array_agg 
 -----------
  {1,2}
@@ -42,14 +42,14 @@ SELECT array_agg(id ORDER BY id) FROM required_fields WHERE lower(body) === 'alp
  {1,2}
 (1 row)
 
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ 'upper_body:ALPHA';
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.parse('upper_body:ALPHA');
  array_agg 
 -----------
  {1,2}
 (1 row)
 
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE body @@@ 'alpha OR lower_body:beta';
+WHERE body @@@ pdb.parse_with_field('alpha OR lower_body:beta');
  array_agg 
 -----------
  {1,2,3}
@@ -115,7 +115,7 @@ WHERE id @@@ pdb.more_like_this(1, fields => ARRAY['body'], min_doc_frequency =>
 
 SET LOCAL plan_cache_mode = force_generic_plan;
 PREPARE required_fields_parse(text) AS
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ $1;
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.parse($1);
 EXECUTE required_fields_parse('body:alpha');
  array_agg 
 -----------
@@ -160,7 +160,7 @@ EXECUTE required_fields_parse('*');
 
 DEALLOCATE required_fields_parse;
 SAVEPOINT required_danger;
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ 'danger:alpha';
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.parse('danger:alpha');
 ERROR:  division by zero
 ROLLBACK TO required_danger;
 SELECT array_agg(id ORDER BY id) FROM required_fields

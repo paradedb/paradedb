@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed a `segment ... should exist` error from a parallel search scan running on an index that a concurrent merge changed. The scan's leader resolved its own set of segments instead of the set it had published for its workers, so a segment the merge retired in between was still handed out as work (#6384).

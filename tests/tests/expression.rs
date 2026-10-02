@@ -37,7 +37,7 @@ fn expression_paradedb_func(mut conn: PgConnection) {
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
-    let (count,) = "SELECT count(*) FROM paradedb.index_config WHERE lower(description) @@@ 'test'"
+    let (count,) = "SELECT count(*) FROM paradedb.index_config WHERE lower(description) ||| 'test'"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
@@ -56,12 +56,12 @@ fn expression_paradedb_op(mut conn: PgConnection) {
 
     // All entries in the index should match, since all of them now have cats.
     let (count,) =
-        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') @@@ 'cats'"
+        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') ||| 'cats'"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 42);
     // Inserted test value still should too.
     let (count,) =
-        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') @@@ 'description'"
+        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') ||| 'description'"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
@@ -78,16 +78,16 @@ fn expression_conflicting_query_string(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(firstname) @@@ 'john'"
+    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(firstname) ||| 'john'"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
-    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(lastname) @@@ 'doe'"
+    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(lastname) ||| 'doe'"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
     let (count,) =
-        "SELECT count(*) FROM expression_test WHERE lower(firstname) @@@ 'john' AND lower(lastname) @@@ 'doe'"
+        "SELECT count(*) FROM expression_test WHERE lower(firstname) ||| 'john' AND lower(lastname) ||| 'doe'"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }

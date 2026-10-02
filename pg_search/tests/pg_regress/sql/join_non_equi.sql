@@ -50,17 +50,9 @@ INSERT INTO nonequi_offers (id, promo_name, description, target_category, min_pr
 (204, 'All Clear', 'Clearance discounts across all categories', 'all', 0.00, 50.00, 1);
 
 -- All join, filter, and order-by columns must be fast fields for JoinScan
-CREATE INDEX nonequi_items_idx ON nonequi_items USING paradedb (id, name, description, category, price, rating)
-WITH (
-    text_fields = '{"name": {"fast": true}, "category": {"fast": true}}',
-    numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}'
-);
+CREATE INDEX nonequi_items_idx ON nonequi_items USING paradedb (id, (name::pdb.unicode_words('columnar=true')), description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
-CREATE INDEX nonequi_offers_idx ON nonequi_offers USING paradedb (id, promo_name, description, target_category, min_price, max_price, min_rating)
-WITH (
-    text_fields = '{"promo_name": {"fast": true}, "target_category": {"fast": true}}',
-    numeric_fields = '{"min_price": {"fast": true}, "max_price": {"fast": true}, "min_rating": {"fast": true}}'
-);
+CREATE INDEX nonequi_offers_idx ON nonequi_offers USING paradedb (id, (promo_name::pdb.unicode_words('columnar=true')), description, (target_category::pdb.unicode_words('columnar=true')), min_price, max_price, min_rating);
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -73,14 +65,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.price <= o.max_price
-WHERE i.description @@@ 'ergonomic'
+WHERE i.description ||| 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
 
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.price <= o.max_price
-WHERE i.description @@@ 'ergonomic'
+WHERE i.description ||| 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -89,14 +81,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name, i.rating, o.min_rating
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.rating >= o.min_rating
-WHERE o.description @@@ 'exclusive OR value'
+WHERE (o.description ||| 'exclusive' OR o.description ||| 'value')
 ORDER BY i.id, o.id
 LIMIT 10;
 
 SELECT i.id, i.name, o.promo_name, i.rating, o.min_rating
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.rating >= o.min_rating
-WHERE o.description @@@ 'exclusive OR value'
+WHERE (o.description ||| 'exclusive' OR o.description ||| 'value')
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -105,14 +97,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.price >= o.min_price AND i.price <= o.max_price
-WHERE i.description @@@ 'keyboard OR mouse OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.description ||| 'headset')
 ORDER BY i.id, o.id
 LIMIT 10;
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.price >= o.min_price AND i.price <= o.max_price
-WHERE i.description @@@ 'keyboard OR mouse OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.description ||| 'headset')
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -121,14 +113,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name, i.category, o.target_category
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.category <> o.target_category
-WHERE i.description @@@ 'wireless' AND o.description @@@ 'budget'
+WHERE i.description ||| 'wireless' AND o.description ||| 'budget'
 ORDER BY i.id, o.id
 LIMIT 10;
 
 SELECT i.id, i.name, o.promo_name, i.category, o.target_category
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.category <> o.target_category
-WHERE i.description @@@ 'wireless' AND o.description @@@ 'budget'
+WHERE i.description ||| 'wireless' AND o.description ||| 'budget'
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -141,14 +133,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_price
-WHERE i.description @@@ 'cable OR riser OR mat'
+WHERE (i.description ||| 'cable' OR i.description ||| 'riser' OR i.description ||| 'mat')
 ORDER BY i.id, o.id
 LIMIT 10;
 
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_price
-WHERE i.description @@@ 'cable OR riser OR mat'
+WHERE (i.description ||| 'cable' OR i.description ||| 'riser' OR i.description ||| 'mat')
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -159,7 +151,7 @@ FROM nonequi_items i
 JOIN nonequi_offers o ON i.category = o.target_category
                      AND i.price >= o.min_price
                      AND i.rating >= o.min_rating
-WHERE i.description @@@ 'electronics OR keyboard OR headset'
+WHERE (i.description ||| 'electronics' OR i.description ||| 'keyboard' OR i.description ||| 'headset')
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -168,7 +160,7 @@ FROM nonequi_items i
 JOIN nonequi_offers o ON i.category = o.target_category
                      AND i.price >= o.min_price
                      AND i.rating >= o.min_rating
-WHERE i.description @@@ 'electronics OR keyboard OR headset'
+WHERE (i.description ||| 'electronics' OR i.description ||| 'keyboard' OR i.description ||| 'headset')
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -182,14 +174,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, i.price, o.promo_name, o.max_price
 FROM nonequi_items i
 LEFT JOIN nonequi_offers o ON i.price > o.max_price AND o.min_rating >= 4
-WHERE i.description @@@ 'keyboard OR cable OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'cable' OR i.description ||| 'headset')
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
 SELECT i.id, i.name, i.price, o.promo_name, o.max_price
 FROM nonequi_items i
 LEFT JOIN nonequi_offers o ON i.price > o.max_price AND o.min_rating >= 4
-WHERE i.description @@@ 'keyboard OR cable OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'cable' OR i.description ||| 'headset')
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
@@ -198,14 +190,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price
 FROM nonequi_items i
 LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min_price
-WHERE i.description @@@ 'cable OR mat OR mouse'
+WHERE (i.description ||| 'cable' OR i.description ||| 'mat' OR i.description ||| 'mouse')
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price
 FROM nonequi_items i
 LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min_price
-WHERE i.description @@@ 'cable OR mat OR mouse'
+WHERE (i.description ||| 'cable' OR i.description ||| 'mat' OR i.description ||| 'mouse')
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
@@ -214,14 +206,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name, o.max_price
 FROM nonequi_items i
 RIGHT JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_price
-WHERE o.description @@@ 'exclusive OR budget'
+WHERE (o.description ||| 'exclusive' OR o.description ||| 'budget')
 ORDER BY o.id, i.id NULLS LAST
 LIMIT 10;
 
 SELECT i.id, i.name, o.promo_name, o.max_price
 FROM nonequi_items i
 RIGHT JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_price
-WHERE o.description @@@ 'exclusive OR budget'
+WHERE (o.description ||| 'exclusive' OR o.description ||| 'budget')
 ORDER BY o.id, i.id NULLS LAST
 LIMIT 10;
 
@@ -233,7 +225,7 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, i.price
 FROM nonequi_items i
-WHERE i.description @@@ 'keyboard OR mouse OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.description ||| 'headset')
   AND EXISTS (
       SELECT 1 FROM nonequi_offers o
       WHERE i.category = o.target_category AND o.min_price > i.price
@@ -243,7 +235,7 @@ LIMIT 10;
 
 SELECT i.id, i.name, i.price
 FROM nonequi_items i
-WHERE i.description @@@ 'keyboard OR mouse OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.description ||| 'headset')
   AND EXISTS (
       SELECT 1 FROM nonequi_offers o
       WHERE i.category = o.target_category AND o.min_price > i.price
@@ -255,7 +247,7 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, i.price
 FROM nonequi_items i
-WHERE i.description @@@ 'keyboard OR mouse OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.description ||| 'headset')
   AND NOT EXISTS (
       SELECT 1 FROM nonequi_offers o
       WHERE i.category = o.target_category AND o.min_price > i.price
@@ -265,7 +257,7 @@ LIMIT 10;
 
 SELECT i.id, i.name, i.price
 FROM nonequi_items i
-WHERE i.description @@@ 'keyboard OR mouse OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.description ||| 'headset')
   AND NOT EXISTS (
       SELECT 1 FROM nonequi_offers o
       WHERE i.category = o.target_category AND o.min_price > i.price
@@ -282,14 +274,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.price <= o.max_price
-WHERE i.description @@@ 'gaming' OR o.description @@@ 'clearance'
+WHERE i.description ||| 'gaming' OR o.description ||| 'clearance'
 ORDER BY i.id, o.id
 LIMIT 10;
 
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.price <= o.max_price
-WHERE i.description @@@ 'gaming' OR o.description @@@ 'clearance'
+WHERE i.description ||| 'gaming' OR o.description ||| 'clearance'
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -302,7 +294,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.price <= o.max_price
-WHERE i.description @@@ 'ergonomic'
+WHERE i.description ||| 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -310,7 +302,7 @@ SET paradedb.enable_join_custom_scan = on;
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.price <= o.max_price
-WHERE i.description @@@ 'ergonomic'
+WHERE i.description ||| 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -319,7 +311,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
 LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min_price
-WHERE i.description @@@ 'cable OR mat OR mouse'
+WHERE (i.description ||| 'cable' OR i.description ||| 'mat' OR i.description ||| 'mouse')
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
@@ -327,7 +319,7 @@ SET paradedb.enable_join_custom_scan = on;
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
 LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min_price
-WHERE i.description @@@ 'cable OR mat OR mouse'
+WHERE (i.description ||| 'cable' OR i.description ||| 'mat' OR i.description ||| 'mouse')
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
@@ -336,7 +328,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT i.id, o.id
 FROM nonequi_items i
 LEFT JOIN nonequi_offers o ON i.price > o.min_price
-WHERE i.description @@@ 'ergonomic' AND (i.price < o.max_price OR o.max_price IS NULL)
+WHERE i.description ||| 'ergonomic' AND (i.price < o.max_price OR o.max_price IS NULL)
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
@@ -344,7 +336,7 @@ SET paradedb.enable_join_custom_scan = on;
 SELECT i.id, o.id
 FROM nonequi_items i
 LEFT JOIN nonequi_offers o ON i.price > o.min_price
-WHERE i.description @@@ 'ergonomic' AND (i.price < o.max_price OR o.max_price IS NULL)
+WHERE i.description ||| 'ergonomic' AND (i.price < o.max_price OR o.max_price IS NULL)
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
 
@@ -352,41 +344,41 @@ LIMIT 10;
 SET paradedb.enable_join_custom_scan = off;
 SELECT a.id, b.id, c.id
 FROM (nonequi_items a LEFT JOIN nonequi_offers b
-        ON a.id = b.id AND (a.description @@@ 'cable' OR b.description @@@ 'exclusive'))
+        ON a.id = b.id AND (a.description ||| 'cable' OR b.description ||| 'exclusive'))
      JOIN nonequi_items c ON a.id = c.id
-WHERE c.description @@@ 'ergonomic'
+WHERE c.description ||| 'ergonomic'
 ORDER BY a.id, b.id NULLS LAST, c.id LIMIT 10;
 
 SET paradedb.enable_join_custom_scan = on;
 SELECT a.id, b.id, c.id
 FROM (nonequi_items a LEFT JOIN nonequi_offers b
-        ON a.id = b.id AND (a.description @@@ 'cable' OR b.description @@@ 'exclusive'))
+        ON a.id = b.id AND (a.description ||| 'cable' OR b.description ||| 'exclusive'))
      JOIN nonequi_items c ON a.id = c.id
-WHERE c.description @@@ 'ergonomic'
+WHERE c.description ||| 'ergonomic'
 ORDER BY a.id, b.id NULLS LAST, c.id LIMIT 10;
 
 -- Test 6.5: RIGHT JOIN mirror of Test 6.4
 SET paradedb.enable_join_custom_scan = off;
 SELECT a.id, b.id, c.id
 FROM (nonequi_offers b RIGHT JOIN nonequi_items a
-        ON a.id = b.id AND (a.description @@@ 'cable' OR b.description @@@ 'exclusive'))
+        ON a.id = b.id AND (a.description ||| 'cable' OR b.description ||| 'exclusive'))
      JOIN nonequi_items c ON a.id = c.id
-WHERE c.description @@@ 'ergonomic'
+WHERE c.description ||| 'ergonomic'
 ORDER BY a.id, b.id NULLS LAST, c.id LIMIT 10;
 
 SET paradedb.enable_join_custom_scan = on;
 SELECT a.id, b.id, c.id
 FROM (nonequi_offers b RIGHT JOIN nonequi_items a
-        ON a.id = b.id AND (a.description @@@ 'cable' OR b.description @@@ 'exclusive'))
+        ON a.id = b.id AND (a.description ||| 'cable' OR b.description ||| 'exclusive'))
      JOIN nonequi_items c ON a.id = c.id
-WHERE c.description @@@ 'ergonomic'
+WHERE c.description ||| 'ergonomic'
 ORDER BY a.id, b.id NULLS LAST, c.id LIMIT 10;
 
 -- Test 6.6: Mixed equi + non-equi anti join parity
 SET paradedb.enable_join_custom_scan = off;
 SELECT i.id, i.name, i.price
 FROM nonequi_items i
-WHERE i.description @@@ 'keyboard OR mouse OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.description ||| 'headset')
   AND NOT EXISTS (
       SELECT 1 FROM nonequi_offers o
       WHERE i.category = o.target_category AND o.min_price > i.price
@@ -397,7 +389,7 @@ LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
 SELECT i.id, i.name, i.price
 FROM nonequi_items i
-WHERE i.description @@@ 'keyboard OR mouse OR headset'
+WHERE (i.description ||| 'keyboard' OR i.description ||| 'mouse' OR i.description ||| 'headset')
   AND NOT EXISTS (
       SELECT 1 FROM nonequi_offers o
       WHERE i.category = o.target_category AND o.min_price > i.price
@@ -419,14 +411,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.unindexed_weight < o.min_price
-WHERE i.description @@@ 'ergonomic'
+WHERE i.description ||| 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
 
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i
 JOIN nonequi_offers o ON i.unindexed_weight < o.min_price
-WHERE i.description @@@ 'ergonomic'
+WHERE i.description ||| 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
 
@@ -434,7 +426,7 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name
 FROM nonequi_items i
-WHERE i.description @@@ 'ergonomic'
+WHERE i.description ||| 'ergonomic'
   AND NOT EXISTS (
       SELECT 1 FROM nonequi_offers o
       WHERE i.category = o.target_category AND i.unindexed_weight < o.min_price
@@ -444,7 +436,7 @@ LIMIT 10;
 
 SELECT i.id, i.name
 FROM nonequi_items i
-WHERE i.description @@@ 'ergonomic'
+WHERE i.description ||| 'ergonomic'
   AND NOT EXISTS (
       SELECT 1 FROM nonequi_offers o
       WHERE i.category = o.target_category AND i.unindexed_weight < o.min_price

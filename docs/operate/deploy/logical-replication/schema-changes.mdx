@@ -1,0 +1,91 @@
+---
+title: Schema Changes
+description: Add replicated tables and safely apply schema changes
+canonical: https://www.paradedb.com/docs/operate/deploy/logical-replication/schema-changes
+---
+
+Postgres logical replication copies row changes, not schema changes. Apply DDL on both the publisher and ParadeDB, and create or rebuild ParadeDB indexes locally on the subscriber.
+
+## Adding New Tables
+
+When you want ParadeDB to index a new table:
+
+1. Apply the new table DDL on the publisher
+2. Apply the same DDL on ParadeDB
+3. Make sure the publication includes the table
+4. Refresh the subscription
+5. Build a ParadeDB index on ParadeDB if the table should be searchable
+
+Whether step 3 is manual depends on how the publication was defined. If the
+publication uses `FOR ALL TABLES`, the new table is included automatically. If
+it uses `FOR TABLES IN SCHEMA ...`, new tables in those schemas are included
+automatically. If it was created from an explicit table list, add the table
+manually. If you do not want the table on ParadeDB, do not include it in the
+publication.
+
+```sql
+-- On the publisher
+ALTER PUBLICATION app_search_pub ADD TABLE public.new_table;
+
+-- On ParadeDB
+ALTER SUBSCRIPTION app_search_sub REFRESH PUBLICATION;
+```
+
+## Changing Indexed Columns
+
+If you add or remove a column that is part of a ParadeDB index:
+
+1. Apply the table change on both the publisher and ParadeDB
+2. Let replication catch up again
+3. Rebuild the ParadeDB index on ParadeDB
+
+See [Reindexing](/operate/index-maintenance/reindexing) for the ParadeDB index rebuild
+workflow.
+
+## Rolling Out DDL Safely
+
+In practice, most teams do this through their existing migration runner or
+framework tooling, whether that is Rails migrations, Django migrations, Prisma
+Migrate, or another migration system.
+
+For additive changes such as `ADD COLUMN`, the safest rollout is usually:
+
+1. Apply the additive DDL on ParadeDB first
+2. Apply the same DDL on the publisher
+3. Let replication continue normally
+4. Rebuild any ParadeDB indexes whose indexed column list changed
+
+This follows Postgres's recommendation to apply additive schema changes on the
+subscriber first whenever possible, which avoids intermittent apply failures.
+Logical replication can tolerate extra columns on the subscriber, so adding a
+column on ParadeDB first will not stop replication by itself. Those extra
+subscriber-only columns use their local default value, or `NULL` if no default
+is defined, until the publisher starts sending that column.
+
+If the new column must be `NOT NULL`, give it a compatible default on both
+sides or use a coordinated maintenance window. Otherwise replicated `INSERT`
+operations can fail before the publisher-side change is in place.
+
+If the change is not additive, such as a column rename, drop, or incompatible
+type change, use a short maintenance window, pause writes to the affected
+tables if possible, and coordinate both sides explicitly:
+
+```sql
+-- On Subscriber
+ALTER SUBSCRIPTION marketplace_sub DISABLE;
+ALTER TABLE mock_items RENAME COLUMN category TO product_category;
+
+-- On Publisher
+ALTER TABLE mock_items RENAME COLUMN category TO product_category;
+
+-- Back on Subscriber
+ALTER SUBSCRIPTION marketplace_sub ENABLE;
+```
+
+<Warning>
+  Do not leave a disabled subscription in place longer than necessary. The
+  logical slot on the publisher can continue retaining WAL while the subscriber
+  is disabled.
+</Warning>
+
+If schema drift has already stopped replication, see [Troubleshooting Apply Failures](/operate/deploy/logical-replication/monitoring-and-troubleshooting#troubleshooting-apply-failures).

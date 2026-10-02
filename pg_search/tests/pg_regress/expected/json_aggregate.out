@@ -24,13 +24,7 @@ INSERT INTO json_agg_test (metadata, data) VALUES
     ('{"category": "home", "brand": "HomeDepot", "price": 299}', '{"material": "metal", "stock": 12}');
 -- Create BM25 index
 CREATE INDEX idx_json_agg ON json_agg_test
-USING paradedb (id, metadata, data)
-WITH (
-    json_fields = '{
-        "metadata": {"indexed": true, "fast": true, "expand_dots": true},
-        "data": {"indexed": true, "fast": true, "expand_dots": true}
-    }'
-);
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.unicode_words('columnar=true')));
 -- Test simple COUNT with JSON field filter
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
@@ -43,7 +37,7 @@ WHERE id @@@ paradedb.exists('metadata.category');
    Index: idx_json_agg
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 -- Execute the query
@@ -70,7 +64,7 @@ WHERE id @@@ paradedb.term('metadata.category', 'electronics');
    Index: idx_json_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 -- Execute the query
@@ -98,7 +92,7 @@ WHERE id @@@ paradedb.exists('metadata.category')
    Index: idx_json_agg
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"metadata.category"}}}},{"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 -- Execute the query
@@ -425,7 +419,13 @@ WHERE id @@@ paradedb.boolean(
        "Index": "idx_json_agg",                                                                                                                                                                         +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"exists\":{\"field\":\"metadata.category\"}},{\"term\":{\"field\":\"metadata.category\",\"value\":\"electronics\"}}]}}}}",+
        "  Applies to Aggregates": "COUNT(*)",                                                                                                                                                           +
-       "  Aggregate Definition": "{\"0\":{\"value_count\":{\"field\":\"ctid\",\"missing\":null}}}"                                                                                                      +
+       "  Aggregate Definition": "{\"0\":{\"filter\":\"*\"}}",                                                                                                                                          +
+       "Visibility": {                                                                                                                                                                                  +
+         "Segments Skipped": 0,                                                                                                                                                                         +
+         "Segments Checked": 1,                                                                                                                                                                         +
+         "Blocks Total": 1,                                                                                                                                                                             +
+         "Blocks Requiring Checks": 1                                                                                                                                                                   +
+       }                                                                                                                                                                                                +
      },                                                                                                                                                                                                 +
      "Triggers": [                                                                                                                                                                                      +
      ]                                                                                                                                                                                                  +
@@ -462,7 +462,7 @@ WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
    Index: idx_json_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.nonexistent","value":"value"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -478,14 +478,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.all();
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+                          QUERY PLAN                           
+---------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_agg
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -513,10 +513,7 @@ INSERT INTO json_deep_agg (nested_data) VALUES
     ('{"level1": {"different": {"level3": {"level4": {"value": "target1", "score": 80}}}}}');
 -- Create BM25 index
 CREATE INDEX idx_json_deep_agg ON json_deep_agg
-USING paradedb (id, nested_data)
-WITH (
-    json_fields = '{"nested_data": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (nested_data::pdb.unicode_words('columnar=true')));
 -- Test COUNT on deeply nested path (4 levels deep)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
@@ -529,7 +526,7 @@ WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
    Index: idx_json_deep_agg
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"nested_data.level1.level2.level3.level4.value"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -552,7 +549,7 @@ WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'tar
    Index: idx_json_deep_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"nested_data.level1.level2.level3.level4.value","value":"target1"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -586,10 +583,7 @@ INSERT INTO json_mixed_agg (doc) VALUES
     ('{"type": "transaction", "payment": {"method": "debit", "amount": 25.50, "merchant": {"category": "food", "name": "Restaurant B"}}}');
 -- Create BM25 index
 CREATE INDEX idx_json_mixed_agg ON json_mixed_agg
-USING paradedb (id, doc)
-WITH (
-    json_fields = '{"doc": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (doc::pdb.unicode_words('columnar=true')));
 -- Test COUNT by document type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
@@ -602,7 +596,7 @@ WHERE id @@@ paradedb.term('doc.type', 'sensor');
    Index: idx_json_mixed_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"doc.type","value":"sensor"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -626,7 +620,7 @@ WHERE id @@@ paradedb.term('doc.type', 'sensor')
    Index: idx_json_mixed_agg
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"doc.type","value":"sensor"}}}},{"with_index":{"query":{"term":{"field":"doc.device.location","value":"warehouse"}}}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -651,7 +645,7 @@ WHERE id @@@ paradedb.term('doc.type', 'transaction')
    Index: idx_json_mixed_agg
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"doc.type","value":"transaction"}}}},{"with_index":{"query":{"term":{"field":"doc.payment.method","value":"credit"}}}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -683,7 +677,7 @@ WHERE id @@@ paradedb.boolean(
    Index: idx_json_mixed_agg
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"doc.type","value":"sensor"}},{"term":{"field":"doc.device.location","value":"office"}}]}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -715,10 +709,7 @@ INSERT INTO json_array_agg (data) VALUES
     ('{"tags": ["documentation"], "metadata": {"source": "confluence", "priority": "low"}}');
 -- Create BM25 index
 CREATE INDEX idx_json_array_agg ON json_array_agg
-USING paradedb (id, data)
-WITH (
-    json_fields = '{"data": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (data::pdb.unicode_words('columnar=true')));
 -- Test COUNT on documents with specific tags
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
@@ -731,7 +722,7 @@ WHERE id @@@ paradedb.term('data.tags', 'urgent');
    Index: idx_json_array_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"data.tags","value":"urgent"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -754,7 +745,7 @@ WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
    Index: idx_json_array_agg
    Tantivy Query: {"with_index":{"query":{"term":{"field":"data.metadata.priority","value":"high"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(*) 
@@ -765,75 +756,8 @@ WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
      2
 (1 row)
 
--- =========================================
--- Test 14: Special characters and edge cases
--- =========================================
--- Create table with special JSON keys
-CREATE TABLE json_special_agg (
-    id SERIAL PRIMARY KEY,
-    payload JSONB
-);
--- Insert data with special characters
-INSERT INTO json_special_agg (payload) VALUES
-    ('{"user-profile": {"first_name": "John", "email@work": "john@company.com", "settings.theme": "dark"}}'),
-    ('{"user-profile": {"first_name": "Jane", "email@work": "jane@company.com", "settings.theme": "light"}}'),
-    ('{"api-response": {"status_code": 200, "response.time": 150, "cache-hit": true}}'),
-    ('{"api-response": {"status_code": 404, "response.time": 50, "cache-hit": false}}');
--- Create BM25 index
-CREATE INDEX idx_json_special_agg ON json_special_agg
-USING paradedb (id, payload)
-WITH (
-    json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
--- Test COUNT with special character fields
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) 
-FROM json_special_agg 
-WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
-                                            QUERY PLAN                                            
---------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.json_special_agg
-   Output: pdb.agg_fn('COUNT(*)'::text)
-   Index: idx_json_special_agg
-   Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.user-profile.email@work"}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(6 rows)
-
-SELECT COUNT(*) 
-FROM json_special_agg 
-WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
- count 
--------
-     2
-(1 row)
-
--- Test COUNT on API responses
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) 
-FROM json_special_agg 
-WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.json_special_agg
-   Output: pdb.agg_fn('COUNT(*)'::text)
-   Index: idx_json_special_agg
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"payload.api-response.status_code","value":"200"}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(6 rows)
-
-SELECT COUNT(*) 
-FROM json_special_agg 
-WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
- count 
--------
-     1
-(1 row)
-
 -- Clean up
 DROP TABLE json_agg_test;
 DROP TABLE json_deep_agg;
 DROP TABLE json_mixed_agg;
 DROP TABLE json_array_agg;
-DROP TABLE json_special_agg;

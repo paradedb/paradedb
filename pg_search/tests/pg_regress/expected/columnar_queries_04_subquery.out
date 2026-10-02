@@ -42,32 +42,9 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path,
-    file_size
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb ((id::pdb.literal), (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
+CREATE INDEX files_search ON files USING paradedb ((id::pdb.literal), (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')), file_size);
+CREATE INDEX pages_search ON pages USING paradedb ((id::pdb.literal), (fileid::pdb.literal), (content::pdb.simple('columnar=true')), page_number);
 -- Insert sample data for documents
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -108,13 +85,13 @@ SELECT d.id, d.title, d.parents,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((SubPlan 1)) DESC, d.id
    ->  Custom Scan (ParadeDB Base Scan) on documents d
@@ -122,7 +99,7 @@ ORDER BY invoice_file_count DESC, d.id;
          Index: documents_search
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          SubPlan 1
            ->  Aggregate
                  ->  Custom Scan (ParadeDB Base Scan) on files f
@@ -131,7 +108,7 @@ ORDER BY invoice_file_count DESC, d.id;
                        Bitmap Intersection: files_pkey
                        Exec Method: NormalScanExecState
                        Scores: false
-                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(documentid = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"Invoice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(documentid = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                        ->  Bitmap Index Scan on files_pkey
                              Index Cond: (documentid = d.id)
 (19 rows)
@@ -141,10 +118,10 @@ SELECT d.id, d.title, d.parents,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
   id  |    title     | parents  | invoice_file_count 
 ------+--------------+----------+--------------------

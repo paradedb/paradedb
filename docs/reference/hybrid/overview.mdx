@@ -1,0 +1,33 @@
+---
+title: Hybrid Search
+description: Reference pages for combining full-text and vector rankings
+canonical: https://www.paradedb.com/docs/reference/hybrid/overview
+---
+
+<Note>
+  Hybrid search uses [vector search](/reference/vector/overview), a beta feature
+  available in versions `0.25.0` and above.
+</Note>
+
+Use these pages when you need the exact SQL shape for hybrid ranking in
+ParadeDB. For the mental model, see [How Hybrid Search Works](/concepts/hybrid/overview).
+
+<CardGroup cols={2}>
+  <Card
+    title="Reciprocal Rank Fusion"
+    icon="shuffle"
+    href="/reference/hybrid/rrf"
+  >
+    Merge full-text and vector result lists by rank.
+  </Card>
+  <Card
+    title="Querying Vectors"
+    icon="chart-scatter"
+    href="/reference/vector/querying"
+  >
+    Run the vector branch used in hybrid search.
+  </Card>
+  <Card title="BM25 Scoring" icon="gauge" href="/reference/full-text/score">
+    Rank the full-text branch by ParadeDB relevance score.
+  </Card>
+</CardGroup>

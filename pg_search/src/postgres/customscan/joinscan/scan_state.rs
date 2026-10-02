@@ -34,7 +34,11 @@ use std::sync::Arc;
 use datafusion::catalog::Session;
 use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
 use datafusion::logical_expr::expr::WindowFunction;
-use datafusion::logical_expr::{Expr, Literal, WindowFunctionDefinition, col};
+use datafusion::logical_expr::{
+    Expr, Literal, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
+    WindowFunctionDefinition, col,
+};
+use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -46,7 +50,7 @@ use super::window_func::{
     SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
@@ -166,9 +170,11 @@ fn numeric_fast_field_type(
         let mapped = source.map_var(rti, attno)?;
         let field_info = source.scan_info.fields.iter().find(|f| f.attno == mapped)?;
         match &field_info.field {
-            WhichFastField::Named(_, ft) | WhichFastField::Deferred(_, ft) if ft.is_numeric() => {
-                Some(*ft)
-            }
+            WhichFastField::Named {
+                field_type: ft,
+                cardinality: FieldCardinality::Scalar,
+                ..
+            } if ft.is_numeric() => Some(*ft),
             _ => None,
         }
     })
@@ -446,11 +452,48 @@ impl SolvePostgresExpressions for JoinScanState {
     }
 }
 
+/// Optimizes a plan with the session's rules first and late materialization once those have
+/// settled. DataFusion's rules cannot see through an extension node, so a rewrite they only
+/// reach on a later pass (a semi join under a duplicate-insensitive aggregate, once the
+/// projection above it is trimmed) would be lost to an anchor planted on the first pass.
+/// When an anchor is planted, the session's rules get a last pass over it, as they would
+/// have had in the next pass of one loop; when nothing is planted, the plan stays as it was.
+/// The one way to optimize a logical plan here. `LateMaterializationRule` is not on the
+/// session, so `SessionState::optimize` on its own plants no deferred column: the rule has
+/// to run once the session's rules have settled, since a join DataFusion turns into a semi
+/// join on a later pass would otherwise find the extension node in its way, and the
+/// visibility rule has to see the ctid columns before that. New callers go through here.
+pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
+    let (state, plan) = df.into_parts();
+    let plan = state.optimize(&plan)?;
+    let late_materialization: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![Arc::new(
+        crate::scan::late_materialization::LateMaterializationRule,
+    )];
+    let planted =
+        Optimizer::with_rules(late_materialization).optimize(plan.clone(), &state, |_, _| {})?;
+    if planted == plan {
+        return Ok(planted);
+    }
+    state.optimizer().optimize(planted, &state, |_, _| {})
+}
+
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
-/// - Late materialization
 /// - `PgSearchQueryPlanner`
-pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
+/// - Registered `pg_search` UDAFs and scalar UDFs
+///
+/// Late materialization is not on the session; [`optimize_logical_plan`] runs it after the
+/// session's rules, and visibility before it, so ctid lineage is analyzed while DeferredCtid
+/// columns are still present in the logical plan.
+pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
+    // Disable round-robin repartitioning: ParadeDB uses a single-threaded executor per
+    // worker process. Partitioning is used exclusively for MPP task distribution, never for
+    // intra-task CPU parallelization.
+    config
+        .options_mut()
+        .optimizer
+        .enable_round_robin_repartition = false;
+
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
@@ -459,28 +502,57 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
         .with_config(config)
         .with_default_features();
 
-    // Inject visibility before late materialization so ctid lineage is analyzed
-    // while DeferredCtid columns are still present in the logical plan.
-    builder = builder
-        .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new()))
-        .with_optimizer_rule(Arc::new(
-            super::range_partitioning_rule::RangePartitioningRule::new(),
-        ))
-        .with_optimizer_rule(Arc::new(
-            crate::scan::late_materialization::LateMaterializationRule,
-        ))
-        .with_optimizer_rule(Arc::new(PropagateEmptyUnnestRule));
+    builder
+        .aggregate_functions()
+        .get_or_insert_with(Vec::new)
+        .extend(crate::postgres::customscan::datafusion::all_pg_search_udafs());
+    builder
+        .scalar_functions()
+        .get_or_insert_with(Vec::new)
+        .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
+
+    let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
+    let pos = optimizer_rules
+        .iter()
+        .position(|r| r.name() == "optimize_projections")
+        .expect("optimize_projections optimizer rule not found");
+    // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
+    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below barriers
+    // have unused columns projected out before `VisibilityFilterNode` is inserted (working around
+    // DataFusion dropping `projection_beneficial` across extension nodes).
+    // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
+    // above `VisibilityFilterNode`.
+    optimizer_rules.insert(
+        pos,
+        Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
+    );
+    optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
+    optimizer_rules.push(Arc::new(
+        super::range_partitioning_rule::RangePartitioningRule::new(),
+    ));
+    optimizer_rules.push(Arc::new(PropagateEmptyUnnestRule));
+    builder = builder.with_optimizer_rules(optimizer_rules);
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
+
+    let mut physical_rules =
+        datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
+    let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
+    let pos = physical_rules
+        .iter()
+        .position(|r| r.name() == "EnsureRequirements")
+        .expect("EnsureRequirements physical optimizer rule not found");
+    physical_rules.insert(pos, co_partitioned_rule);
+    builder = builder.with_physical_optimizer_rules(physical_rules);
 
     // Placement reads the final join sides and modes, so it follows the co-partitioning
     // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
     builder
         .with_physical_optimizer_rule(Arc::new(
-            super::range_partitioning_rule::RangeCoPartitionedJoinRule,
+            crate::scan::deferred_placement_rule::DeferredPlacementRule,
         ))
         .with_physical_optimizer_rule(Arc::new(
-            crate::scan::deferred_placement_rule::DeferredPlacementRule,
+            crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
         ))
         .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
@@ -488,8 +560,6 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 /// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
 /// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
 pub fn create_datafusion_session_context() -> SessionContext {
-    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
-
     let mut config = SessionConfig::new().with_target_partitions(1);
 
     // Configure dynamic filter pushdown thresholds from our GUCs
@@ -512,6 +582,16 @@ pub fn create_datafusion_session_context() -> SessionContext {
     config
         .options_mut()
         .optimizer
+        .hash_join_single_partition_threshold_rows =
+        crate::gucs::hash_join_single_partition_threshold_rows() as usize;
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_single_partition_threshold =
+        crate::gucs::hash_join_single_partition_threshold() as usize;
+    config
+        .options_mut()
+        .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
 
     let mut builder = build_base_session(config);
@@ -520,12 +600,6 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .with_physical_optimizer_rule(Arc::new(
             crate::scan::segmented_topk_rule::SegmentedTopKRule,
         ))
-        // SegmentedTopKRule absorbs VisibilityFilterExec and creates a fresh
-        // AbsorbedVisibilityData with empty ctid resolvers.  We must run
-        // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
-        // that it wires resolvers into the STK node rather than the (now-removed)
-        // VisibilityFilterExec node.
-        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
         .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
 
     SessionContext::new_with_state(builder.build())
@@ -545,7 +619,7 @@ pub async fn build_joinscan_logical_plan(
     let ctx = create_datafusion_session_context();
     let is_parallel = !force_serial && crate::postgres::customscan::mpp::glue::mpp_is_active();
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, is_parallel).await?;
-    df.into_optimized_plan()
+    optimize_logical_plan(df)
 }
 
 /// Convert a LogicalPlan to an ExecutionPlan.
@@ -612,10 +686,24 @@ pub fn build_task_context(
     on_spill: crate::postgres::customscan::datafusion::spill::SpillNotify,
 ) -> Arc<TaskContext> {
     let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
-    Arc::new(
-        TaskContext::default()
-            .with_session_config(ctx.state().config().clone())
-            .with_runtime(build_runtime_env(memory_pool, on_spill)),
+    Arc::new(TaskContext::from(ctx).with_runtime(build_runtime_env(memory_pool, on_spill)))
+}
+
+/// Clones `task_ctx` with an updated `SessionConfig`, preserving all function registries
+/// (scalar, aggregate, window, higher-order), session ID, task ID, and runtime environment.
+pub fn clone_task_context_with_config(
+    task_ctx: &TaskContext,
+    session_config: SessionConfig,
+) -> TaskContext {
+    TaskContext::new(
+        task_ctx.task_id(),
+        task_ctx.session_id(),
+        session_config,
+        task_ctx.scalar_functions().clone(),
+        task_ctx.higher_order_functions().clone(),
+        task_ctx.aggregate_functions().clone(),
+        task_ctx.window_functions().clone(),
+        task_ctx.runtime_env(),
     )
 }
 
@@ -781,7 +869,8 @@ fn build_clause_df<'a>(
         let df = apply_window_functions(df, join_clause)?;
 
         // 4. Apply DISTINCT via GROUP BY
-        let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause)?;
+        let (df, distinct_col_map) =
+            apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
 
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
@@ -800,7 +889,13 @@ fn build_clause_df<'a>(
         };
 
         // 7. Apply Output Projection
-        apply_output_projection(df, join_clause, &distinct_col_map, &plan_sources)
+        apply_output_projection(
+            df,
+            join_clause,
+            &distinct_col_map,
+            &plan_sources,
+            &private_data.output_columns,
+        )
     };
     f.boxed_local()
 }
@@ -826,16 +921,30 @@ unsafe fn translate_custom_exprs(
     Ok(translated)
 }
 
-/// Helper to yield the names of ctid columns that survived schema pruning
+/// Relations whose heap tuples must be fetched after DataFusion finishes execution.
+/// Only `OutputColumnInfo::Var` accesses attributes from the PostgreSQL heap; other
+/// output columns (Score, Unnested, WindowAgg, Expression, Pruned) read directly from
+/// the DataFusion `RecordBatch`.
+fn relations_needing_ctid(output_columns: &[OutputColumnInfo]) -> crate::api::HashSet<usize> {
+    output_columns
+        .iter()
+        .filter_map(|col| match col {
+            OutputColumnInfo::Var { plan_position, .. } => Some(*plan_position),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Helper to yield `(plan_position, ctid_name)` pairs for ctid columns that survived schema pruning
 /// (e.g., were not discarded by a Semi/Anti join).
 fn surviving_ctid_columns<'a>(
     schema: &'a datafusion::common::DFSchema,
     num_sources: usize,
-) -> impl Iterator<Item = String> + 'a {
+) -> impl Iterator<Item = (usize, String)> + 'a {
     (0..num_sources).filter_map(move |i| {
         let ctid_name = CtidColumn::new(i).to_string();
         if schema.field_with_unqualified_name(&ctid_name).is_ok() {
-            Some(ctid_name)
+            Some((i, ctid_name))
         } else {
             None
         }
@@ -852,6 +961,7 @@ fn surviving_ctid_columns<'a>(
 fn apply_distinct_group_by(
     df: DataFrame,
     join_clause: &JoinCSClause,
+    output_columns: &[OutputColumnInfo],
 ) -> Result<(DataFrame, DistinctColMap)> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
@@ -913,17 +1023,29 @@ fn apply_distinct_group_by(
     // completes. Since GROUP BY collapses multiple rows into one, we use
     // min(ctid) to arbitrarily select one representative tuple for the group.
     //
-    // Note that we must filter out any ctids that no longer exist in the schema.
-    // In operations like SEMI JOIN or ANTI JOIN, the inner table's columns
-    // (including its ctid) are discarded from the output frame once the join
-    // condition is evaluated. Attempting to aggregate them would result in a
-    // DataFusion SchemaError.
+    // Note that we must filter out any ctids that no longer exist in the schema
+    // (e.g. discarded by SEMI/ANTI join) and any relations whose heap tuples
+    // do not need to be fetched (no Vars in output_columns).
+    let needed_ctids = relations_needing_ctid(output_columns);
     let agg_exprs: Vec<Expr> =
         surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
-            .map(|ctid_name| min(col(&ctid_name)).alias(&ctid_name))
+            .filter(|(pos, _)| needed_ctids.contains(pos))
+            .map(|(_, ctid_name)| min(col(&ctid_name)).alias(&ctid_name))
             .collect();
 
-    let df = df.aggregate(group_exprs, agg_exprs)?;
+    // As in the aggregate scan: bypass `DataFrame::aggregate` so DataFusion does
+    // not append functionally-dependent columns to the group key. If unique
+    // constraints or functional dependencies are present, an expansion here
+    // would pull dependent columns (such as each source's ctid) into the group key,
+    // every input row would land in its own group, and the DISTINCT would stop
+    // collapsing anything — while `min(ctid)` quietly became an identity.
+    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
+    let (state, plan) = df.into_parts();
+    let aggregated = LogicalPlanBuilder::from(plan)
+        .with_options(options)
+        .aggregate(group_exprs, agg_exprs)?
+        .build()?;
+    let df = DataFrame::new(state, aggregated);
     Ok((df, distinct_col_map))
 }
 
@@ -1277,14 +1399,15 @@ fn apply_sort(
 
 /// Build the final SELECT list. When `output_projection` is set, every
 /// projected column is aliased to `col_{i+1}` (the convention the result
-/// builder expects), and any CTID columns still present in the schema are
-/// carried forward unchanged. Without an `output_projection`, the entire
+/// builder expects), and CTID columns for sources whose heap tuples must be
+/// fetched are carried forward. Without an `output_projection`, the entire
 /// schema is selected as-is.
 fn apply_output_projection(
     df: DataFrame,
     join_clause: &JoinCSClause,
     distinct_col_map: &DistinctColMap,
     plan_sources: &[&JoinSource],
+    output_columns: &[OutputColumnInfo],
 ) -> Result<DataFrame> {
     let mut final_cols = Vec::new();
 
@@ -1323,9 +1446,12 @@ fn apply_output_projection(
             final_cols.push(expr.alias(col_alias));
         }
 
-        // ALWAYS carry forward all CTID columns from both sides
-        for ctid_name in surviving_ctid_columns(df.schema(), plan_sources.len()) {
-            final_cols.push(col(&ctid_name));
+        // Carry forward CTID columns only for sources whose heap tuples must be fetched.
+        let needed_ctids = relations_needing_ctid(output_columns);
+        for (plan_position, ctid_name) in surviving_ctid_columns(df.schema(), plan_sources.len()) {
+            if needed_ctids.contains(&plan_position) {
+                final_cols.push(col(&ctid_name));
+            }
         }
     } else {
         for field in df.schema().fields() {
@@ -1577,4 +1703,37 @@ fn build_source_df<'a>(
         Ok(df)
     }
     .boxed_local()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
+
+    #[test]
+    fn test_relations_needing_ctid() {
+        let output_cols = vec![
+            OutputColumnInfo::Var {
+                plan_position: 0,
+                rti: 1,
+                original_attno: 1,
+            },
+            OutputColumnInfo::Score {
+                plan_position: 1,
+                rti: 2,
+            },
+            OutputColumnInfo::Pruned,
+            OutputColumnInfo::Expression,
+            OutputColumnInfo::Var {
+                plan_position: 0,
+                rti: 1,
+                original_attno: 2,
+            },
+        ];
+
+        let needing = relations_needing_ctid(&output_cols);
+        assert!(needing.contains(&0));
+        assert!(!needing.contains(&1));
+        assert_eq!(needing.len(), 1);
+    }
 }

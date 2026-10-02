@@ -10,12 +10,12 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
 FROM pages
-WHERE content @@@ 'Socienty';
+WHERE content ||| 'Socienty';
 
 -- Test COUNT aggregation
 SELECT COUNT(*)
 FROM pages
-WHERE content @@@ 'Socienty';
+WHERE content ||| 'Socienty';
 
 -- Check execution plan for other aggregations
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -25,7 +25,7 @@ SELECT
     MIN(page_number) AS min_page,
     MAX(page_number) AS max_page
 FROM pages
-WHERE content @@@ 'Socienty';
+WHERE content ||| 'Socienty';
 
 -- Test other aggregations
 SELECT 
@@ -34,7 +34,7 @@ SELECT
     MIN(page_number) AS min_page,
     MAX(page_number) AS max_page
 FROM pages
-WHERE content @@@ 'Socienty';
+WHERE content ||| 'Socienty';
 
 RESET paradedb.enable_aggregate_custom_scan;
 

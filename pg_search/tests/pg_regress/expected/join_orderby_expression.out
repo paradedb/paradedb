@@ -37,15 +37,9 @@ INSERT INTO funding_rounds (id, company_id, amount, round_type) VALUES
 -- Add a BIGINT column for int8 operator coverage
 ALTER TABLE companies ADD COLUMN big_id BIGINT;
 UPDATE companies SET big_id = id;
-CREATE INDEX companies_bm25_idx ON companies USING paradedb (id, name, description, big_id)
-WITH (
-    numeric_fields = '{"big_id": {"fast": true}}'
-);
+CREATE INDEX companies_bm25_idx ON companies USING paradedb (id, name, description, big_id);
 CREATE INDEX funding_rounds_bm25_idx ON funding_rounds
-USING paradedb (id, company_id, amount, (round_type::pdb.literal))
-WITH (
-    numeric_fields = '{"company_id": {"fast": true}, "amount": {"fast": true}}'
-);
+USING paradedb (id, company_id, amount, (round_type::pdb.literal));
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 -- TEST 1: Baseline — JoinScan activates with bare ORDER BY c.id DESC
@@ -56,13 +50,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name
    Relation Tree: c SEMI fr
@@ -73,22 +67,21 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT c.id, c.name
 FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
  id |    name     
@@ -105,13 +98,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id + 0))
    Relation Tree: c SEMI fr
@@ -122,22 +115,21 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 + 0 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT c.id, c.name
 FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
  id |    name     
@@ -154,9 +146,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
  id |    name     
@@ -170,9 +162,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
  id |    name     
@@ -189,13 +181,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id - 0))
    Relation Tree: c SEMI fr
@@ -206,22 +198,21 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 - 0 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT c.id, c.name
 FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
  id |    name     
@@ -238,13 +229,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id * 1))
    Relation Tree: c SEMI fr
@@ -255,22 +246,21 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT c.id, c.name
 FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
  id |    name     
@@ -287,13 +277,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id / 1))
    Relation Tree: c SEMI fr
@@ -304,22 +294,21 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT c.id, c.name
 FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
  id |    name     
@@ -336,13 +325,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY (c.id + 0)::int4 DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id + 0))
    Relation Tree: c SEMI fr
@@ -353,22 +342,21 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 + 0 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT c.id, c.name
 FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY (c.id + 0)::int4 DESC
 LIMIT 10;
  id |    name     
@@ -386,13 +374,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.big_id + 0::bigint DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.big_id + '0'::bigint))
    Relation Tree: c SEMI fr
@@ -403,13 +391,12 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 + 0 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 -- int8: big_id * 1::bigint
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -418,13 +405,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.big_id * 1::bigint DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.big_id * '1'::bigint))
    Relation Tree: c SEMI fr
@@ -435,13 +422,12 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 -- const-on-left: 0 + id (commutative, should unwrap)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -450,13 +436,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY 0 + c.id DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((0 + c.id))
    Relation Tree: c SEMI fr
@@ -467,13 +453,12 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, 0 + id@1 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 -- const-on-left: 1 * id (commutative, should unwrap)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -482,13 +467,13 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY 1 * c.id DESC
 LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((1 * c.id))
    Relation Tree: c SEMI fr
@@ -499,13 +484,12 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 -- =============================================================================
 -- Type coverage — BaseScan (single-table, no join)
@@ -514,11 +498,11 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.name
 FROM companies c
-WHERE c.description @@@ 'technology'
+WHERE c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, ((id + 0))
    ->  Custom Scan (ParadeDB Base Scan) on public.companies c
@@ -530,18 +514,18 @@ LIMIT 10;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 -- int4: id * 1
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.name
 FROM companies c
-WHERE c.description @@@ 'technology'
+WHERE c.description ||| 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, ((id * 1))
    ->  Custom Scan (ParadeDB Base Scan) on public.companies c
@@ -553,18 +537,18 @@ LIMIT 10;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 -- int8: big_id + 0::bigint
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.name
 FROM companies c
-WHERE c.description @@@ 'technology'
+WHERE c.description ||| 'technology'
 ORDER BY c.big_id + 0::bigint DESC
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, ((big_id + '0'::bigint))
    ->  Custom Scan (ParadeDB Base Scan) on public.companies c
@@ -576,18 +560,18 @@ LIMIT 10;
          Scores: false
             TopK Order By: big_id desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 -- const-on-left: 0 + id (commutative)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.name
 FROM companies c
-WHERE c.description @@@ 'technology'
+WHERE c.description ||| 'technology'
 ORDER BY 0 + c.id DESC
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, ((0 + id))
    ->  Custom Scan (ParadeDB Base Scan) on public.companies c
@@ -599,7 +583,7 @@ LIMIT 10;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 -- =============================================================================
@@ -612,14 +596,14 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 1 DESC
 LIMIT 10;
 WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: c, fr)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.id, c.name, ((c.id + 1))
    ->  Sort
@@ -635,7 +619,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
                ->  Custom Scan (ParadeDB Base Scan) on public.funding_rounds fr
                      Output: fr.company_id
                      Table: funding_rounds
@@ -643,7 +627,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (24 rows)
 
 -- =============================================================================
@@ -655,14 +639,14 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY 0 - c.id DESC
 LIMIT 10;
 WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: c, fr)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.id, c.name, ((0 - c.id))
    ->  Sort
@@ -678,7 +662,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
                ->  Custom Scan (ParadeDB Base Scan) on public.funding_rounds fr
                      Output: fr.company_id
                      Table: funding_rounds
@@ -686,7 +670,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (24 rows)
 
 -- =============================================================================
@@ -698,14 +682,14 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + c.id DESC
 LIMIT 10;
 WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: c, fr)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.id, c.name, ((c.id + c.id))
    ->  Sort
@@ -721,7 +705,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
                ->  Custom Scan (ParadeDB Base Scan) on public.funding_rounds fr
                      Output: fr.company_id
                      Table: funding_rounds
@@ -729,7 +713,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"round_type","value":"seed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (24 rows)
 
 -- =============================================================================
@@ -743,11 +727,11 @@ WHERE c.id IN (
     FROM funding_rounds fr
     WHERE fr.round_type === 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.name, ((c.id + 0))
    Relation Tree: c SEMI fr
@@ -758,13 +742,12 @@ LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 + 0 as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-     :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
-(16 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=fr, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
+(15 rows)
 
 SELECT c.id, c.name
 FROM companies c
@@ -773,7 +756,7 @@ WHERE c.id IN (
     FROM funding_rounds fr
     WHERE fr.round_type === 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
  id |    name     
@@ -793,12 +776,12 @@ WHERE c.id IN (
     FROM funding_rounds fr
     WHERE fr.round_type === 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0::bigint DESC
 LIMIT 10;
 WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: c, fr)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.id, c.name, ((c.id + '0'::bigint))
    ->  Sort
@@ -814,7 +797,7 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
                ->  Custom Scan (ParadeDB Base Scan) on public.funding_rounds fr
                      Output: fr.company_id
                      Table: funding_rounds
@@ -841,10 +824,7 @@ INSERT INTO orders (id, company_id, status, total) VALUES
 (203, 1, 'cancelled', 1000),
 (204, 3, 'completed', 8000),
 (205, 4, 'completed', 2000);
-CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, company_id, (status::pdb.literal), total)
-WITH (
-    numeric_fields = '{"company_id": {"fast": true}, "total": {"fast": true}}'
-);
+CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, company_id, (status::pdb.literal), total);
 -- Complex query with multiple IN subqueries and NOT EXISTS
 -- Result correctness: bare column vs expression form must match.
 SELECT c.id, c.name
@@ -852,14 +832,14 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
     AND NOT EXISTS (
         SELECT 1 FROM orders o
         WHERE o.company_id = fr.company_id
-        AND o.status @@@ 'cancelled'
+        AND o.status ||| 'cancelled'
     )
 )
-AND c.description @@@ 'technology OR intelligence'
+AND (c.description ||| 'technology' OR c.description ||| 'intelligence')
 ORDER BY c.id DESC
 LIMIT 10;
  id |    name    
@@ -872,14 +852,14 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
     AND NOT EXISTS (
         SELECT 1 FROM orders o
         WHERE o.company_id = fr.company_id
-        AND o.status @@@ 'cancelled'
+        AND o.status ||| 'cancelled'
     )
 )
-AND c.description @@@ 'technology OR intelligence'
+AND (c.description ||| 'technology' OR c.description ||| 'intelligence')
 ORDER BY c.id + 0 DESC
 LIMIT 10;
  id |    name    

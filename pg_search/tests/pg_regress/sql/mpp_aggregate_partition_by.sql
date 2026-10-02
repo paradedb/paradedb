@@ -73,20 +73,9 @@ ANALYZE mpp_agg_pb_pages;
 SET max_parallel_maintenance_workers TO 0;
 
 CREATE INDEX mpp_agg_pb_files_idx ON mpp_agg_pb_files
-USING bm25 (id, title, content)
-WITH (
-    target_segment_count=3,
-    partition_by='id',
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content) WITH (target_segment_count=3, partition_by='id');
 CREATE INDEX mpp_agg_pb_pages_idx ON mpp_agg_pb_pages
-USING bm25 (id, file_id, page_text, size_bytes)
-WITH (
-    target_segment_count=3,
-    partition_by='file_id',
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {}}'
-);
+USING paradedb (id, file_id, page_text, size_bytes) WITH (target_segment_count=3, partition_by='file_id');
 
 -- =====================================================================
 -- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
@@ -96,11 +85,11 @@ SET max_parallel_workers_per_gather TO 0;
 
 SELECT COUNT(*)
 FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
@@ -118,18 +107,18 @@ SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
 SELECT COUNT(*)
 FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_agg_pb_files f JOIN mpp_agg_pb_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;

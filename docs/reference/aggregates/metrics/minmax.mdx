@@ -1,0 +1,129 @@
+---
+title: Min/Max
+description: Compute the min/max value of a field
+canonical: https://www.paradedb.com/docs/reference/aggregates/metrics/minmax
+---
+
+`min` and `max` return the smallest and largest values of a column, respectively.
+
+SQL's `MIN`/`MAX` syntax is supported in beta and is enabled by default. To disable it, run:
+
+```sql SQL
+SET paradedb.enable_aggregate_custom_scan TO off;
+```
+
+## Min
+
+The `min` aggregation returns the smallest value in a field.
+
+<CodeGroup>
+```sql SQL
+SELECT pdb.agg('{"min": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ min: { field: "rating" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"min": {"field": "rating"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.min(field="rating")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.min(:rating))
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item => EF.Functions.Agg(new { min = new { field = "rating" } }))
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+      agg
+----------------
+ {"value": 1.0}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.MinAggregation.html) for all available options.
+
+### SQL Min Syntax
+
+With `paradedb.enable_aggregate_custom_scan` enabled, the following query is equivalent to the above and is executed in the same way.
+
+```sql SQL
+SELECT MIN(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+By default, `MIN` ignores null values. Use `COALESCE` to include them in the final result:
+
+```sql SQL
+SELECT MIN(COALESCE(rating, 0)) FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+## Max
+
+The `max` aggregation returns the largest value in a field.
+
+```sql SQL
+SELECT pdb.agg('{"max": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ini Expected Response
+      agg
+----------------
+ {"value": 5.0}
+(1 row)
+```
+
+### SQL Max Syntax
+
+With `paradedb.enable_aggregate_custom_scan` enabled, the following query is equivalent to the above and is executed in the same way.
+
+```sql SQL
+SELECT MAX(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+By default, `MAX` ignores null values. Use `COALESCE` to include them in the final result:
+
+```sql SQL
+SELECT MAX(COALESCE(rating, 0)) FROM mock_items
+WHERE id @@@ pdb.all();
+```

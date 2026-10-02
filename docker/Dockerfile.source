@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1
+#
+# Compile pg_search against the runtime distribution, independently of the host
+# runner OS. Only the extension is copied into the final released ParadeDB image.
+# The build context is the repository source at the selected revision.
+
+ARG BASE_IMAGE=paradedb/paradedb:latest-pg18
+FROM ${BASE_IMAGE} AS base
+
+FROM base AS builder
+
+# Build tools stay in this stage; the runtime starts from the clean base image.
+# hadolint ignore=DL3002
+USER 0
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-server-dev-18 build-essential ca-certificates curl git \
+    pkg-config libssl-dev clang lld libopenblas-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
+ENV PATH="/opt/cargo/bin:/usr/lib/postgresql/18/bin:${PATH}"
+WORKDIR /versions
+COPY rust-toolchain.toml Cargo.toml ./
+RUN rust=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml) && \
+    pgrx=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml) && \
+    test -n "$rust" && test -n "$pgrx" && \
+    curl -fsSL --retry 5 --retry-all-errors https://sh.rustup.rs -o /tmp/rustup.sh && \
+    sh /tmp/rustup.sh -y --profile minimal --default-toolchain "$rust" && \
+    cargo install cargo-pgrx --version "$pgrx" --debug --locked && \
+    cargo pgrx init --pg18=/usr/lib/postgresql/18/bin/pg_config
+
+WORKDIR /build
+COPY . .
+RUN cargo pgrx package --package pg_search --profile release \
+    --pg-config /usr/lib/postgresql/18/bin/pg_config --out-dir /package && \
+    mkdir -p /artifacts/usr/lib/postgresql/18/lib /artifacts/usr/share/postgresql/18/extension && \
+    find /package -type f -name 'pg_search*.so' -exec cp {} /artifacts/usr/lib/postgresql/18/lib/ \; && \
+    find /package -type f -name 'pg_search*.control' -exec cp {} /artifacts/usr/share/postgresql/18/extension/ \; && \
+    find /package -type f -name 'pg_search*.sql' -exec cp {} /artifacts/usr/share/postgresql/18/extension/ \; && \
+    test -s /artifacts/usr/lib/postgresql/18/lib/pg_search.so && \
+    test -s /artifacts/usr/share/postgresql/18/extension/pg_search.control
+
+FROM base AS runtime
+
+# Remove the released extension before installing the source build so old SQL
+# scripts cannot survive the overlay. CREATE EXTENSION then uses only the source
+# build. Runtime dependencies are supplied by the released base image.
+RUN rm -f /usr/lib/postgresql/18/lib/pg_search*.so \
+    /usr/share/postgresql/18/extension/pg_search*.control \
+    /usr/share/postgresql/18/extension/pg_search*.sql
+COPY --from=builder /artifacts/usr/ /usr/
+
+# initdb loads the preloaded extensions, catching missing libraries or symbol
+# versions before a benchmark downloads its dataset or Cloud publishes an image.
+RUN gosu postgres initdb --no-sync --auth=trust -D /tmp/pg-search-smoke && \
+    rm -rf /tmp/pg-search-smoke

@@ -18,29 +18,7 @@ INSERT INTO books (all_titles) VALUES
     (ARRAY['The Dragon Chronicles', 'Rise of the Phoenix', 'Ancient Legends']);
 
 CREATE INDEX idx_books ON books
-USING paradedb (id, all_titles)
-WITH (
-    text_fields = '{
-        "all_titles": {
-            "fast": true,
-            "record": "position",
-            "tokenizer": {
-                "type": "icu"
-            }
-        },
-        "all_titles_ngram": {
-            "column": "all_titles",
-            "fast": true,
-            "record": "position",
-            "tokenizer": {
-                "type": "ngram",
-                "min_gram": 4,
-                "max_gram": 4,
-                "prefix_only": false
-            }
-        }
-    }'
-);
+USING paradedb (id, (all_titles::pdb.icu('columnar=true')), (all_titles::pdb.ngram(4, 4, 'prefix_only=false', 'alias=all_titles_ngram', 'columnar=true')));
 
 -- Test 1: Single-word ngram match with conjunction_mode
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

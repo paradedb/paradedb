@@ -28,6 +28,7 @@ use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
+use crate::postgres::heap::VisibilityStats;
 use crate::query::tid_bitmap_stream::BitmapCell;
 
 use arrow_array::RecordBatch;
@@ -130,6 +131,7 @@ pub struct WrappedAggregateProjection {
 
 #[derive(Default)]
 pub struct AggregateScanState {
+    pub visibility_stats: VisibilityStats,
     pub state: ExecutionState,
     pub indexrelid: pg_sys::Oid,
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
@@ -150,7 +152,7 @@ pub struct AggregateScanState {
     /// has aggregates inside `FuncExpr` wrappers that need per-row projection.
     pub wrapped_projection: Option<WrappedAggregateProjection>,
 
-    /// Reusable tuple slot for aggregate result rows
+    /// Tantivy-only reusable tuple slot for aggregate result rows.
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,

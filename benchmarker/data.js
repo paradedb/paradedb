@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790978388273,
+  "lastUpdate": 1790984055752,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7044,6 +7044,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 717.173,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "544f4c67a0f1d394fa5509ea00770bb47f54432e",
+          "message": "fix: stop AggregateScan from grouping on the sort keys of ordered aggregates (#6612)\n\n## Ticket(s) Closed\n\n- Closes #6607\n\n## What\n\nThis PR stops AggregateScan from grouping on the `ORDER BY` column of an\nordered aggregate.\n\n```sql\n-- 4 rows of 30, one for each `kind`. Postgres: 1 row, 120.\nSELECT COUNT(id ORDER BY kind) FROM items WHERE id @@@ paradedb.all();\n```\n\nThe query returned one row for each value of the sort column, with and\nwithout a `GROUP BY`.\n\n## Why\n\nOn PG16 and later, `adjust_group_pathkeys_for_groupagg` appends the sort\nkeys of ordered and `DISTINCT` aggregates to `root->group_pathkeys`, so\nthat one sort can serve the aggregates. The GROUP BY keys are only the\nfirst `root->num_groupby_pathkeys` entries. The Tantivy backend took\nevery entry as a grouping column.\n\n## How\n\n`CreateUpperPathsHookArgs::group_by_pathkeys()` returns the first\n`num_groupby_pathkeys` pathkeys. On PG15 that is the full list. The\ngrouping columns come from it, and so does the check for the order of a\nsingle grouping key.\n\nThe collation check in `validate_grouping_pushdown` still reads all of\n`group_pathkeys`. The DataFusion backend compares the `DISTINCT` and\n`ORDER BY` keys of an aggregate by their bytes, and that check is what\ndeclines them for a nondeterministic collation. The decline for such a\nkey has its own message. The check does not catch all such queries\n(#6613), and this PR does not change that.\n\nOne more reader of these pathkeys is\n`OrderByClause::add_to_custom_path`, which declares them as the order of\nthe path. That is #6616, and this PR does not change it.\n\nThe Tantivy backend does not apply the `ORDER BY` of the aggregate. The\naggregates that it takes (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX` and\n`pdb.agg()`) do not depend on the order of their input. As a result, the\nscan does not evaluate the sort key, so a key that raises an error in\nPostgreSQL (`ORDER BY 1 / (id - id)`) does not raise it here.\n\n## Tests\n\n- New regress test `aggregate_ordered_aggregate`.\n- New integration test `test_ordered_aggregate_is_not_a_group_key`.\n\nBoth fail on `main`.",
+          "timestamp": "2026-10-02T15:25:07-07:00",
+          "tree_id": "43abb6cf75cbe033d4d9c835b2b7f254276ba135",
+          "url": "https://github.com/paradedb/paradedb/commit/544f4c67a0f1d394fa5509ea00770bb47f54432e"
+        },
+        "date": 1790984054091,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.739,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 151.801,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.219,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 250.673,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.361,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 168.308,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.823,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 212.293,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.891,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 699.87,
             "unit": "ms"
           }
         ]

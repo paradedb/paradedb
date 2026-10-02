@@ -83,7 +83,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
         // Use PostgreSQL's processed pathkeys, not `parse.groupClause`: redundant
         // GROUP BY columns may be removed, and AggregateScan eligibility validates
         // this same representation before allowing pushdown.
-        for pathkey in unsafe { args.group_by_pathkeys() } {
+        for pathkey in args.group_by_pathkeys() {
             let pathkey = unsafe { &*pathkey };
             let equivclass = unsafe { &*pathkey.pk_eclass };
             let members =

@@ -173,7 +173,7 @@ unsafe fn validate_grouping_pushdown(
     // On PG16 and later, the sort keys of ordered and DISTINCT aggregates follow
     // the GROUP BY keys in `group_pathkeys`. This checks them too: the DataFusion
     // backend compares them by their bytes, like the GROUP BY keys.
-    let group_by_keys = args.group_by_pathkeys().len();
+    let num_group_by_keys = args.group_by_pathkeys().len();
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys);
     for (i, pathkey) in pathkeys.iter_ptr().enumerate() {
         let equivalence_class = (*pathkey).pk_eclass;
@@ -185,7 +185,7 @@ unsafe fn validate_grouping_pushdown(
         if assess_collation(collation, CollationOperation::Equality)
             == CollationSafety::NondeterministicEquality
         {
-            return Err(if i < group_by_keys {
+            return Err(if i < num_group_by_keys {
                 GroupingPushdownDeclineReason::NondeterministicCollation
             } else {
                 GroupingPushdownDeclineReason::NondeterministicAggregateKey
@@ -193,7 +193,7 @@ unsafe fn validate_grouping_pushdown(
         }
     }
 
-    if group_by_keys == 0 {
+    if num_group_by_keys == 0 {
         // A scalar aggregate has no grouping keys.
         if parse.is_null() || (*parse).groupClause.is_null() {
             return Ok(());

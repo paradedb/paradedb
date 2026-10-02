@@ -211,7 +211,8 @@ fn test_ordered_aggregate_is_not_a_group_key(mut conn: PgConnection) {
     SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1], g % 5
     FROM generate_series(1, 120) g;
     CREATE INDEX ordered_aggs_idx ON ordered_aggs
-    USING paradedb (id, account_id, (kind::pdb.literal), price);
+    USING paradedb (id, account_id, (kind::pdb.literal), price)
+    WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 

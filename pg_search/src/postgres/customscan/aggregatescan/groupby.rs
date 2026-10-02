@@ -83,25 +83,11 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
         // Use PostgreSQL's processed pathkeys, not `parse.groupClause`: redundant
         // GROUP BY columns may be removed, and AggregateScan eligibility validates
         // this same representation before allowing pushdown.
-<<<<<<< HEAD
-        let pathkeys = if args.root().group_pathkeys.is_null() {
-            PgList::<pg_sys::PathKey>::new()
-        } else {
-            unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) }
-        };
-
-        for pathkey in pathkeys.iter_ptr() {
+        for pathkey in args.group_by_pathkeys() {
             unsafe {
                 let equivclass = (*pathkey).pk_eclass;
                 let members =
                     PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
-=======
-        for pathkey in args.group_by_pathkeys() {
-            let pathkey = unsafe { &*pathkey };
-            let equivclass = unsafe { &*pathkey.pk_eclass };
-            let members =
-                unsafe { PgList::<pg_sys::EquivalenceMember>::from_pg(equivclass.ec_members) };
->>>>>>> 544f4c6 (fix: stop AggregateScan from grouping on the sort keys of ordered aggregates (#6612))
 
                 let mut found_valid_column = false;
                 // Track the most recent error reason across equivalence members.

@@ -24,7 +24,8 @@ INSERT INTO ordered_agg_items (account_id, kind, price, amount)
 SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1], g % 5, (g % 5) + 0.5
 FROM generate_series(1, 120) g;
 CREATE INDEX ordered_agg_items_idx ON ordered_agg_items
-USING paradedb (id, account_id, (kind::pdb.literal), price, amount);
+USING paradedb (id, account_id, (kind::pdb.literal), price, amount)
+WITH (key_field = 'id');
 SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test 1: no GROUP BY -> one row'
 Test 1: no GROUP BY -> one row
@@ -163,7 +164,7 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
                Table: ordered_agg_items
                Index: ordered_agg_items_idx
                Exec Method: ColumnarExecState
-               Columnar: account_id, kind
+               Fast Fields: account_id, kind
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
@@ -244,7 +245,7 @@ WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key w
                Table: ordered_agg_items
                Index: ordered_agg_items_idx
                Exec Method: ColumnarExecState
-               Columnar: amount, kind
+               Fast Fields: amount, kind
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}

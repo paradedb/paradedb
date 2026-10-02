@@ -24,7 +24,8 @@ SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1], g % 5, (g % 5) + 0
 FROM generate_series(1, 120) g;
 
 CREATE INDEX ordered_agg_items_idx ON ordered_agg_items
-USING paradedb (id, account_id, (kind::pdb.literal), price, amount);
+USING paradedb (id, account_id, (kind::pdb.literal), price, amount)
+WITH (key_field = 'id');
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 

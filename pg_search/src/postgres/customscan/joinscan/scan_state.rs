@@ -35,7 +35,8 @@ use std::sync::Arc;
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{
-    Column, DataFusionError, Result, TableReference, internal_datafusion_err, internal_err,
+    Column, DFSchema, DataFusionError, Result, TableReference, internal_datafusion_err,
+    internal_err,
 };
 use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
@@ -924,6 +925,7 @@ fn build_clause_df<'a>(
     f.boxed_local()
 }
 
+#[derive(PartialEq)]
 struct QualifiedName(Option<TableReference>, String);
 impl QualifiedName {
     fn as_col_expr(&self) -> Expr {
@@ -932,6 +934,16 @@ impl QualifiedName {
 
     fn into_col_expr(self) -> Expr {
         Expr::Column(Column::new(self.0, self.1))
+    }
+
+    fn from_unqualified_name(name: &str, schema: &DFSchema) -> Result<Self> {
+        let (qualifier, field) = schema.qualified_field_with_unqualified_name(name)?;
+        Ok(Self(qualifier.cloned(), field.name().clone()))
+    }
+}
+impl From<(Option<TableReference>, String)> for QualifiedName {
+    fn from(value: (Option<TableReference>, String)) -> Self {
+        Self(value.0, value.1)
     }
 }
 
@@ -954,20 +966,39 @@ fn apply_topk_as_agg(
     let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
         return internal_err!("Bug: Unable to build distinct key expressions for topk aggregate");
     };
+
+    let projection = join_clause
+        .output_projection
+        .as_ref()
+        .expect("should always exist by now");
+
     // if has_distinct, we map to the expected col_i names, assuming `distinct_key_exprs` is in
     // projection order. Otherwise we just use the names the columns would have had originally
-    let distinct_exprs_with_names: Vec<(Expr, QualifiedName)> = distinct_key_exprs
+    // Skip any "placeholder" expressions that don't need to be considered now
+    let mut distinct_exprs_with_names = Vec::new();
+    for (i, (expr, proj)) in distinct_key_exprs
         .into_iter()
+        .zip(projection.iter())
         .enumerate()
-        .map(|(i, e)| {
-            if join_clause.has_distinct {
-                (e, QualifiedName(None, format!("col_{}", i + 1)))
-            } else {
-                let name = e.qualified_name();
-                (e, QualifiedName(name.0, name.1))
+    {
+        if join_clause.has_distinct {
+            distinct_exprs_with_names.push((expr, QualifiedName(None, format!("col_{}", i + 1))));
+        } else {
+            // A placeholder for a heap-fetched column: the output projection recreates
+            // it and never reads it from the frame, so it has no business in the payload.
+            let is_placeholder = !matches!(proj, build::ChildProjection::Expression { .. })
+                && expr.column_refs().is_empty();
+            if is_placeholder {
+                continue;
             }
-        })
-        .collect();
+
+            // in the non-distinct case, we must be sure we've only selected a given column once
+            let name = QualifiedName::from(expr.qualified_name());
+            if distinct_exprs_with_names.iter().all(|(_, n)| *n != name) {
+                distinct_exprs_with_names.push((expr, name));
+            }
+        }
+    }
 
     // The sort against the join output, the same way the SortExec path builds it: an
     // ORDER BY key need not be in the projection, and when Postgres substitutes an
@@ -976,19 +1007,31 @@ fn apply_topk_as_agg(
     // `col_N` projection below.
     let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
 
-    let ctid_names: Vec<String> = if join_clause.has_distinct {
-        // Only relations whose heap tuples are fetched need a ctid carried through,
-        // the same pruning the GROUP BY form applies.
-        let needed_ctids = relations_needing_ctid(output_columns);
-
+    // Only relations whose heap tuples are fetched need a ctid carried through,
+    let needed_ctids = relations_needing_ctid(output_columns);
+    let mut non_selected_ctid_names = Vec::new();
+    let mut ctid_positions = Vec::new();
+    let mut next_ctid_pos = distinct_exprs_with_names.len();
+    for (pos, unqualified_name) in
         surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
-            .filter(|(pos, _)| needed_ctids.contains(pos))
-            .map(|(_, name)| name)
-            .collect()
-    } else {
-        // No ctids needed for non-distinct queries
-        Vec::new()
-    };
+    {
+        if !needed_ctids.contains(&pos) {
+            continue;
+        }
+        // See if this ctid has already been selected, and track the position in the upcoming SELECT
+        // either way
+        let name = QualifiedName::from_unqualified_name(&unqualified_name, df.schema())?;
+        if let Some(pos) = distinct_exprs_with_names
+            .iter()
+            .position(|(_, en)| name == *en)
+        {
+            ctid_positions.push(pos);
+        } else {
+            non_selected_ctid_names.push(name);
+            ctid_positions.push(next_ctid_pos);
+            next_ctid_pos += 1;
+        }
+    }
 
     // the projected key expressions, along with the name we map them to
     let projected: HashMap<Expr, Expr> = distinct_exprs_with_names
@@ -1028,7 +1071,7 @@ fn apply_topk_as_agg(
         .iter()
         .map(|(expr, name)| expr.clone().alias_qualified(name.0.clone(), &name.1))
         .collect();
-    select.extend(ctid_names.iter().map(|n| col(n.as_str())));
+    select.extend(non_selected_ctid_names.iter().map(|n| n.as_col_expr()));
     select.extend(sort_extra_cols.iter().cloned());
 
     // The column index ranges of the groups the restore below renames. The `sort_j`
@@ -1036,7 +1079,7 @@ fn apply_topk_as_agg(
     // DataFusion evaluates and the accumulator carries as ordering columns, so they
     // are neither payload nor restored.
     let distinct_key_end = distinct_exprs_with_names.len();
-    let ctid_end = distinct_key_end + ctid_names.len();
+    let ctid_end = distinct_key_end + non_selected_ctid_names.len();
     let distinct_key_col_range = 0..distinct_key_end;
     let ctid_col_range = distinct_key_end..ctid_end;
 
@@ -1074,8 +1117,9 @@ fn apply_topk_as_agg(
         })
         .collect();
     name_restoration_exprs.extend(ctid_col_range.enumerate().map(|(name_idx, i)| {
-        let name = &ctid_names[name_idx];
-        get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(name)
+        let name = &non_selected_ctid_names[name_idx];
+        get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
+            .alias_qualified(name.0.clone(), &name.1)
     }));
     let df = df.select(name_restoration_exprs)?;
 
@@ -1656,8 +1700,8 @@ fn apply_output_projection(
                             translate_child_projection_expr(pg_expr_string, join_clause)?
                         };
                         if expressions_already_evaluated {
-                            let name = e.qualified_name();
-                            QualifiedName(name.0, name.1).into_col_expr()
+                            let name = QualifiedName::from(e.qualified_name());
+                            name.into_col_expr()
                         } else {
                             e
                         }

@@ -300,6 +300,30 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
         );
     }
 
+    // A projected ctid. JoinScan resolves `t1.ctid` to the same scan column it
+    // carries to fetch t1's heap tuples, so that column is wanted twice: as a
+    // select-list entry and as the heap-fetch handle. The aggregate path has to
+    // carry it once, not as two payload columns with one name.
+    //
+    // The outer query only casts the `tid` to text, which sqlx can decode; the
+    // inner query is the one JoinScan plans. Both paths return NULL for the ctid
+    // today (JoinScan's slot fill reads no system attribute from a heap tuple),
+    // so this checks that the aggregate path plans and agrees, not the value.
+    assert_paths_agree::<(Option<String>, i32)>(
+        &mut conn,
+        r#"
+        SELECT ctid::text, id FROM (
+            SELECT t1.ctid, t1.id
+            FROM tka_t1 t1
+            JOIN tka_t2 t2 ON t1.id = t2.t1_id
+            WHERE t1.val ||| 'val'
+            ORDER BY t1.id ASC, t2.id ASC
+            LIMIT 3
+        ) q
+        "#,
+        3,
+    );
+
     // DISTINCT: each t1 row joins two t2 rows, so every (id, rating) pair
     // appears twice before deduplication. With the GUC on, the DISTINCT is
     // absorbed into the Top-K aggregate instead of running as a GROUP BY.

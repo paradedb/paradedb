@@ -27,6 +27,7 @@ use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::VisibilityStats;
 use crate::query::tid_bitmap_stream::BitmapCell;
@@ -113,20 +114,14 @@ pub struct DataFusionAggState {
 ///
 /// When the targetlist contains aggregates wrapped in `FuncExpr` calls, we
 /// build a copy of the targetlist with each `FuncExpr`'s aggregate replaced by
-/// a `Const` placeholder. Before each per-row projection we mutate those
-/// `Const`s in place with the live aggregate values, so the compiled projection
-/// bakes in the current row's values. This follows the basescan pattern.
-///
-/// The `const_nodes` pointers alias into `targetlist`'s memory context — if
-/// the targetlist is freed or replaced, the const pointers become dangling.
-/// Bundling both into one struct keeps the lifetime invariant type-level so
-/// neither half can be cleared without the other.
+/// a placeholder, and project that copy. Before each per-row projection we
+/// write the live aggregate values into the placeholder columns.
 pub struct WrappedAggregateProjection {
-    /// Targetlist copy with `Const` placeholders for each wrapped aggregate.
-    pub targetlist: *mut pg_sys::List,
-    /// Pointers to the `Const` nodes inside `targetlist`, indexed by target
-    /// entry position (0-based). `None` for entries without a Const node.
-    pub const_nodes: Vec<Option<*mut pg_sys::Const>>,
+    /// Projection of the targetlist copy, built one time for the scan.
+    pub projection: PlaceholderProjection,
+    /// The placeholder column and its type, indexed by target entry position
+    /// (0-based). `None` for entries without a placeholder.
+    pub placeholders: Vec<Option<(PlaceholderColumn, pg_sys::Oid)>>,
 }
 
 #[derive(Default)]

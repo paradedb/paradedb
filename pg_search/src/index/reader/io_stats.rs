@@ -26,6 +26,17 @@ use std::sync::Arc;
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::vector::current_vector_stage;
 
+#[cfg(any(test, feature = "pg_test"))]
+thread_local! {
+    static VECTOR_BUFFER_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts vector buffer accesses recorded by the component instrumentation in tests.
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) fn vector_buffer_reads() -> usize {
+    VECTOR_BUFFER_READS.get()
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 struct IoCounters {
     blks_hit: u64,
@@ -295,6 +306,10 @@ impl Trace {
 
 impl ComponentStats {
     pub fn buffer<R>(&self, read: impl FnOnce() -> R) -> R {
+        #[cfg(any(test, feature = "pg_test"))]
+        if self.component == "vec" {
+            VECTOR_BUFFER_READS.set(VECTOR_BUFFER_READS.get() + 1);
+        }
         let before = snapshot();
         let result = read();
         let after = snapshot();

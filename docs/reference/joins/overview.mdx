@@ -368,6 +368,16 @@ To verify join pushdown, run `EXPLAIN` on the query and look for a `ParadeDB Joi
 (18 rows)
 ```
 
+## Partitioned Joins (Beta)
+
+<Warning>
+  Partitioned joins are currently a Beta feature under active development.
+</Warning>
+
+When both tables in an equi-join are indexed using [`partition_by`](/reference/indexing/partition-by) on their join keys, ParadeDB automatically joins matching partition ranges locally on each worker without exchanging data between processes.
+
+See the [Partitioning Guide](/reference/indexing/partition-by) for setup and column selection advice.
+
 ## Performance
 
 If your join query isn't as fast as you'd like, we invite you to [open a GitHub issue](https://github.com/paradedb/paradedb/issues).

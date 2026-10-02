@@ -819,6 +819,9 @@ mod tests {
         let deleted_xid = pg_sys::FrozenTransactionId;
         let not_deleted_xid = pg_sys::InvalidTransactionId;
 
+        // These fixtures test list deletion and compaction, not buffer-pin deferral.
+        // Keep a file descriptor (required by pintest_blockno), but use an invalid block
+        // number so background writer pins cannot affect the one-pass assertions.
         // Add 2000 entries, delete every 10th entry
         {
             let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
@@ -833,7 +836,10 @@ mod tests {
                             not_deleted_xid
                         },
                         SegmentMetaEntryImmutable {
-                            postings: Some(make_fake_postings(&indexrel)),
+                            postings: Some(FileEntry {
+                                starting_block: pg_sys::InvalidBlockNumber,
+                                total_bytes: 0,
+                            }),
                             ..Default::default()
                         },
                     )
@@ -869,7 +875,10 @@ mod tests {
                         0,
                         not_deleted_xid,
                         SegmentMetaEntryImmutable {
-                            postings: Some(make_fake_postings(&indexrel)),
+                            postings: Some(FileEntry {
+                                starting_block: pg_sys::InvalidBlockNumber,
+                                total_bytes: 0,
+                            }),
                             ..Default::default()
                         },
                     )
@@ -884,7 +893,10 @@ mod tests {
                         0,
                         deleted_xid,
                         SegmentMetaEntryImmutable {
-                            postings: Some(make_fake_postings(&indexrel)),
+                            postings: Some(FileEntry {
+                                starting_block: pg_sys::InvalidBlockNumber,
+                                total_bytes: 0,
+                            }),
                             ..Default::default()
                         },
                     )
@@ -899,7 +911,10 @@ mod tests {
                         0,
                         not_deleted_xid,
                         SegmentMetaEntryImmutable {
-                            postings: Some(make_fake_postings(&indexrel)),
+                            postings: Some(FileEntry {
+                                starting_block: pg_sys::InvalidBlockNumber,
+                                total_bytes: 0,
+                            }),
                             ..Default::default()
                         },
                     )

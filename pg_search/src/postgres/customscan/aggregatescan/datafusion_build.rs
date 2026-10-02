@@ -95,7 +95,7 @@ impl JoinAggSource {
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| match &f.field {
-                WhichFastField::Score | WhichFastField::Junk(_) => None,
+                WhichFastField::Score(_) | WhichFastField::Junk(_) => None,
                 _ => Some(f.field.name()),
             })
     }

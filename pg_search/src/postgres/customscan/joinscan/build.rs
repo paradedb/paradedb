@@ -143,6 +143,26 @@ impl TryFrom<&str> for CtidColumn {
     }
 }
 
+/// DataFusion-facing synthetic score column name helper.
+///
+/// JoinScan and AggregateScan format score column names as `pdb.score({table})`
+/// so that EXPLAIN plans and physical plan columns clearly identify which relation
+/// the score was computed from.
+#[derive(Debug, Clone)]
+pub struct ScoreColumn(String);
+
+impl ScoreColumn {
+    pub fn new(table: impl Into<String>) -> Self {
+        Self(table.into())
+    }
+}
+
+impl fmt::Display for ScoreColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "pdb.score({})", self.0)
+    }
+}
+
 /// DataFusion/planning identity for the PostgreSQL planner root that produced a source.
 ///
 /// We carry this through JoinScan planning so repeated RTIs from different
@@ -595,10 +615,7 @@ impl JoinSource {
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| {
-                if matches!(
-                    f.field,
-                    crate::index::fast_fields_helper::WhichFastField::Score
-                ) {
+                if f.field.is_score() {
                     None
                 } else {
                     Some(f.field.name())
@@ -609,6 +626,10 @@ impl JoinSource {
     /// Recursively collect all base relations in this source.
     pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
         acc.push(self.scan_info.clone());
+    }
+
+    pub fn display_alias(&self) -> String {
+        RelationAlias::new(self.scan_info.alias.as_deref()).display(self.plan_position)
     }
 
     pub fn execution_alias(&self) -> String {

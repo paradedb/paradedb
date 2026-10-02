@@ -44,14 +44,13 @@ use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
     build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
 };
-use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::customscan::joinscan::build::{
     JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
 };
-use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
+use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
@@ -1150,11 +1149,15 @@ async fn build_source_df(
             required_early.insert(col);
         }
     }
+    let display_alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
+
+    provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
     provider.configure_deferred_outputs(&required_early, crate::scan::VisibilityMode::Eager);
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
-    // Select fields AND ensure CTID and Score are aliased consistently with JoinScan
+    // Select fields AND ensure CTID is aliased consistently with JoinScan
     let mut exprs = Vec::new();
     for df_field in df.schema().fields().iter() {
         let name = df_field.name();
@@ -1162,7 +1165,6 @@ async fn build_source_df(
             Some(WhichFastField::Ctid) => {
                 make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
             }
-            Some(WhichFastField::Score) => make_col(alias.as_str(), SCORE_COL_NAME),
             _ => make_col(alias.as_str(), name),
         };
         exprs.push(expr);

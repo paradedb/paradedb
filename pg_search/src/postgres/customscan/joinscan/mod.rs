@@ -153,11 +153,13 @@ use self::planning::{
 };
 use self::privdat::PrivateData;
 use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node};
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::node::NodeExt;
+use crate::schema::SearchFieldType;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
@@ -523,6 +525,63 @@ pub unsafe fn try_create_subplan_join_paths(
     }
 }
 
+/// Whether a NUMERIC join key pair is safe to push down into JoinScan's
+/// generated DataFusion plan.
+///
+/// NUMERIC fast fields with precision <= 18 are stored as scaled Int64
+/// values (`Numeric64`, e.g. numeric(10,2) 1.23 -> 123, numeric(10,3)
+/// 1.230 -> 1230) and lower to Arrow `DataType::Int64`. NUMERIC fields
+/// with precision > 18, or unbounded NUMERIC, are stored as
+/// lexicographically sortable bytes (`NumericBytes`) and lower to Arrow
+/// `DataType::BinaryView`.
+///
+/// Three hazards follow from this:
+/// - Two `Numeric64` sides with *different* scales: the generated
+///   `HashJoinExec` compares raw, unscaled Int64 values directly, so
+///   logically-equal decimals at different scales never compare equal.
+///   See <https://github.com/paradedb/paradedb/issues/6100>.
+/// - A `Numeric64` side paired with a `NumericBytes` side (even with an
+///   equal, known scale - e.g. numeric(10,2) vs numeric(20,2)): the two
+///   sides lower to different Arrow physical types (Int64 vs
+///   BinaryView), which DataFusion's type coercion rejects outright
+///   ("Cannot infer common argument type for comparison operation Int64
+///   = BinaryView") - a hard query-time error instead of a graceful
+///   fallback to Postgres's native join.
+/// - Two `NumericBytes` sides whose indexes encode negative values
+///   differently (see `planning::numeric_bytes_layouts_differ`): the
+///   byte encoding itself is incompatible, regardless of declared scale.
+///
+/// So this returns `true` in exactly two cases: both sides `Numeric64`
+/// with an equal scale, or both sides `NumericBytes` with a compatible
+/// byte layout (declared scale doesn't matter here - `NumericBytes` uses
+/// `decimal-bytes`'s arbitrary-precision, lexicographically sortable
+/// encoding, which is value-based rather than scaled-integer, so two
+/// `NumericBytes` sides with *different* declared scales are still safe
+/// to compare byte-for-byte as long as their layout matches). Anything
+/// else - a `Numeric64`/`NumericBytes` mismatch, incompatible
+/// `NumericBytes` layouts, or an unresolvable scale - declines. This
+/// mirrors the codebase's existing convention of rejecting
+/// unbounded-NUMERIC pushdown at planning time rather than letting the
+/// DataFusion plan bake fail (see `numeric_window_field` in
+/// `scan_state.rs`).
+fn numeric_pushdown_safe(
+    outer_ff: &WhichFastField,
+    outer_ir: &PgSearchRelation,
+    inner_ff: &WhichFastField,
+    inner_ir: &PgSearchRelation,
+) -> bool {
+    match (outer_ff.field_type(), inner_ff.field_type()) {
+        (
+            Some(SearchFieldType::Numeric64(_, outer_scale)),
+            Some(SearchFieldType::Numeric64(_, inner_scale)),
+        ) => outer_scale == inner_scale,
+        (Some(SearchFieldType::NumericBytes(..)), Some(SearchFieldType::NumericBytes(..))) => {
+            !planning::numeric_bytes_layouts_differ(outer_ff, outer_ir, inner_ff, inner_ir)
+        }
+        _ => false,
+    }
+}
+
 impl JoinScan {
     /// Phase 1: Validate a `RelNode` plan against JoinScan activation requirements
     /// and build a `JoinCSClause` with score bubbling and partitioning applied.
@@ -680,18 +739,34 @@ impl JoinScan {
                     let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
                     let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
                     let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
-                    if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
-                        .is_none()
-                        || resolve_fast_field(
-                            jk.inner_attno as i32,
-                            &inner_hr.tuple_desc(),
-                            &inner_ir,
-                        )
-                        .is_none()
-                    {
-                        return Err(JoinDeclineReason::new(
-                            "JoinScan not used: join conditions must reference columnar indexed fields",
-                        ));
+                    let outer_ff = resolve_fast_field(
+                        jk.outer_attno as i32,
+                        &outer_hr.tuple_desc(),
+                        &outer_ir,
+                    );
+                    let inner_ff = resolve_fast_field(
+                        jk.inner_attno as i32,
+                        &inner_hr.tuple_desc(),
+                        &inner_ir,
+                    );
+                    match (&outer_ff, &inner_ff) {
+                        (Some(outer_ff), Some(inner_ff)) => {
+                            let either_numeric =
+                                outer_ff.field_type().is_some_and(|ft| ft.is_numeric())
+                                    || inner_ff.field_type().is_some_and(|ft| ft.is_numeric());
+                            if either_numeric
+                                && !numeric_pushdown_safe(outer_ff, &outer_ir, inner_ff, &inner_ir)
+                            {
+                                return Err(JoinDeclineReason::new(
+                                    "JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation",
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(JoinDeclineReason::new(
+                                "JoinScan not used: join conditions must reference columnar indexed fields",
+                            ));
+                        }
                     }
                 }
                 _ => {

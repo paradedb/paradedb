@@ -1269,7 +1269,10 @@ unsafe fn try_extract_null_and_subplan(
 
 /// Whether two `NumericBytes` join keys come from indexes that encode negative values
 /// differently. See `NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION`.
-fn numeric_bytes_layouts_differ(
+///
+/// `pub(super)` so `mod.rs`'s `numeric_pushdown_safe` can reuse this same
+/// compatibility check instead of re-deriving it.
+pub(super) fn numeric_bytes_layouts_differ(
     outer_ff: &WhichFastField,
     outer_ir: &PgSearchRelation,
     inner_ff: &WhichFastField,

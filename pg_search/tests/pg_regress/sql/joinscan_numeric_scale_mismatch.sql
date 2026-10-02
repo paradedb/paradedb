@@ -1,0 +1,297 @@
+-- =====================================================================
+-- Regression: https://github.com/paradedb/paradedb/issues/6100
+--
+-- NUMERIC fast fields with precision <= 18 are represented internally
+-- as `SearchFieldType::Numeric64`, a scaled `Int64` (e.g. numeric(10,2)
+-- value 1.10 is stored as the raw integer 110; numeric(10,3) value
+-- 1.100 is stored as 1100). Both `numeric(10,2)` and `numeric(10,3)`
+-- map to the same Arrow `DataType::Int64`, so nothing at the Arrow
+-- schema level distinguishes them.
+--
+-- Pre-fix behavior: `validate_and_build_clause` only confirmed both
+-- sides of a join key resolved to a columnar indexed fast field; it
+-- never compared their `Numeric64` scales. JoinScan would build a
+-- DataFusion `HashJoinExec` that equates the two sides' *raw, unscaled*
+-- Int64 values. Comparing scale-2 `110` against scale-3 `1100` for the
+-- logically-equal decimals `1.10` and `1.100` always returns false,
+-- silently dropping valid join matches.
+--
+-- Post-fix behavior: the join-key validation loop now inspects each
+-- side's `SearchFieldType::numeric_scale()`. If either side is NUMERIC
+-- and the two sides don't resolve to the same known scale, JoinScan
+-- declines the pushdown for that join key and Postgres falls back to
+-- its native join executor, which compares NUMERIC values correctly
+-- regardless of scale or storage representation.
+--
+-- Tests 4 and 5 below cover two further variants of this bug found
+-- during code review, both rooted in the same fact: `numeric_scale()`
+-- alone doesn't determine whether two NUMERIC sides share an Arrow
+-- physical type. Precision <= 18 NUMERIC is `Numeric64` (Arrow Int64);
+-- precision > 18, or unbounded, NUMERIC is `NumericBytes` (Arrow
+-- BinaryView). Comparing an Int64 column against a BinaryView column is
+-- rejected outright by DataFusion's type coercion ("Cannot infer common
+-- argument type for comparison operation Int64 = BinaryView") - a hard
+-- query-time error instead of a graceful fallback to Postgres's native
+-- join.
+--
+-- Test 4: an unbounded NUMERIC column (plain `NUMERIC`, no
+-- precision/scale) has no statically known scale and is
+-- `NumericBytes(None)`. A guard that only fires when *both* sides'
+-- scales resolve to `Some` skips this pairing entirely (Numeric64
+-- `Some(scale)` vs NumericBytes `None`).
+--
+-- Test 5: a numeric(20,2) column (precision > 18) is
+-- `NumericBytes(Some(2))` - the *same scale number* as a numeric(10,2)
+-- Numeric64 column, but still a different Arrow physical type. A guard
+-- that compares scale numbers alone (rather than requiring both sides
+-- be specifically Numeric64) would incorrectly consider this pairing
+-- safe.
+--
+-- The fix declines whenever either side is NUMERIC and the two sides
+-- aren't both `Numeric64` with an equal scale.
+-- =====================================================================
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+
+DROP TABLE IF EXISTS jsm_items CASCADE;
+DROP TABLE IF EXISTS jsm_prices CASCADE;
+
+-- Outer: numeric(10,2) join key, all rows searchable via txt @@@ 'match'.
+CREATE TABLE jsm_items (
+    id  bigint PRIMARY KEY,
+    txt text NOT NULL,
+    amt numeric(10,2) NOT NULL
+);
+INSERT INTO jsm_items (id, txt, amt) VALUES
+    (1, 'match', 1.10),
+    (2, 'match', 2.20),
+    (3, 'match', 3.30),
+    (4, 'match', 4.40),
+    (5, 'match', 5.50);
+
+-- Inner: numeric(10,3) join key. Values are logically equal to
+-- jsm_items.amt but stored at a different scale (extra trailing zero).
+CREATE TABLE jsm_prices (
+    id  serial PRIMARY KEY,
+    amt numeric(10,3) NOT NULL
+);
+INSERT INTO jsm_prices (amt) VALUES
+    (1.100),
+    (2.200),
+    (3.300),
+    (4.400),
+    (5.500);
+
+CREATE INDEX jsm_items_idx ON jsm_items USING paradedb (id, txt, amt)
+  WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX jsm_prices_idx ON jsm_prices USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+
+ANALYZE jsm_items;
+ANALYZE jsm_prices;
+
+-- =====================================================================
+-- Test 1 — Postgres ground truth (all custom scans off, including
+-- AggregateScan: a bare `COUNT(*)` over this join is otherwise
+-- intercepted by AggregateScan, which has the same unfixed
+-- unscaled-Int64 comparison bug this test is not exercising here).
+-- NUMERIC equality is scale-agnostic, so every item matches exactly
+-- one price row: expect 5.
+-- =====================================================================
+SET paradedb.enable_custom_scan           TO off;
+SET paradedb.enable_join_custom_scan      TO off;
+SET paradedb.enable_aggregate_custom_scan TO off;
+
+SELECT COUNT(*) AS expected_five
+FROM jsm_items i
+JOIN jsm_prices p ON i.amt = p.amt
+WHERE i.txt @@@ 'match';
+
+-- =====================================================================
+-- Test 2 — JoinScan enabled. Must also return 5.
+-- Pre-fix this returned 0 (every raw-Int64 comparison between scale-2
+-- and scale-3 representations of the same decimal value failed).
+-- Post-fix, the scale mismatch is detected and JoinScan declines the
+-- pushdown for this join key, so Postgres's native join executes
+-- instead and produces the correct answer.
+-- =====================================================================
+SET paradedb.enable_custom_scan      TO on;
+SET paradedb.enable_join_custom_scan TO on;
+
+SELECT COUNT(*) AS joinscan_result FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+
+-- =====================================================================
+-- Test 3 — Sanity/positive control: same-scale NUMERIC join keys are
+-- unaffected by the fix and continue to match correctly (whether or
+-- not JoinScan pushdown engages for them).
+-- =====================================================================
+DROP TABLE IF EXISTS jsm_prices_samescale CASCADE;
+CREATE TABLE jsm_prices_samescale (
+    id  serial PRIMARY KEY,
+    amt numeric(10,2) NOT NULL
+);
+INSERT INTO jsm_prices_samescale (amt) VALUES
+    (1.10), (2.20), (3.30), (4.40), (5.50);
+
+CREATE INDEX jsm_prices_samescale_idx ON jsm_prices_samescale USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+ANALYZE jsm_prices_samescale;
+
+SELECT COUNT(*) AS samescale_result FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices_samescale p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+
+-- =====================================================================
+-- Test 4 — Numeric64 vs. unbounded-NUMERIC (NumericBytes, scale = None).
+-- Pre-second-fix: the guard only fired when BOTH sides' scales resolved
+-- to `Some`, so this pairing (one Numeric64 `Some(scale)`, one
+-- NumericBytes `None`) skipped the check entirely and JoinScan
+-- attempted the pushdown, which DataFusion then rejected with a hard
+-- "Cannot infer common argument type for comparison operation Int64 =
+-- BinaryView" error instead of gracefully falling back.
+-- Post-fix: the pushdown is declined at planning time whenever either
+-- side is NUMERIC and the scales aren't both known and equal, so this
+-- query succeeds via Postgres's native join instead of erroring.
+-- =====================================================================
+DROP TABLE IF EXISTS jsm_prices_unbounded CASCADE;
+CREATE TABLE jsm_prices_unbounded (
+    id  serial PRIMARY KEY,
+    amt numeric NOT NULL  -- unbounded: typmod -1, scale unresolvable (None)
+);
+INSERT INTO jsm_prices_unbounded (amt) VALUES
+    (1.10), (2.20), (3.30), (4.40), (5.50);
+
+CREATE INDEX jsm_prices_unbounded_idx ON jsm_prices_unbounded USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+ANALYZE jsm_prices_unbounded;
+
+SELECT COUNT(*) AS unbounded_scale_result FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices_unbounded p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+
+-- =====================================================================
+-- Test 5 — Numeric64 vs. NumericBytes with the SAME known scale.
+-- numeric(10,2) (precision <= 18) resolves to Numeric64(scale=2); a
+-- numeric(20,2) column (precision > 18) resolves to
+-- NumericBytes(Some(2)) - same scale number, but a different physical
+-- SearchFieldType (Int64 vs BinaryView Arrow types).
+--
+-- A guard that only compared *scale numbers* (an earlier version of
+-- this fix) would see scale=Some(2) on both sides, consider them
+-- equal, and admit the pushdown - which DataFusion then rejects with
+-- the same "Cannot infer common argument type for comparison operation
+-- Int64 = BinaryView" error as Test 4, since Numeric64 and NumericBytes
+-- never share an Arrow physical type regardless of declared scale.
+-- Post-fix: the pushdown is only admitted when both sides are
+-- specifically Numeric64 (not merely NUMERIC with matching scale), so
+-- this pairing declines and falls back to Postgres's native join.
+-- =====================================================================
+DROP TABLE IF EXISTS jsm_prices_bignumeric CASCADE;
+CREATE TABLE jsm_prices_bignumeric (
+    id  serial PRIMARY KEY,
+    amt numeric(20,2) NOT NULL  -- precision > 18 -> NumericBytes(Some(2))
+);
+INSERT INTO jsm_prices_bignumeric (amt) VALUES
+    (1.10), (2.20), (3.30), (4.40), (5.50);
+
+CREATE INDEX jsm_prices_bignumeric_idx ON jsm_prices_bignumeric USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+ANALYZE jsm_prices_bignumeric;
+
+SELECT COUNT(*) AS numeric_bytes_samescale_result FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices_bignumeric p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+
+-- =====================================================================
+-- Test 6 — Positive control: two NumericBytes sides (both
+-- numeric(20,2), precision > 18) with a compatible byte layout. Unlike
+-- Tests 4 and 5, this pairing IS safe: `NumericBytes` uses
+-- `decimal-bytes`'s value-based, lexicographically sortable encoding
+-- (not a fixed external scale like Numeric64), so two NumericBytes
+-- sides compare correctly byte-for-byte as long as their indexes agree
+-- on negative-value encoding (`numeric_bytes_layouts_differ`). Both
+-- indexes here are freshly built by the same server, so their layouts
+-- always agree.
+--
+-- This guards against over-correcting the fix into declining every
+-- NumericBytes pairing: the query below must show NO decline WARNING
+-- and the plan must show `Custom Scan (ParadeDB Join Scan)` engaging,
+-- not a fallback to a plain Postgres Hash/Nested Loop Join.
+-- =====================================================================
+DROP TABLE IF EXISTS jsm_items_bignumeric CASCADE;
+DROP TABLE IF EXISTS jsm_prices_bignumeric2 CASCADE;
+
+CREATE TABLE jsm_items_bignumeric (
+    id  bigint PRIMARY KEY,
+    txt text NOT NULL,
+    amt numeric(20,2) NOT NULL  -- precision > 18 -> NumericBytes(Some(2))
+);
+INSERT INTO jsm_items_bignumeric (id, txt, amt) VALUES
+    (1, 'match', 1.10),
+    (2, 'match', 2.20),
+    (3, 'match', 3.30),
+    (4, 'match', 4.40),
+    (5, 'match', 5.50);
+
+CREATE TABLE jsm_prices_bignumeric2 (
+    id  serial PRIMARY KEY,
+    amt numeric(20,2) NOT NULL  -- precision > 18 -> NumericBytes(Some(2))
+);
+INSERT INTO jsm_prices_bignumeric2 (amt) VALUES
+    (1.10), (2.20), (3.30), (4.40), (5.50);
+
+CREATE INDEX jsm_items_bignumeric_idx ON jsm_items_bignumeric USING paradedb (id, txt, amt)
+  WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX jsm_prices_bignumeric2_idx ON jsm_prices_bignumeric2 USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+ANALYZE jsm_items_bignumeric;
+ANALYZE jsm_prices_bignumeric2;
+
+EXPLAIN (COSTS OFF) SELECT COUNT(*) FROM (
+  SELECT i.id
+  FROM jsm_items_bignumeric i
+  JOIN jsm_prices_bignumeric2 p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+
+SELECT COUNT(*) AS numeric_bytes_pushdown_result FROM (
+  SELECT i.id
+  FROM jsm_items_bignumeric i
+  JOIN jsm_prices_bignumeric2 p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+
+RESET paradedb.enable_custom_scan;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET max_parallel_workers_per_gather;
+
+DROP TABLE jsm_items, jsm_prices, jsm_prices_samescale, jsm_prices_unbounded, jsm_prices_bignumeric,
+           jsm_items_bignumeric, jsm_prices_bignumeric2 CASCADE;

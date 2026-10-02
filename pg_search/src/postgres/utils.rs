@@ -76,10 +76,13 @@ unsafe extern "C-unwind" {
 ///     }
 /// });
 /// ```
+///
+/// A generic type puts its impl parameters in brackets first:
+/// `impl_safe_drop!([T: Trait] MyStruct<T>, |self| { ... })`.
 #[macro_export]
 macro_rules! impl_safe_drop {
-    ($ty:ty, |$self:ident| $body:block) => {
-        impl Drop for $ty {
+    ([$($generics:tt)*] $ty:ty, |$self:ident| $body:block) => {
+        impl<$($generics)*> Drop for $ty {
             fn drop(&mut $self) {
                 if std::thread::panicking() || $crate::postgres::utils::proc_exit_in_progress() {
                     return;
@@ -87,6 +90,9 @@ macro_rules! impl_safe_drop {
                 $body
             }
         }
+    };
+    ($ty:ty, |$self:ident| $body:block) => {
+        $crate::impl_safe_drop!([] $ty, |$self| $body);
     };
 }
 
@@ -118,8 +124,9 @@ pub(crate) trait PgMemoryContextsExt {
     /// After a plain ERROR the drop still runs, since the backend keeps going and the state would
     /// otherwise leak.
     ///
-    /// TODO(#6530): we don't know which of the values inside the state need `impl_safe_drop!`, so
-    /// the whole state is skipped. Revisit this skip once #6530 has found and marked them.
+    /// The whole state is skipped, not just some of its values, because the values above are
+    /// std, tokio, tantivy and DataFusion types: there is no `Drop` of ours on them to put
+    /// `impl_safe_drop!` on. Our own `Drop`s are checked by `.github/scripts/check_impl_drop.py`.
     ///
     /// The body mirrors pgrx 0.19.2's `leak_and_drop_on_delete` (`memcxt.rs`) plus the
     /// `proc_exit` check; keep it in sync when bumping pgrx.
@@ -1280,7 +1287,7 @@ pub fn pg_search_extension_installed() -> bool {
 ///
 /// This is useful when you need to create a temporary PostgreSQL list for use with
 /// PostgreSQL functions and want to ensure it's properly freed even if the code
-/// returns early or panics.
+/// returns early. While unwinding or exiting it is left to its memory context.
 ///
 /// # Example
 /// ```ignore
@@ -1313,15 +1320,13 @@ impl TempPgList {
     }
 }
 
-impl Drop for TempPgList {
-    fn drop(&mut self) {
-        unsafe {
-            if !self.0.is_null() {
-                pg_sys::list_free(self.0);
-            }
+impl_safe_drop!(TempPgList, |self| {
+    unsafe {
+        if !self.0.is_null() {
+            pg_sys::list_free(self.0);
         }
     }
-}
+});
 
 /// Returns `true` if `index_predicate` belongs to a partial index whose predicate
 /// is NOT implied by the query's restriction clauses -- i.e. the query is missing

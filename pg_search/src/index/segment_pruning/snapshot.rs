@@ -294,6 +294,8 @@ pub(crate) mod test_support {
         }
     }
 
+    // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the entry has to go even
+    // when the test that registered it fails, and the body is Rust only.
     impl Drop for InjectedStatsFailureGuard {
         fn drop(&mut self) {
             // Runs during a failing test's unwind; a panic here would abort the backend.

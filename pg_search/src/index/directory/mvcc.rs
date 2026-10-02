@@ -652,13 +652,15 @@ impl MVCCDirectory {
 impl Directory for MVCCDirectory {
     /// Returns a segment reader that implements std::io::Read
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        match self.readers.lock().entry(path.to_path_buf()) {
-            Entry::Occupied(reader) => Ok(reader.get().clone()),
-            Entry::Vacant(vacant) => match self.file_entry(path) {
-                Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
-                Err(err) => {
-                    let file_entry =
-                        if let Some((file_entry, total_bytes)) = self.new_files.lock().get(path) {
+        let reader: Result<Arc<dyn FileHandle>, OpenReadError> =
+            match self.readers.lock().entry(path.to_path_buf()) {
+                Entry::Occupied(reader) => Ok(reader.get().clone()),
+                Entry::Vacant(vacant) => match self.file_entry(path) {
+                    Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
+                    Err(err) => {
+                        let file_entry = if let Some((file_entry, total_bytes)) =
+                            self.new_files.lock().get(path)
+                        {
                             FileEntry {
                                 starting_block: file_entry.starting_block,
                                 total_bytes: total_bytes.load(Ordering::Relaxed),
@@ -678,21 +680,22 @@ impl Directory for MVCCDirectory {
                                 filepath: PathBuf::from(path),
                             });
                         };
-                    Ok(vacant
-                        .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new_uncommitted(
-                                &self.indexrel,
-                                file_entry,
-                                self.io_stats.as_ref().and_then(|stats| {
-                                    path.component_type()
-                                        .map(|component| stats.component(&component))
-                                }),
-                            )
-                        }))
-                        .clone())
-                }
-            },
-        }
+                        Ok(vacant
+                            .insert(Arc::new(unsafe {
+                                SegmentComponentReader::new_uncommitted(
+                                    &self.indexrel,
+                                    file_entry,
+                                    self.io_stats.as_ref().and_then(|stats| {
+                                        path.component_type()
+                                            .map(|component| stats.component(&component))
+                                    }),
+                                )
+                            }))
+                            .clone())
+                    }
+                },
+            };
+        reader
     }
     /// delete is called by Tantivy's garbage collection
     /// We handle this ourselves in amvacuumcleanup

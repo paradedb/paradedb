@@ -881,19 +881,21 @@ fn build_clause_df<'a>(
         // unnest's output positionally, and the output projection resolves through
         // `distinct_col_map` as before. Otherwise DISTINCT is a GROUP BY and the
         // sort is its own step.
-        let (df, distinct_col_map) = if gucs::joinscan_force_topk_as_agg()
+        let (df, distinct_col_map, expressions_evaluated) = if gucs::joinscan_force_topk_as_agg()
             && let Some((offset, k)) = join_clause
                 .limit_offset
                 .as_ref()
                 .and_then(|lo| Some((lo.static_offset()?, lo.static_limit()?)))
         {
-            apply_topk_as_agg(df, join_clause, &private_data.output_columns, offset + k)?
-        } else {
             let (df, distinct_col_map) =
+                apply_topk_as_agg(df, join_clause, &private_data.output_columns, offset + k)?;
+            (df, distinct_col_map, true)
+        } else {
+            let (df, distinct_col_map, expressions_evaluated) =
                 apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
             // 5. Apply Sort
             let df = apply_sort(df, join_clause, &distinct_col_map)?;
-            (df, distinct_col_map)
+            (df, distinct_col_map, expressions_evaluated)
         };
 
         // 6. Apply Limit (only when BOTH limit and offset are statically known at
@@ -916,6 +918,7 @@ fn build_clause_df<'a>(
             &distinct_col_map,
             &plan_sources,
             &private_data.output_columns,
+            expressions_evaluated,
         )
     };
     f.boxed_local()
@@ -925,6 +928,10 @@ struct QualifiedName(Option<TableReference>, String);
 impl QualifiedName {
     fn as_col_expr(&self) -> Expr {
         Expr::Column(Column::new(self.0.clone(), self.1.clone()))
+    }
+
+    fn into_col_expr(self) -> Expr {
+        Expr::Column(Column::new(self.0, self.1))
     }
 }
 
@@ -1194,12 +1201,12 @@ fn apply_distinct_group_by(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-) -> Result<(DataFrame, DistinctColMap)> {
+) -> Result<(DataFrame, DistinctColMap, bool)> {
     if !join_clause.has_distinct {
-        return Ok((df, DistinctColMap::default()));
+        return Ok((df, DistinctColMap::default(), false));
     }
     let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
-        return Ok((df, DistinctColMap::default()));
+        return Ok((df, DistinctColMap::default(), false));
     };
 
     let group_exprs: Vec<Expr> = key_exprs
@@ -1235,7 +1242,7 @@ fn apply_distinct_group_by(
         .aggregate(group_exprs, agg_exprs)?
         .build()?;
     let df = DataFrame::new(state, aggregated);
-    Ok((df, distinct_col_map))
+    Ok((df, distinct_col_map, true))
 }
 
 /// Resolve a column reference after the DISTINCT GROUP BY has rewritten every
@@ -1610,13 +1617,13 @@ fn apply_output_projection(
     distinct_col_map: &DistinctColMap,
     plan_sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
+    expressions_already_evaluated: bool,
 ) -> Result<DataFrame> {
     let mut final_cols = Vec::new();
     if let Some(projection) = &join_clause.output_projection {
         for (i, proj) in projection.iter().enumerate() {
             let col_alias = format!("col_{}", i + 1);
             let expr = if join_clause.has_distinct {
-                // let expr = if !distinct_col_map.is_empty() {
                 match proj {
                     build::ChildProjection::Expression { .. }
                     | build::ChildProjection::WindowAgg { .. } => col(&col_alias),
@@ -1639,9 +1646,17 @@ fn apply_output_projection(
                 }
             } else {
                 match proj {
-                    build::ChildProjection::Expression { pg_expr_string, .. } => unsafe {
-                        translate_child_projection_expr(pg_expr_string, join_clause)?
-                    },
+                    build::ChildProjection::Expression { pg_expr_string, .. } => {
+                        let e = unsafe {
+                            translate_child_projection_expr(pg_expr_string, join_clause)?
+                        };
+                        if expressions_already_evaluated {
+                            let name = e.qualified_name();
+                            QualifiedName(name.0, name.1).into_col_expr()
+                        } else {
+                            e
+                        }
+                    }
                     _ => build_projection_expr(proj, join_clause),
                 }
             };

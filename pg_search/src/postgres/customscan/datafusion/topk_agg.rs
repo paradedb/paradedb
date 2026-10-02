@@ -550,7 +550,7 @@ impl FusedTopK {
                 .collect::<Result<_>>()?;
 
             // 4) For each of the first k groups, pick one row to represent it.
-            let mut picks = Vec::with_capacity(self.k);
+            let mut picks = Vec::with_capacity(self.k.min(ranges.len()));
             for range in ranges.iter().take(self.k) {
                 // Every row of a group carries the same key values, so for the
                 // output any row will do; without ctid columns the pick cannot be

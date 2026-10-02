@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790948578116,
+  "lastUpdate": 1790963861863,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -6822,6 +6822,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 725.768,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "74999164+BilalAtique@users.noreply.github.com",
+            "name": "Bilal Atique",
+            "username": "BilalAtique"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93d455f8bcb350c401ed03967049b6a63a5cf627",
+          "message": "fix: include the pattern in regex tokenizer names (#6594)\n\n# Ticket(s) Closed\n\n- Closes #6519\n\n## What\n\nRegex tokenizers now register under a name that includes their pattern,\ne.g. `regex_pattern:\"[0-9]+\"` instead of `regex`. Two\n`pdb.regex_pattern` fields with different patterns in one index no\nlonger share an analyzer.\n\n## Why\n\n`SearchTokenizer::name()` built the regex name from the filters only.\nEvery regex field with the same filters registered as `regex[...]`, and\nthe last one registered won. The other fields got indexed and searched\nwith its pattern, with no error.\n\n## How\n\n- `name()` now includes the pattern, Debug-quoted the way `stopwords`\nalready is in the filter suffix.\n- Existing indexes have the old name in their stored schema. I followed\nthe `UnicodeWordsDeprecated` / `*LinderaDeprecated` approach: a new\n`RegexTokenizerDeprecated` variant, appended at the end of the enum,\nproduces the old name. `collect_search_tokenizers` registers it right\nafter each regex tokenizer, in the same order as before, so the last\nregex tokenizer with the same filters still owns `regex[...]`. Existing\nindexes behave exactly as they did, and a `REINDEX` gives each field its\nown pattern.\n- At query time the analyzer comes from `tokenizer_for_field`, which\nreads the name from the stored schema. Queries on an existing index keep\nusing the analyzer its data was indexed with.\n\n## Tests\n\n- `tokenizers` unit tests:\n- the name includes the pattern, and the old name is unchanged with and\nwithout filters\n- two patterns registered in either order each produce their own tokens\n(`abc123def` gives `123` for `[0-9]+`, and `abc`, `def` for `[a-z]+`)\n- the old `regex` name still resolves and tokenizes, and the last regex\ntokenizer owns it\n- New pg_regress test `regex-tokenizer-patterns`: one index with a\n`[0-9]+` and a `[a-z]+` field on the same column, with exact-term\nqueries against each.\n- `tokenizer-types-in-create-index.out`: the regex field's tokenizer in\n`paradedb.schema()` is now `regex_pattern:\"is|a\"`.\n\nI ran these on my fork:\nhttps://github.com/BilalAtique/paradedb/actions/runs/36853234219. With\nthe `name()` change reverted, the new unit tests fail. In\n`regex-tokenizer-patterns` both fields then show `regex`, and the digits\nfield finds no rows for `123` or `456` because it was indexed with\n`[a-z]+`.\n\n#6487 fixes the same kind of collision for the `trim` filter. The two\ntouch nearby code but not the same lines. Happy to rebase on whichever\nlands first.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-02T09:47:34-07:00",
+          "tree_id": "58cb81706ea56a49573f67ec6f33e6ec57205454",
+          "url": "https://github.com/paradedb/paradedb/commit/93d455f8bcb350c401ed03967049b6a63a5cf627"
+        },
+        "date": 1790963859778,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.973,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 148.256,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.342,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 240.021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.143,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 173.177,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.56,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 210.141,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 37.137,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 730.895,
             "unit": "ms"
           }
         ]

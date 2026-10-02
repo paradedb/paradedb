@@ -39,9 +39,13 @@ on:
         type: boolean
         default: false
       layout_commit:
-        description: "Optional boxed-decoder commit for the same-index layout comparison"
+        description: "Optional comparison binary commit for the same-index experiment"
         type: string
         default: ""
+      code_ablation:
+        description: "Alternate original and comparison binaries with full scoring (requires profile, score_ablation and layout_commit)"
+        type: boolean
+        default: false
       commit:
         description: "pg_search commit/ref to benchmark. Defaults to the triggering ref (main on a manual run)."
         required: false
@@ -344,7 +348,7 @@ jobs:
         if: inputs.profile
         run: |
           sudo apt-get update
-          sudo apt-get install -y linux-perf python3-venv python3-psycopg
+          sudo apt-get install -y linux-perf binutils python3-venv python3-psycopg
           perf_bin=$(command -v perf)
           test -x "$perf_bin"
           "$perf_bin" --version
@@ -378,9 +382,9 @@ jobs:
           base_image: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
           image_tag: ${{ env.IMAGE_TAG }}
           build_profile: ${{ inputs.profile && 'release-with-debug' || 'release' }}
-          cache_scope: ${{ inputs.profile && 'bp128-profile-pg18-arm64' || 'benchmarker-source-pg18-arm64' }}
+          cache_scope: ${{ inputs.code_ablation && 'bp128-codegen-bp128-pg18-arm64' || inputs.profile && 'bp128-profile-pg18-arm64' || 'benchmarker-source-pg18-arm64' }}
 
-      - name: Build boxed-decoder image
+      - name: Build comparison image
         if: inputs.score_ablation && inputs.layout_commit != ''
         uses: ./.github/actions/build-paradedb-image
         with:
@@ -394,6 +398,7 @@ jobs:
         if: inputs.score_ablation
         env:
           LAYOUT_COMMIT: ${{ inputs.layout_commit }}
+          CODE_ABLATION: ${{ inputs.code_ablation }}
         run: |
           set -euo pipefail
           images=("$IMAGE_TAG")
@@ -402,6 +407,7 @@ jobs:
           for image in "${images[@]}"; do
             modes=(full quantized legacy bounded)
             if [ "$image" = paradedb-boxed:ci ]; then modes+=(fieldnorms); fi
+            if [ "$CODE_ABLATION" = true ]; then modes=(full); fi
             for mode in "${modes[@]}"; do
               echo "Checking image=$image mode=$mode"
               docker run -d --name bp128-smoke -e POSTGRES_PASSWORD=postgres \
@@ -552,6 +558,7 @@ jobs:
           POSTGRES_CPUSET: "0-7"
           PROFILE_COMMIT: ${{ steps.determine-ref.outputs.ref }}
           LAYOUT_COMMIT: ${{ inputs.layout_commit }}
+          CODE_ABLATION: ${{ inputs.code_ablation }}
         run: |
           set -euo pipefail
           python3 <<'PY'
@@ -564,12 +571,21 @@ jobs:
           PY
           labels=(full-before quantized legacy bounded full-after)
           if [ -n "$LAYOUT_COMMIT" ]; then labels=(full-before bounded boxed-full boxed-fieldnorms full-after); fi
+          if [ "$CODE_ABLATION" = true ]; then
+            test -n "$LAYOUT_COMMIT"
+            labels=(full-before optimized-first full-middle optimized-second full-after)
+          fi
           for label in "${labels[@]}"; do
             export TANTIVY_BP128_MODE="${label%%-*}"
             pass_image="$IMAGE_TAG"
             export PROFILE_COMMIT="${{ steps.determine-ref.outputs.ref }}"
             if [[ "$label" == boxed-* ]]; then
               export TANTIVY_BP128_MODE="${label#boxed-}"
+              pass_image=paradedb-boxed:ci
+              export PROFILE_COMMIT="$LAYOUT_COMMIT"
+            fi
+            if [[ "$label" == optimized-* ]]; then
+              export TANTIVY_BP128_MODE=full
               pass_image=paradedb-boxed:ci
               export PROFILE_COMMIT="$LAYOUT_COMMIT"
             fi
@@ -589,7 +605,32 @@ jobs:
             done
             test "$(docker exec "$container" printenv TANTIVY_BP128_MODE)" = "$TANTIVY_BP128_MODE"
             docker exec "$container" sha256sum /usr/lib/postgresql/18/lib/pg_search.so > "$out/library.sha256"
-            taskset -c 8-11 "$RUNNER_TEMP/profile-venv/bin/python" ../.github/scripts/bp128_profile.py "$out" --timings-only
+            profile_args=(--timings-only)
+            if [ "$CODE_ABLATION" = true ] && [[ "$label" == full-before || "$label" == optimized-first ]]; then
+              profile_args=()
+              symfs="$RUNNER_TEMP/profile-symbols-$label"
+              mkdir -p "$symfs/usr/lib/postgresql/18/lib" "$symfs/usr/lib/postgresql/18/bin"
+              docker cp "$container:/usr/lib/postgresql/18/lib/pg_search.so" "$symfs/usr/lib/postgresql/18/lib/"
+              docker cp "$container:/usr/lib/postgresql/18/bin/postgres" "$symfs/usr/lib/postgresql/18/bin/"
+              library="$symfs/usr/lib/postgresql/18/lib/pg_search.so"
+              readelf -n "$library" > "$out/build-id.txt"
+              nm -S --defined-only --demangle "$library" > "$out/symbols.txt"
+              nm --defined-only "$library" | awk '$3 ~ /block_segment_postings.*(block_max_score|tail_block_max_score)|block_wand_intersection.*7advance|SkipReader15read_block_info/ {print $3}' > "$out/hot-symbols.txt"
+              while read -r symbol; do
+                objdump -d --disassemble="$symbol" "$library"
+              done < "$out/hot-symbols.txt" > "$out/disassembly.txt"
+              grep -Eq '^[[:space:]]+[[:xdigit:]]+:[[:space:]]+[[:xdigit:]]{8}' "$out/disassembly.txt"
+            fi
+            taskset -c 8-11 "$RUNNER_TEMP/profile-venv/bin/python" ../.github/scripts/bp128_profile.py "$out" "${profile_args[@]}"
+            if [ "${#profile_args[@]}" -eq 0 ]; then
+              for data in "$out"/*.data; do
+                sudo "$PERF_BIN" report -i "$data" --symfs "$symfs" --stdio --no-children \
+                  --inline --percent-limit 0.1 -g none > "$data.self.txt"
+                sudo "$PERF_BIN" annotate -i "$data" --symfs "$symfs" --stdio --no-source \
+                  --percent-limit 0.5 > "$data.annotate.txt" 2> "$data.annotate.log"
+              done
+              sudo chown -R "$USER" "$out"
+            fi
             export PROFILE_BASE_TIMINGS="$PWD/results/full-before/timings.json"
             docker stop "$container"
           done
@@ -604,10 +645,12 @@ jobs:
               assert current['index_bytes'] == reference['index_bytes'], root
               assert sorted(current['segments']) == sorted(reference['segments']), root
               assert current['settings'] == reference['settings'], root
-              if not root.name.startswith('boxed-'):
+              if not root.name.startswith(('boxed-', 'optimized-')):
                   assert (root / 'library.sha256').read_text() == library_hash, root
           if Path('results/boxed-full').exists():
               assert Path('results/boxed-full/library.sha256').read_text() == Path('results/boxed-fieldnorms/library.sha256').read_text()
+          if Path('results/optimized-first').exists():
+              assert Path('results/optimized-first/library.sha256').read_text() == Path('results/optimized-second/library.sha256').read_text()
           print('Verified identical index layout, index size and PostgreSQL settings across all passes; binary hashes match within each variant')
           PY
 

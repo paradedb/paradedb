@@ -947,6 +947,201 @@ impl From<(Option<TableReference>, String)> for QualifiedName {
     }
 }
 
+struct TopKAggSelectedExpressions<'a> {
+    join_clause: &'a JoinCSClause,
+    payload_cols: Vec<Expr>,
+    payload_names: Vec<QualifiedName>,
+    ctid_names: Vec<QualifiedName>,
+    ctid_positions: Vec<usize>,
+    sort_exprs: Vec<SortExpr>,
+    extra_sort_cols: Vec<Expr>,
+}
+impl<'a> TopKAggSelectedExpressions<'a> {
+    fn new(join_clause: &'a JoinCSClause) -> Self {
+        Self {
+            join_clause,
+            payload_cols: Vec::new(),
+            payload_names: Vec::new(),
+            ctid_names: Vec::new(),
+            ctid_positions: Vec::new(),
+            sort_exprs: Vec::new(),
+            extra_sort_cols: Vec::new(),
+        }
+    }
+
+    /// Take payload expressions. In DISTINCT mode, we rename them as "col_i". In non-DISTINCT, we
+    /// skip any placeholder columns and use their incoming qualified name.
+    fn with_payload_exprs(mut self, payload_exprs: Vec<Expr>) -> Result<Self> {
+        let projection = self
+            .join_clause
+            .output_projection
+            .as_ref()
+            .expect("should always exist by now");
+
+        // if has_distinct, we map to the expected col_i names, assuming `distinct_key_exprs` is in
+        // projection order. Otherwise we just use the names the columns would have had originally
+        // Skip any "placeholder" expressions that don't need to be considered now
+        for (i, (expr, proj)) in payload_exprs.into_iter().zip(projection.iter()).enumerate() {
+            if self.join_clause.has_distinct {
+                self.payload_cols.push(expr);
+                self.payload_names
+                    .push(QualifiedName(None, format!("col_{}", i + 1)));
+            } else {
+                // A placeholder for a heap-fetched column: the output projection recreates
+                // it and never reads it from the frame, so it has no business in the payload.
+                let is_placeholder = !matches!(proj, build::ChildProjection::Expression { .. })
+                    && expr.column_refs().is_empty();
+                if is_placeholder {
+                    continue;
+                }
+
+                // in the non-distinct case, we must be sure we've only selected a given column once
+                let name = QualifiedName::from(expr.qualified_name());
+                if self.payload_names.iter().all(|n| *n != name) {
+                    self.payload_cols.push(expr);
+                    self.payload_names.push(name);
+                }
+            }
+        }
+
+        Ok(self)
+    }
+
+    /// Take the ctid names, qualifying them according to the provided schema
+    fn with_ctids(mut self, ctid_names: Vec<String>, df_schema: &DFSchema) -> Result<Self> {
+        for unqualified_name in ctid_names {
+            // See if this ctid has already been selected, and track the position in the upcoming SELECT
+            // either way
+            let name = QualifiedName::from_unqualified_name(&unqualified_name, df_schema)?;
+            self.ctid_names.push(name);
+        }
+        Ok(self)
+    }
+
+    fn with_sort_exprs(mut self, sorts: Vec<SortExpr>) -> Self {
+        self.sort_exprs = sorts;
+        self
+    }
+
+    /// Dedupe the ctids, removing any that are already in the payload columns. We also register
+    /// the ctid positions in the final select list accordingly.
+    ///
+    /// NOTE: must only be called during `finalize`
+    fn dedupe_ctids(&mut self) {
+        let mut old_ctids = Vec::new();
+        std::mem::swap(&mut old_ctids, &mut self.ctid_names);
+
+        let mut next_ctid_position = self.payload_names.len();
+        for name in old_ctids {
+            if let Some(pos) = self.payload_names.iter().position(|en| name == *en) {
+                self.ctid_positions.push(pos);
+            } else {
+                self.ctid_names.push(name);
+                self.ctid_positions.push(next_ctid_position);
+                next_ctid_position += 1;
+            }
+        }
+    }
+
+    /// Replace `self.sort_exprs` with a "rebased" set, transforming the expressions such that all
+    /// referenced columns are either in the payload, or added to `self.extra_sort_cols` with the
+    /// `sort_j` alias.
+    fn finalize_sort_exprs(&mut self) -> Result<()> {
+        // the projected key expressions, along with the name we map them to
+        let projected: HashMap<Expr, Expr> = self
+            .payload_cols
+            .iter()
+            .zip(self.payload_names.iter())
+            .map(|(expr, name)| (expr.clone(), name.as_col_expr()))
+            .collect();
+
+        let mut old_sort_exprs = Vec::new();
+        std::mem::swap(&mut old_sort_exprs, &mut self.sort_exprs);
+        // sort expressions, now targeting the actual column names they'll operate on
+        self.sort_exprs = old_sort_exprs
+            .into_iter()
+            .map(|s| {
+                let expr = s
+                    .expr
+                    .transform(|e| {
+                        let Expr::Column(_) = &e else {
+                            return Ok(Transformed::no(e));
+                        };
+                        if let Some(mapped) = projected.get(&e) {
+                            return Ok(Transformed::yes(mapped.clone()));
+                        }
+                        if self.join_clause.has_distinct {
+                            return internal_err!("ORDER BY column {e} is not a DISTINCT key");
+                        }
+                        let j = self.extra_sort_cols.len() + 1;
+                        self.extra_sort_cols.push(e.alias(format!("sort_{j}")));
+                        Ok(Transformed::yes(col(format!("sort_{j}"))))
+                    })?
+                    .data;
+                Ok(SortExpr { expr, ..s })
+            })
+            .collect::<Result<_>>()?;
+
+        Ok(())
+    }
+
+    /// Construct the finalized set of things we need to actually perform the topK aggregation.
+    fn finalize(mut self) -> Result<FinalizedTopKAgg> {
+        self.dedupe_ctids();
+        self.finalize_sort_exprs()?;
+
+        let mut select_list: Vec<Expr> = self
+            .payload_cols
+            .iter()
+            .zip(self.payload_names.iter())
+            .map(|(expr, name)| expr.clone().alias_qualified(name.0.clone(), &name.1))
+            .collect();
+        select_list.extend(self.ctid_names.iter().map(|n| n.as_col_expr()));
+        select_list.extend(self.extra_sort_cols);
+
+        let mut payload_list: Vec<Expr> =
+            self.payload_names.iter().map(|n| n.as_col_expr()).collect();
+        payload_list.extend(self.ctid_names.iter().map(|n| n.as_col_expr()));
+
+        let mut name_restoration_list: Vec<Expr> = self
+            .payload_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
+                    .alias_qualified(name.0.clone(), &name.1)
+            })
+            .collect();
+        let n = self.payload_names.len();
+        name_restoration_list.extend(self.ctid_names.iter().enumerate().map(|(i, name)| {
+            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{}", n + i))
+                .alias_qualified(name.0.clone(), &name.1)
+        }));
+
+        Ok(FinalizedTopKAgg {
+            select_list,
+            payload_list,
+            name_restoration_list,
+            rebased_sort_exprs: self.sort_exprs,
+            ctid_positions: self.ctid_positions,
+        })
+    }
+}
+
+struct FinalizedTopKAgg {
+    /// The columns we select before doing the aggregation
+    select_list: Vec<Expr>,
+    /// The payload to the topk udaf
+    payload_list: Vec<Expr>,
+    /// The set of expressions to restore the column names after unnest.
+    name_restoration_list: Vec<Expr>,
+    /// The sort expressions to provide to the aggregate, rebased on the selected columns from
+    /// `select_list`
+    rebased_sort_exprs: Vec<SortExpr>,
+    /// The positions of the ctid columns in `payload_list`
+    ctid_positions: Vec<usize>,
+}
+
 /// The Top-K (and the DISTINCT, when there is one) as a single aggregate over the
 /// projection, returning `fetch` rows in ORDER BY order.
 ///
@@ -967,161 +1162,35 @@ fn apply_topk_as_agg(
         return internal_err!("Bug: Unable to build distinct key expressions for topk aggregate");
     };
 
-    let projection = join_clause
-        .output_projection
-        .as_ref()
-        .expect("should always exist by now");
-
-    // if has_distinct, we map to the expected col_i names, assuming `distinct_key_exprs` is in
-    // projection order. Otherwise we just use the names the columns would have had originally
-    // Skip any "placeholder" expressions that don't need to be considered now
-    let mut distinct_exprs_with_names = Vec::new();
-    for (i, (expr, proj)) in distinct_key_exprs
-        .into_iter()
-        .zip(projection.iter())
-        .enumerate()
-    {
-        if join_clause.has_distinct {
-            distinct_exprs_with_names.push((expr, QualifiedName(None, format!("col_{}", i + 1))));
-        } else {
-            // A placeholder for a heap-fetched column: the output projection recreates
-            // it and never reads it from the frame, so it has no business in the payload.
-            let is_placeholder = !matches!(proj, build::ChildProjection::Expression { .. })
-                && expr.column_refs().is_empty();
-            if is_placeholder {
-                continue;
-            }
-
-            // in the non-distinct case, we must be sure we've only selected a given column once
-            let name = QualifiedName::from(expr.qualified_name());
-            if distinct_exprs_with_names.iter().all(|(_, n)| *n != name) {
-                distinct_exprs_with_names.push((expr, name));
-            }
-        }
-    }
-
-    // The sort against the join output, the same way the SortExec path builds it: an
-    // ORDER BY key need not be in the projection, and when Postgres substitutes an
-    // equivalence-class member (`t2.t1_id` for `t1.id`) it may not be, so the
-    // projection cannot resolve it. The columns it references are rebased onto the
-    // `col_N` projection below.
-    let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
-
     // Only relations whose heap tuples are fetched need a ctid carried through,
     let needed_ctids = relations_needing_ctid(output_columns);
-    let mut non_selected_ctid_names = Vec::new();
-    let mut ctid_positions = Vec::new();
-    let mut next_ctid_pos = distinct_exprs_with_names.len();
-    for (pos, unqualified_name) in
-        surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
-    {
-        if !needed_ctids.contains(&pos) {
-            continue;
-        }
-        // See if this ctid has already been selected, and track the position in the upcoming SELECT
-        // either way
-        let name = QualifiedName::from_unqualified_name(&unqualified_name, df.schema())?;
-        if let Some(pos) = distinct_exprs_with_names
-            .iter()
-            .position(|(_, en)| name == *en)
-        {
-            ctid_positions.push(pos);
-        } else {
-            non_selected_ctid_names.push(name);
-            ctid_positions.push(next_ctid_pos);
-            next_ctid_pos += 1;
-        }
-    }
-
-    // the projected key expressions, along with the name we map them to
-    let projected: HashMap<Expr, Expr> = distinct_exprs_with_names
-        .iter()
-        .map(|(expr, name)| (expr.clone(), name.as_col_expr()))
+    let ctid_names: Vec<_> = surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
+        .filter(|(pos, _)| !needed_ctids.contains(pos))
+        .map(|(_, name)| name)
         .collect();
 
-    // will contain additional sort_j columns that are required by the sort expressions
-    let mut sort_extra_cols: Vec<Expr> = Vec::new();
-    // sort expressions, now targeting the actual column names they'll operate on
-    let rebased_sort_exprs: Vec<SortExpr> = sort_exprs
-        .into_iter()
-        .map(|s| {
-            let expr = s
-                .expr
-                .transform(|e| {
-                    let Expr::Column(_) = &e else {
-                        return Ok(Transformed::no(e));
-                    };
-                    if let Some(mapped) = projected.get(&e) {
-                        return Ok(Transformed::yes(mapped.clone()));
-                    }
-                    if join_clause.has_distinct {
-                        return internal_err!("ORDER BY column {e} is not a DISTINCT key");
-                    }
-                    let j = sort_extra_cols.len() + 1;
-                    sort_extra_cols.push(e.alias(format!("sort_{j}")));
-                    Ok(Transformed::yes(col(format!("sort_{j}"))))
-                })?
-                .data;
-            Ok(SortExpr { expr, ..s })
-        })
-        .collect::<Result<_>>()?;
+    let sort_exprs = build_sort_exprs(join_clause, &DistinctColMap::default())?;
+
+    let finalized = TopKAggSelectedExpressions::new(join_clause)
+        .with_payload_exprs(distinct_key_exprs)?
+        .with_ctids(ctid_names, df.schema())?
+        .with_sort_exprs(sort_exprs)
+        .finalize()?;
 
     // The actual projected columns we'll need for the aggregate.
-    let mut select: Vec<Expr> = distinct_exprs_with_names
-        .iter()
-        .map(|(expr, name)| expr.clone().alias_qualified(name.0.clone(), &name.1))
-        .collect();
-    select.extend(non_selected_ctid_names.iter().map(|n| n.as_col_expr()));
-    select.extend(sort_extra_cols.iter().cloned());
-
-    // The column index ranges of the groups the restore below renames. The `sort_j`
-    // columns have no range: they are inputs to the aggregate's ORDER BY only, which
-    // DataFusion evaluates and the accumulator carries as ordering columns, so they
-    // are neither payload nor restored.
-    let distinct_key_end = distinct_exprs_with_names.len();
-    let ctid_end = distinct_key_end + non_selected_ctid_names.len();
-    let distinct_key_col_range = 0..distinct_key_end;
-    let ctid_col_range = distinct_key_end..ctid_end;
-
-    let df = df.select(select)?;
-
-    let ctid_positions: Vec<usize> = ctid_col_range.clone().collect();
-
-    // The payload: the select's key and ctid columns, as column expressions over the
-    // select's output. The `sort_j` columns that follow them are left out.
-    let all_col_exprs: Vec<Expr> = df
-        .schema()
-        .columns()
-        .into_iter()
-        .take(ctid_end)
-        .map(Expr::Column)
-        .collect();
+    let df = df.select(finalized.select_list)?;
 
     let topk_agg = topk_as_agg(
-        &all_col_exprs,
-        rebased_sort_exprs.clone(),
+        &finalized.payload_list,
+        finalized.rebased_sort_exprs,
         fetch,
-        &ctid_positions,
+        &finalized.ctid_positions,
         join_clause.has_distinct,
     );
     let df = df.aggregate(vec![], vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)])?;
     let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
 
-    // Restore the GROUP BY's output names: `col_{i}` for the key, the ctid names
-    // for the ctids.
-    let mut name_restoration_exprs: Vec<Expr> = distinct_key_col_range
-        .map(|i| {
-            let name = &distinct_exprs_with_names[i].1;
-            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
-                .alias_qualified(name.0.clone(), &name.1)
-        })
-        .collect();
-    name_restoration_exprs.extend(ctid_col_range.enumerate().map(|(name_idx, i)| {
-        let name = &non_selected_ctid_names[name_idx];
-        get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
-            .alias_qualified(name.0.clone(), &name.1)
-    }));
-    let df = df.select(name_restoration_exprs)?;
+    let df = df.select(finalized.name_restoration_list)?;
 
     Ok((df, distinct_col_map))
 }

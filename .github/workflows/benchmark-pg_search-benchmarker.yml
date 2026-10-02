@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: "Which dataset(s) to benchmark: 'all', 'hn-ci', or 'stackexchange'."
+        description: "Which dataset(s) to benchmark: 'all', 'hn-ci', 'stackexchange', or 'codegen' for saved-profile analysis."
         required: false
         type: string
         default: "all"
@@ -70,6 +70,81 @@ permissions:
 # No concurrency group: let every run complete and append to gh-pages history.
 
 jobs:
+  inspect-codegen:
+    name: Inspect codegen (${{ matrix.name }})
+    if: github.event_name == 'workflow_dispatch' && inputs.dataset == 'codegen'
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: main
+            ref: da19451f5f1bac66bdc744ea75b76984ced9fef6
+            profile_run: "36973175555"
+            artifact: bp128-profiles-da19451
+          - name: bp128
+            ref: 91dd82abdb38bfa4a70b17e3720b095ac34ef44a
+            profile_run: "36973279353"
+            artifact: bp128-profiles-91dd82a
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c8gd.metal-24xl
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/build-paradedb-image
+        with:
+          ref: ${{ matrix.ref }}
+          base_image: ${{ inputs.base_paradedb_image }}
+          image_tag: paradedb-codegen:ci
+          build_profile: release-with-debug
+          cache_scope: bp128-codegen-${{ matrix.name }}-pg18-arm64
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.artifact }}
+          run-id: ${{ matrix.profile_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: saved-profile
+      - name: Disassemble and annotate hot paths
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y linux-perf binutils
+          mkdir -p codegen "$RUNNER_TEMP/symfs/usr/lib/postgresql/18/lib" "$RUNNER_TEMP/symfs/usr/lib/postgresql/18/bin"
+          container=$(docker create paradedb-codegen:ci)
+          docker cp "$container:/usr/lib/postgresql/18/lib/pg_search.so" "$RUNNER_TEMP/symfs/usr/lib/postgresql/18/lib/"
+          docker cp "$container:/usr/lib/postgresql/18/bin/postgres" "$RUNNER_TEMP/symfs/usr/lib/postgresql/18/bin/"
+          docker rm "$container"
+          library="$RUNNER_TEMP/symfs/usr/lib/postgresql/18/lib/pg_search.so"
+          sha256sum "$library" > codegen/library.sha256
+          readelf -n "$library" > codegen/build-id.txt
+          nm -S --defined-only --numeric-sort --demangle "$library" > codegen/symbols.txt
+          nm --defined-only "$library" | awk '$3 ~ /block_segment_postings|SkipReader|block_wand_intersection|term_scorer/ {print $3}' > codegen/hot-symbols.txt
+          test -s codegen/hot-symbols.txt
+          while read -r symbol; do
+            objdump -d --demangle --line-numbers --disassemble="$symbol" "$library"
+          done < codegen/hot-symbols.txt > codegen/disassembly.txt
+          for pool in dense sparse; do
+            data="saved-profile/profiles/$pool.data"
+            perf buildid-list -i "$data" > "codegen/$pool.build-ids.txt"
+            if ! perf annotate --stdio --no-source --percent-limit 0.5 \
+              -i "$data" --symfs "$RUNNER_TEMP/symfs" > "codegen/$pool.annotate.txt" 2> "codegen/$pool.annotate.log"; then
+              echo "Annotation failed for $pool; inspect build IDs and logs" | tee -a codegen/limitations.txt
+            fi
+          done
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bp128-codegen-${{ matrix.name }}
+          path: codegen
+          retention-days: 7
+
   benchmark-hn:
     name: Benchmarker (hn-ci)
     runs-on:

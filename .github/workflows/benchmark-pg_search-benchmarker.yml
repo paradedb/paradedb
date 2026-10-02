@@ -382,7 +382,7 @@ jobs:
           base_image: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
           image_tag: ${{ env.IMAGE_TAG }}
           build_profile: ${{ inputs.profile && 'release-with-debug' || 'release' }}
-          cache_scope: ${{ inputs.code_ablation && 'bp128-codegen-bp128-pg18-arm64' || inputs.profile && 'bp128-profile-pg18-arm64' || 'benchmarker-source-pg18-arm64' }}
+          cache_scope: ${{ inputs.code_ablation && 'bp128-boxed-pg18-arm64' || inputs.profile && 'bp128-profile-pg18-arm64' || 'benchmarker-source-pg18-arm64' }}
 
       - name: Build comparison image
         if: inputs.score_ablation && inputs.layout_commit != ''
@@ -573,7 +573,7 @@ jobs:
           if [ -n "$LAYOUT_COMMIT" ]; then labels=(full-before bounded boxed-full boxed-fieldnorms full-after); fi
           if [ "$CODE_ABLATION" = true ]; then
             test -n "$LAYOUT_COMMIT"
-            labels=(full-before optimized-first full-middle optimized-second full-after)
+            labels=(full-before optimized-first full-middle optimized-second full-late optimized-third full-after)
           fi
           for label in "${labels[@]}"; do
             export TANTIVY_BP128_MODE="${label%%-*}"
@@ -650,7 +650,9 @@ jobs:
           if Path('results/boxed-full').exists():
               assert Path('results/boxed-full/library.sha256').read_text() == Path('results/boxed-fieldnorms/library.sha256').read_text()
           if Path('results/optimized-first').exists():
-              assert Path('results/optimized-first/library.sha256').read_text() == Path('results/optimized-second/library.sha256').read_text()
+              comparison_hash = Path('results/optimized-first/library.sha256').read_text()
+              for root in Path('results').glob('optimized-*'):
+                  assert (root / 'library.sha256').read_text() == comparison_hash, root
           print('Verified identical index layout, index size and PostgreSQL settings across all passes; binary hashes match within each variant')
           PY
 

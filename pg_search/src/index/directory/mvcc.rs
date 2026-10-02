@@ -328,7 +328,8 @@ impl SegmentView {
 pub enum MvccSatisfies {
     /// Replay exactly the given view; see [`SegmentView`].
     ParallelWorker(SegmentView),
-    LargestSegment,
+    /// The largest visible immutable segment; counts still include all visible segments.
+    Estimation,
     Snapshot,
     Vacuum,
     Mergeable,
@@ -440,7 +441,7 @@ impl MVCCDirectory {
     pub fn mvcc_style_name(&self) -> &'static str {
         match &*self.mvcc_style {
             MvccSatisfies::ParallelWorker(_) => "parallel-worker replay",
-            MvccSatisfies::LargestSegment => "largest segment",
+            MvccSatisfies::Estimation => "estimation",
             MvccSatisfies::Snapshot => "snapshot",
             MvccSatisfies::Vacuum => "vacuum",
             MvccSatisfies::Mergeable => "mergeable",
@@ -637,9 +638,7 @@ impl MVCCDirectory {
     /// Returns the [`AtomicUsize`] where the number of segments that survive [`load_metas()`]'
     /// visibility checking gets stored once [`load_metas()`] has actually been called.
     ///
-    /// An implementation detail behind the value calculation is that there's special casing for
-    /// [`MvccSatisfies::LargestSegment`] in that it will use the count of **all** "Snapshot"-visible
-    /// segments rather than `1` (one).
+    /// [`MvccSatisfies::Estimation`] counts all visible segments, even though it opens only one.
     pub(crate) fn total_segment_count(&self) -> Arc<AtomicUsize> {
         self.total_segment_count.clone()
     }
@@ -1110,16 +1109,15 @@ pub fn index_memory_segment(
     let categorized_fields = search_schema.categorized_fields();
     let created_by_version = indexrel.created_by_version();
 
-    // Query-visible materialization (Snapshot / ParallelWorker / LargestSegment) fetches each ctid
+    // Query-visible materialization (Snapshot / ParallelWorker) fetches each ctid
     // with the active MVCC snapshot; maintenance materialization (e.g. Mergeable) must index every
     // live ctid regardless of any single snapshot. See the `HeapDocFetcher` docs for the full
     // reasoning. Because query-visible materialization happens lazily inside query planning or
     // execution, the active snapshot here is the snapshot that defines query-visible heap rows,
     // so indexing an invisible ctid as empty cannot change a query result or estimate.
     let query_visible = match mvcc_style {
-        MvccSatisfies::Snapshot
-        | MvccSatisfies::ParallelWorker(_)
-        | MvccSatisfies::LargestSegment => true,
+        MvccSatisfies::Snapshot | MvccSatisfies::ParallelWorker(_) => true,
+        MvccSatisfies::Estimation => unreachable!("estimation never materializes mutable segments"),
         MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
     };
 

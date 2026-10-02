@@ -484,12 +484,10 @@ impl pdb::Query {
                 key_value,
                 fields,
                 options,
-            } => match MoreLikeThisQueryBuilder::new(options, index_created_by_version)
-                .with_field_value(field, key_value, fields, index_oid)
-            {
-                Some(query) => Box::new(query),
-                None => Box::new(EmptyQuery),
-            },
+            } => Box::new(
+                MoreLikeThisQueryBuilder::new(options, index_created_by_version)
+                    .with_field_value(field, key_value, fields, index_oid),
+            ),
 
             pdb::Query::UnclassifiedString { .. } => {
                 // this would indicate a problem with the various operator SUPPORT functions failing

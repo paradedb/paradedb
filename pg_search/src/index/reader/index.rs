@@ -1842,6 +1842,27 @@ impl SearchIndexReader {
         }
     }
 
+    /// Use the largest segment's match fraction and scale its work estimate to the whole index.
+    pub(crate) fn estimate_docs(
+        &self,
+        query: &dyn tantivy::query::QueryEstimate,
+    ) -> Option<(f64, u64)> {
+        debug_assert!(self.segment_readers().len() <= 1);
+        let total_docs = self.total_docs();
+        if total_docs == 0 {
+            return Some((0.0, 0));
+        }
+        let segment = self
+            .segment_readers()
+            .iter()
+            .max_by_key(|segment| segment.num_docs())
+            .filter(|segment| segment.num_docs() > 0)?;
+        let (count, work) = query.estimate_docs(segment).ok().flatten()?;
+        let selectivity = f64::from(count.min(segment.max_doc())) / f64::from(segment.max_doc());
+        let cost = (work as f64 * total_docs as f64 / f64::from(segment.num_docs())).ceil() as u64;
+        Some((selectivity, cost))
+    }
+
     /// Build a query tree with recursive estimates for EXPLAIN output.
     pub fn build_query_tree_with_estimates(
         &self,
@@ -2068,7 +2089,7 @@ impl SearchIndexReader {
 }
 
 /// Shape-only inspection — never reads segment contents. The planning-time
-/// gate relies on this to use a one-segment (`LargestSegment`) reader.
+/// gate relies on this to use a one-segment (`Estimation`) reader.
 impl SearchIndexManifest {
     fn components(&self) -> &IndexComponents {
         &self.0.components
@@ -2178,7 +2199,7 @@ mod tests {
             &index_rel,
             SearchQueryInput::All,
             false,
-            MvccSatisfies::LargestSegment,
+            MvccSatisfies::Estimation,
         )
         .unwrap();
         let KeySet::InMemory(largest_ctids) = largest.collect_ctidset(&mut visibility) else {
@@ -2657,7 +2678,7 @@ mod tests {
             &index_rel,
             range_query("id", 100, 200),
             false,
-            MvccSatisfies::LargestSegment,
+            MvccSatisfies::Estimation,
         )
         .unwrap();
         assert_eq!(

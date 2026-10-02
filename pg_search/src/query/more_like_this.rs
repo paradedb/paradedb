@@ -25,8 +25,9 @@ use crate::query::numeric::convert_value_for_field;
 use crate::schema::SearchFieldType;
 use pgrx::spi::SpiError;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use tantivy::query::{
-    BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
+    BooleanQuery, EmptyQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
 };
 use tantivy::schema::{Field, OwnedValue, Value};
 use tantivy::{Searcher, TantivyError};
@@ -49,8 +50,22 @@ impl MoreLikeThis {
 #[derive(Debug, Clone)]
 pub struct MoreLikeThisQuery {
     mlt: MoreLikeThis,
-    doc_fields: Vec<(Field, Vec<PdbOwnedValue>)>,
+    document: DocumentSource,
     index_created_by_version: Option<Version>,
+}
+
+/// Keeps supplied fields or a deferred lookup, so estimating MLT never fetches a document.
+/// Lookups run once, when `weight()` first needs the document.
+#[derive(Debug, Clone)]
+enum DocumentSource {
+    Fields(Vec<(Field, Vec<PdbOwnedValue>)>),
+    Lookup {
+        field: crate::api::FieldName,
+        value: PdbOwnedValue,
+        fields: Option<Vec<String>>,
+        index_oid: pgrx::pg_sys::Oid,
+        cached: OnceLock<Option<Vec<(Field, Vec<PdbOwnedValue>)>>>,
+    },
 }
 
 impl tantivy::query::QueryEstimate for MoreLikeThisQuery {
@@ -72,8 +87,30 @@ impl Query for MoreLikeThisQuery {
             }
         };
 
-        let values = self
-            .doc_fields
+        let doc_fields = match &self.document {
+            DocumentSource::Fields(fields) => fields,
+            DocumentSource::Lookup {
+                field,
+                value,
+                fields,
+                index_oid,
+                cached,
+            } => {
+                match cached.get_or_init(|| {
+                    DocumentSource::fetch_document(
+                        field.clone(),
+                        value.clone(),
+                        fields.clone(),
+                        *index_oid,
+                        self.index_created_by_version,
+                    )
+                }) {
+                    Some(fields) => fields,
+                    None => return EmptyQuery.weight(enable_scoring),
+                }
+            }
+        };
+        let values = doc_fields
             .iter()
             .map(|(field, values)| {
                 (
@@ -141,7 +178,37 @@ impl MoreLikeThisQueryBuilder {
         key_value: PdbOwnedValue,
         fields: Option<Vec<String>>,
         index_oid: pgrx::pg_sys::Oid,
-    ) -> Option<MoreLikeThisQuery> {
+    ) -> MoreLikeThisQuery {
+        MoreLikeThisQuery {
+            mlt: self.mlt,
+            document: DocumentSource::Lookup {
+                field: lookup_field,
+                value: key_value,
+                fields,
+                index_oid,
+                cached: OnceLock::new(),
+            },
+            index_created_by_version: self.index_created_by_version,
+        }
+    }
+
+    pub fn with_document(self, doc_fields: Vec<(Field, Vec<PdbOwnedValue>)>) -> MoreLikeThisQuery {
+        MoreLikeThisQuery {
+            mlt: self.mlt,
+            document: DocumentSource::Fields(doc_fields),
+            index_created_by_version: self.index_created_by_version,
+        }
+    }
+}
+
+impl DocumentSource {
+    fn fetch_document(
+        lookup_field: crate::api::FieldName,
+        key_value: PdbOwnedValue,
+        fields: Option<Vec<String>>,
+        index_oid: pgrx::pg_sys::Oid,
+        index_created_by_version: Option<Version>,
+    ) -> Option<Vec<(Field, Vec<PdbOwnedValue>)>> {
         let index_relation = PgSearchRelation::open(index_oid);
         let heap_relation = index_relation
             .heap_relation()
@@ -241,7 +308,6 @@ impl MoreLikeThisQueryBuilder {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let index_created_by_version = self.index_created_by_version;
         let maybe_doc_fields: Result<Vec<(Field, Vec<PdbOwnedValue>)>, SpiError> =
             pgrx::Spi::connect(|client| {
                 let mut doc_fields = Vec::new();
@@ -308,21 +374,6 @@ impl MoreLikeThisQueryBuilder {
                 Ok::<_, SpiError>(doc_fields)
             });
 
-        match maybe_doc_fields {
-            Ok(doc_fields) => Some(MoreLikeThisQuery {
-                mlt: self.mlt,
-                doc_fields,
-                index_created_by_version: self.index_created_by_version,
-            }),
-            Err(_) => None,
-        }
-    }
-
-    pub fn with_document(self, doc_fields: Vec<(Field, Vec<PdbOwnedValue>)>) -> MoreLikeThisQuery {
-        MoreLikeThisQuery {
-            mlt: self.mlt,
-            doc_fields,
-            index_created_by_version: self.index_created_by_version,
-        }
+        maybe_doc_fields.ok()
     }
 }

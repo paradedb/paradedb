@@ -772,7 +772,7 @@ impl CustomScan for BaseScan {
             // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
             // execution may skip some of these segments.
             let segment_count = {
-                let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
+                let directory = MvccSatisfies::Estimation.directory(&bm25_index);
                 let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
                 crate::index::open_index(directory)
                     .expect("custom_scan: should be able to open index");
@@ -1599,7 +1599,7 @@ impl CustomScan for BaseScan {
                             indexrel,
                             SearchQueryInput::Empty,
                             false,
-                            MvccSatisfies::LargestSegment,
+                            MvccSatisfies::Estimation,
                             None,
                             None,
                             base_query.needs_tokenizer(),

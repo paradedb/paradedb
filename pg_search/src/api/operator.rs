@@ -23,6 +23,8 @@ use crate::api::tokenizers::type_can_be_tokenized;
 use crate::api::tokenizers::{AliasTypmod, try_get_alias, type_is_alias, type_is_tokenizer};
 use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::gucs::per_tuple_cost;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::lookup_type_name;
@@ -643,12 +645,89 @@ pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
     }
 }
 
-/// Temporary selectivity stub; query work cost is unknown.
 pub(crate) fn estimate_selectivity_and_cost(
-    _indexrel: &PgSearchRelation,
-    _search_query_input: SearchQueryInput,
+    indexrel: &PgSearchRelation,
+    mut query: SearchQueryInput,
 ) -> (Option<f64>, Option<u64>) {
-    (Some(crate::UNKNOWN_SELECTIVITY), None)
+    let fallback = (Some(crate::UNKNOWN_SELECTIVITY), None);
+    let query = loop {
+        query = match query {
+            SearchQueryInput::All
+            | SearchQueryInput::FieldedQuery {
+                query: pdb::Query::All,
+                ..
+            } => {
+                return (Some(crate::FULL_RELATION_SELECTIVITY), None);
+            }
+            SearchQueryInput::Empty
+            | SearchQueryInput::FieldedQuery {
+                query: pdb::Query::Empty,
+                ..
+            } => {
+                return (Some(0.0), Some(0));
+            }
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. } => *query,
+            SearchQueryInput::FieldedQuery {
+                field,
+                query: pdb::Query::ScoreAdjusted { query, .. },
+            } => SearchQueryInput::FieldedQuery {
+                field,
+                query: *query,
+            },
+            query @ (SearchQueryInput::FieldedQuery {
+                query:
+                    pdb::Query::Term { .. }
+                    | pdb::Query::Match { .. }
+                    | pdb::Query::MatchArray { .. }
+                    | pdb::Query::Phrase { .. }
+                    | pdb::Query::PhraseArray { .. }
+                    | pdb::Query::TokenizedPhrase { .. }
+                    | pdb::Query::PhrasePrefix { .. }
+                    | pdb::Query::Regex { .. }
+                    | pdb::Query::RegexPhrase { .. }
+                    | pdb::Query::FuzzyTerm { .. }
+                    | pdb::Query::Parse { .. }
+                    | pdb::Query::ParseWithField { .. }
+                    | pdb::Query::MoreLikeThis { .. },
+                ..
+            }
+            | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::MoreLikeThis { .. }) => break query,
+            SearchQueryInput::FieldedQuery {
+                query:
+                    pdb::Query::Exists
+                    | pdb::Query::FastFieldRangeWeight { .. }
+                    | pdb::Query::Range { .. }
+                    | pdb::Query::RangeContains { .. }
+                    | pdb::Query::RangeIntersects { .. }
+                    | pdb::Query::RangeTerm { .. }
+                    | pdb::Query::RangeWithin { .. }
+                    | pdb::Query::Proximity { .. }
+                    | pdb::Query::TermSet { .. }
+                    | pdb::Query::UnclassifiedString { .. }
+                    | pdb::Query::UnclassifiedArray { .. },
+                ..
+            }
+            | SearchQueryInput::Uninitialized
+            | SearchQueryInput::Boolean { .. }
+            | SearchQueryInput::DisjunctionMax { .. }
+            | SearchQueryInput::TermSet { .. }
+            | SearchQueryInput::ScoreFilter { .. }
+            | SearchQueryInput::HeapFilter { .. }
+            | SearchQueryInput::PostgresExpression { .. } => return fallback,
+        };
+    };
+
+    let Ok(reader) = SearchIndexReader::open(indexrel, query, false, MvccSatisfies::Estimation)
+    else {
+        return fallback;
+    };
+    reader
+        .estimate_docs(reader.query())
+        .map(|(selectivity, cost)| (Some(selectivity), Some(cost)))
+        .unwrap_or(fallback)
 }
 
 pub(crate) fn estimate_selectivity(

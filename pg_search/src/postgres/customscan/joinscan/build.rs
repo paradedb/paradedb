@@ -477,7 +477,7 @@ impl JoinSourceCandidate {
 
         let index_rel = PgSearchRelation::open(self.indexrelid.expect("Index relid missing"));
         let query = self.query.clone().unwrap_or(SearchQueryInput::All);
-        let directory = MvccSatisfies::LargestSegment.directory(&index_rel);
+        let directory = MvccSatisfies::Estimation.directory(&index_rel);
         let segment_count = directory.total_segment_count();
         let total_docs = directory.total_docs();
         crate::index::open_index(directory).expect("Failed to open index metadata");

@@ -167,9 +167,7 @@ impl FFHelper {
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
         self.caches()[segment_ord as usize].columns[field].get_or_init(|| {
             match &self.inner().columns[field] {
-                WhichFastField::Named(name, _)
-                | WhichFastField::Array(name, _)
-                | WhichFastField::Deferred(name, _) => {
+                WhichFastField::Named { name, .. } => {
                     let ffr = self.fast_fields(segment_ord);
                     FFType::try_new(ffr, name).unwrap_or_else(|| {
                         // A JSON path that no document in this segment carries reads as NULL,
@@ -507,15 +505,51 @@ impl FFType {
                 |b, v| b.append_value(datetime_to_pg_micros(v)),
             ),
             FFType::Junk => Arc::new(arrow_array::new_null_array(
-                &arrow_schema::DataType::List(Arc::new(arrow_schema::Field::new(
-                    "item",
-                    arrow_schema::DataType::Null,
-                    true,
-                ))),
+                &arrow_schema::DataType::List(list_item_field(arrow_schema::DataType::Null)),
                 ids.len(),
             )),
         }
     }
+}
+
+/// How a named fast field's values are delivered by the scan. Orthogonal to the
+/// column's type, the way an Arrow `Field` is orthogonal to the encoding of the
+/// array that carries it.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub enum FieldDelivery {
+    /// Values are fetched and decoded during the initial scan.
+    Eager,
+    /// The scan emits the packed deferred encoding, a doc address or a term
+    /// ordinal per row; values are decoded above the scan, after row-reducing
+    /// operators have run. See `crate::scan::deferred_encode`.
+    Deferred,
+}
+
+/// Whether a named fast field holds one value per row or a list of them.
+///
+/// Arrow models a list as `DataType::List` wrapping the element field rather
+/// than as a parallel set of types, and this follows that: the element type
+/// stays in `field_type` and the nesting is recorded here.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub enum FieldCardinality {
+    Scalar,
+    List,
+}
+
+impl FieldCardinality {
+    /// Wrap an element type in this cardinality's Arrow representation.
+    fn wrap(self, element: arrow_schema::DataType) -> arrow_schema::DataType {
+        match self {
+            FieldCardinality::Scalar => element,
+            FieldCardinality::List => arrow_schema::DataType::List(list_item_field(element)),
+        }
+    }
+}
+
+/// The child field of an Arrow list, named "item" by Arrow convention.
+/// Every list this crate builds constructs its item field here.
+pub(crate) fn list_item_field(element: arrow_schema::DataType) -> Arc<arrow_schema::Field> {
+    Arc::new(arrow_schema::Field::new("item", element, true))
 }
 
 /// A request for a specific fast field, used *before* the column is open.
@@ -528,15 +562,25 @@ impl FFType {
 /// based on how they are stored in Tantivy). For instance, JSON and UUID are both stored as Strings.
 /// The consumer of the data (e.g. the Arrow conversion layer) is responsible for interpreting
 /// these widened types back into their original Postgres OIDs via `SearchFieldType::typeoid()`.
+///
+/// # Axes
+///
+/// A named column is described by three independent things: its identity (`name`),
+/// its element type (`field_type` plus `cardinality`), and how the scan hands the
+/// values over (`delivery`). Keeping them separate is what stops the variant list
+/// from growing a twin per combination.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub enum WhichFastField {
     Junk(String),
     Ctid,
     TableOid,
     Score,
-    Named(String, SearchFieldType),
-    Array(String, SearchFieldType),
-    Deferred(String, SearchFieldType),
+    Named {
+        name: String,
+        field_type: SearchFieldType,
+        cardinality: FieldCardinality,
+        delivery: FieldDelivery,
+    },
     /// Packed DocAddress ctid for deferred visibility (joinscan path only).
     /// The String is the ctid column alias (e.g. "ctid_0").
     DeferredCtid(String),
@@ -557,7 +601,7 @@ impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
                         other.trim_start_matches("junk(").trim_end_matches(")"),
                     ))
                 } else {
-                    WhichFastField::Named(String::from(other), value.1)
+                    WhichFastField::eager(other, value.1)
                 }
             }
         }
@@ -571,20 +615,16 @@ impl WhichFastField {
             WhichFastField::Ctid => CTID_FIELD_NAME.into(),
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
-            WhichFastField::Named(s, _) => s.clone(),
-            WhichFastField::Array(s, _) => s.clone(),
-            WhichFastField::Deferred(s, _) => s.clone(),
+            WhichFastField::Named { name, .. } => name.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
         }
     }
 
-    /// Returns the SearchFieldType if this is a Named or Array fast field, None otherwise.
+    /// Returns the SearchFieldType if this is a Named fast field, None otherwise.
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
-            WhichFastField::Named(_, field_type) => Some(field_type),
-            WhichFastField::Array(_, field_type) => Some(field_type),
-            WhichFastField::Deferred(_, field_type) => Some(field_type),
+            WhichFastField::Named { field_type, .. } => Some(field_type),
             WhichFastField::DeferredCtid(_) | WhichFastField::MatchTag(_) => None,
             _ => None,
         }
@@ -597,17 +637,90 @@ impl WhichFastField {
             WhichFastField::Ctid => DataType::UInt64,
             WhichFastField::TableOid => DataType::UInt32,
             WhichFastField::Score => DataType::Float32,
-            WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
-            WhichFastField::Array(_, field_type) => DataType::List(Arc::new(
-                arrow_schema::Field::new("item", field_type.arrow_data_type(), true),
-            )),
+            WhichFastField::Named {
+                delivery: FieldDelivery::Eager,
+                field_type,
+                cardinality,
+                ..
+            } => cardinality.wrap(field_type.arrow_data_type()),
             WhichFastField::Junk(_) => DataType::Null,
-            WhichFastField::Deferred(_, _field_type) => {
-                crate::scan::deferred_encode::deferred_data_type()
-            }
+            WhichFastField::Named {
+                cardinality: FieldCardinality::Scalar,
+                delivery: FieldDelivery::Deferred,
+                ..
+            } => crate::scan::deferred_encode::deferred_data_type(),
+            // The deferred encoding carries one value per row, so nothing can decode a
+            // deferred list yet. Fail here rather than in the scanner's downcast.
+            // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+            WhichFastField::Named {
+                name,
+                cardinality: FieldCardinality::List,
+                delivery: FieldDelivery::Deferred,
+                ..
+            } => panic!(
+                "list column `{name}` cannot be deferred: the deferred encoding is scalar only"
+            ),
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
             WhichFastField::MatchTag(_) => DataType::Boolean,
         }
+    }
+
+    /// A named column with every axis given explicitly.
+    pub fn named(
+        name: impl Into<String>,
+        field_type: SearchFieldType,
+        cardinality: FieldCardinality,
+        delivery: FieldDelivery,
+    ) -> Self {
+        WhichFastField::Named {
+            name: name.into(),
+            field_type,
+            cardinality,
+            delivery,
+        }
+    }
+
+    /// The common case: one value per row, decoded during the scan.
+    pub fn eager(name: impl Into<String>, field_type: SearchFieldType) -> Self {
+        Self::named(
+            name,
+            field_type,
+            FieldCardinality::Scalar,
+            FieldDelivery::Eager,
+        )
+    }
+
+    /// The same column with deferred delivery collapsed to eager.
+    ///
+    /// Schemas and plans that read decoded values need the eager view of a
+    /// column that the scan may still choose to defer. Non-named columns carry
+    /// no delivery mode and are returned unchanged.
+    pub fn to_eager(&self) -> Self {
+        match self {
+            WhichFastField::Named {
+                name,
+                field_type,
+                cardinality,
+                ..
+            } => Self::named(
+                name.clone(),
+                *field_type,
+                *cardinality,
+                FieldDelivery::Eager,
+            ),
+            other => other.clone(),
+        }
+    }
+
+    /// Whether this is a named fast field with eager delivery.
+    pub fn is_eager_named(&self) -> bool {
+        matches!(
+            self,
+            WhichFastField::Named {
+                delivery: FieldDelivery::Eager,
+                ..
+            }
+        )
     }
 }
 
@@ -620,10 +733,17 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
     use std::sync::Arc;
 
     // A deferred column is a plain `UInt64` to Arrow; its field's metadata is what marks it.
+    // Only a scalar column can be deferred, so a deferred list falls through to
+    // `arrow_data_type` and is rejected there.
     let fields: Vec<Field> = which_fast_fields
         .iter()
         .map(|wff| match wff {
-            WhichFastField::Deferred(name, _) => crate::scan::deferred_encode::deferred_field(name),
+            WhichFastField::Named {
+                name,
+                cardinality: FieldCardinality::Scalar,
+                delivery: FieldDelivery::Deferred,
+                ..
+            } => crate::scan::deferred_encode::deferred_field(name),
             _ => Field::new(wff.name(), wff.arrow_data_type(), true),
         })
         .collect();
@@ -711,11 +831,17 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
 
     let mut buffer = Vec::new();
     let mut bytes = Vec::new();
-    let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_block_addr = str_ff
+        .dictionary()
+        .sstable_index
+        .get_block_with_ord(0)
+        .map_err(|e| {
+            DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+        })?;
     let mut current_sstable_delta_reader = str_ff
         .dictionary()
         .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
+        .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
     let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
     for (row_idx, ord) in term_ords {
@@ -742,7 +868,13 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
         // This is a new term ordinal: decode it and append it to the builder.
         assert!(ord >= current_ordinal);
         // check if block changed for new term_ord
-        let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        let new_block_addr = str_ff
+            .dictionary()
+            .sstable_index
+            .get_block_with_ord(ord)
+            .map_err(|e| {
+                DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+            })?;
         if new_block_addr != current_block_addr {
             current_block_addr = new_block_addr;
             current_ordinal = current_block_addr.first_ordinal;
@@ -833,11 +965,17 @@ pub(crate) fn ords_to_bytes_array(
 
     let mut buffer = Vec::new();
     let mut bytes = Vec::new();
-    let mut current_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_block_addr = bytes_ff
+        .dictionary()
+        .sstable_index
+        .get_block_with_ord(0)
+        .map_err(|e| {
+            DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+        })?;
     let mut current_sstable_delta_reader = bytes_ff
         .dictionary()
         .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
+        .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
     let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
     for (row_idx, ord) in term_ords {
@@ -864,7 +1002,13 @@ pub(crate) fn ords_to_bytes_array(
         // This is a new term ordinal: decode it and append it to the builder.
         assert!(ord >= current_ordinal);
         // check if block changed for new term_ord
-        let new_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        let new_block_addr = bytes_ff
+            .dictionary()
+            .sstable_index
+            .get_block_with_ord(ord)
+            .map_err(|e| {
+                DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+            })?;
         if new_block_addr != current_block_addr {
             current_block_addr = new_block_addr;
             current_ordinal = current_block_addr.first_ordinal;
@@ -935,6 +1079,58 @@ mod tests {
     use crate::index::mvcc::MvccSatisfies;
     use pgrx::prelude::*;
 
+    #[cfg(test)]
+    fn text_field(cardinality: FieldCardinality, delivery: FieldDelivery) -> WhichFastField {
+        WhichFastField::named(
+            "f",
+            SearchFieldType::Text(pg_sys::TEXTOID),
+            cardinality,
+            delivery,
+        )
+    }
+
+    /// The Arrow type each `(cardinality, delivery)` pair reports, and `to_eager` changing
+    /// only the delivery axis. The fourth pair has its own test below.
+    #[test]
+    fn named_axes_arrow_data_type() {
+        use FieldCardinality::{List, Scalar};
+        use FieldDelivery::{Deferred, Eager};
+        use arrow_schema::DataType;
+
+        assert_eq!(
+            text_field(Scalar, Eager).arrow_data_type(),
+            DataType::Utf8View
+        );
+        assert_eq!(
+            text_field(List, Eager).arrow_data_type(),
+            DataType::List(list_item_field(DataType::Utf8View))
+        );
+        assert_eq!(
+            text_field(Scalar, Deferred).arrow_data_type(),
+            crate::scan::deferred_encode::deferred_data_type()
+        );
+
+        for cardinality in [Scalar, List] {
+            assert_eq!(
+                text_field(cardinality, Deferred).to_eager(),
+                text_field(cardinality, Eager)
+            );
+        }
+        assert_eq!(WhichFastField::Ctid.to_eager(), WhichFastField::Ctid);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot be deferred")]
+    fn deferred_list_is_rejected() {
+        text_field(FieldCardinality::List, FieldDelivery::Deferred).arrow_data_type();
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot be deferred")]
+    fn build_arrow_schema_rejects_deferred_list() {
+        build_arrow_schema(&[text_field(FieldCardinality::List, FieldDelivery::Deferred)]);
+    }
+
     /// The helper opens a segment's fast fields only when a value is actually read from that
     /// segment, and stays valid after its source reader is dropped. The fixture includes a
     /// mutable segment, where an open also materializes the segment from the heap; it must
@@ -962,8 +1158,8 @@ mod tests {
 
         let helper = FFHelper::with_fields(
             &reader,
-            &[WhichFastField::Named(
-                "id".to_string(),
+            &[WhichFastField::eager(
+                "id",
                 SearchFieldType::I64(pg_sys::INT8OID),
             )],
         );

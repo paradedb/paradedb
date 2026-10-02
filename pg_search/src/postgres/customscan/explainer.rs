@@ -42,6 +42,10 @@ impl Explainer {
         unsafe { (*self.state.as_ptr()).analyze }
     }
 
+    pub fn is_buffers(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).buffers }
+    }
+
     pub fn is_costs(&self) -> bool {
         unsafe { (*self.state.as_ptr()).costs }
     }

@@ -161,7 +161,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
@@ -305,9 +305,6 @@ jobs:
           size: 100k
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -337,9 +334,6 @@ jobs:
           size: 1m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -369,9 +363,6 @@ jobs:
           size: 20m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -429,9 +420,6 @@ jobs:
           alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 
@@ -483,9 +471,6 @@ jobs:
           alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish: ${{ env.PUBLISH_BASELINE }}
 

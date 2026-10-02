@@ -17,15 +17,6 @@ inputs:
   github_token:
     description: "GitHub token to authenticate with"
     required: true
-  slack_oauth_token:
-    description: "Slack OAuth token to authenticate with"
-    required: true
-  slack_channel:
-    description: "Slack channel to post results to"
-    required: true
-  pr_label:
-    description: "The human readable version of the commit being tested"
-    required: true
   fail_on_error:
     description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
     required: false
@@ -119,7 +110,7 @@ runs:
         auto-push: ${{ inputs.publish }}
         benchmark-data-dir-path: benchmarks
         alert-threshold: ${{ inputs.alert_threshold }}
-        comment-on-alert: true # We comment and alert rather than failing, as we have both GitHub and Slack messages to notify us
+        comment-on-alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}
 
@@ -148,15 +139,3 @@ runs:
         printf '\ncc @%s\n' "${GITHUB_ACTOR}" >> benchmark-alert.md
         gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
           -F body=@benchmark-alert.md
-
-    - name: Upload Benchmark Results to Slack (push only)
-      if: github.ref == 'refs/heads/main'
-      uses: slackapi/slack-github-action@v4
-      with:
-        method: chat.postMessage
-        token: ${{ inputs.slack_oauth_token }}
-        payload: |
-          channel: ${{ inputs.slack_channel }}
-          text: |
-            ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}` (${{ inputs.index }}, ${{ env.ROWS_LABEL }} rows)
-            <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.pr_label }}> @ <https://paradedb.github.io/${{ github.event.repository.name }}/benchmarks/>

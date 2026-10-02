@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed regex tokenizers with different patterns in one index sharing a single analyzer. The registered tokenizer name left out the pattern, so every `pdb.regex_pattern` field with the same filters was indexed and searched with the pattern of whichever field registered last (#6519). Existing indexes keep their current behavior; `REINDEX` an index that has more than one regex field to index each field with its own pattern.

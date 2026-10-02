@@ -76,6 +76,33 @@ pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 pub(crate) const DEFAULT_MAX_LEAF_SIZE: i32 = 100;
 pub(crate) const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = 0.32;
+pub(crate) const VECTOR_ROUTER_OPTION: &str = "vector_router";
+
+/// The structure that routes a query to the IVF clusters worth probing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VectorRouter {
+    /// A relative neighborhood graph over the centroids.
+    #[default]
+    Graph,
+    /// A stacked IVF over the centroids.
+    Ivf,
+}
+
+impl VectorRouter {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "graph" => Some(Self::Graph),
+            "ivf" => Some(Self::Ivf),
+            _ => None,
+        }
+    }
+
+    fn parse_or_panic(value: &str) -> Self {
+        Self::parse(value).unwrap_or_else(|| {
+            panic!("invalid {VECTOR_ROUTER_OPTION} value: expected 'graph' or 'ivf', got '{value}'")
+        })
+    }
+}
 
 #[pg_guard]
 extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
@@ -188,6 +215,15 @@ extern "C-unwind" fn validate_partition_by(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
+extern "C-unwind" fn validate_vector_router(value: *const std::os::raw::c_char) {
+    let s = cstr_to_rust_str(value);
+    if s.is_empty() {
+        return;
+    }
+    VectorRouter::parse_or_panic(&s);
+}
+
+#[pg_guard]
 extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_char) {
     let s = cstr_to_rust_str(value);
     if s.is_empty() {
@@ -236,7 +272,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 18;
+const NUM_REL_OPTS: usize = 19;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -370,6 +406,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
+        pg_sys::relopt_parse_elt {
+            optname: VECTOR_ROUTER_OPTION.as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, vector_router_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
     ];
     build_relopts(reloptions, validate, options)
 }
@@ -465,6 +508,11 @@ impl BM25IndexOptions {
     /// Returns the fraction of vectors sampled for IVF training.
     pub fn training_sample_ratio(&self) -> f32 {
         self.options_data().training_sample_ratio()
+    }
+
+    /// Returns the IVF centroid router.
+    pub fn vector_router(&self) -> VectorRouter {
+        self.options_data().vector_router()
     }
 
     /// Returns the sort_by configuration.
@@ -814,6 +862,7 @@ struct BM25IndexOptionsData {
     max_leaf_size: i32,
     training_sample_ratio: f64,
     partition_by_offset: i32,
+    vector_router_offset: i32,
 }
 
 static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
@@ -836,6 +885,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
+    vector_router_offset: 0,
 };
 
 impl BM25IndexOptionsData {
@@ -883,6 +933,15 @@ impl BM25IndexOptionsData {
     /// Returns the fraction of vectors sampled for IVF training.
     pub fn training_sample_ratio(&self) -> f32 {
         self.training_sample_ratio as f32
+    }
+
+    /// Returns the IVF centroid router.
+    pub fn vector_router(&self) -> VectorRouter {
+        let value = self.get_str(self.vector_router_offset, "".to_string());
+        if value.is_empty() {
+            return VectorRouter::default();
+        }
+        VectorRouter::parse_or_panic(&value)
     }
 
     /// Returns the sort_by configuration.
@@ -1148,6 +1207,14 @@ pub unsafe fn init() {
         "Comma-separated list of fields to partition index data by".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_partition_by),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        VECTOR_ROUTER_OPTION.as_pg_cstr(),
+        "IVF centroid router for newly built segments: 'graph' or 'ivf'".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_vector_router),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
 }

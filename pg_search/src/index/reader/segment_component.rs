@@ -17,7 +17,7 @@
 
 use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{FileEntry, bm25_max_free_space};
+use crate::postgres::storage::block::{FileEntry, LinkedList, bm25_max_free_space};
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
@@ -31,7 +31,6 @@ use tantivy::directory::OwnedBytes;
 pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     entry: FileEntry,
-    component: Option<tantivy::index::SegmentComponent>,
 }
 
 impl SegmentComponentReader {
@@ -42,16 +41,13 @@ impl SegmentComponentReader {
     pub unsafe fn new(
         indexrel: &PgSearchRelation,
         entry: FileEntry,
-        component: Option<tantivy::index::SegmentComponent>,
+        io_stats: Option<io_stats::ComponentStats>,
     ) -> Self {
-        let block_list =
+        let mut block_list =
             LinkedBytesList::open(indexrel, entry.starting_block).with_length(entry.total_bytes);
+        block_list.bman_mut().set_io_stats(io_stats);
 
-        Self {
-            block_list,
-            entry,
-            component,
-        }
+        Self { block_list, entry }
     }
 
     /// Opens an uncommitted segment component whose file length may still be in flux.
@@ -62,15 +58,12 @@ impl SegmentComponentReader {
     pub unsafe fn new_uncommitted(
         indexrel: &PgSearchRelation,
         entry: FileEntry,
-        component: Option<tantivy::index::SegmentComponent>,
+        io_stats: Option<io_stats::ComponentStats>,
     ) -> Self {
-        let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+        let mut block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+        block_list.bman_mut().set_io_stats(io_stats);
 
-        Self {
-            block_list,
-            entry,
-            component,
-        }
+        Self { block_list, entry }
     }
 
     fn read_bytes_raw(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
@@ -86,18 +79,11 @@ impl SegmentComponentReader {
 
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
-        match &self.component {
-            Some(component) => io_stats::record(component, || self.read_bytes_raw(range)),
-            None => self.read_bytes_raw(range),
-        }
+        self.read_bytes_raw(range)
     }
 
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {
-        let read = || Ok(unsafe { self.block_list.get_byte(offset) });
-        match &self.component {
-            Some(component) => io_stats::record(component, read),
-            None => read(),
-        }
+        Ok(unsafe { self.block_list.get_byte(offset) })
     }
 
     fn storage_block_len(&self) -> Option<usize> {

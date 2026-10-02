@@ -55,6 +55,85 @@ use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
+<<<<<<< HEAD
+=======
+/// PostgreSQL-owned spill file for Tantivy merge-local temporary payloads.
+///
+/// `BufFileCreateTemp(false)` registers the file with PostgreSQL's resource
+/// owner and temporary-file accounting, so it is removed on normal close,
+/// transaction abort, backend exit, or process failure. It never enters the
+/// immutable segment-component map.
+struct PgTempFile {
+    file: *mut pg_sys::BufFile,
+    release_guard: Arc<BufFileReleaseGuard>,
+}
+
+impl PgTempFile {
+    fn create() -> Self {
+        let release_guard = BufFileReleaseGuard::register();
+        let file = unsafe { create_temp_buffile() };
+        Self {
+            file,
+            release_guard,
+        }
+    }
+}
+
+impl Read for PgTempFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        Ok(unsafe { pg_sys::BufFileRead(self.file, buf.as_mut_ptr().cast(), buf.len()) })
+    }
+}
+
+impl Write for PgTempFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        unsafe {
+            #[cfg(feature = "pg15")]
+            pg_sys::BufFileWrite(self.file, buf.as_ptr() as *mut std::ffi::c_void, buf.len());
+            #[cfg(not(feature = "pg15"))]
+            pg_sys::BufFileWrite(self.file, buf.as_ptr().cast(), buf.len());
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // BufFileSeek flushes pending writes before the read phase. There is
+        // no independent BufFile flush API.
+        Ok(())
+    }
+}
+
+impl Seek for PgTempFile {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        if position != SeekFrom::Start(0) {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "PostgreSQL quantization spill files support rewind only",
+            ));
+        }
+        let result = unsafe {
+            pg_sys::BufFileSeek(self.file, 0, 0, 0 /* SEEK_SET */)
+        };
+        if result != 0 {
+            return Err(io::Error::other(format!(
+                "BufFileSeek rewind failed with status {result}"
+            )));
+        }
+        Ok(0)
+    }
+}
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `may_close` already refuses the
+// close while unwinding, after the owner released the file, and outside a transaction.
+impl Drop for PgTempFile {
+    fn drop(&mut self) {
+        if self.release_guard.may_close() {
+            unsafe { pg_sys::BufFileClose(self.file) }
+        }
+    }
+}
+
+>>>>>>> 8f66bb1 (ci: require impl_safe_drop! or a stated reason on every impl Drop (#6572))
 /// The `(max_doc, num_deleted_docs)` pair of a mutable segment's meta entry as one reader
 /// loaded it. A mutable segment is materialized from the heap on open, from the prefix of its
 /// add/remove log these two counts bound, so two opens agree on the segment's `DocId` space

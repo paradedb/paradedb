@@ -40,11 +40,39 @@ mod imp {
 
     type SegmentIo = BTreeMap<String, IoCounters>;
 
+<<<<<<< HEAD
     thread_local! {
         static CURRENT: RefCell<SegmentIo> = RefCell::default();
         static PER_SEGMENT: RefCell<Vec<(SegmentId, SegmentIo)>> = RefCell::default();
+=======
+#[derive(Debug, Clone, Default)]
+pub struct Trace(Arc<Mutex<Data>>);
+
+#[derive(Debug, Clone)]
+pub struct ComponentStats {
+    trace: Trace,
+    component: String,
+}
+
+pub struct Scope {
+    trace: Trace,
+    before: i64,
+}
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body only reads the
+// `pgBufferUsage` global and updates a Rust side trace behind a `parking_lot` lock, neither of
+// which can raise, and it has to run on a panic too or `depth` never comes back down.
+impl Drop for Scope {
+    fn drop(&mut self) {
+        let mut data = self.trace.0.lock();
+        data.depth -= 1;
+        if data.depth == 0 {
+            data.total += snapshot().0.saturating_sub(self.before) as u64;
+        }
+>>>>>>> 8f66bb1 (ci: require impl_safe_drop! or a stated reason on every impl Drop (#6572))
     }
 
+<<<<<<< HEAD
     pub fn record<R>(component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
         let (hit0, read0) = snapshot();
         let result = read();
@@ -55,12 +83,77 @@ mod imp {
             slot.blks_read += read1.saturating_sub(read0) as u64;
         });
         result
+=======
+pub struct External {
+    trace: Trace,
+    before: i64,
+    attributed: u64,
+    name: &'static str,
+}
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body, like `Scope`'s, only
+// reads `pgBufferUsage` and attributes the difference on the trace.
+impl Drop for External {
+    fn drop(&mut self) {
+        let mut data = self.trace.0.lock();
+        if data.depth > 0 {
+            let attributed = data
+                .components
+                .values()
+                .sum::<u64>()
+                .saturating_sub(self.attributed);
+            let hits = (snapshot().0.saturating_sub(self.before) as u64).saturating_sub(attributed);
+            *data.components.entry(self.name.into()).or_default() += hits;
+        }
+>>>>>>> 8f66bb1 (ci: require impl_safe_drop! or a stated reason on every impl Drop (#6572))
     }
 
+<<<<<<< HEAD
     fn snapshot() -> (i64, i64) {
         unsafe {
             let usage = std::ptr::addr_of!(pg_sys::pgBufferUsage).read();
             (usage.shared_blks_hit, usage.shared_blks_read)
+=======
+pub struct ScanInitGuard {
+    trace: Trace,
+    before: (i64, i64),
+}
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body, like `Scope`'s, only
+// reads `pgBufferUsage` and records the scan init stage on the trace.
+impl Drop for ScanInitGuard {
+    fn drop(&mut self) {
+        let after = snapshot();
+        let mut data = self.trace.0.lock();
+        let current = &mut data.current;
+        let attributed = current.stages.get("scan_init").copied().unwrap_or_default();
+        let direct = IoCounters {
+            blks_hit: (after.0.saturating_sub(self.before.0) as u64)
+                .saturating_sub(attributed.blks_hit),
+            blks_read: (after.1.saturating_sub(self.before.1) as u64)
+                .saturating_sub(attributed.blks_read),
+        };
+        let stage = current.stages.entry("scan_init".into()).or_default();
+        stage.blks_hit += direct.blks_hit;
+        stage.blks_read += direct.blks_read;
+        let component = current
+            .scan_init_components
+            .entry("executor".into())
+            .or_default();
+        component.blks_hit += direct.blks_hit;
+        component.blks_read += direct.blks_read;
+        data.scan_init = false;
+        data.preserve_next_reset = true;
+    }
+}
+
+impl Trace {
+    pub fn enter(&self) -> Scope {
+        self.0.lock().depth += 1;
+        Scope {
+            trace: self.clone(),
+            before: snapshot().0,
+>>>>>>> 8f66bb1 (ci: require impl_safe_drop! or a stated reason on every impl Drop (#6572))
         }
     }
 

@@ -63,6 +63,30 @@ repos:
         args:
           ["--workspace", "--all-targets", "--", "-D", "warnings", "--no-deps"]
       - id: cargo-check
+<<<<<<< HEAD
+=======
+        name: cargo check
+        entry: cargo check
+        args: ["--workspace"]
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-doc
+        name: cargo doc
+        entry: cargo doc
+        args: ["--workspace", "--no-deps", "--document-private-items"]
+        language: system
+        types: [rust]
+        pass_filenames: false
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+      - id: impl-drop
+        name: check impl Drop
+        entry: python3 .github/scripts/check_impl_drop.py
+        language: system
+        types: [rust]
+        pass_filenames: false
+>>>>>>> 8f66bb1 (ci: require impl_safe_drop! or a stated reason on every impl Drop (#6572))
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.0

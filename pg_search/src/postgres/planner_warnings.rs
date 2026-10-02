@@ -224,6 +224,8 @@ impl ExplainGuard {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body only restores a thread
+// local, and the flag has to be reset when EXPLAIN raises too.
 impl Drop for ExplainGuard {
     fn drop(&mut self) {
         IN_EXPLAIN.with(|cell| cell.set(self.prev));

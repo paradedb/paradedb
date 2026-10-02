@@ -507,16 +507,14 @@ impl BitmapCursor {
     }
 }
 
-impl Drop for BitmapCursor {
-    fn drop(&mut self) {
-        unsafe {
-            match self.iter {
-                #[cfg(not(feature = "pg18"))]
-                CursorIter::Private(iter) => pg_sys::tbm_end_iterate(iter),
-                #[cfg(feature = "pg18")]
-                CursorIter::Private(iter) => pg_sys::tbm_end_private_iterate(iter),
-                CursorIter::Shared(iter) => pg_sys::tbm_end_shared_iterate(iter),
-            }
+crate::impl_safe_drop!(BitmapCursor, |self| {
+    unsafe {
+        match self.iter {
+            #[cfg(not(feature = "pg18"))]
+            CursorIter::Private(iter) => pg_sys::tbm_end_iterate(iter),
+            #[cfg(feature = "pg18")]
+            CursorIter::Private(iter) => pg_sys::tbm_end_private_iterate(iter),
+            CursorIter::Shared(iter) => pg_sys::tbm_end_shared_iterate(iter),
         }
     }
-}
+});

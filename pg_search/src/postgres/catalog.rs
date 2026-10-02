@@ -20,7 +20,8 @@ use std::ffi::CStr;
 use std::sync::OnceLock;
 
 /// Pins a syscache entry for the lifetime of the guard; the pin is
-/// released on drop, on every exit path including panics.
+/// released on drop. While unwinding or exiting the release is left to
+/// the transaction abort (see `impl_safe_drop!`).
 /// Note: holds a raw pointer and is therefore !Send — required, since
 /// the catcache refcount is a plain non-atomic decrement on
 /// backend-private memory.
@@ -44,13 +45,11 @@ impl SysCacheEntry {
     }
 }
 
-impl Drop for SysCacheEntry {
-    fn drop(&mut self) {
-        unsafe {
-            pg_sys::ReleaseSysCache(self.tuple);
-        }
+crate::impl_safe_drop!(SysCacheEntry, |self| {
+    unsafe {
+        pg_sys::ReleaseSysCache(self.tuple);
     }
-}
+});
 
 /// Helper function to lookup a namespace's [`pg_sys::Oid`] (SQL schema) by name
 pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {

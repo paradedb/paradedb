@@ -1036,6 +1036,27 @@ impl BufferManager {
     }
 
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
+<<<<<<< HEAD
+=======
+        /// Forgets a block tracked before `LockBufferForCleanup` if that call errors out: pgrx
+        /// runs `Drop` handlers when a function it wraps raises an ERROR.
+        struct InFlightCleanupGuard {
+            #[cfg_attr(not(feature = "block_tracker"), allow(dead_code))]
+            blockno: pg_sys::BlockNumber,
+            active: bool,
+        }
+
+        // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the guard exists to run
+        // while an ERROR unwinds, and its body is only tracker bookkeeping.
+        impl Drop for InFlightCleanupGuard {
+            fn drop(&mut self) {
+                if self.active {
+                    block_tracker::forget!(self.blockno);
+                }
+            }
+        }
+
+>>>>>>> 8f66bb1 (ci: require impl_safe_drop! or a stated reason on every impl Drop (#6572))
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             block_tracker::track!(Cleanup, blockno);

@@ -238,6 +238,9 @@ impl Spilled {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the release callback points at
+// this value and has to be unregistered on every drop, and the close below already checks for
+// unwinding, for the owner having released the file, and for a transaction in progress.
 impl Drop for Spilled {
     fn drop(&mut self) {
         unsafe { pg_sys::BufFileClose(self.file) }

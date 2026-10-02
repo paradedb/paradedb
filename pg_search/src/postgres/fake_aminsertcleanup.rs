@@ -59,10 +59,18 @@
 //!
 //! `insertcleanup` can panic (e.g. if called with `InsertMode::Completed`, or via `.expect()`
 //! calls inside the inner cleanup functions). If `FrameGuard::drop` ran cleanup during an
+<<<<<<< HEAD
 //! already-active unwind, a second panic would abort the process. To prevent this, `Drop` checks
 //! `std::thread::panicking()` and skips cleanup when already unwinding. The transaction-abort
 //! xact callback registered in `push_insert_state` clears the stack in that case, which is safe
 //! because Postgres rolls back all storage changes on error anyway.
+=======
+//! already-active unwind, a second panic would abort the process. To prevent this, the guard
+//! uses `impl_safe_drop!`, which skips cleanup while unwinding or once `proc_exit` has started.
+//! The abort callbacks registered in `push_insert_state` drop the frame in that case, whether the
+//! whole transaction or only a subtransaction rolls back, which is safe because Postgres
+//! discards the storage changes either way.
+>>>>>>> 8f66bb1 (ci: require impl_safe_drop! or a stated reason on every impl Drop (#6572))
 
 #![allow(static_mut_refs)]
 
@@ -142,6 +150,7 @@ impl FrameGuard {
     }
 }
 
+<<<<<<< HEAD
 impl Drop for FrameGuard {
     fn drop(&mut self) {
         // Safety: we are on the Postgres main thread, inside an executor hook whose entry pushed
@@ -175,8 +184,22 @@ impl Drop for FrameGuard {
                 insertcleanup(&entry.insert_state, mode);
             }
         }
+=======
+// Skipped while unwinding or once `proc_exit` has started: calling insertcleanup then
+// risks a second panic, which would abort the process. The frame stays in place, and
+// whichever abort follows, of the transaction or of a subtransaction, drops it.
+crate::impl_safe_drop!(FrameGuard, |self| {
+    // Safety: we are on the Postgres main thread, inside an executor hook whose entry pushed
+    // one frame, so the stack is non-empty.
+    unsafe {
+        let frame = EXECUTOR_RUN_STACK
+            .pop()
+            .expect("FrameGuard::drop: stack underflow — frame was never pushed");
+
+        cleanup_frame(frame.active);
+>>>>>>> 8f66bb1 (ci: require impl_safe_drop! or a stated reason on every impl Drop (#6572))
     }
-}
+});
 
 // ---------------------------------------------------------------------------
 // Public API — called from postgres/insert.rs :: init_insert_state

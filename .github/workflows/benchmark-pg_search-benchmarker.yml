@@ -128,11 +128,18 @@ jobs:
           nm --defined-only "$library" | awk '$3 ~ /block_segment_postings|SkipReader|block_wand_intersection|term_scorer/ {print $3}' > codegen/hot-symbols.txt
           test -s codegen/hot-symbols.txt
           while read -r symbol; do
-            objdump -d --demangle --line-numbers --disassemble="$symbol" "$library"
+            objdump -d --line-numbers --disassemble="$symbol" "$library"
           done < codegen/hot-symbols.txt > codegen/disassembly.txt
+          grep -Eq '^[[:space:]]+[[:xdigit:]]+:[[:space:]]+[[:xdigit:]]{8}' codegen/disassembly.txt
+          library_build_id=$(awk '/Build ID:/ {print $3}' codegen/build-id.txt)
           for pool in dense sparse; do
             data="saved-profile/profiles/$pool.data"
             perf buildid-list -i "$data" > "codegen/$pool.build-ids.txt"
+            recorded_build_id=$(awk '/\/pg_search.so$/ {print $1}' "codegen/$pool.build-ids.txt")
+            if [ "$recorded_build_id" != "$library_build_id" ]; then
+              echo "$pool: pg_search build ID mismatch ($recorded_build_id vs $library_build_id); instruction attribution unavailable" | tee -a codegen/limitations.txt
+              continue
+            fi
             if ! perf annotate --stdio --no-source --percent-limit 0.5 \
               -i "$data" --symfs "$RUNNER_TEMP/symfs" > "codegen/$pool.annotate.txt" 2> "codegen/$pool.annotate.log"; then
               echo "Annotation failed for $pool; inspect build IDs and logs" | tee -a codegen/limitations.txt

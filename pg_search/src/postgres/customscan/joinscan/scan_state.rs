@@ -34,7 +34,9 @@ use std::sync::Arc;
 
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::common::{DataFusionError, Result, internal_datafusion_err, internal_err};
+use datafusion::common::{
+    Column, DataFusionError, Result, TableReference, internal_datafusion_err, internal_err,
+};
 use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::{
@@ -919,6 +921,13 @@ fn build_clause_df<'a>(
     f.boxed_local()
 }
 
+struct QualifiedName(Option<TableReference>, String);
+impl QualifiedName {
+    fn as_col_expr(&self) -> Expr {
+        Expr::Column(Column::new(self.0.clone(), self.1.clone()))
+    }
+}
+
 /// The Top-K (and the DISTINCT, when there is one) as a single aggregate over the
 /// projection, returning `fetch` rows in ORDER BY order.
 ///
@@ -938,18 +947,20 @@ fn apply_topk_as_agg(
     let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
         return internal_err!("Bug: Unable to build distinct key expressions for topk aggregate");
     };
-
-    {
-        let projection = join_clause
-            .output_projection
-            .as_ref()
-            .expect("should always exist by now");
-        assert_eq!(
-            distinct_key_exprs.len(),
-            projection.len(),
-            "This function is only correct as long as the DISTINCT keys cover all output projection columns",
-        );
-    }
+    // if has_distinct, we map to the expected col_i names, assuming `distinct_key_exprs` is in
+    // projection order. Otherwise we just use the names the columns would have had originally
+    let distinct_exprs_with_names: Vec<(Expr, QualifiedName)> = distinct_key_exprs
+        .into_iter()
+        .enumerate()
+        .map(|(i, e)| {
+            if join_clause.has_distinct {
+                (e, QualifiedName(None, format!("col_{}", i + 1)))
+            } else {
+                let name = e.qualified_name();
+                (e, QualifiedName(name.0, name.1))
+            }
+        })
+        .collect();
 
     // The sort against the join output, the same way the SortExec path builds it: an
     // ORDER BY key need not be in the projection, and when Postgres substitutes an
@@ -968,10 +979,9 @@ fn apply_topk_as_agg(
             .collect();
 
     // the projected key expressions, along with the name we map them to
-    let projected: HashMap<Expr, Expr> = distinct_key_exprs
+    let projected: HashMap<Expr, Expr> = distinct_exprs_with_names
         .iter()
-        .enumerate()
-        .map(|(i, expr)| (expr.clone(), col(format!("col_{}", i + 1))))
+        .map(|(expr, name)| (expr.clone(), name.as_col_expr()))
         .collect();
 
     // will contain additional sort_j columns that are required by the sort expressions
@@ -1002,10 +1012,9 @@ fn apply_topk_as_agg(
         .collect::<Result<_>>()?;
 
     // The actual projected columns we'll need for the aggregate.
-    let mut select: Vec<Expr> = distinct_key_exprs
+    let mut select: Vec<Expr> = distinct_exprs_with_names
         .iter()
-        .enumerate()
-        .map(|(i, expr)| expr.clone().alias(format!("col_{}", i + 1)))
+        .map(|(expr, name)| expr.clone().alias_qualified(name.0.clone(), &name.1))
         .collect();
     select.extend(ctid_names.iter().map(|n| col(n.as_str())));
     select.extend(sort_extra_cols.iter().cloned());
@@ -1014,7 +1023,7 @@ fn apply_topk_as_agg(
     // columns have no range: they are inputs to the aggregate's ORDER BY only, which
     // DataFusion evaluates and the accumulator carries as ordering columns, so they
     // are neither payload nor restored.
-    let distinct_key_end = distinct_key_exprs.len();
+    let distinct_key_end = distinct_exprs_with_names.len();
     let ctid_end = distinct_key_end + ctid_names.len();
     let distinct_key_col_range = 0..distinct_key_end;
     let ctid_col_range = distinct_key_end..ctid_end;
@@ -1047,7 +1056,9 @@ fn apply_topk_as_agg(
     // for the ctids.
     let mut name_restoration_exprs: Vec<Expr> = distinct_key_col_range
         .map(|i| {
-            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}")).alias(format!("col_{}", i + 1))
+            let name = &distinct_exprs_with_names[i].1;
+            get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{i}"))
+                .alias_qualified(name.0.clone(), &name.1)
         })
         .collect();
     name_restoration_exprs.extend(ctid_col_range.enumerate().map(|(name_idx, i)| {
@@ -1604,7 +1615,8 @@ fn apply_output_projection(
     if let Some(projection) = &join_clause.output_projection {
         for (i, proj) in projection.iter().enumerate() {
             let col_alias = format!("col_{}", i + 1);
-            let expr = if !distinct_col_map.is_empty() {
+            let expr = if join_clause.has_distinct {
+                // let expr = if !distinct_col_map.is_empty() {
                 match proj {
                     build::ChildProjection::Expression { .. }
                     | build::ChildProjection::WindowAgg { .. } => col(&col_alias),

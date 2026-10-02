@@ -5,19 +5,26 @@
 
 \i common/common_setup.sql
 
+CREATE COLLATION IF NOT EXISTS ordered_agg_case_insensitive (
+    provider = icu,
+    locale = 'und-u-ks-level2',
+    deterministic = false
+);
+
 CREATE TABLE ordered_agg_items (
     id SERIAL PRIMARY KEY,
     account_id BIGINT,
     kind TEXT,
-    price FLOAT8
+    price FLOAT8,
+    amount NUMERIC(10, 2)
 );
 
-INSERT INTO ordered_agg_items (account_id, kind, price)
-SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1], g % 5
+INSERT INTO ordered_agg_items (account_id, kind, price, amount)
+SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1], g % 5, (g % 5) + 0.5
 FROM generate_series(1, 120) g;
 
 CREATE INDEX ordered_agg_items_idx ON ordered_agg_items
-USING paradedb (id, account_id, (kind::pdb.literal), price);
+USING paradedb (id, account_id, (kind::pdb.literal), price, amount);
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -87,6 +94,36 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
 
+\echo 'Test 6: pdb.agg() -> one row'
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb ORDER BY kind)
+FROM ordered_agg_items
+WHERE id @@@ paradedb.all();
+
+\echo 'Test 7: DataFusion backend, sort key with a nondeterministic collation -> declined'
+-- The NUMERIC aggregate routes the query to DataFusion, which sorts by the
+-- bytes of the key.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id <= 12 AND id @@@ paradedb.all()
+GROUP BY account_id
+ORDER BY account_id;
+
+SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id <= 12 AND id @@@ paradedb.all()
+GROUP BY account_id
+ORDER BY account_id;
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id @@@ paradedb.all();
+
+SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id @@@ paradedb.all();
+
 \echo 'Same results from PostgreSQL'
 SET paradedb.enable_aggregate_custom_scan TO off;
 
@@ -112,5 +149,16 @@ WHERE id @@@ paradedb.all()
 GROUP BY kind
 ORDER BY kind;
 
+SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id <= 12 AND id @@@ paradedb.all()
+GROUP BY account_id
+ORDER BY account_id;
+
+SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id @@@ paradedb.all();
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE ordered_agg_items;
+DROP COLLATION ordered_agg_case_insensitive;

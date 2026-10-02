@@ -166,8 +166,24 @@ unsafe fn validate_grouping_pushdown(
         return Err(GroupingPushdownDeclineReason::GroupingSets);
     }
 
-    let pathkeys = args.group_by_pathkeys();
-    if pathkeys.is_empty() {
+    // On PG16 and later, the sort keys of ordered and DISTINCT aggregates follow
+    // the GROUP BY keys in `group_pathkeys`. This checks them too: the DataFusion
+    // backend compares them by their bytes, like the GROUP BY keys.
+    for pathkey in PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys).iter_ptr() {
+        let equivalence_class = (*pathkey).pk_eclass;
+        if equivalence_class.is_null() {
+            return Err(GroupingPushdownDeclineReason::MissingPathKeys);
+        }
+
+        let collation = (*equivalence_class).ec_collation;
+        if assess_collation(collation, CollationOperation::Equality)
+            == CollationSafety::NondeterministicEquality
+        {
+            return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
+        }
+    }
+
+    if args.group_by_pathkeys().is_empty() {
         // A scalar aggregate has no grouping keys.
         if parse.is_null() || (*parse).groupClause.is_null() {
             return Ok(());
@@ -198,20 +214,6 @@ unsafe fn validate_grouping_pushdown(
         // For single-table aggregates on Tantivy, missing pathkeys prevent Tantivy
         // from discovering grouping columns (see `groupby.rs`).
         return Err(GroupingPushdownDeclineReason::MissingPathKeys);
-    }
-
-    for pathkey in pathkeys {
-        let equivalence_class = (*pathkey).pk_eclass;
-        if equivalence_class.is_null() {
-            return Err(GroupingPushdownDeclineReason::MissingPathKeys);
-        }
-
-        let collation = (*equivalence_class).ec_collation;
-        if assess_collation(collation, CollationOperation::Equality)
-            == CollationSafety::NondeterministicEquality
-        {
-            return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
-        }
     }
 
     Ok(())

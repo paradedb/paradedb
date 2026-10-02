@@ -8,17 +8,23 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
+CREATE COLLATION IF NOT EXISTS ordered_agg_case_insensitive (
+    provider = icu,
+    locale = 'und-u-ks-level2',
+    deterministic = false
+);
 CREATE TABLE ordered_agg_items (
     id SERIAL PRIMARY KEY,
     account_id BIGINT,
     kind TEXT,
-    price FLOAT8
+    price FLOAT8,
+    amount NUMERIC(10, 2)
 );
-INSERT INTO ordered_agg_items (account_id, kind, price)
-SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1], g % 5
+INSERT INTO ordered_agg_items (account_id, kind, price, amount)
+SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1], g % 5, (g % 5) + 0.5
 FROM generate_series(1, 120) g;
 CREATE INDEX ordered_agg_items_idx ON ordered_agg_items
-USING paradedb (id, account_id, (kind::pdb.literal), price);
+USING paradedb (id, account_id, (kind::pdb.literal), price, amount);
 SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test 1: no GROUP BY -> one row'
 Test 1: no GROUP BY -> one row
@@ -176,6 +182,83 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
           3 |     4
 (3 rows)
 
+\echo 'Test 6: pdb.agg() -> one row'
+Test 6: pdb.agg() -> one row
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb ORDER BY kind)
+FROM ordered_agg_items
+WHERE id @@@ paradedb.all();
+       agg        
+------------------
+ {"value": 120.0}
+(1 row)
+
+\echo 'Test 7: DataFusion backend, sort key with a nondeterministic collation -> declined'
+Test 7: DataFusion backend, sort key with a nondeterministic collation -> declined
+-- The NUMERIC aggregate routes the query to DataFusion, which sorts by the
+-- bytes of the key.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id <= 12 AND id @@@ paradedb.all()
+GROUP BY account_id
+ORDER BY account_id;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: account_id
+   ->  Sort
+         Sort Key: account_id, kind COLLATE ordered_agg_case_insensitive
+         ->  Custom Scan (ParadeDB Base Scan) on ordered_agg_items
+               Table: ordered_agg_items
+               Index: ordered_agg_items_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":12}}},{"with_index":{"query":"all"}}]}}
+(10 rows)
+
+SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id <= 12 AND id @@@ paradedb.all()
+GROUP BY account_id
+ORDER BY account_id;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
+ account_id |  sum  | string_agg 
+------------+-------+------------
+          1 | 12.00 | a,b,c,d
+          2 |  9.00 | a,b,c,d
+          3 |  8.00 | a,b,c,d
+(3 rows)
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Aggregate
+   ->  Sort
+         Sort Key: kind COLLATE ordered_agg_case_insensitive
+         ->  Custom Scan (ParadeDB Base Scan) on ordered_agg_items
+               Table: ordered_agg_items
+               Index: ordered_agg_items_idx
+               Exec Method: ColumnarExecState
+               Columnar: amount, kind
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
+  sum   | count 
+--------+-------
+ 300.00 |     4
+(1 row)
+
 \echo 'Same results from PostgreSQL'
 Same results from PostgreSQL
 SET paradedb.enable_aggregate_custom_scan TO off;
@@ -224,5 +307,26 @@ ORDER BY kind;
  d    |    30
 (4 rows)
 
+SELECT account_id, SUM(amount), string_agg(kind, ',' ORDER BY kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id <= 12 AND id @@@ paradedb.all()
+GROUP BY account_id
+ORDER BY account_id;
+ account_id |  sum  | string_agg 
+------------+-------+------------
+          1 | 12.00 | a,b,c,d
+          2 |  9.00 | a,b,c,d
+          3 |  8.00 | a,b,c,d
+(3 rows)
+
+SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
+FROM ordered_agg_items
+WHERE id @@@ paradedb.all();
+  sum   | count 
+--------+-------
+ 300.00 |     4
+(1 row)
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE ordered_agg_items;
+DROP COLLATION ordered_agg_case_insensitive;

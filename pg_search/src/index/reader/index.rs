@@ -968,7 +968,7 @@ impl SearchIndexReader {
             .expect("weight should be constructable")
     }
 
-    fn make_query(
+    pub(crate) fn make_query(
         &self,
         search_query_input: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,

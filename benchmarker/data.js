@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790963861863,
+  "lastUpdate": 1790967448384,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -6896,6 +6896,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 730.895,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1360e53fa7ad9d02b2afc0b37413979a89926905",
+          "message": "ci: retain benchmarker dashboard artifacts for 30 days (#6615)\n\nBenchmarker dashboard uploads currently inherit the default 90-day\nartifact retention. Set explicit 30-day retention for the JSON and HTML\nartifacts to reduce retained Actions storage while keeping recent\nresults available for download.\n\nGitHub Pages publishing and benchmark execution remain unchanged. This\nsetting applies to new uploads; existing artifacts retain their original\nexpiry.\n\nValidation: `git diff --check` passed; the change adds only the\nsupported `retention-days` input to `actions/upload-artifact`.",
+          "timestamp": "2026-10-02T10:48:02-07:00",
+          "tree_id": "1a366fb6a8dd64d0d4ee86ea1b521f061398df29",
+          "url": "https://github.com/paradedb/paradedb/commit/1360e53fa7ad9d02b2afc0b37413979a89926905"
+        },
+        "date": 1790967446332,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.172,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 142.711,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.877,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 245.521,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.009,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 164.401,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.439,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 207.692,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 39.061,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 754.642,
             "unit": "ms"
           }
         ]

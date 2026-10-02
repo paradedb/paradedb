@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790884760976,
+  "lastUpdate": 1790899223051,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -6526,6 +6526,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 744.196,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "495ccbac603ec839e2c71d457129f9b2c154f2e3",
+          "message": "fix: build the score and snippet projection one time per scan (#6589)\n\n## Ticket(s) Closed\n\n- Closes #6582\n\n## What\n\nThis PR builds the score and snippet projection of the base scan one\ntime per scan.\n\nA search query that has `pdb.score()` or `pdb.snippet()` together with a\nsubquery expression, such as `id IN (SELECT ...)`, in its `SELECT` list\nor `ORDER BY` crashed the backend.\n\n## Why\n\nThe scan wrote the score and the snippets of each row into `Const`\nnodes. `ExecBuildProjectionInfo` copies a `Const` by value, so the scan\nbuilt the projection again for each row, in per-tuple memory.\n\nEach build ran `ExecInitSubPlan` for every `SubPlan` in the target list.\nThat appended a new `SubPlanState` to `planstate->subPlan` and new slots\nto `es_tupleTable`, and the memory reset of the next row freed them.\nLater, the executor walked those lists and read the freed memory. This\ngives the `signal 11`, or the `tupdesc reference ... is not owned by\nresource owner Portal` error.\n\nIn addition, a hashed `SubPlan` built its hash table again for each row.\n\n## How\n\nThe placeholders are `OUTER_VAR`s that read from a virtual slot. The\nscan fills that slot for each row, and it builds the projection one\ntime. A rescan keeps it.\n\n`AggregateScan` had the same build for each row in its wrapped\nprojection. It uses the same placeholder slot.\n\n## Tests\n\nThe `issue_6582` regression test.",
+          "timestamp": "2026-10-01T15:50:52-07:00",
+          "tree_id": "6c2a4445fdb4e1b5deeb3cd09b9a5ca80a3e8f03",
+          "url": "https://github.com/paradedb/paradedb/commit/495ccbac603ec839e2c71d457129f9b2c154f2e3"
+        },
+        "date": 1790899221408,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.403,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 146.997,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.739,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 245.398,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.271,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 164.997,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 25.196,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 211.385,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.276,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 724.547,
             "unit": "ms"
           }
         ]

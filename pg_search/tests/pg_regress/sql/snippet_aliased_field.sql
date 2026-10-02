@@ -32,8 +32,8 @@ WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
 SELECT id, pdb.snippet(content) FROM snippet_alias_test
 WHERE content ||| 'certificates' ORDER BY id;
 
--- A query that addresses the column and the alias at once keeps a generator for each,
--- so rows reached through either one are highlighted.
+-- A query that addresses the column and the alias at once selects fragments over the
+-- matches of both, so rows reached through either one are highlighted.
 SELECT id, pdb.snippet(content) FROM snippet_alias_test
 WHERE content::pdb.alias(content_de) ||| 'Zertifikat' OR content ||| 'certificates' ORDER BY id;
 
@@ -74,8 +74,8 @@ WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
 
 DROP TABLE snippet_alias_empty;
 
--- One document can hold matches for the column and for its alias at once. Positions come
--- from an unbounded fragment, so both sets are reported against the same text.
+-- One document can hold matches for the column and for its alias at once. The generator
+-- spans both fields, so both sets are reported against the same text.
 DROP TABLE IF EXISTS snippet_alias_both;
 CREATE TABLE snippet_alias_both (
     id SERIAL PRIMARY KEY,

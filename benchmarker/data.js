@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790926362275,
+  "lastUpdate": 1790948578116,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -6748,6 +6748,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 709.534,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "214b824117d865c3f6065caecb810c36157d6b7f",
+          "message": "feat(vector): integrate block-major storage and per-segment reporting (#6542)\n\n# vector: adopt block-major segment storage\n\nDepends on\n[paradedb/tantivy#269](https://github.com/paradedb/tantivy/pull/269),\nmerged as `a80c74d`. Segment format checks, flat rerank counters, and\nquantizer family names are provided by\n[paradedb/tantivy#287](https://github.com/paradedb/tantivy/pull/287).\n\nTantivy pin is temporarily #287's head; it moves to the squash commit\nonce #287 merges.\n\n## Changes\n\n- Pin Tantivy's block-major vector storage, including its stored-router\ndispatch and adaptive probe controller.\n- Report per-layer reads, requested bytes, storage-block spans and\nsign-word fallbacks, plus rerank reads, bytes and storage-block spans in\nEXPLAIN. Preserve main's per-scan component and buffer attribution.\n- Read `vector_info` from each segment's stored metadata.\n`vector_config` reports the field build target separately for each leaf\nindex, with `index_oid oid` as its first column and `settings_version`\ndescribing the settings serialization. Quantizer kind names are `sign`\nand `grid`.\n- Validate only the `.vec` header at vector query execution and vector\nSQL entry points. Unsupported storage returns the typed incompatibility\nerror with the index name and `REINDEX` hint. Foreground and background\nmerges exclude unsupported segments from their candidates and emit one\nwarning per merge naming the index; writes continue. BM25-only queries\ndo not read `.vec` files.\n- Read diagnostics and audits from per-segment metadata; skip\nunquantized segments with one count notice per call. Quantization\nsettings are materialized at CREATE INDEX/REINDEX, so segments of one\npg_search index share a schedule. Mixed-schedule support lives in\nTantivy; estimator aggregation defensively rejects incompatible\nschedules.\n- Include the SQL changes in the upgrade from 0.25.11 to 0.26.0. Retain\nmain's storage block directory and dictionary-address error handling.\n\n## Upgrade\n\nEvery index containing a vector field, quantized or not, must be rebuilt\nwith `REINDEX` after upgrading to 0.26. Searches fail until the rebuild;\nwrites continue, and `REINDEX CONCURRENTLY` is supported. The\n`vector_info` SQL signature changes to report stored metadata;\n`vector_config` exposes the build target.\n\nThe release migration is supplied through\n`pg_search/sql/unreleased/6542.vector_segment_metadata.sql` (`--\ndepends-on: 6178`) and\n`pg_search/sql/unreleased/6542.vector_config.sql`. The release process\nassembles these fragments into the upgrade script. Released SQL\nmigrations and the workspace version are unchanged. The breaking-change\nnote is in `docs/project/changelog/unreleased/6542.breaking.mdx`.\n\nUpgrade coverage builds a vector index on the previous release, checks\nthat vector queries fail after upgrading with the index name and a\n`REINDEX` hint, confirms INSERT/UPDATE succeeds without removing old\nsegments, rebuilds with `REINDEX CONCURRENTLY`, and verifies the query\nresults. The 0.25.11 upgrade passes locally, and the upgraded extension\nschema matches a fresh installation. Releases without vector index\nsupport skip this case.\n\n## Validation\n\n- All nine vector SQL suites pass. Expected output covers the leaf-index\ncolumn, partition and field guards, and non-negative EXPLAIN I/O\ncounters.\n- Four PostgreSQL contracts pass: stored metadata remains independent of\nthe build target; unsupported vector storage names the index and\nrequests `REINDEX` while BM25 reads no `.vec` data; foreground merges\nskip unsupported segments while preserving them until REINDEX;\nvector-header validation is cached across repeated calls and reader\nclones.\n- Page alignment and probe-counter serialization tests pass.\n- Locked dependency check, pg_search clippy, schema comparison against\ncurrent main, migration-fragment lint, released-migration checks, and\nformatting pass.\n\n## Query comparison\n\nCohere 1M, 1024 dimensions, cosine, schedule `[1,4]`, seeds 7/11, 16,965\nclusters, 100 queries. Baseline is current Tantivy main plus counters.\nBoth builds use the current ParadeDB storage directory and buffer\nattribution. All 300 estimate/sigma-bit cases and all 1,800 replay\ntraces match in the required outputs and counts. Warm runs use both\norders; cold runs evict target PostgreSQL relation buffers and OS pages\nbefore each request.\n\nLatency values are p50 / p95 / p99 milliseconds. Full stage, buffer and\nbootstrap tables are in [the Tantivy\nPR](https://github.com/paradedb/tantivy/pull/269).\n\n| Pass/cache | Probe | Baseline | V4 |\n|---|---|---:|---:|\n| warm | 0.00569 | 2.153 / 2.817 / 3.584 | 1.915 / 2.378 / 2.544 |\n| warm | 0.0141 | 3.319 / 4.403 / 4.638 | 3.025 / 4.106 / 4.441 |\n| warm | 0.04 | 6.736 / 8.547 / 8.953 | 6.135 / 8.028 / 8.766 |\n| warm-repeat | 0.00569 | 2.254 / 2.856 / 4.412 | 2.007 / 2.451 / 2.593\n|\n| warm-repeat | 0.0141 | 3.412 / 4.433 / 4.864 | 3.033 / 3.941 / 4.195 |\n| warm-repeat | 0.04 | 6.668 / 8.830 / 9.357 | 6.254 / 8.020 / 8.512 |\n| cold | 0.00569 | 85.369 / 121.702 / 130.878 | 80.480 / 106.637 /\n116.584 |\n| cold | 0.0141 | 136.701 / 193.780 / 210.395 | 135.740 / 175.175 /\n183.519 |\n| cold | 0.04 | 256.344 / 338.535 / 356.061 | 266.944 / 341.303 /\n356.714 |\n\nAt the 99% probe, the cold median is 4.1% higher and warm layer 1 is\n4.7% higher; warm end-to-end latency is lower in both orders. Cold\np95/p99 improve at 90% and 95% recall and are slightly higher at 99%\nrecall. Every cold request has an eviction receipt confirming empty\ntarget PostgreSQL buffers and no resident target OS pages.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-02T18:03:03+05:30",
+          "tree_id": "969d32dd6e3d57ac08be9926ce81b776a8f778ee",
+          "url": "https://github.com/paradedb/paradedb/commit/214b824117d865c3f6065caecb810c36157d6b7f"
+        },
+        "date": 1790948576189,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.218,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 147.267,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 243.366,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.21,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 164.345,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.443,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 210.85,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 37.491,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 725.768,
             "unit": "ms"
           }
         ]

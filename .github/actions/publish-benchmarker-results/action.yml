@@ -42,6 +42,7 @@ runs:
       uses: actions/upload-artifact@v7
       with:
         overwrite: true
+        retention-days: 30
         name: benchmarker-dashboards-${{ inputs.dataset }}-${{ inputs.short_commit }}
         path: |
           ${{ inputs.results_dir }}/*.json

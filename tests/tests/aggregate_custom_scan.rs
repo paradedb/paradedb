@@ -195,6 +195,54 @@ fn test_group_by_null_bucket(mut conn: PgConnection) {
     );
 }
 
+// On PG16 and later, PostgreSQL puts the sort keys of an ordered aggregate
+// after the GROUP BY keys in `group_pathkeys`. The scan must not group on them.
+// PG15 has no such keys, so this test does not fail there without the fix.
+#[rstest]
+fn test_ordered_aggregate_is_not_a_group_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE ordered_aggs (
+        id SERIAL PRIMARY KEY,
+        account_id BIGINT,
+        kind TEXT,
+        price FLOAT8
+    );
+    INSERT INTO ordered_aggs (account_id, kind, price)
+    SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1], g % 5
+    FROM generate_series(1, 120) g;
+    CREATE INDEX ordered_aggs_idx ON ordered_aggs
+    USING paradedb (id, account_id, (kind::pdb.literal), price);
+    "#
+    .execute(&mut conn);
+
+    let queries = [
+        "SELECT COUNT(id ORDER BY kind) FROM ordered_aggs WHERE id @@@ paradedb.all()",
+        "SELECT account_id, COUNT(id ORDER BY kind), SUM(price ORDER BY kind) FROM ordered_aggs
+         WHERE id @@@ paradedb.all() GROUP BY account_id",
+        "SELECT kind, MAX(price ORDER BY kind, account_id) FROM ordered_aggs
+         WHERE id @@@ paradedb.all() GROUP BY kind",
+    ];
+
+    for query in queries {
+        "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+        assert_uses_custom_scan(&mut conn, true, query);
+
+        // The comment gives each setting its own statement, and with it its own plan.
+        let [pushed_down, expected] = ["on", "off"].map(|enabled| {
+            format!("SET paradedb.enable_aggregate_custom_scan TO {enabled};").execute(&mut conn);
+            let (rows,) = format!(
+                "/* aggregate scan {enabled} */
+                 SELECT COALESCE(jsonb_agg(to_jsonb(q) ORDER BY to_jsonb(q)::text), '[]')::text
+                 FROM ({query}) q"
+            )
+            .fetch_one::<(String,)>(&mut conn);
+            rows
+        });
+
+        assert_eq!(pushed_down, expected, "{query}");
+    }
+}
+
 #[rstest]
 fn test_no_bm25_index(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'no_bm25', schema_name => 'paradedb');"

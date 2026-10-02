@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed wrong results from Aggregate Scan for an aggregate with its own `ORDER BY`, such as `COUNT(id ORDER BY kind)`. On Postgres 16 and later, the scan grouped on the sort column and returned one row for each of its values (#6607).

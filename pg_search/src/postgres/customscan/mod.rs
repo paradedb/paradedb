@@ -372,6 +372,21 @@ impl CreateUpperPathsHookArgs {
         }
     }
 
+    /// The pathkeys of the GROUP BY keys.
+    ///
+    /// On PG16 and later, `group_pathkeys` can have more entries after these:
+    /// the sort keys of ordered and DISTINCT aggregates, which PostgreSQL adds so
+    /// that one sort can serve them. They are not GROUP BY keys.
+    pub fn group_by_pathkeys(&self) -> Vec<*mut pg_sys::PathKey> {
+        // `group_pathkeys` of a valid `PlannerInfo` is NIL or a list of `PathKey`.
+        let pathkeys = unsafe { PgList::<pg_sys::PathKey>::from_pg(self.root().group_pathkeys) };
+        #[cfg(feature = "pg15")]
+        let count = pathkeys.len();
+        #[cfg(not(feature = "pg15"))]
+        let count = self.root().num_groupby_pathkeys as usize;
+        pathkeys.iter_ptr().take(count).collect()
+    }
+
     /// Estimate how many groups the GROUP BY will produce, so routing can send
     /// high-cardinality aggregates to DataFusion (no bucket cap) and keep
     /// low-cardinality ones on the faster Tantivy path.

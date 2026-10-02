@@ -194,16 +194,13 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[documents, files, pages]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@5, fileId@2)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@5, pdb.score(pages)@6, ctid_2@7]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@3)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@5]
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id]
-     :             CooperativeExec
-     :               PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(files), ctid_1@1 as ctid_1, id@2 as id, documentId@3 as documentId]
-     :             CooperativeExec
-     :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(pages), ctid_2@1 as ctid_2, fileId@2 as fileId]
      :           CooperativeExec
-     :             PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"vector","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(21 rows)
+     :             PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"vector","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(18 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -251,8 +248,8 @@ WHERE documents.content ||| 'postgres'
   AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                          QUERY PLAN                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: documents.id, files.id, (paradedb.score(documents.id)), (paradedb.score(files.id)), ((paradedb.score(documents.id) + paradedb.score(files.id)))
    Relation Tree: documents INNER files
@@ -264,13 +261,11 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[pdb.score(documents)@0 + pdb.score(files)@3 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[documents, files]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4]
-     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id]
-     :           CooperativeExec
-     :             PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         ProjectionExec: expr=[pdb.score()@0 as pdb.score(files), ctid_1@1 as ctid_1, documentId@2 as documentId]
-     :           CooperativeExec
-     :             PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(17 rows)
+     :         CooperativeExec
+     :           PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(15 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -310,8 +305,8 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY pdb_score DESC, pages.id ASC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: documents.id, files.id, pages.id, (((paradedb.score(documents.id) + paradedb.score(files.id)) + paradedb.score(pages.id)))
    Relation Tree: (documents INNER files) INNER pages
@@ -325,16 +320,13 @@ LIMIT 10;
      :       VisibilityFilterExec: tables=[documents, files, pages]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@5, fileId@2)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@5, pdb.score(pages)@6, ctid_2@7, id@9]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@3)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@5]
-     :             ProjectionExec: expr=[pdb.score()@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id]
-     :               CooperativeExec
-     :                 PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :             ProjectionExec: expr=[pdb.score()@0 as pdb.score(files), ctid_1@1 as ctid_1, id@2 as id, documentId@3 as documentId]
-     :               CooperativeExec
-     :                 PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(pages), ctid_2@1 as ctid_2, fileId@2 as fileId, id@3 as id]
      :             CooperativeExec
-     :               PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"vector","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(22 rows)
+     :               PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"vector","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(19 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -399,16 +391,13 @@ LIMIT 10;
      :       VisibilityFilterExec: tables=[documents, files, pages]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@6, fileId@2)], filter=__documents_0_tag_0@0 OR __files_1_tag_0@1 OR __pages_2_tag_0@2, projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@4, ctid_1@5, id@6, pdb.score(pages)@8, ctid_2@9, fileId@10, id@11]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@3)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, __documents_0_tag_0@3, pdb.score(files)@4, ctid_1@5, id@6, __files_1_tag_0@8]
-     :             ProjectionExec: expr=[pdb.score()@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id, __documents_0_tag_0@3 as __documents_0_tag_0]
-     :               CooperativeExec
-     :                 PgSearchScan: table=documents, segments=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :             ProjectionExec: expr=[pdb.score()@0 as pdb.score(files), ctid_1@1 as ctid_1, id@2 as id, documentId@3 as documentId, __files_1_tag_0@4 as __files_1_tag_0]
-     :               CooperativeExec
-     :                 PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(pages), ctid_2@1 as ctid_2, fileId@2 as fileId, id@3 as id, __pages_2_tag_0@4 as __pages_2_tag_0]
      :             CooperativeExec
-     :               PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(23 rows)
+     :               PgSearchScan: table=documents, segments=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(20 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -471,10 +460,9 @@ LIMIT 10;
      :               PgSearchScan: table=documents, segments=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
      :               PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(pages), ctid_2@1 as ctid_2, fileId@2 as fileId, id@3 as id, __pages_2_tag_0@4 as __pages_2_tag_0]
-     :             CooperativeExec
-     :               PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(21 rows)
+     :           CooperativeExec
+     :             PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(20 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -532,16 +520,13 @@ LIMIT 10;
      :       VisibilityFilterExec: tables=[documents, files, pages]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@5, fileId@2)], filter=__files_1_tag_0@0 OR __pages_2_tag_0@1, projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@5, pdb.score(pages)@7, ctid_2@8, fileId@9, id@10]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@3)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@5, __files_1_tag_0@7]
-     :             ProjectionExec: expr=[pdb.score()@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id]
-     :               CooperativeExec
-     :                 PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :             ProjectionExec: expr=[pdb.score()@0 as pdb.score(files), ctid_1@1 as ctid_1, id@2 as id, documentId@3 as documentId, __files_1_tag_0@4 as __files_1_tag_0]
-     :               CooperativeExec
-     :                 PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(pages), ctid_2@1 as ctid_2, fileId@2 as fileId, id@3 as id, __pages_2_tag_0@4 as __pages_2_tag_0]
      :             CooperativeExec
-     :               PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(23 rows)
+     :               PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=files, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(20 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -584,8 +569,8 @@ WHERE documents.content ||| 'postgres'
   AND pages.content ||| 'vector'
 ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: documents.id, files.id, pages.id, (paradedb.score(pages.id)), (paradedb.score(documents.id))
    Relation Tree: (documents INNER files) INNER pages
@@ -599,15 +584,13 @@ LIMIT 10;
      :       VisibilityFilterExec: tables=[documents, files, pages]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@4, fileId@2)]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, ctid_1@3, id@4]
-     :             ProjectionExec: expr=[pdb.score()@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id]
-     :               CooperativeExec
-     :                 PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
      :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(pages), ctid_2@1 as ctid_2, fileId@2 as fileId, id@3 as id]
-     :             CooperativeExec
-     :               PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"vector","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(21 rows)
+     :           CooperativeExec
+     :             PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"vector","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(19 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -653,8 +636,8 @@ WHERE (documents.content ||| 'postgres' OR documents.content ||| 'search')
   AND pages.content ||| 'vector'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
-                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: documents.id, files.id, pages.id, (paradedb.score(documents.id)), (paradedb.score(files.id)), (paradedb.score(pages.id)), (((paradedb.score(documents.id) + paradedb.score(files.id)) + paradedb.score(pages.id)))
    Relation Tree: (documents INNER files) INNER pages
@@ -668,16 +651,13 @@ LIMIT 10;
      :       VisibilityFilterExec: tables=[documents, files, pages]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@5, fileId@2)]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@3)], projection=[pdb.score(documents)@0, ctid_0@1, id@2, pdb.score(files)@3, ctid_1@4, id@5]
-     :             ProjectionExec: expr=[pdb.score()@0 as pdb.score(documents), ctid_0@1 as ctid_0, id@2 as id]
-     :               CooperativeExec
-     :                 PgSearchScan: table=documents, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :             ProjectionExec: expr=[pdb.score()@0 as pdb.score(files), ctid_1@1 as ctid_1, id@2 as id, documentId@3 as documentId]
-     :               CooperativeExec
-     :                 PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(pages), ctid_2@1 as ctid_2, fileId@2 as fileId, id@3 as id]
      :             CooperativeExec
-     :               PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"vector","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(22 rows)
+     :               PgSearchScan: table=documents, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"content","value":"search","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :             CooperativeExec
+     :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=pages, segments=1, fetch=[id], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"vector","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(19 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,

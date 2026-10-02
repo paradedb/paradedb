@@ -102,7 +102,7 @@ fn ensure_column_fetched(
                 }
             });
         }
-        WhichFastField::Score
+        WhichFastField::Score(_)
         | WhichFastField::Ctid
         | WhichFastField::TableOid
         | WhichFastField::Junk(_)
@@ -444,14 +444,10 @@ impl Scanner {
             }
         }
 
-        if self
-            .which_fast_fields
-            .iter()
-            .any(|ff| matches!(ff, WhichFastField::Score))
-        {
+        if self.which_fast_fields.iter().any(|ff| ff.is_score()) {
             let scores_array = Arc::new(Float32Array::from(scores)) as ArrayRef;
             for (idx, ff) in self.which_fast_fields.iter().enumerate() {
-                if matches!(ff, WhichFastField::Score) {
+                if ff.is_score() {
                     memoized_columns[idx] = Some(scores_array.clone());
                 }
             }
@@ -617,7 +613,7 @@ impl Scanner {
             .enumerate()
             .map(|(ff_index, which_ff)| match which_ff {
                 WhichFastField::Ctid => Some(ctids_array.clone().unwrap()),
-                WhichFastField::Score => Some(memoized_columns[ff_index].clone().unwrap()),
+                WhichFastField::Score(_) => Some(memoized_columns[ff_index].clone().unwrap()),
                 WhichFastField::TableOid => {
                     let mut builder = arrow_array::builder::UInt32Builder::with_capacity(ids.len());
                     for _ in 0..ids.len() {

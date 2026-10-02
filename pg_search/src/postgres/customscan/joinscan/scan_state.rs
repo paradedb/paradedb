@@ -1667,6 +1667,10 @@ fn build_source_df<'a>(
             }
         }
 
+        let display_alias =
+            RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
+
+        provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
         provider.configure_deferred_outputs(
             &required_early,
             VisibilityMode::Deferred { plan_position },
@@ -1674,10 +1678,7 @@ fn build_source_df<'a>(
 
         let mut df = register_source_table(ctx, alias.as_str(), provider).await?;
 
-        let display_alias =
-            RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
-
-        // Select fields AND ensure CTID and Score are aliased uniquely
+        // Select fields AND ensure CTID is aliased uniquely
         let mut exprs = Vec::new();
         for df_field in df.schema().fields().iter() {
             let name = df_field.name();
@@ -1687,8 +1688,6 @@ fn build_source_df<'a>(
                 Some(WhichFastField::Ctid) => {
                     make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
                 }
-                Some(WhichFastField::Score) => make_col(alias.as_str(), name)
-                    .alias(ScoreColumn::new(&display_alias).to_string()),
                 _ => make_col(alias.as_str(), name),
             };
 

@@ -870,6 +870,11 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                 return Some(make_source_score_col(source));
             }
 
+            // Whole-row variables (attno 0) cannot be mapped to a single column.
+            if attno == 0 {
+                return None;
+            }
+
             let mapped_attno = source.map_var(rti, attno)?;
             let col_name = source.column_name(mapped_attno)?;
             if self

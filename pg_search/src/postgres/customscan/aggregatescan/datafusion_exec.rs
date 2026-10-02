@@ -1149,22 +1149,21 @@ async fn build_source_df(
             required_early.insert(col);
         }
     }
+    let display_alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
+
+    provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
     provider.configure_deferred_outputs(&required_early, crate::scan::VisibilityMode::Eager);
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
-    // Select fields AND ensure CTID and Score are aliased consistently with JoinScan
-    let display_alias =
-        RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
+    // Select fields AND ensure CTID is aliased consistently with JoinScan
     let mut exprs = Vec::new();
     for df_field in df.schema().fields().iter() {
         let name = df_field.name();
         let expr = match fields.iter().find(|w| w.name() == *name) {
             Some(WhichFastField::Ctid) => {
                 make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
-            }
-            Some(WhichFastField::Score) => {
-                make_col(alias.as_str(), name).alias(ScoreColumn::new(&display_alias).to_string())
             }
             _ => make_col(alias.as_str(), name),
         };

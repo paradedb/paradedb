@@ -370,8 +370,8 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
-                                                                                                                             QUERY PLAN                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, (paradedb.score(p.id))
    Relation Tree: (p INNER s) INNER c
@@ -384,14 +384,13 @@ LIMIT 5;
      :     VisibilityFilterExec: tables=[p, s, c], pruned=[s, c]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@2, id@0)], projection=[pdb.score(p)@0, ctid_0@1, ctid_1@3, ctid_2@5]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@3, id@0)], projection=[pdb.score(p)@0, ctid_0@1, category_id@2, ctid_1@5]
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(p), ctid_0@1 as ctid_0, category_id@2 as category_id, supplier_id@3 as supplier_id]
-     :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(19 rows)
+(18 rows)
 
 SELECT p.name, paradedb.score(p.id)
 FROM products p
@@ -415,8 +414,8 @@ JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info ||| 'wireless'
 ORDER BY paradedb.score(s.id) DESC
 LIMIT 5;
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: s.name, (paradedb.score(s.id))
    Relation Tree: (p INNER s) INNER c
@@ -429,14 +428,13 @@ LIMIT 5;
      :     VisibilityFilterExec: tables=[p, s, c], pruned=[p, c]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@0, id@0)], projection=[pdb.score(s)@1, ctid_1@2, ctid_0@3, ctid_2@5]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[category_id@3, pdb.score(s)@0, ctid_1@1, ctid_0@5]
-     :           ProjectionExec: expr=[pdb.score()@0 as pdb.score(s), ctid_1@1 as ctid_1, id@2 as id]
-     :             CooperativeExec
-     :               PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
-(19 rows)
+(18 rows)
 
 SELECT s.name, paradedb.score(s.id)
 FROM products p

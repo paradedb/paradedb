@@ -148,13 +148,10 @@ impl TryFrom<&str> for CtidColumn {
 /// JoinScan and AggregateScan format score column names as `pdb.score({table})`
 /// so that EXPLAIN plans and physical plan columns clearly identify which relation
 /// the score was computed from.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub struct ScoreColumn(String);
 
 impl ScoreColumn {
-    pub const PREFIX: &'static str = "pdb.score(";
-    pub const SUFFIX: &'static str = ")";
-
     pub fn new(table: impl Into<String>) -> Self {
         Self(table.into())
     }
@@ -162,7 +159,7 @@ impl ScoreColumn {
 
 impl fmt::Display for ScoreColumn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}{}", Self::PREFIX, self.0, Self::SUFFIX)
+        write!(f, "pdb.score({})", self.0)
     }
 }
 
@@ -617,14 +614,11 @@ impl JoinSource {
             .fields
             .iter()
             .find(|f| f.attno == attno)
-            .map(|f| {
-                if matches!(
-                    f.field,
-                    crate::index::fast_fields_helper::WhichFastField::Score
-                ) {
-                    ScoreColumn::new(self.display_alias()).to_string()
+            .and_then(|f| {
+                if f.field.is_score() {
+                    None
                 } else {
-                    f.field.name()
+                    Some(f.field.name())
                 }
             })
     }

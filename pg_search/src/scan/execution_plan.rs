@@ -1252,9 +1252,10 @@ impl ExecutionPlan for PgSearchScanPlan {
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let plan_metrics = self.metrics.clone();
         let schema = self.properties.eq_properties.schema().clone();
-        let score_column_schema_idx: Option<usize> = schema
-            .column_with_name(&WhichFastField::Score.name())
-            .map(|(idx, _)| idx);
+        let score_column_schema_idx: Option<usize> = scanner_config
+            .which_fast_fields
+            .iter()
+            .position(|wff| wff.is_score());
         let dynamic_filters = self.dynamic_filters.clone();
         let scan_fetched_fields: Vec<String> = self
             .deferred_fields
@@ -1314,7 +1315,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             let need_scores = scanner_config
                 .which_fast_fields
                 .iter()
-                .any(|wff| matches!(wff, WhichFastField::Score));
+                .any(|wff| wff.is_score());
             let mut scanner = Scanner::new(
                 search_results,
                 scanner_config.batch_size_hint,

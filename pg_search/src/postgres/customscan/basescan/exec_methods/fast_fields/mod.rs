@@ -270,12 +270,12 @@ pub unsafe fn pullup_fast_fields(
             // 2. a call to `pdb.score` inside of an expression which will be solved by a
             //    wrapping/outer scan because it contains vars from other relations.
             if is_score_func((*te).expr.cast(), rti) {
-                matches.push(WhichFastField::Score);
+                matches.push(WhichFastField::score());
                 continue;
             } else if !can_scan_evaluate_expr(rti, (*te).expr.cast()) {
                 // The expression depends on other relations, so it will be evaluated by an upper node.
                 // We just need to provide the score.
-                matches.push(WhichFastField::Score);
+                matches.push(WhichFastField::score());
                 continue;
             }
             // Fallthrough: expression is local but complex -> cannot use fast fields
@@ -413,7 +413,7 @@ pub fn is_all_special_or_junk_fields<'a>(
             WhichFastField::Junk(_)
                 | WhichFastField::TableOid
                 | WhichFastField::Ctid
-                | WhichFastField::Score
+                | WhichFastField::Score(_)
         )
     })
 }

@@ -186,11 +186,6 @@ impl AggregateUDFImpl for TopKAgg {
 
         let (sort, ctid_positions) = if acc_args.is_distinct {
             let ctids = positions_arg(&acc_args, n + 1, name, "ctid positions", n)?;
-            if let Some((p, _)) = sort.iter().find(|(p, _)| ctids.contains(p)) {
-                return Err(DataFusionError::Internal(format!(
-                    "{name} ORDER BY position {p} is a ctid position, which is not supported"
-                )));
-            }
             if let Some(p) = ctids
                 .iter()
                 .find(|&&p| schema.field(p).data_type() != &DataType::UInt64)

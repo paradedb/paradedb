@@ -2731,6 +2731,7 @@ mod tests {
             crate::api::operator::estimate_selectivity_and_cost(
                 &index_rel,
                 range_query("id", 100, 200),
+                None,
             ),
             (Some(crate::UNKNOWN_SELECTIVITY), None),
         );

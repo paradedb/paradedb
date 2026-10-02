@@ -250,6 +250,24 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install profiling tools
+        if: inputs.profile
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y linux-perf python3-venv python3-psycopg
+          perf_bin=$(command -v perf)
+          test -x "$perf_bin"
+          "$perf_bin" --version
+          echo "PERF_BIN=$perf_bin" >> "$GITHUB_ENV"
+          sudo sysctl kernel.perf_event_paranoid=-1
+          sudo "$perf_bin" stat -e cpu-clock -- sleep 0.1
+          sudo "$perf_bin" record -a -C 0 -e cpu-clock:u -F 99 --call-graph dwarf,16384 \
+            -o "$RUNNER_TEMP/perf-preflight.data" -- taskset -c 0 python3 -c 'sum(range(5000000))'
+          sudo "$perf_bin" report -i "$RUNNER_TEMP/perf-preflight.data" --stdio --inline \
+            --no-children --percent-limit 0.1 -g none
+          python3 -m venv --system-site-packages "$RUNNER_TEMP/profile-venv"
+          "$RUNNER_TEMP/profile-venv/bin/python" -c 'import psycopg; print(psycopg.__version__)'
+
       - name: Build ParadeDB Image
         id: build_image
         uses: ./.github/actions/build-paradedb-image
@@ -267,19 +285,6 @@ jobs:
           ref: ${{ inputs.benchmarker_stackexchange_ref || 'datasets' }}
           patch_file: .github/patches/benchmarker.patch
           lfs: "false"
-
-      - name: Install profiling tools
-        if: inputs.profile
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y linux-tools-generic python3-venv
-          perf_bin=$(find /usr/lib/linux-tools -type f -name perf | sort -V | tail -1)
-          test -x "$perf_bin"
-          echo "PERF_BIN=$perf_bin" >> "$GITHUB_ENV"
-          sudo sysctl kernel.perf_event_paranoid=-1
-          sudo "$perf_bin" stat -e cpu-clock -- sleep 0.1
-          python3 -m venv "$RUNNER_TEMP/profile-venv"
-          "$RUNNER_TEMP/profile-venv/bin/pip" install 'psycopg[binary]==3.2.10'
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6

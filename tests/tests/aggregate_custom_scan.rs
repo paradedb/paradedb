@@ -172,26 +172,6 @@ fn test_count_with_group_by(mut conn: PgConnection) {
     assert_eq!(results[2], (5, 1)); // rating 5, count 1
 }
 
-#[rstest]
-fn test_group_by(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
-
-    // Supports GROUP BY with aggregate scan
-    assert_uses_custom_scan(
-        &mut conn,
-        true,
-        r#"
-        SELECT rating, COUNT(*)
-        FROM paradedb.bm25_search WHERE
-        description ||| 'keyboard'
-        GROUP BY rating
-        ORDER BY rating
-        "#,
-    );
-}
-
 // PostgreSQL caches the plan of a prepared statement and runs it again. The
 // scan must leave the plan in a state that the next run can use.
 #[rstest]
@@ -267,6 +247,26 @@ fn test_bound_parameters_tantivy_groupby_survives_reuse(mut conn: PgConnection) 
             assert_eq!(run(&mut conn, plan_cache_mode, 6), vec![]);
         }
     }
+}
+
+#[rstest]
+fn test_group_by(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+
+    // Supports GROUP BY with aggregate scan
+    assert_uses_custom_scan(
+        &mut conn,
+        true,
+        r#"
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search WHERE
+        description ||| 'keyboard'
+        GROUP BY rating
+        ORDER BY rating
+        "#,
+    );
 }
 
 #[rstest]

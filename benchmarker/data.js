@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790967448384,
+  "lastUpdate": 1790978388273,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -6970,6 +6970,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 754.642,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5caa1e3cd1b99eb9aee519669b910a5b12e1faa7",
+          "message": "fix: keep the Aggref replacements of AggregateScan in the plan's memory context (#6611)\n\n## Ticket(s) Closed\n\n- Closes #6136\n\n## What\n\nThis PR lets a prepared statement run a grouped aggregate on the Tantivy\nbackend of AggregateScan more than one time.\n\n```sql\nPREPARE group_by_region AS\nSELECT region, COUNT(*) FROM sales WHERE id @@@ pdb.all() GROUP BY region ORDER BY region;\n\nEXECUTE group_by_region;  -- rows\nEXECUTE group_by_region;  -- ERROR:  PgList does not contain pointers\n```\n\nThe second run of a cached plan failed. A statement with no parameters\ngets a cached plan on its first run. A statement with parameters gets\none when PostgreSQL changes to a generic plan, which it can do after\nfive runs. A driver that prepares its statements, such as sqlx, hits\nthis when it sends the same query two times. A statement in a PL/pgSQL\nfunction hits it on the second call.\n\n## Why\n\nFor a grouped aggregate, `replace_aggrefs_in_target_list` runs at\n`CreateCustomScanState`. The Aggrefs must stay in the target list\nthrough planning, because the nodes above the scan look for them there.\nThe function then wrote the new target list into the plan node, but it\nbuilt the list in the memory context of the execution. PostgreSQL freed\nthat memory at the end of the query, and the cached plan kept the\npointer.\n\n## How\n\nThe new target list goes into the memory context of the list that it\nreplaces, which is the context of the plan. The first execution replaces\nthe Aggrefs. Each later execution finds the placeholders and has nothing\nto do.\n\nThis PR continues #6252 by @siddiqueirshad, which has the same source\nchange.\n\n## Tests\n\n- New regress test `prepared_statement_aggregate`.\n- `test_prepared_tantivy_groupby_survives_reuse`, from #6252, and\n`test_bound_parameters_tantivy_groupby_survives_reuse`\n\nAll of them fail on `main` with `PgList does not contain pointers`.\n\n---------\n\nCo-authored-by: siddiqui irshad <mohdirshad1306@gmail.com>",
+          "timestamp": "2026-10-02T13:50:22-07:00",
+          "tree_id": "c57d512522be2d54342bf132641598b7dc3113fd",
+          "url": "https://github.com/paradedb/paradedb/commit/5caa1e3cd1b99eb9aee519669b910a5b12e1faa7"
+        },
+        "date": 1790978386538,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.45,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 153.937,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.442,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 243.23,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.402,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 175.445,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.739,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 211.892,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 37.844,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 717.173,
             "unit": "ms"
           }
         ]

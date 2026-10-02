@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790902715553,
+  "lastUpdate": 1790926362275,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -6674,6 +6674,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 710.088,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c1977fd7590c4de1aee01c5d396fe973f109c7ec",
+          "message": "test: make multi-page garbage collection fixtures deterministic (#6402)\n\nThe multi-page linked-item garbage collection test intermittently fails\non PostgreSQL 15 when a background writer pins one of its fake postings\nblocks, causing an otherwise dead entry to be deferred.\n\nUse fake file descriptors with `InvalidBlockNumber` only in\n`test_linked_items_garbage_collect_multiple_pages`. This exercises the\nexisting no-pintest-block path and makes deletion and compaction\nindependent of background writer pins. The test retains its original\none-pass collection calls and assertions. The single-page test and\nproduction code are unchanged; the retry helper and added pinned-entry\ntest are removed.\n\nValidation: `git diff --check` passes; verified that only the multi-page\ntest differs from the PR base. Runtime tests were not run locally\nbecause Cargo and PostgreSQL are unavailable; CI validation is pending.\n\nFixes #6334.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-01T23:23:28-07:00",
+          "tree_id": "153b3e6cd313e6ad0df36d204b679f8b688fc1d1",
+          "url": "https://github.com/paradedb/paradedb/commit/c1977fd7590c4de1aee01c5d396fe973f109c7ec"
+        },
+        "date": 1790926360523,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 16.56,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 149.782,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.997,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 244.072,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 20.566,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 165.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.479,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 209.99,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 39.579,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 709.534,
             "unit": "ms"
           }
         ]

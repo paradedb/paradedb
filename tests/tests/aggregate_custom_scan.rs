@@ -212,6 +212,7 @@ fn test_group_by_null_bucket(mut conn: PgConnection) {
 
 // On PG16 and later, PostgreSQL puts the sort keys of an ordered aggregate
 // after the GROUP BY keys in `group_pathkeys`. The scan must not group on them.
+// PG15 has no such keys, so this test does not fail there without the fix.
 #[rstest]
 fn test_ordered_aggregate_is_not_a_group_key(mut conn: PgConnection) {
     r#"

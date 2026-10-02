@@ -202,7 +202,7 @@ FROM ordered_agg_items
 WHERE id <= 12 AND id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
+WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -222,7 +222,7 @@ FROM ordered_agg_items
 WHERE id <= 12 AND id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
+WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
  account_id |  sum  | string_agg 
 ------------+-------+------------
           1 | 12.00 | a,b,c,d
@@ -234,7 +234,7 @@ EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
 WHERE id @@@ paradedb.all();
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
+WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
                             QUERY PLAN                             
 -------------------------------------------------------------------
  Aggregate
@@ -253,7 +253,7 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
 SELECT SUM(amount), COUNT(DISTINCT kind COLLATE ordered_agg_case_insensitive)
 FROM ordered_agg_items
 WHERE id @@@ paradedb.all();
-WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
+WARNING:  Aggregate Scan not used: an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: ordered_agg_items)
   sum   | count 
 --------+-------
  300.00 |     4

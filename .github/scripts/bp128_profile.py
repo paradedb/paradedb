@@ -12,6 +12,7 @@ from pathlib import Path
 import psycopg  # pylint: disable=import-error
 
 root = Path(sys.argv[1]).resolve()
+timings_only = "--timings-only" in sys.argv[2:]
 rows = json.loads((root / "requests.json").read_text())
 with psycopg.connect(
     "postgres://postgres:postgres@127.0.0.1:45432/benchmark",
@@ -25,6 +26,7 @@ with psycopg.connect(
     metadata = {
         "commit": os.environ["PROFILE_COMMIT"],
         "perf_event": os.environ["PERF_EVENT"],
+        "norm_mode": os.environ.get("TANTIVY_BP128_MODE", "full"),
         "settings": connection.execute(
             "SELECT name, setting FROM pg_settings"
         ).fetchall(),
@@ -60,6 +62,8 @@ with psycopg.connect(
     sparse = [r for r in rows if r["hits"] < 10]
     dense = [r for r in rows if r["hits"] == 10]
     for name, pool in [("all", rows), ("sparse", sparse), ("dense", dense)]:
+        if timings_only:
+            break
         assert pool, name
         with (
             (root / f"{name}.perf.log").open("w") as log,
@@ -100,6 +104,12 @@ with psycopg.connect(
     selected += sorted(
         sparse, key=lambda r: statistics.median(r["samples_ms"][1:]), reverse=True
     )[:20]
+    if os.environ.get("PROFILE_BASE_TIMINGS"):
+        base_rows = json.loads(
+            Path(os.environ["PROFILE_BASE_TIMINGS"]).read_text(encoding="utf-8")
+        )
+        base_ids = {row["id"] for row in base_rows if "plan" in row}
+        selected = [row for row in rows if row["id"] in base_ids]
     for row in selected:
         row["plan"] = connection.execute(
             "EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS, TIMING OFF, FORMAT JSON) "

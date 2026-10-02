@@ -34,6 +34,10 @@ on:
         description: "Collect conjunction CPU profiles and per-query timings"
         type: boolean
         default: false
+      score_ablation:
+        description: "Compare scoring and norm-read modes on one index (requires profile)"
+        type: boolean
+        default: false
       commit:
         description: "pg_search commit/ref to benchmark. Defaults to the triggering ref (main on a manual run)."
         required: false
@@ -369,8 +373,23 @@ jobs:
             PARADEDB_IMAGE="${IMAGE_TAG}" \
             VOLUME_ROOT="${VOLUME_ROOT}"
 
-      - name: Profile conjunction queries
+      - name: Prepare conjunction requests
         if: inputs.profile
+        working-directory: benchmarker
+        run: |
+          mkdir -p results/profiles
+          cp benchmarks/queries.js results/profiles/queries.mjs
+          node --input-type=module <<'JS' > results/profiles/requests.json
+          import fs from 'node:fs';
+          import {selectQueries, buildRequest} from './results/profiles/queries.mjs';
+          const pool = JSON.parse(fs.readFileSync('datasets/stackexchange/queries.json'));
+          console.log(JSON.stringify(selectQueries(pool, 'conjunction', 1592614637).map(entry => ({
+            id: entry.record.source_id, request: buildRequest('paradedb', 'topk', entry, 10)
+          }))));
+          JS
+
+      - name: Profile conjunction queries
+        if: inputs.profile && !inputs.score_ablation
         working-directory: benchmarker
         env:
           POSTGRES_CPUSET: "0-7"
@@ -394,15 +413,6 @@ jobs:
           docker cp "$container:/usr/lib/postgresql/18/lib/pg_search.so" "$symfs/usr/lib/postgresql/18/lib/"
           docker cp "$container:/usr/lib/postgresql/18/bin/postgres" "$symfs/usr/lib/postgresql/18/bin/"
           sha256sum "$symfs/usr/lib/postgresql/18/lib/pg_search.so" > results/profiles/library.sha256
-          cp benchmarks/queries.js results/profiles/queries.mjs
-          node --input-type=module <<'JS' > results/profiles/requests.json
-          import fs from 'node:fs';
-          import {selectQueries, buildRequest} from './results/profiles/queries.mjs';
-          const pool = JSON.parse(fs.readFileSync('datasets/stackexchange/queries.json'));
-          console.log(JSON.stringify(selectQueries(pool, 'conjunction', 1592614637).map(entry => ({
-            id: entry.record.source_id, request: buildRequest('paradedb', 'topk', entry, 10)
-          }))));
-          JS
           taskset -c 8-11 "$RUNNER_TEMP/profile-venv/bin/python" ../.github/scripts/bp128_profile.py results/profiles
           for data in results/profiles/*.data; do
             sudo "$PERF_BIN" report -i "$data" --symfs "$symfs" --stdio --no-children \
@@ -412,6 +422,59 @@ jobs:
           done
           sudo chown -R "$USER" results
           docker stop "$container"
+
+      - name: Compare modes on the same index
+        if: inputs.profile && inputs.score_ablation
+        working-directory: benchmarker
+        env:
+          POSTGRES_CPUSET: "0-7"
+          PROFILE_COMMIT: ${{ steps.determine-ref.outputs.ref }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path('benchmarks/compose.yml')
+          source = path.read_text()
+          anchor = '    POSTGRES_DB: benchmark\n'
+          assert source.count(anchor) == 1
+          path.write_text(source.replace(anchor, anchor + '    TANTIVY_BP128_MODE: ${TANTIVY_BP128_MODE:-full}\n'))
+          PY
+          for label in full-before quantized legacy fieldnorms bounded full-after; do
+            export TANTIVY_BP128_MODE="${label%%-*}"
+            out="$PWD/results/$label"
+            mkdir -p "$out"
+            cp results/profiles/requests.json "$out/requests.json"
+            taskset -c 8-11 make -f Makefile.stackexchange run \
+              BACKENDS=paradedb WORKLOAD=topk QUERY_STYLE=conjunction VUS=1 \
+              PREWARM=30s DURATION=60s OUTPUT=json,html OUT_DIR="$out" \
+              PARADEDB_IMAGE="$IMAGE_TAG" VOLUME_ROOT="$VOLUME_ROOT"
+            container=$(docker ps -aq --filter label=io.benchmarker.project=bench-datasets-stackexchange)
+            test "$(wc -w <<< "$container")" -eq 1
+            docker start "$container"
+            for attempt in $(seq 1 60); do
+              if docker exec "$container" pg_isready -U postgres -d benchmark; then break; fi
+              sleep 2
+            done
+            test "$(docker exec "$container" printenv TANTIVY_BP128_MODE)" = "$TANTIVY_BP128_MODE"
+            docker exec "$container" sha256sum /usr/lib/postgresql/18/lib/pg_search.so > "$out/library.sha256"
+            taskset -c 8-11 "$RUNNER_TEMP/profile-venv/bin/python" ../.github/scripts/bp128_profile.py "$out" --timings-only
+            export PROFILE_BASE_TIMINGS="$PWD/results/full-before/timings.json"
+            docker stop "$container"
+          done
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          roots = [Path('results') / name for name in ('full-before', 'quantized', 'legacy', 'fieldnorms', 'bounded', 'full-after')]
+          reference = json.loads((roots[0] / 'metadata.json').read_text())
+          library_hash = (roots[0] / 'library.sha256').read_text()
+          for root in roots[1:]:
+              current = json.loads((root / 'metadata.json').read_text())
+              assert current['index_bytes'] == reference['index_bytes'], root
+              assert sorted(current['segments']) == sorted(reference['segments']), root
+              assert current['settings'] == reference['settings'], root
+              assert (root / 'library.sha256').read_text() == library_hash, root
+          print('Verified identical index layout, index size, PostgreSQL settings and extension binary across all modes')
+          PY
 
       - name: Upload profiles
         if: always() && inputs.profile

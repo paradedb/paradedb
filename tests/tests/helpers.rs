@@ -110,7 +110,8 @@ fn list_tokenizers(mut conn: PgConnection) {
             ("lindera_deprecated".into(),),
             ("lindera".into(),),
             ("unicode_words_deprecated".into(),),
-            ("unicode_words".into(),)
+            ("unicode_words".into(),),
+            ("regex_tokenizer_deprecated".into(),)
         ]
     );
 }

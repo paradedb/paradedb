@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790987563856,
+  "lastUpdate": 1791009698566,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7266,6 +7266,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 722.351,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b6da2aa21de8b25db805e416a72b5d941a0d298",
+          "message": "perf: Enable blockmax pruning on filtered queries. (#6579)\n\n## What\n\nEnable dynamic score threshold pushdown (Block-Max WAND / BMW) into\nTantivy for filtered queries.\n\n- Closes #6575\n\n## Why\n\nAllows Top K sort to push its tightening score threshold into Tantivy\nscorers during range co-partitioned joins and filtered scans, pruning\nnon-competitive candidate documents earlier.\n\n## How\n\n- Bump `tantivy` to https://github.com/paradedb/tantivy/pull/291 to\nsupport BMW on filtered queries.\n- Wrap partition bounds in `ConstScoreQuery(..., 0.0)` in\n`pg_search/src/index/reader/index.rs` so partition boundary filters do\nnot alter document scores.\n- Track and emit the `dynamic_filter_pushdown_score` plan metric when a\nscore threshold is pushed down to `Scanner`.\n\n## Tests\n\n- `join_top_k_score_desc_low_selectivity - range_partitioned` runs 42%\nfaster.\n- Regress test in `join_order_by.out` demonstrating\n`dynamic_filter_pushdown_score=1` in `EXPLAIN ANALYZE`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-02T22:31:35-07:00",
+          "tree_id": "0c2e4f1d3d2ae3a2117bfc25924cdbc48daf851e",
+          "url": "https://github.com/paradedb/paradedb/commit/3b6da2aa21de8b25db805e416a72b5d941a0d298"
+        },
+        "date": 1791009696498,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 148.1,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.704,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 242.98,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.19,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 172.321,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.547,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 210.693,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 36.972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 724.571,
             "unit": "ms"
           }
         ]

@@ -57,8 +57,7 @@ FOREIGN KEY (product_id)
 REFERENCES mock_items(id);
 
 CREATE INDEX orders_idx ON orders
-USING paradedb (order_id, product_id, order_quantity, order_total, customer_name)
-WITH (key_field = 'order_id');
+USING paradedb (order_id, product_id, order_quantity, order_total, customer_name);
 ```
 
 ```sql

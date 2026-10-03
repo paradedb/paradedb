@@ -26,6 +26,7 @@ use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::planner_warnings::add_planner_warning;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::strip_relabel;
 use crate::query::SearchQueryInput;
 use pgrx::{PgList, pg_sys};
 
@@ -884,15 +885,6 @@ impl IndexClause {
 /// An index path's estimated selectivity, clamped to a usable fraction.
 unsafe fn selectivity(ipath: *mut pg_sys::IndexPath) -> f64 {
     unsafe { (*ipath).indexselectivity.clamp(0.0, 1.0) }
-}
-
-unsafe fn strip_relabel(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    unsafe {
-        while (*node).type_ == pg_sys::NodeTag::T_RelabelType {
-            node = (*node.cast::<pg_sys::RelabelType>()).arg.cast();
-        }
-        node
-    }
 }
 
 unsafe fn is_pseudoconstant(node: *mut pg_sys::Node) -> bool {

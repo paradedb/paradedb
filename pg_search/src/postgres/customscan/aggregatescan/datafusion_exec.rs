@@ -146,10 +146,15 @@ pub async fn build_join_aggregate_plan(
     for (gc_idx, gc) in targetlist.group_columns.iter().enumerate() {
         if gc.row_value {
             // PostgreSQL's Agg node reads such a column from one row of the group.
+            // It is not a grouping key, so its own name is free in the output, and
+            // the sort and HAVING lookups find it as they find a key.
             let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+            let name = column.try_as_col().cloned().ok_or_else(|| {
+                DataFusionError::Internal(format!("row value {} is not a column", gc.field_name))
+            })?;
             row_values.push((
                 gc_idx,
-                first_value(column, row_order.clone()).alias(row_value_alias(gc_idx)),
+                first_value(column, row_order.clone()).alias_qualified(name.relation, name.name),
             ));
             group_df_indices.push(usize::MAX);
             continue;
@@ -396,12 +401,8 @@ pub async fn build_join_aggregate_plan(
 }
 
 /// The grouping key of a GROUP BY query whose keys are all pinned to constants.
+/// It is the only grouping key, so its name cannot be the name of another one.
 const ONE_GROUP_KEY: &str = "__one_group";
-
-/// The DataFusion output name of the row value column `group_columns[gc_idx]`.
-pub(super) fn row_value_alias(gc_idx: usize) -> String {
-    format!("row_{gc_idx}")
-}
 
 /// An array key in a `pdb.agg()` spec that must be unnested.
 struct ArrayKeyToUnnest {

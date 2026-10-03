@@ -54,15 +54,15 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: account_id, (count(*))
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
@@ -84,15 +84,15 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 99 AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: account_id, (count(*))
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":99}}]}}
@@ -113,15 +113,15 @@ SELECT COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: (count(*)), (sum(price)), account_id
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*), SUM(price)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, sum(pinned_key_items_0.price) as agg_1, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, sum(pinned_key_items_0.price) as agg_1, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id, price@2 as price]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
@@ -151,14 +151,14 @@ SELECT account_id
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: account_id
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
@@ -188,15 +188,15 @@ SELECT code, account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = 2 AND code = 'c1' AND id @@@ paradedb.all()
 GROUP BY account_id, code;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: code, account_id, (count(*))
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.code) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.code) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as code, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, code@1 as code, account_id@2 as account_id]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":2}},{"term":{"field":"code","value":"c1"}}]}}
@@ -218,15 +218,15 @@ SELECT account_id, COUNT(*) FILTER (WHERE kind = 'none')
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                                                   QUERY PLAN                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: account_id, (count(*) FILTER (WHERE (kind = 'none'::text)))
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) FILTER (WHERE pinned_key_items_0.kind = Utf8View("none")) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) FILTER (WHERE pinned_key_items_0.kind = Utf8View("none")) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id, kind@2 as kind]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
@@ -256,8 +256,8 @@ SELECT DISTINCT account_id, COUNT(*), SUM(price)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                                             QUERY PLAN                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashAggregate
    Output: account_id, (count(*)), (sum(price))
    Group Key: (count(*)), (sum(pinned_key_items.price))
@@ -267,7 +267,7 @@ GROUP BY account_id;
          Indexes: pinned_key_items_idx (pinned_key_items)
          Aggregates: COUNT(*), SUM(price)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, sum(pinned_key_items_0.price) as agg_1, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+           : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, sum(pinned_key_items_0.price) as agg_1, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
            :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id, price@2 as price]
            :     CooperativeExec
            :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
@@ -287,8 +287,8 @@ SELECT account_id, COUNT(*), SUM(COUNT(*)) OVER ()
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
    Output: account_id, (count(*)), sum((count(*))) OVER w1
    Window: w1 AS ()
@@ -298,7 +298,7 @@ GROUP BY account_id;
          Indexes: pinned_key_items_idx (pinned_key_items)
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+           : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
            :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id]
            :     CooperativeExec
            :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
@@ -330,15 +330,15 @@ SELECT account_id, COUNT(id ORDER BY kind)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: account_id, (count(id ORDER BY kind))
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(id, kind)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(pinned_key_items_0.id) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(pinned_key_items_0.id) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id, id@2 as id]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
@@ -376,9 +376,9 @@ ORDER BY kind;
          Group By: kind
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
            :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
            :       TantivyFetchExec: fetch=[kind]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
            :           CooperativeExec
@@ -418,8 +418,8 @@ WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY account_id, kind
 LIMIT 3;
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: account_id, kind, (sum(price))
    ->  Sort
@@ -432,9 +432,9 @@ LIMIT 3;
                Group By: kind
                Aggregates: SUM(price)
                DataFusion Physical Plan: 
-                 : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[sum(pinned_key_items_0.price) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+                 : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[sum(pinned_key_items_0.price) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
                  :   TantivyDecodeExec: decode=[kind]
-                 :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[sum(pinned_key_items_0.price) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+                 :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[sum(pinned_key_items_0.price) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
                  :       TantivyFetchExec: fetch=[kind]
                  :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id, price@3 as price]
                  :           CooperativeExec
@@ -462,8 +462,8 @@ FROM pinned_key_items
 WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
-                                                                                                        QUERY PLAN                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: account_id, kind, ((COALESCE((sum(price)), '0'::double precision) + '1'::double precision))
    Sort Key: pinned_key_items.kind
@@ -474,9 +474,9 @@ ORDER BY kind;
          Group By: kind
          Aggregates: SUM(price)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[sum(pinned_key_items_0.price) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[sum(pinned_key_items_0.price) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
            :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[sum(pinned_key_items_0.price) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[sum(pinned_key_items_0.price) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
            :       TantivyFetchExec: fetch=[kind]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id, price@3 as price]
            :           CooperativeExec
@@ -504,8 +504,8 @@ FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
-                                                                                                                                QUERY PLAN                                                                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: account_id, kind, (pdb.agg('{"avg": {"field": "price"}}'::jsonb))
    Sort Key: pinned_key_items.kind
@@ -516,9 +516,9 @@ ORDER BY kind;
          Group By: kind
          Aggregates: pdb.agg({"avg":{"field":"price"}})
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1, count(pinned_key_items_0.price) as __pdb_m0, sum(pinned_key_items_0.price) as __pdb_m1]
+           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id, count(pinned_key_items_0.price) as __pdb_m0, sum(pinned_key_items_0.price) as __pdb_m1]
            :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1, count(pinned_key_items_0.price) as __pdb_m0, sum(pinned_key_items_0.price) as __pdb_m1]
+           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id, count(pinned_key_items_0.price) as __pdb_m0, sum(pinned_key_items_0.price) as __pdb_m1]
            :       TantivyFetchExec: fetch=[kind]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id, price@3 as price]
            :           CooperativeExec
@@ -615,8 +615,8 @@ FROM (
     WHERE region = 2::bigint AND id @@@ paradedb.all()
     GROUP BY region
 ) AS grouped;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Subquery Scan on grouped
    Output: grouped.region, pg_typeof(grouped.region), grouped.count
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -625,7 +625,7 @@ FROM (
          Indexes: pinned_key_items_idx (pinned_key_items)
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.region) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+           : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.region) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as region], ordering_mode=Sorted
            :   ProjectionExec: expr=[ctid@0 as ctid_0, region@1 as region]
            :     CooperativeExec
            :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"region","value":2}}]}}
@@ -681,9 +681,9 @@ ORDER BY kind;
          Group By: kind
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.code) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.code) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as code]
            :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.code) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.code) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as code]
            :       TantivyFetchExec: fetch=[kind]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, code@2 as code]
            :           CooperativeExec
@@ -714,7 +714,7 @@ GROUP BY created;
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.created) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.created) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as created], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, created@1 as created]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"created","value":{"$__pdb_date__":"2024-01-02T00:00:00Z"}}}]}}
@@ -782,7 +782,7 @@ GROUP BY upper(kind);
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.kind) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.kind) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as kind], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(upper(kind) = 'A'::text)"}]}}]}}
@@ -1001,9 +1001,9 @@ ORDER BY kind;
          Group By: kind
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.price) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.price) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as price]
            :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.price) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.price) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as price]
            :       TantivyFetchExec: fetch=[kind]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, price@2 as price]
            :           CooperativeExec
@@ -1110,9 +1110,9 @@ ORDER BY kind;
          Group By: kind
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.updated) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.updated) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as updated]
            :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.updated) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.updated) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as updated]
            :       TantivyFetchExec: fetch=[kind]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, updated@2 as updated]
            :           CooperativeExec
@@ -1141,14 +1141,14 @@ SELECT account_id, COUNT(*)
 FROM pinned_key_items
 WHERE account_id = current_setting('pinned_key.account')::bigint AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
@@ -1188,7 +1188,7 @@ GROUP BY ts;
    Indexes: pinned_key_dst_idx (pinned_key_dst)
    Aggregates: SUM(amount)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[numeric64_sum(pinned_key_dst_0.amount, 2) as agg_0, first_value(pinned_key_dst_0.ts) ORDER BY [pinned_key_dst_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[numeric64_sum(pinned_key_dst_0.amount, 2) as agg_0, first_value(pinned_key_dst_0.ts) ORDER BY [pinned_key_dst_0.ctid_0 ASC NULLS LAST] as ts], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, ts@1 as ts, amount@2 as amount]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_dst, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(ts = 'Sun Mar 10 03:30:00 2024 EDT'::timestamp with time zone)"}]}}]}}
@@ -1229,9 +1229,9 @@ ORDER BY kind;
          Group By: kind
          Aggregates: SUM(amount)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[numeric64_sum(pinned_key_items_0.amount, 2) as agg_0, first_value(pinned_key_items_0.price) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[numeric64_sum(pinned_key_items_0.amount, 2) as agg_0, first_value(pinned_key_items_0.price) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as price]
            :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[numeric64_sum(pinned_key_items_0.amount, 2) as agg_0, first_value(pinned_key_items_0.price) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[numeric64_sum(pinned_key_items_0.amount, 2) as agg_0, first_value(pinned_key_items_0.price) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as price]
            :       TantivyFetchExec: fetch=[kind]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, price@2 as price, amount@3 as amount]
            :           CooperativeExec
@@ -1275,15 +1275,15 @@ SELECT account_id, SUM(amount)
 FROM pinned_key_items
 WHERE account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id;
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                          QUERY PLAN                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: account_id, (sum(amount))
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: SUM(amount)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[numeric64_sum(pinned_key_items_0.amount, 2) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[numeric64_sum(pinned_key_items_0.amount, 2) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, account_id@1 as account_id, amount@2 as amount]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":1}}]}}
@@ -1313,15 +1313,15 @@ SELECT amount, COUNT(*)
 FROM pinned_key_items
 WHERE amount = 1.5 AND id @@@ paradedb.all()
 GROUP BY amount;
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: amount, (count(*))
    Backend: DataFusion
    Indexes: pinned_key_items_idx (pinned_key_items)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.amount) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.amount) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as amount], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, amount@1 as amount]
      :     CooperativeExec
      :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"amount","value":"1.5"}}]}}
@@ -1391,8 +1391,8 @@ FROM (
 ) AS grouped
 JOIN (VALUES (1::bigint), (2), (3)) AS accounts (id) ON accounts.id = grouped.account_id
 ORDER BY grouped.kind;
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: account_id, kind, (count(*))
    Sort Key: kind
@@ -1410,9 +1410,9 @@ ORDER BY grouped.kind;
                      Group By: kind
                      Aggregates: COUNT(*)
                      DataFusion Physical Plan: 
-                       : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+                       : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
                        :   TantivyDecodeExec: decode=[kind]
-                       :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+                       :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
                        :       TantivyFetchExec: fetch=[kind]
                        :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
                        :           CooperativeExec
@@ -1448,8 +1448,8 @@ FROM (
 ) AS grouped
 GROUP BY kind
 ORDER BY kind;
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: grouped.kind, sum(grouped.n), count(*)
    Group Key: grouped.kind
@@ -1465,9 +1465,9 @@ ORDER BY kind;
                      Group By: kind
                      Aggregates: COUNT(*)
                      DataFusion Physical Plan: 
-                       : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+                       : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
                        :   TantivyDecodeExec: decode=[kind]
-                       :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+                       :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
                        :       TantivyFetchExec: fetch=[kind]
                        :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
                        :           CooperativeExec
@@ -1539,8 +1539,8 @@ FROM pinned_key_items
 WHERE account_id IN (2) AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: account_id, kind, (count(*))
    Sort Key: pinned_key_items.kind
@@ -1551,9 +1551,9 @@ ORDER BY kind;
          Group By: kind
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
            :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
            :       TantivyFetchExec: fetch=[kind]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
            :           CooperativeExec
@@ -1589,9 +1589,9 @@ GROUP BY account_id, kind;
    Group By: kind
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+     : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
      :   TantivyDecodeExec: decode=[kind]
-     :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+     :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as account_id]
      :       TantivyFetchExec: fetch=[kind]
      :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
      :           CooperativeExec
@@ -2147,8 +2147,64 @@ ORDER BY k;
  a
 (1 row)
 
+SET paradedb.enable_aggregate_custom_scan TO on;
+\echo 'Test 10: an indexed column has a name like the ones the plan makes up'
+Test 10: an indexed column has a name like the ones the plan makes up
+CREATE TABLE pinned_key_names (id SERIAL PRIMARY KEY, row_1 INT, k TEXT);
+INSERT INTO pinned_key_names (row_1, k)
+SELECT g % 3, (ARRAY['a', 'b'])[(g % 2) + 1] FROM generate_series(1, 600) g;
+CREATE INDEX pinned_key_names_idx ON pinned_key_names
+USING paradedb (id, row_1, (k::pdb.literal));
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT row_1, k, COUNT(*)
+FROM pinned_key_names
+WHERE k = 'a' AND id @@@ paradedb.all()
+GROUP BY row_1, k
+ORDER BY row_1, k;
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: row_1
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: pinned_key_names_idx (pinned_key_names)
+         Group By: row_1
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[row_1@1 as row_1], aggr=[count(1) as agg_0, first_value(pinned_key_names_0.k) ORDER BY [pinned_key_names_0.ctid_0 ASC NULLS LAST] as k]
+           :   ProjectionExec: expr=[ctid@0 as ctid_0, row_1@1 as row_1, k@2 as k]
+           :     CooperativeExec
+           :       PgSearchScan: table=pinned_key_names, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"k","value":"a"}}]}}
+(12 rows)
+
+SELECT row_1, k, COUNT(*)
+FROM pinned_key_names
+WHERE k = 'a' AND id @@@ paradedb.all()
+GROUP BY row_1, k
+ORDER BY row_1, k;
+ row_1 | k | count 
+-------+---+-------
+     0 | a |   100
+     1 | a |   100
+     2 | a |   100
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT row_1, k, COUNT(*)
+FROM pinned_key_names
+WHERE k = 'a' AND id @@@ paradedb.all()
+GROUP BY row_1, k
+ORDER BY row_1, k;
+ row_1 | k | count 
+-------+---+-------
+     0 | a |   100
+     1 | a |   100
+     2 | a |   100
+(3 rows)
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE pinned_key_items;
+DROP TABLE pinned_key_names;
 DROP TABLE pinned_key_arrays;
 DROP TABLE pinned_key_dst;
 DROP COLLATION pinned_key_case_insensitive;

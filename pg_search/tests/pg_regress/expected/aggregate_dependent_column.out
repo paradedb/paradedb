@@ -104,7 +104,7 @@ ORDER BY kind;
          Group By: kind
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(dependent_col_items_0.region) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           : AggregateExec: mode=Single, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(dependent_col_items_0.region) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as region]
            :   ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, region@2 as region]
            :     CooperativeExec
            :       PgSearchScan: table=dependent_col_items, segments=1, eager=[kind], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"region","value":2}}]}}
@@ -364,15 +364,15 @@ SELECT id, kind, account_id, COUNT(*)
 FROM dependent_col_items
 WHERE id = 8 AND id @@@ paradedb.all()
 GROUP BY id;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: id, kind, account_id, (count(*))
    Backend: DataFusion
    Indexes: dependent_col_items_idx (dependent_col_items)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(dependent_col_items_0.id) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as row_0, first_value(dependent_col_items_0.kind) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as row_1, first_value(dependent_col_items_0.account_id) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as row_2], ordering_mode=Sorted
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(dependent_col_items_0.id) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as id, first_value(dependent_col_items_0.kind) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as kind, first_value(dependent_col_items_0.account_id) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as account_id], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, kind@2 as kind, account_id@3 as account_id]
      :     CooperativeExec
      :       PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"id","value":8}}]}}
@@ -776,8 +776,8 @@ FROM dependent_col_days
 WHERE id @@@ paradedb.all()
 GROUP BY date(ts)
 ORDER BY 1;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: (((date(ts)))::text), (count(*)), (sum((count(*))) OVER w1), (date(ts))
    Sort Key: (((date(dependent_col_days.ts)))::text)
@@ -791,7 +791,7 @@ ORDER BY 1;
                Group By: date(ts)
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
-                 : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(ts@1) as pdb_timestamp_to_date(dependent_col_days_0.ts)], aggr=[count(1) as agg_0, first_value(dependent_col_days_0.ts) ORDER BY [dependent_col_days_0.ctid_0 ASC NULLS LAST] as row_1]
+                 : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(ts@1) as pdb_timestamp_to_date(dependent_col_days_0.ts)], aggr=[count(1) as agg_0, first_value(dependent_col_days_0.ts) ORDER BY [dependent_col_days_0.ctid_0 ASC NULLS LAST] as ts]
                  :   ProjectionExec: expr=[ctid@0 as ctid_0, ts@1 as ts]
                  :     CooperativeExec
                  :       PgSearchScan: table=dependent_col_days, segments=1, visibility=eager, query={"with_index":{"query":"all"}}

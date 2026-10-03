@@ -1010,8 +1010,38 @@ FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 ORDER BY k;
 
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+\echo 'Test 10: an indexed column has a name like the ones the plan makes up'
+CREATE TABLE pinned_key_names (id SERIAL PRIMARY KEY, row_1 INT, k TEXT);
+INSERT INTO pinned_key_names (row_1, k)
+SELECT g % 3, (ARRAY['a', 'b'])[(g % 2) + 1] FROM generate_series(1, 600) g;
+CREATE INDEX pinned_key_names_idx ON pinned_key_names
+USING paradedb (id, row_1, (k::pdb.literal));
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT row_1, k, COUNT(*)
+FROM pinned_key_names
+WHERE k = 'a' AND id @@@ paradedb.all()
+GROUP BY row_1, k
+ORDER BY row_1, k;
+
+SELECT row_1, k, COUNT(*)
+FROM pinned_key_names
+WHERE k = 'a' AND id @@@ paradedb.all()
+GROUP BY row_1, k
+ORDER BY row_1, k;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT row_1, k, COUNT(*)
+FROM pinned_key_names
+WHERE k = 'a' AND id @@@ paradedb.all()
+GROUP BY row_1, k
+ORDER BY row_1, k;
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE pinned_key_items;
+DROP TABLE pinned_key_names;
 DROP TABLE pinned_key_arrays;
 DROP TABLE pinned_key_dst;
 DROP COLLATION pinned_key_case_insensitive;

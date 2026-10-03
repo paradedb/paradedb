@@ -1193,7 +1193,7 @@ impl ParallelScanState {
 
     /// Publish per-segment JSON info into DSM (keyed by primary segment index).
     /// Last-write-wins per segment. Called by parallel workers in
-    /// `EndCustomScan` — not by the leader, which keeps its local map and
+    /// `ShutdownCustomScan` — not by the leader, which keeps its local map and
     /// merges worker entries at Shutdown. Not for the TopK collect hot path.
     /// Acquires the parallel mutex.
     pub fn publish_segment_info(&mut self, info: &BTreeMap<SegmentId, serde_json::Value>) {

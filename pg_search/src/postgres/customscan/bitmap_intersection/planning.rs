@@ -26,6 +26,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::planner_warnings::add_planner_warning;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::strip_relabel;
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
 
@@ -749,6 +750,7 @@ impl IndexClause {
     }
 }
 
+<<<<<<< HEAD
 unsafe fn strip_relabel(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     unsafe {
         while (*node).type_ == pg_sys::NodeTag::T_RelabelType {
@@ -756,6 +758,11 @@ unsafe fn strip_relabel(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
         }
         node
     }
+=======
+/// An index path's estimated selectivity, clamped to a usable fraction.
+unsafe fn selectivity(ipath: *mut pg_sys::IndexPath) -> f64 {
+    unsafe { (*ipath).indexselectivity.clamp(0.0, 1.0) }
+>>>>>>> 5d25d38 (fix: use AggregateScan when PostgreSQL drops a `GROUP BY` key (#6608))
 }
 
 unsafe fn is_pseudoconstant(node: *mut pg_sys::Node) -> bool {

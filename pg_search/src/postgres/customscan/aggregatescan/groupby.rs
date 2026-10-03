@@ -16,16 +16,23 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::aggregatescan::{
-    AggregateScan, CustomScanBuildError, CustomScanClause,
+    AggregateScan, CustomScanBuildError, CustomScanClause, GroupingPushdownDeclineReason,
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+<<<<<<< HEAD
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::strip_unnest_and_relabel;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
 use pgrx::PgList;
+=======
+use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
+use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_var_relation};
+use pgrx::pg_sys;
+use pgrx::{PgList, pg_guard};
+>>>>>>> 5d25d38 (fix: use AggregateScan when PostgreSQL drops a `GROUP BY` key (#6608))
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GroupingColumn {
@@ -197,6 +204,87 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
             }
         }
 
+        // PostgreSQL groups on no key when the WHERE clause pins every key to a
+        // constant. The query then has one group or none, which this backend
+        // cannot tell apart.
+        let parse = args.root().parse;
+        if grouping_columns.is_empty() && unsafe { !(*parse).groupClause.is_null() } {
+            return Err(GroupingPushdownDeclineReason::MissingPathKeys
+                .detail()
+                .into());
+        }
+
         Ok(Self { grouping_columns })
     }
+}
+
+/// Returns true if the grouped output has a column that PostgreSQL does not
+/// group on.
+///
+/// PostgreSQL does not group on a key that the WHERE clause pins to a constant
+/// (`pathkey_is_redundant`), or on a key that the primary key or a unique
+/// `NOT NULL` index decides (`remove_useless_groupby_columns`). The query can
+/// also return a column that the primary key decides, and the planner takes
+/// columns out of expressions that a node above computes. The Agg node reads
+/// all of these from one row of the group. The Tantivy backend has no row to
+/// read, so such a query goes to the DataFusion backend.
+pub(super) unsafe fn has_ungrouped_column(args: &<AggregateScan as CustomScan>::Args) -> bool {
+    let parse = (*args.root).parse;
+    if parse.is_null() || (*parse).groupClause.is_null() {
+        return false;
+    }
+    let keys: Vec<*mut pg_sys::Node> = args
+        .group_by_pathkeys()
+        .into_iter()
+        .filter(|pathkey| !(**pathkey).pk_eclass.is_null())
+        .flat_map(|pathkey| {
+            PgList::<pg_sys::EquivalenceMember>::from_pg((*(*pathkey).pk_eclass).ec_members)
+                .iter_ptr()
+                .map(|member| strip_relabel((*member).em_expr.cast()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    if keys.is_empty() {
+        return true;
+    }
+
+    let reltarget = args.output_rel().reltarget;
+    if reltarget.is_null() {
+        return false;
+    }
+    PgList::<pg_sys::Node>::from_pg((*reltarget).exprs)
+        .iter_ptr()
+        .any(|expr| has_ungrouped_var(expr, &keys))
+}
+
+/// Returns true if `expr` reads a column outside of the GROUP BY keys and the
+/// aggregates. A key can be a whole expression, so the walk stops at one.
+unsafe fn has_ungrouped_var(expr: *mut pg_sys::Node, keys: &[*mut pg_sys::Node]) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        let keys = &*(context as *const &[*mut pg_sys::Node]);
+        let stripped = strip_relabel(node);
+        if keys
+            .iter()
+            .any(|key| pg_sys::equal((*key).cast(), stripped.cast()))
+        {
+            return false;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_Aggref => false,
+            pg_sys::NodeTag::T_Var => true,
+            _ => pg_sys::expression_tree_walker(node, Some(walker), context),
+        }
+    }
+
+    walker(
+        expr,
+        (&keys as *const &[*mut pg_sys::Node]) as *mut core::ffi::c_void,
+    )
 }

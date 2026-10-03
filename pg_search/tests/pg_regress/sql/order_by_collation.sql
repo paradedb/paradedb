@@ -218,7 +218,7 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY GROUPING SETS ((name_c), ());
 
-\echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined'
+\echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan reads the key from a row'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*)
 FROM collation_test

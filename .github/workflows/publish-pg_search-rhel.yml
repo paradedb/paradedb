@@ -38,7 +38,7 @@ jobs:
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
       # Rust build artifacts and RPM staging share the runner root disk.
-      - volume=120gb
+      - volume=80gb
     container:
       image: ${{ matrix.image }}
     defaults:

@@ -17,8 +17,7 @@ See GitHub release: [v0.26.0](https://github.com/paradedb/paradedb/releases/tag/
 Vector fields in a ParadeDB index are now quantized by default. Vectors are compressed into compact codes, which queries scan to shortlist candidates before reranking them against the full-precision vectors:
 
 ```sql
-CREATE INDEX ON items USING paradedb (id, embedding)
-WITH (key_field = 'id');
+CREATE INDEX ON items USING paradedb (id, embedding);
 ```
 
 Quantization is enabled by default for vector fields with at least 64 dimensions. Set `"quantization": false` in a field's `vector_fields` configuration to disable it. Quantization settings in `vector_fields` take effect only during `CREATE INDEX` and
@@ -95,10 +94,12 @@ See the [Partitioning Guide](/reference/indexing/partition-by) for data type con
 - Added TopK pushdown for queries that group and order by `DATE(timestamp)`, allowing DataFusion to apply the sort and limit during aggregation.
 
 - Added a `chinese_convert` option to the `chinese_compatible` tokenizer, matching the option
-already supported by `pdb.jieba`. Set `chinese_convert=t2s` (or `s2t`, `tw2s`, `tw2sp`, `s2tw`,
-`s2twp`) to convert between Traditional and Simplified Chinese before tokenization.
+  already supported by `pdb.jieba`. Set `chinese_convert=t2s` (or `s2t`, `tw2s`, `tw2sp`, `s2tw`,
+  `s2twp`) to convert between Traditional and Simplified Chinese before tokenization.
 
 - Shipped an experimental stacked IVF router with adaptive partition scanning for vector search.
+
+- Deprecated the `key_field` setting at `CREATE INDEX` time.
 
 - Enabled Block-Max WAND (BMW) and MAXSCORE dynamic pruning on queries combined with non-scoring filters, accelerating filtered full-text searches.
 

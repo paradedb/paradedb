@@ -43,6 +43,7 @@ use crate::scan::filter_pushdown::schema_preserving_child_filter_description;
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
+use datafusion::common::stats::{Precision, Statistics};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
@@ -53,6 +54,7 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
+use datafusion::physical_plan::statistics::{ChildStats, StatisticsArgs};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use tantivy::SegmentOrdinal;
 use tantivy::termdict::TermOrdinal;
@@ -287,6 +289,35 @@ impl ExecutionPlan for TantivyDecodeExec {
     ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
         Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
     }
+
+    fn child_stats_requests(&self, partition: Option<usize>) -> Vec<ChildStats> {
+        vec![ChildStats::At(partition)]
+    }
+
+    fn statistics_from_inputs(
+        &self,
+        input_stats: &[Arc<Statistics>],
+        _args: &StatisticsArgs,
+    ) -> Result<Arc<Statistics>> {
+        let mut stats = (*input_stats[0]).clone();
+
+        // num_rows propagates (1:1 row count, nulls preserved via order-preserving interleave).
+        // null_count propagates for decoded columns (Decode preserves row/null positions).
+        // Logical distinct_count propagates as Inexact (packed ordinals -> strings,
+        // cross-segment duplicate strings can only shrink true NDV; the upstream
+        // pg_statistic NDV is an upper bound, so weakening to Inexact is correct).
+        // min_value/max_value/sum_value -> Absent for retyped columns (UInt64 -> string/binary).
+        for field in &self.deferred_fields {
+            if let Some(col_stats) = stats.column_statistics.get_mut(field.col_idx) {
+                col_stats.distinct_count = col_stats.distinct_count.to_inexact();
+                col_stats.min_value = Precision::Absent;
+                col_stats.max_value = Precision::Absent;
+                col_stats.sum_value = Precision::Absent;
+            }
+        }
+
+        Ok(Arc::new(stats))
+    }
 }
 
 fn decode_batch(
@@ -358,9 +389,10 @@ fn decode_term_ordinals(
             continue;
         }
         let ords_array = UInt64Array::from_iter_values(rows.iter().map(|(_, ord)| *ord));
+        let ff_index = field.canonical.ff_index;
         let array = match (
             field.is_bytes,
-            ffhelper.column(segment_ord as SegmentOrdinal, field.canonical.ff_index),
+            ffhelper.column(segment_ord as SegmentOrdinal, ff_index),
         ) {
             (true, FFType::Bytes(col)) => ords_to_bytes_array(col.clone(), &ords_array)?,
             (false, FFType::Text(col)) => ords_to_string_array(col.clone(), &ords_array)?,
@@ -368,7 +400,7 @@ fn decode_term_ordinals(
                 return Err(DataFusionError::Execution(format!(
                     "TantivyDecodeExec: column '{}' at fast-field index {} is not a {} column",
                     field.display_name,
-                    field.canonical.ff_index,
+                    ff_index,
                     if is_bytes { "Bytes" } else { "Text" }
                 )));
             }

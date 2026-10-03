@@ -40,6 +40,7 @@ use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::filter_pushdown::schema_preserving_child_filter_description;
 use arrow_array::{ArrayRef, RecordBatch};
 use arrow_schema::DataType;
+use datafusion::common::stats::{Precision, Statistics};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
@@ -50,6 +51,7 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
+use datafusion::physical_plan::statistics::{ChildStats, StatisticsArgs};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, DocId, SegmentOrdinal};
@@ -274,6 +276,35 @@ impl ExecutionPlan for TantivyFetchExec {
         _config: &datafusion::common::config::ConfigOptions,
     ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
         Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+    }
+
+    fn child_stats_requests(&self, partition: Option<usize>) -> Vec<ChildStats> {
+        vec![ChildStats::At(partition)]
+    }
+
+    fn statistics_from_inputs(
+        &self,
+        input_stats: &[Arc<Statistics>],
+        _args: &StatisticsArgs,
+    ) -> Result<Arc<Statistics>> {
+        let mut stats = (*input_stats[0]).clone();
+
+        // num_rows propagates (1:1 row count)
+        // Logical distinct_count propagates as Inexact (fetch may merge ordinals).
+        // Fetched columns:
+        //   null_count -> Absent (fetch may introduce NULLs for unresolvable rows)
+        //   min_value/max_value/sum_value -> Absent (domain change)
+        for field in &self.fetch_fields {
+            if let Some(col_stats) = stats.column_statistics.get_mut(field.col_idx) {
+                col_stats.distinct_count = col_stats.distinct_count.to_inexact();
+                col_stats.null_count = Precision::Absent;
+                col_stats.min_value = Precision::Absent;
+                col_stats.max_value = Precision::Absent;
+                col_stats.sum_value = Precision::Absent;
+            }
+        }
+
+        Ok(Arc::new(stats))
     }
 }
 

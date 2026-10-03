@@ -114,8 +114,9 @@ mod tests {
             0,
             None,
             1,
-            None,
-            None,
+            None,       // parallel_state
+            None,       // range_split_points
+            Vec::new(), // stats_attnos
         );
 
         let task_ctx = Arc::new(TaskContext::default());
@@ -787,8 +788,9 @@ mod tests {
             index_oid.into(),
             None,
             5,
-            None,
+            None, // parallel_state
             Some(split_points),
+            Vec::new(), // stats_attnos
         );
 
         use datafusion::physical_plan::Partitioning;
@@ -1064,6 +1066,7 @@ mod tests {
                 4,
                 None,
                 Some(split_points.clone()),
+                Vec::new(), // stats_attnos
             );
             (plan, reader)
         };

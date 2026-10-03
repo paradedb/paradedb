@@ -20,7 +20,7 @@ use sqlx::PgConnection;
 use tests::fixtures::*;
 
 #[rstest]
-fn verify_index(mut conn: PgConnection) {
+fn verify_index(_database: Db, mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let (count,) =
         "SELECT count(*) FROM pdb.verify_index('paradedb.bm25_search_bm25_index') WHERE NOT passed"
@@ -29,7 +29,7 @@ fn verify_index(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn vacuum_full(mut conn: PgConnection) {
+fn vacuum_full(_database: Db, mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id IN (1, 2, 3, 4, 5)".execute(&mut conn);
 
@@ -37,7 +37,7 @@ fn vacuum_full(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn create_and_drop_builtin_index(mut conn: PgConnection) {
+fn create_and_drop_builtin_index(_database: Db, mut conn: PgConnection) {
     // Test to ensure that dropping non-search indexes works correctly, as our event
     // trigger will need to skip indexes we didn't create.
 
@@ -60,7 +60,7 @@ fn create_and_drop_builtin_index(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn bulk_insert_segments_behavior(mut conn: PgConnection) {
+fn bulk_insert_segments_behavior(_database: Db, mut conn: PgConnection) {
     let mutable_segment_rows = 10;
     format!(
         r#"

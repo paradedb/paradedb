@@ -1,0 +1,64 @@
+-- #6341: small fan-out with a deferred string join key stays correct.
+--
+-- The join and the grouping are both on the deferred string key (category)
+-- with a small dictionary (5 terms). Because the join itself evaluates the
+-- deferred column, the logical rule anchors materialization below the join,
+-- so both scans emit decoded strings: the aggregate stays Single with no
+-- TantivyDecodeExec, and no decode point exists for the placement rule.
+-- The far side has 6 rows referencing the same 5 categories (one category
+-- appears twice), so the join fans out slightly (60 * 6 / 5 = 72 rows).
+-- This test guards the join-on-deferred anchor path and result correctness
+-- under small fan-out. It does not exercise the placement quantitative
+-- magnitude path (there is no Decode node for placement to decide on).
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+SET max_parallel_workers_per_gather TO 0;
+
+CREATE TABLE fanout_small_a (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    category TEXT
+);
+CREATE TABLE fanout_small_b (
+    id SERIAL PRIMARY KEY,
+    category TEXT
+);
+
+-- 5 categories over 60 rows on the grouped side; 6 rows on the far side
+-- referencing the same 5 categories (one category appears twice),
+-- so the join fans out slightly: 60 * 6 / 5 = 72 rows (factor 1.2).
+INSERT INTO fanout_small_a (title, category)
+SELECT 'doc ' || i, (ARRAY['a', 'b', 'c', 'd', 'e'])[1 + i % 5]
+FROM generate_series(1, 60) AS i;
+-- 6 rows on far side: 5 categories, one duplicated ('a' appears twice)
+INSERT INTO fanout_small_b (category)
+SELECT (ARRAY['a', 'b', 'c', 'd', 'e', 'a'])[i]
+FROM generate_series(1, 6) AS i;
+
+CREATE INDEX fanout_small_a_idx ON fanout_small_a
+USING bm25 (id, title, category)
+WITH (text_fields='{"title": {}, "category": {"fast": true}}');
+CREATE INDEX fanout_small_b_idx ON fanout_small_b
+USING bm25 (id, category)
+WITH (text_fields='{"category": {"fast": true}}');
+
+ANALYZE fanout_small_a;
+ANALYZE fanout_small_b;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT a.category, COUNT(*)
+FROM fanout_small_a a JOIN fanout_small_b b ON a.category = b.category
+WHERE a.title @@@ 'doc'
+GROUP BY a.category
+ORDER BY a.category;
+
+SELECT a.category, COUNT(*)
+FROM fanout_small_a a JOIN fanout_small_b b ON a.category = b.category
+WHERE a.title @@@ 'doc'
+GROUP BY a.category
+ORDER BY a.category;
+
+DROP TABLE fanout_small_a, fanout_small_b;

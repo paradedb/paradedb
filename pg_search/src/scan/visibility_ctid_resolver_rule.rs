@@ -141,6 +141,7 @@ mod tests {
             1,
             None,
             None,
+            Vec::new(), // stats_attnos
         );
 
         let (_, found) = find_ffhelper_for_plan_position(&scan, 7)
@@ -178,6 +179,7 @@ mod tests {
             1,
             None,
             None,
+            Vec::new(), // stats_attnos
         ));
 
         let vf = Arc::new(

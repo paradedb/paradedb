@@ -368,6 +368,7 @@ impl ColumnarExecState {
             1,
             state.parallel_state(),
             None,
+            Vec::new(), // stats_attnos
         )
         .with_table_alias(index_rel.name());
 

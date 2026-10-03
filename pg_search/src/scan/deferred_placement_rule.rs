@@ -76,6 +76,7 @@ use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
+use datafusion::physical_plan::statistics::{StatisticsArgs, StatisticsContext};
 use datafusion::physical_plan::{ExecutionPlan, Partitioning};
 use pgrx::pg_sys;
 
@@ -88,6 +89,7 @@ use crate::scan::deferred_aggregate_rule::ordinal_group_keys;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
+use crate::scan::plan_statistics::{estimated_output_rows, is_ndv_backed};
 use crate::scan::plan_walk::{PathStep, transform_up_with_children, visit_with_path};
 use crate::scan::segmented_topk_rule::resolve_physical_index;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
@@ -156,6 +158,20 @@ struct PathSummary {
     /// Every node on the path is one the rewrite knows how to rebuild with a changed column
     /// type; an eager decode changes the scan's output type and needs that.
     eager_safe: bool,
+    /// Cumulative fan-out multiplier along the source's path to the decode point.
+    /// None if any join's statistics are unavailable; otherwise the product of
+    /// (join output rows / this source's input rows) for each inner/outer join on the path.
+    /// Used to distinguish small/near-unique expansions (factor <= 1.0) from
+    /// materially large fan-outs.
+    expansion_magnitude: Option<f64>,
+    /// Whether the cumulative fan-out is backed by publisher-provided NDV on all
+    /// join keys. If false, the magnitude should be treated as unknown and the
+    /// structural Expansion signal takes precedence.
+    expansion_magnitude_ndv_backed: bool,
+    /// Whether the path contains a non-equi join (NestedLoopJoin or CrossJoin) that fans out
+    /// this source's rows. For such joins, the DeferredAggregateRule cannot group on ordinals
+    /// to reduce the decode, so we must eager-decode even for grouped columns.
+    has_non_equi_fan_out: bool,
 }
 
 /// What the nearest consumer above a decode point does with the rows it gets.
@@ -194,8 +210,14 @@ impl DeferredSource {
 /// What the consumer above a decode point does with one source's rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Consumer {
-    /// Fewer rows reach the decode than the scan emits.
+    /// Fewer rows reach the decode than the scan emits via Limit/TopK.
+    /// Protected from eager decode even with non-equi fan-out, so
+    /// SegmentedTopKExec can take over on ordinals.
     Bounds,
+    /// Aggregate groups on the column, reducing rows to one per group.
+    /// Non-equi fan-out may still force eager because DeferredAggregateRule
+    /// cannot group on ordinals across such joins.
+    Grouped,
     /// Every scanned row is decoded, and the consumer needs the string itself.
     DecodesAll,
     /// Nothing above says either way.
@@ -271,7 +293,7 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
                     Consumer::Open
                 }
             }
-            Bound::Aggregate(_) if grouped.contains(&column) => Consumer::Bounds,
+            Bound::Aggregate(_) if grouped.contains(&column) => Consumer::Grouped,
             Bound::Aggregate(_) => Consumer::DecodesAll,
         };
         let wanted: Vec<u32> = decode
@@ -398,6 +420,9 @@ fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
         expansion: Expansion::No,
         reduces: false,
         eager_safe: true,
+        expansion_magnitude: Some(1.0),
+        expansion_magnitude_ndv_backed: true,
+        has_non_equi_fan_out: false,
     };
     for (node, child_idx) in path {
         if !rebuilds_with_new_types(node) {
@@ -424,6 +449,48 @@ fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
                 _ => equi_join_expansion(other, other_keys, ctx),
             };
             summary.expansion = summary.expansion.worst(expansion);
+
+            // Compute fan-out magnitude for inner/outer joins where the other side's
+            // key is not unique (i.e., expansion != Expansion::No).
+            if matches!(
+                join.join_type(),
+                JoinType::Inner | JoinType::Left | JoinType::Right | JoinType::Full
+            ) && expansion != Expansion::No
+            {
+                let this_side = if on_left { join.left() } else { join.right() };
+                let this_side_rows = estimated_output_rows(this_side);
+                let join_output_rows = estimated_output_rows(node);
+
+                // Check if this join's cardinality is NDV-backed
+                let ndv_backed = is_ndv_backed(
+                    join,
+                    &StatisticsContext::new()
+                        .compute(this_side.as_ref(), &StatisticsArgs::new())
+                        .ok()
+                        .unwrap_or_default(),
+                    &StatisticsContext::new()
+                        .compute(other.as_ref(), &StatisticsArgs::new())
+                        .ok()
+                        .unwrap_or_default(),
+                );
+
+                if let (Some(pre), Some(post)) = (this_side_rows, join_output_rows) {
+                    if pre > 0 {
+                        let factor = post as f64 / pre as f64;
+                        summary.expansion_magnitude =
+                            summary.expansion_magnitude.map(|m| m * factor);
+                        // Track whether the magnitude is NDV-backed
+                        summary.expansion_magnitude_ndv_backed =
+                            summary.expansion_magnitude_ndv_backed && ndv_backed;
+                    } else {
+                        summary.expansion_magnitude = None;
+                        summary.expansion_magnitude_ndv_backed = false;
+                    }
+                } else {
+                    summary.expansion_magnitude = None;
+                    summary.expansion_magnitude_ndv_backed = false;
+                }
+            }
         } else if let Some(join) = node.downcast_ref::<NestedLoopJoinExec>() {
             if *child_idx == 0 {
                 summary.out_of_order = true;
@@ -438,11 +505,20 @@ fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
                 _ => Expansion::Yes,
             };
             summary.expansion = summary.expansion.worst(expansion);
+            // NestedLoopJoin: treat as unknown magnitude unless semi/anti
+            if expansion == Expansion::Yes {
+                summary.expansion_magnitude = None;
+                summary.expansion_magnitude_ndv_backed = false;
+                summary.has_non_equi_fan_out = true;
+            }
         } else if node.is::<CrossJoinExec>() {
             if *child_idx == 0 {
                 summary.out_of_order = true;
             }
             summary.expansion = summary.expansion.worst(Expansion::Yes);
+            summary.expansion_magnitude = None;
+            summary.expansion_magnitude_ndv_backed = false;
+            summary.has_non_equi_fan_out = true;
         } else if node.is::<SortExec>() {
             summary.out_of_order = true;
         } else if let Some(repartition) = node.downcast_ref::<RepartitionExec>() {
@@ -453,6 +529,8 @@ fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
             }
         } else if node.children().len() > 1 {
             summary.expansion = summary.expansion.worst(Expansion::Unknown);
+            summary.expansion_magnitude = None;
+            summary.expansion_magnitude_ndv_backed = false;
         }
     }
     summary
@@ -604,12 +682,32 @@ pub(crate) fn same_columns(a: &Arc<dyn ExecutionPlan>, b: &Arc<dyn ExecutionPlan
 /// drops none gives it the same ones a second time.
 fn decide(summary: &PathSummary, consumer: Consumer, ctx: &Context) -> Decision {
     let straight_through = consumer == Consumer::DecodesAll && !summary.reduces;
+
+    // Structural signal is authoritative for fan-out EXISTENCE.
+    // Expansion::Yes = join keys prove non-unique -> fan-out exists.
+    // Expansion::Unknown = keys not traceable -> conservatively assume fan-out.
+    // Expansion::No = join keys proven unique -> no fan-out.
+    let has_fan_out = matches!(summary.expansion, Expansion::Yes | Expansion::Unknown);
+
+    // Quantitative magnitude is advisory only, and only when NDV-backed.
+    // Used to distinguish "small but real" fan-out from "material" fan-out
+    // if a future cost model needs it. Does not gate the existence boolean.
+    let _fan_out_reliable = summary.expansion_magnitude_ndv_backed;
+
+    // For non-equi joins (NestedLoopJoin/CrossJoin), the DeferredAggregateRule cannot
+    // group on ordinals to reduce the decode, so aggregate-grouped columns must
+    // eager-decode when such a join fans out the source's rows. Limit/TopK Bounds
+    // retain original protection so SegmentedTopKExec can take over on ordinals.
+    let non_equi_fan_out = summary.has_non_equi_fan_out;
+    let bounds_protected = consumer == Consumer::Bounds;
+    let grouped_eager_allowed = consumer == Consumer::Grouped && non_equi_fan_out;
+
     let eager = ctx.decode_auto
-        && consumer != Consumer::Bounds
         && summary.eager_safe
-        && (summary.expansion == Expansion::Yes || straight_through);
+        && (!bounds_protected && (consumer != Consumer::Grouped || grouped_eager_allowed))
+        && (has_fan_out || straight_through || non_equi_fan_out);
     let fetch_at_scan =
-        ctx.fetch_auto && !eager && (summary.out_of_order || summary.expansion == Expansion::Yes);
+        ctx.fetch_auto && !eager && (summary.out_of_order || has_fan_out || non_equi_fan_out);
     Decision {
         fetch_at_scan,
         eager,
@@ -755,6 +853,9 @@ mod tests {
             expansion,
             reduces: false,
             eager_safe: true,
+            expansion_magnitude: Some(1.0),
+            expansion_magnitude_ndv_backed: true,
+            has_non_equi_fan_out: false,
         }
     }
 
@@ -777,7 +878,7 @@ mod tests {
     }
 
     #[test]
-    fn in_order_rows_that_do_not_fan_out_stay_deferred() {
+    fn unknown_expansion_decodes_eager_while_proven_unique_stays_deferred() {
         let d = decide(
             &summary(false, Expansion::No),
             Consumer::Open,
@@ -789,7 +890,7 @@ mod tests {
             Consumer::Open,
             &ctx(true, true),
         );
-        assert!(!d.fetch_at_scan && !d.eager);
+        assert!(!d.fetch_at_scan && d.eager);
     }
 
     #[test]
@@ -906,8 +1007,9 @@ mod tests {
             indexrelid,
             None,
             1,
-            None,
-            None,
+            None,       // parallel_state
+            None,       // range_split_points
+            Vec::new(), // stats_attnos
         )) as Arc<dyn ExecutionPlan>
     }
 
@@ -1062,8 +1164,9 @@ mod tests {
             indexrelid,
             None,
             1,
-            None,
-            None,
+            None,       // parallel_state
+            None,       // range_split_points
+            Vec::new(), // stats_attnos
         )) as Arc<dyn ExecutionPlan>;
         let projection = Arc::new(
             ProjectionExec::try_new(

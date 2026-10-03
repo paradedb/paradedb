@@ -183,8 +183,8 @@ WHERE f.content ||| 'Section'
 GROUP BY f.category, f.title
 ORDER BY f.category, f.title
 LIMIT 10;
-                                                                                                                                                  QUERY PLAN                                                                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.category, f.title, (count(*))
    ->  Sort
@@ -207,7 +207,7 @@ LIMIT 10;
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 2 ── tasks=2, partitions=6
                  :     │ RepartitionExec: partitioning=Hash([category@0, title@1], 6), input_partitions=1
-                 :     │   TantivyDecodeExec: decode=[category]
+                 :     │   TantivyDecodeExec: decode=[category, title]
                  :     │     AggregateExec: mode=Partial, gby=[category@0 as category, title@1 as title], aggr=[count(1) as agg_0]
                  :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, file_id@0)], projection=[category@0, title@1]
                  :     │         CoalescePartitionsExec
@@ -219,8 +219,8 @@ LIMIT 10;
                  :       ┌───── Stage 1 ── tasks=2, partitions=4
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
                  :       │   DistributedLeafExec:
-                 :       │     t0: PgSearchScan: table=f, segments=2, fetch=[category], eager=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                 :       │     t1: PgSearchScan: table=f, segments=2, fetch=[category], eager=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 :       │     t0: PgSearchScan: table=f, segments=2, fetch=[category, title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 :       │     t1: PgSearchScan: table=f, segments=2, fetch=[category, title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
                  :       └──────────────────────────────────────────────────
 (37 rows)
 

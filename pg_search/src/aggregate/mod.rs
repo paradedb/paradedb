@@ -29,7 +29,7 @@ use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexReader, SegmentCounts};
 use crate::launch_parallel_process;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -551,6 +551,7 @@ pub fn execute_aggregate(
     planstate: *mut pg_sys::PlanState,
     mut bitmap_exec: Option<&mut BitmapExec>,
     mut visibility_stats: Option<&mut VisibilityStats>,
+    segment_counts: Option<&mut SegmentCounts>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     // Resolve `visibility` to a single decision for this execution before anything
     // branches on it. `threshold` estimates the query's matching row count here
@@ -599,6 +600,10 @@ pub fn execute_aggregate(
             query.needs_tokenizer(),
             None,
         )?;
+        // Parallel workers only split this reader's segments, so its counts cover them all.
+        if let Some(segment_counts) = segment_counts {
+            *segment_counts = reader.segment_counts();
+        }
 
         // Fast path: a bare doc count without MVCC filtering is answerable by
         // `Weight::count` — a stored-doc_freq metadata read for term queries

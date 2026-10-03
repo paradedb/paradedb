@@ -87,10 +87,28 @@ fn includes_segment_count(mut conn: PgConnection) {
 
     "SET enable_indexscan TO off;".execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' AND description ||| 'shoes'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' AND description ||| 'shoes'".fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
     let plan = plan.pointer("/0/Plan").unwrap();
     assert!(plan.get("Segment Count").is_some());
+}
+
+#[rstest]
+fn analyze_reports_segments_as_numbers(mut conn: PgConnection) {
+    use serde_json::Value;
+
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET enable_indexscan TO off;".execute(&mut conn);
+
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard'".fetch_one::<(Value,)>(&mut conn);
+    let segments = plan.pointer("/0/Plan/Segments").unwrap();
+    for key in ["Partial", "Included", "Pruned"] {
+        assert!(
+            segments.get(key).and_then(Value::as_u64).is_some(),
+            "{key} should be a number: {segments}"
+        );
+    }
 }
 
 #[rstest]

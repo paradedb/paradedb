@@ -90,6 +90,17 @@ pub(crate) struct SegmentPruningEstimate {
     pub(crate) candidate_docs: u64,
 }
 
+/// The segments a scan searched and skipped, as every scan's EXPLAIN reports them.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct SegmentCounts {
+    /// Searched, with every row still checked against the query.
+    pub(crate) partial: usize,
+    /// Searched without the task's range filter. Only range-partitioned tasks drop a clause.
+    pub(crate) included: usize,
+    /// Not searched: the query's statistics, or the task's range, ruled them out.
+    pub(crate) pruned: usize,
+}
+
 fn scale_largest_segment_estimate(value: u64, segment_doc_proportion: f64) -> u64 {
     if segment_doc_proportion > 0.0 {
         (value as f64 / segment_doc_proportion).ceil() as u64
@@ -952,6 +963,55 @@ impl SearchIndexReader {
                 .is_none_or(|query| self.pruner().can_match(ord, query))
     }
 
+    /// Segments a search of this whole reader opens and prunes. Empty segments are skipped
+    /// regardless of the query, so they are counted nowhere.
+    pub(crate) fn segment_counts(&self) -> SegmentCounts {
+        let nonempty = self.nonempty_segment_count();
+        let searched = self.segment_pruning_estimate().candidate_segments;
+        SegmentCounts {
+            partial: searched,
+            included: 0,
+            pruned: nonempty - searched,
+        }
+    }
+
+    fn nonempty_segment_count(&self) -> usize {
+        self.searcher
+            .segment_readers()
+            .iter()
+            .filter(|r| r.num_docs() > 0)
+            .count()
+    }
+
+    /// Segments one range-partitioned task opens and prunes. A segment in the task's range that
+    /// the query rules out is not opened either, so it counts as pruned. As in
+    /// [`Self::segment_counts`], empty segments are counted nowhere.
+    pub(crate) fn partition_segment_counts(&self, segments: &PartitionSegments) -> SegmentCounts {
+        let mut counts = SegmentCounts::default();
+        let SegmentCounts {
+            partial,
+            included,
+            pruned,
+        } = &mut counts;
+        for (segment_ids, mut searched) in [
+            (&segments.partially_included, Some(partial)),
+            (&segments.included, Some(included)),
+            (&segments.pruned, None),
+        ] {
+            for segment_id in segment_ids {
+                let ord = self.segment_ordinal_by_id(segment_id);
+                if self.searcher.segment_reader(ord).num_docs() == 0 {
+                    continue;
+                }
+                match searched.as_deref_mut() {
+                    Some(searched) if self.is_candidate(ord) => *searched += 1,
+                    _ => *pruned += 1,
+                }
+            }
+        }
+        counts
+    }
+
     /// Compiles a tantivy `Weight` for a tagged search query.
     pub fn compile_match_weight(
         &self,
@@ -1107,14 +1167,8 @@ impl SearchIndexReader {
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
         *self.pruning_estimate.get_or_init(|| {
             if self.pruning_query.is_none() {
-                let candidate_segments = self
-                    .searcher
-                    .segment_readers()
-                    .iter()
-                    .filter(|r| r.num_docs() > 0)
-                    .count();
                 SegmentPruningEstimate {
-                    candidate_segments,
+                    candidate_segments: self.nonempty_segment_count(),
                     candidate_docs: self.total_docs,
                 }
             } else {
@@ -1323,16 +1377,7 @@ impl SearchIndexReader {
                             }
                         }
                     }?;
-                    let ord = self
-                        .reader
-                        .segment_ordinal_by_id(&segment_id)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "segment {segment_id} should exist in this {} reader's {} segments",
-                                self.reader.directory.mvcc_style_name(),
-                                self.reader.searcher.segment_readers().len()
-                            )
-                        });
+                    let ord = self.reader.segment_ordinal_by_id(&segment_id);
                     if self.reader.is_candidate(ord) {
                         return Some(ord);
                     }
@@ -2269,10 +2314,18 @@ impl SearchIndexReader {
         (first_orderby_info, erased_features)
     }
 
-    fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
-        self.segment_stats_snapshot
+    fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> SegmentOrdinal {
+        let ord = self
+            .segment_stats_snapshot
             .segment_index(*segment_id)
-            .map(|ord| ord as SegmentOrdinal)
+            .unwrap_or_else(|| {
+                panic!(
+                    "segment {segment_id} should exist in this {} reader's {} segments",
+                    self.directory.mvcc_style_name(),
+                    self.searcher.segment_readers().len()
+                )
+            });
+        ord as SegmentOrdinal
     }
 
     fn candidates(
@@ -2295,15 +2348,7 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
     ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
-        self.candidates(segment_ids.map(move |segment_id| {
-            self.segment_ordinal_by_id(&segment_id).unwrap_or_else(|| {
-                panic!(
-                    "segment {segment_id} should exist in this {} reader's {} segments",
-                    self.directory.mvcc_style_name(),
-                    self.searcher.segment_readers().len()
-                )
-            })
-        }))
+        self.candidates(segment_ids.map(move |segment_id| self.segment_ordinal_by_id(&segment_id)))
     }
 
     fn collect_segment_readers<'a, C: Collector>(

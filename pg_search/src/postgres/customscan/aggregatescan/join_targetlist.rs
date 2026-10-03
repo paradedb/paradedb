@@ -548,8 +548,8 @@ pub unsafe fn extract_aggregate_targetlist(
         }
     } else {
         // Group on the keys that PostgreSQL's Agg node groups on. It leaves out
-        // a key that the WHERE clause pins to a constant, and a key that the
-        // primary key decides. Every GROUP BY item is also a target-list entry,
+        // a key that the WHERE clause pins to a constant, and a key that a
+        // unique key decides. Every GROUP BY item is also a target-list entry,
         // resjunk when it is not selected, so such a key comes back through the
         // output walk below and is read from one row of the group.
         let written = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
@@ -559,7 +559,8 @@ pub unsafe fn extract_aggregate_targetlist(
                 let position = written
                     .iter_ptr()
                     .position(|item| (*item).tleSortGroupRef == (*clause).tleSortGroupRef)
-                    .map_or(0, |idx| idx + 1);
+                    .expect("a processed GROUP BY clause is in the written GROUP BY")
+                    + 1;
                 group_exprs.push(expr);
                 clause_positions.push(position);
             }

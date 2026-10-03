@@ -195,7 +195,7 @@ unsafe fn validate_grouping_pushdown(
 
     // PostgreSQL leaves a key out of `group_pathkeys` when the WHERE clause pins
     // it to a constant (`WHERE orders.color = 'blue' GROUP BY orders.color`) or
-    // the primary key decides it, so the loop above does not see it. The
+    // a unique key decides it, so the loop above does not see it. The
     // DataFusion backend can still group on such a key: PG15 groups on a pinned
     // key, and a key that the primary key decides costs less to group on.
     if !parse.is_null() {

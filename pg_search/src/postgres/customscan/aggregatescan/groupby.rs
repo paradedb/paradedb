@@ -212,8 +212,8 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
 /// group on.
 ///
 /// PostgreSQL does not group on a key that the WHERE clause pins to a constant
-/// (`pathkey_is_redundant` in `pathkeys.c`), or on a key that the primary key
-/// decides (`remove_useless_groupby_columns` in `planner.c`). The query can
+/// (`pathkey_is_redundant`), or on a key that the primary key or a unique
+/// `NOT NULL` index decides (`remove_useless_groupby_columns`). The query can
 /// also return a column that the primary key decides, and the planner takes
 /// columns out of expressions that a node above computes. The Agg node reads
 /// all of these from one row of the group. The Tantivy backend has no row to

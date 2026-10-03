@@ -3,10 +3,24 @@
 -- tmpdir, then checks out an older tag and installs that version, so everything here
 -- must be valid SQL for the oldest tag in the upgrade matrix. That is why the index
 -- below says `using bm25` rather than `using paradedb` (the `paradedb` access method
--- only exists from 0.25.0 onward), and why `paradedb.create_bm25_test_table` keeps its
--- pre-rename name. Do not sweep these into current naming.
+-- only exists from 0.25.0 onward). The test-table procedure was renamed in 0.25.2,
+-- so choose the name present in the prior extension catalog.
 
-CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'paradedb'
+          AND p.proname = 'create_paradedb_test_table'
+          AND p.prokind = 'p'
+    ) THEN
+        EXECUTE 'CALL paradedb.create_paradedb_test_table(schema_name => ''public'', table_name => ''mock_items'')';
+    ELSE
+        EXECUTE 'CALL paradedb.create_bm25_test_table(schema_name => ''public'', table_name => ''mock_items'')';
+    END IF;
+END;
+$$;
 
 ALTER TABLE mock_items
 ADD COLUMN price NUMERIC(10, 2),

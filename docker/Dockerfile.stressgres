@@ -11,7 +11,7 @@
 #       memory: "4Gi"
 #       cpu: "2000m"
 
-FROM rust:1.99-slim-trixie AS builder
+FROM rust:1.98-slim-trixie AS builder
 
 # pipefail for the piped build command below (hadolint DL4006).
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

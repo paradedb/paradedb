@@ -354,29 +354,11 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
-      # Scout's built-in release-asset download is unauthenticated. Preload the
-      # binary with GitHub authentication while retaining the upstream action.
-      - name: Checkout Docker Scout Action
-        uses: actions/checkout@v7
-        with:
-          repository: docker/scout-action
-          ref: v1.24.0
-          path: .github/actions/docker-scout
-          persist-credentials: false
-
-      - name: Download Docker Scout with GitHub Authentication
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          SCOUT_VERSION=$(git -C .github/actions/docker-scout describe --tags --exact-match)
-          gh release download "$SCOUT_VERSION" \
-            --repo docker/scout-action \
-            --pattern docker-scout-action_linux_amd64 \
-            --dir .github/actions/docker-scout/dist
-
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: ./.github/actions/docker-scout
+        uses: docker/scout-action@v1.26.0
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
@@ -384,8 +366,10 @@ jobs:
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: ./.github/actions/docker-scout
+        uses: docker/scout-action@v1.26.0
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
@@ -536,29 +520,11 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
-      # Scout's built-in release-asset download is unauthenticated. Preload the
-      # binary with GitHub authentication while retaining the upstream action.
-      - name: Checkout Docker Scout Action
-        uses: actions/checkout@v7
-        with:
-          repository: docker/scout-action
-          ref: v1.24.0
-          path: .github/actions/docker-scout
-          persist-credentials: false
-
-      - name: Download Docker Scout with GitHub Authentication
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          SCOUT_VERSION=$(git -C .github/actions/docker-scout describe --tags --exact-match)
-          gh release download "$SCOUT_VERSION" \
-            --repo docker/scout-action \
-            --pattern docker-scout-action_linux_amd64 \
-            --dir .github/actions/docker-scout/dist
-
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: ./.github/actions/docker-scout
+        uses: docker/scout-action@v1.26.0
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
@@ -566,8 +532,10 @@ jobs:
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: ./.github/actions/docker-scout
+        uses: docker/scout-action@v1.26.0
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb

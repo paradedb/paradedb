@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790984055752,
+  "lastUpdate": 1790986206497,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7118,6 +7118,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 699.87,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "939abc543e4f2d17ffc17150f8701514d56b082b",
+          "message": "chore: Render the table name in the score function in plans. (#6529)\n\n## What\n\nRender the table name in the score function in plans.\n\n## Why\n\nSo that you can tell which tables scores are coming from!",
+          "timestamp": "2026-10-02T16:00:01-07:00",
+          "tree_id": "0ca8576c248d4b004053d9bb523ca6e7b8ff61ac",
+          "url": "https://github.com/paradedb/paradedb/commit/939abc543e4f2d17ffc17150f8701514d56b082b"
+        },
+        "date": 1790986204592,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.229,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 150.238,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 51.839,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 243.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.16,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 168.381,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 27.444,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 217.497,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 724.951,
             "unit": "ms"
           }
         ]

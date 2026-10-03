@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+A multi-field `partition_by` cuts its first field into global ranges and each later field inside them, so a range co-partitioned join on the first field takes whole segments. Existing indexes keep their layout until reindexed. A `field=N` count, as in `partition_by = 'id=8, owner_user_id'`, caps how many ranges a field is cut into; counts that multiply past an explicit `target_segment_count` are rejected. A range co-partitioned join now cuts on the side whose segment edges give the shorter scan, not always the larger side's.

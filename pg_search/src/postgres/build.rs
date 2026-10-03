@@ -17,6 +17,7 @@
 
 use crate::api::version::VersionInfo;
 use crate::api::{CTID_FIELD_NAME, FieldName};
+use crate::gucs::global_target_segment_count;
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
@@ -230,6 +231,28 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     }
     for partition_field in options.partition_by() {
         check_single_valued(&partition_field, "partition_by");
+    }
+    // The range counts multiply into leaves a target the index was given has to afford, or the
+    // build would cut the last counted field short without saying so. The default target is
+    // the host's core count, which the counts override instead, so that a rebuild on a smaller
+    // host keeps the layout.
+    let counted_partitions = options
+        .partition_by_fields()
+        .iter()
+        .filter_map(|field| field.ranges)
+        .try_fold(1usize, |product, ranges| product.checked_mul(ranges))
+        .unwrap_or(usize::MAX);
+    if let Some(target_segment_count) = options.explicit_target_segment_count()
+        && counted_partitions > target_segment_count
+    {
+        let source = if global_target_segment_count() != 0 {
+            "paradedb.global_target_segment_count"
+        } else {
+            "target_segment_count"
+        };
+        panic!(
+            "partition_by asks for {counted_partitions} partitions, but {source} is {target_segment_count}"
+        );
     }
     // The stored schema does not exist yet, so the checks read the one this build will write.
     let schema = planned_schema(index_relation);

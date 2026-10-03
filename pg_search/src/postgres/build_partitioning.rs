@@ -78,21 +78,35 @@ pub(super) fn plan_partition_boundaries(
     snapshot: pg_sys::Snapshot,
     target_partitions: usize,
 ) -> anyhow::Result<Option<KdTree>> {
-    let partition_by = indexrel.options().partition_by();
-    if partition_by.is_empty() {
+    let fields = indexrel.options().partition_by_fields();
+    if fields.is_empty() {
         return Ok(None);
     }
+    let (partition_by, ranges): (Vec<FieldName>, Vec<Option<usize>>) = fields
+        .into_iter()
+        .map(|field| (field.field_name, field.ranges))
+        .unzip();
     if target_partitions <= 1 {
         return Ok(Some(KdTree::unpartitioned(partition_by)));
     }
+    // The range counts say how many partitions the layout needs. A target the index was given
+    // was checked to afford them; the default target is the host's core count, so the counts
+    // take over from it, and a rebuild on a smaller host keeps the layout.
+    let target_partitions = if indexrel.options().explicit_target_segment_count().is_some() {
+        target_partitions
+    } else {
+        let counted: usize = ranges.iter().flatten().product();
+        target_partitions.max(counted)
+    };
 
     let sample = unsafe { sample_partition_fields(heaprel, indexrel, snapshot, &partition_by)? };
     pgrx::debug1!(
-        "plan_partition_boundaries: sampled {} rows for partition_by={partition_by:?}, target_partitions={target_partitions}",
+        "plan_partition_boundaries: sampled {} rows for partition_by={partition_by:?}, ranges={ranges:?}, target_partitions={target_partitions}",
         sample.len()
     );
     Ok(Some(KdTree::from_sample(
         partition_by,
+        &ranges,
         sample,
         target_partitions,
     )))

@@ -34,7 +34,9 @@ use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
-use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
+use crate::postgres::customscan::aggregatescan::privdat::{
+    CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
+};
 use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
@@ -54,7 +56,7 @@ use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
-use datafusion::common::{DataFusionError, NullHandling, Result, ScalarValue};
+use datafusion::common::{Column, DataFusionError, NullHandling, Result, ScalarValue};
 use datafusion::functions::core::expr_fn::coalesce;
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
@@ -146,15 +148,10 @@ pub async fn build_join_aggregate_plan(
     for (gc_idx, gc) in targetlist.group_columns.iter().enumerate() {
         if gc.row_value {
             // PostgreSQL's Agg node reads such a column from one row of the group.
-            // It is not a grouping key, so its own name is free in the output, and
-            // the sort and HAVING lookups find it as they find a key.
             let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
-            let name = column.try_as_col().cloned().ok_or_else(|| {
-                DataFusionError::Internal(format!("row value {} is not a column", gc.field_name))
-            })?;
             row_values.push((
                 gc_idx,
-                first_value(column, row_order.clone()).alias_qualified(name.relation, name.name),
+                first_value(column, row_order.clone()).alias(targetlist.row_value_name(gc_idx)),
             ));
             group_df_indices.push(usize::MAX);
             continue;
@@ -190,7 +187,7 @@ pub async fn build_join_aggregate_plan(
     // With no key to group on, a GROUP BY query has one group when a row
     // matches and none when no row does. A constant key gives that.
     if targetlist.has_group_by && group_exprs.is_empty() {
-        group_exprs.push(lit(true).alias(ONE_GROUP_KEY));
+        group_exprs.push(lit(true).alias(targetlist.one_group_key()));
     }
 
     // Step 3: Build aggregate expressions. `pdb.agg()` entries contribute no
@@ -305,7 +302,7 @@ pub async fn build_join_aggregate_plan(
                 None => agg_expr,
             };
             // Alias for stable reference
-            Ok(Some(agg_expr.alias(format!("agg_{}", i))))
+            Ok(Some(agg_expr.alias(targetlist.aggregate_name(i))))
         })
         .filter_map(Result::transpose)
         .collect::<Result<Vec<Expr>>>()?;
@@ -320,7 +317,7 @@ pub async fn build_join_aggregate_plan(
         .map(|having| {
             let having_ctx = FilterExprExecContext {
                 targetlist: Some(targetlist),
-                plan: None,
+                plan: Some(plan),
             };
             having.to_datafusion(&having_ctx).ok_or_else(|| {
                 DataFusionError::Internal(
@@ -399,10 +396,6 @@ pub async fn build_join_aggregate_plan(
         pdb_root_having,
     })
 }
-
-/// The grouping key of a GROUP BY query whose keys are all pinned to constants.
-/// It is the only grouping key, so its name cannot be the name of another one.
-const ONE_GROUP_KEY: &str = "__one_group";
 
 /// An array key in a `pdb.agg()` spec that must be unnested.
 struct ArrayKeyToUnnest {
@@ -1002,7 +995,7 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 /// Context for the **exec phase** — translating a [`FilterExpr`] IR into a
 /// DataFusion [`Expr`].
 ///
-/// HAVING provides `targetlist` for resolving `AggRef`/`GroupRef`;
+/// HAVING provides `targetlist` and `plan` for resolving `AggRef`/`GroupRef`;
 /// FILTER provides `plan` (a `RelNode` tree) for resolving `ColumnRef`.
 ///
 /// This is distinct from the build-phase context in `datafusion_build.rs`,
@@ -1023,12 +1016,20 @@ impl FilterExpr {
             FilterExpr::AggRef(idx) => {
                 let tl = ctx.targetlist?;
                 if *idx < tl.aggregates.len() {
-                    Some(datafusion::prelude::col(format!("agg_{}", idx)))
+                    Some(Expr::Column(Column::new_unqualified(
+                        tl.aggregate_name(*idx),
+                    )))
                 } else {
                     None
                 }
             }
-            FilterExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
+            FilterExpr::GroupRef(idx) => {
+                let tl = ctx.targetlist?;
+                let plan = ctx.plan?;
+                (*idx < tl.group_columns.len()).then(|| {
+                    Expr::Column(TopKSortTarget::GroupColumn(*idx).resolve_sort_column(tl, plan))
+                })
+            }
             FilterExpr::ColumnRef {
                 plan_position,
                 field_name,

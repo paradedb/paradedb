@@ -330,6 +330,44 @@ impl JoinAggregateTargetList {
         self.group_columns.iter().filter(|gc| !gc.row_value)
     }
 
+    /// The DataFusion name of the aggregate at `idx` in `aggregates`.
+    pub fn aggregate_name(&self, idx: usize) -> String {
+        format!("{}agg_{idx}", self.internal_prefix())
+    }
+
+    /// The DataFusion name of the row value column at `gc_idx` in `group_columns`.
+    pub fn row_value_name(&self, gc_idx: usize) -> String {
+        format!("{}row_{gc_idx}", self.internal_prefix())
+    }
+
+    /// The DataFusion name of the constant key of a GROUP BY with no key left.
+    pub fn one_group_key(&self) -> String {
+        format!("{}__one_group", self.internal_prefix())
+    }
+
+    /// DataFusion rejects a schema with a qualified and an unqualified column of
+    /// the same name, and its optimizer drops the qualifier of an aggregate
+    /// alias. So the names above stay unqualified, and get a longer prefix while
+    /// a GROUP BY column has one of them.
+    fn internal_prefix(&self) -> String {
+        let is_internal = |name: &str| {
+            name == "__one_group"
+                || ["agg_", "row_"].iter().any(|kind| {
+                    name.strip_prefix(kind)
+                        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+                })
+        };
+        let mut prefix = String::new();
+        while self.group_columns.iter().any(|gc| {
+            gc.field_name
+                .strip_prefix(prefix.as_str())
+                .is_some_and(is_internal)
+        }) {
+            prefix.push('_');
+        }
+        prefix
+    }
+
     /// The lowered `pdb.agg()` calls, in target-list order.
     pub fn pdb_agg_requests(&self) -> impl Iterator<Item = &PdbAggRequest> {
         self.aggregates

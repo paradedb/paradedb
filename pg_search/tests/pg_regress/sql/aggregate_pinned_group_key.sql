@@ -1069,8 +1069,118 @@ WHERE account_id IN (2, 3) AND id @@@ paradedb.all()
 GROUP BY account_id
 ORDER BY account_id;
 
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+CREATE TABLE pinned_key_internal (id SERIAL PRIMARY KEY, agg_0 INT, __one_group INT, k TEXT);
+INSERT INTO pinned_key_internal (agg_0, __one_group, k)
+SELECT g % 3, g % 2, (ARRAY['a', 'b'])[(g % 2) + 1] FROM generate_series(1, 30) g;
+CREATE INDEX pinned_key_internal_idx ON pinned_key_internal
+USING paradedb (id, agg_0, __one_group, (k::pdb.literal));
+
+\echo 'Test 12.1: a pinned column named like an aggregate output'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT agg_0, k, COUNT(*)
+FROM pinned_key_internal
+WHERE agg_0 = 1 AND id @@@ paradedb.all()
+GROUP BY agg_0, k
+ORDER BY k;
+
+SELECT agg_0, k, COUNT(*)
+FROM pinned_key_internal
+WHERE agg_0 = 1 AND id @@@ paradedb.all()
+GROUP BY agg_0, k
+ORDER BY k;
+
+\echo 'Test 12.2: a pinned column named like the constant key'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT __one_group, COUNT(*)
+FROM pinned_key_internal
+WHERE __one_group = 1 AND id @@@ paradedb.all()
+GROUP BY __one_group;
+
+SELECT __one_group, COUNT(*)
+FROM pinned_key_internal
+WHERE __one_group = 1 AND id @@@ paradedb.all()
+GROUP BY __one_group;
+
+\echo 'Test 12.3: a column named like an aggregate output, which the primary key decides'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, agg_0, COUNT(*)
+FROM pinned_key_internal
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 3;
+
+SELECT id, agg_0, COUNT(*)
+FROM pinned_key_internal
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 3;
+
+\echo 'Test 12.4: HAVING and a top-K sort next to a key named like an aggregate output'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT agg_0, k, COUNT(*)
+FROM pinned_key_internal
+WHERE k = 'a' AND id @@@ paradedb.all()
+GROUP BY agg_0, k
+HAVING COUNT(*) > agg_0
+ORDER BY COUNT(*) DESC, agg_0
+LIMIT 2;
+
+SELECT agg_0, k, COUNT(*)
+FROM pinned_key_internal
+WHERE k = 'a' AND id @@@ paradedb.all()
+GROUP BY agg_0, k
+HAVING COUNT(*) > agg_0
+ORDER BY COUNT(*) DESC, agg_0
+LIMIT 2;
+
+\echo 'Test 12.5: the optimizer shares COUNT(*) with pdb.agg() next to a pinned key'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT k, agg_0, COUNT(*), pdb.agg('{"terms": {"field": "__one_group"}}'::jsonb)
+FROM pinned_key_internal
+WHERE agg_0 = 1 AND id @@@ paradedb.all()
+GROUP BY k, agg_0
+ORDER BY k;
+
+SELECT k, agg_0, COUNT(*), pdb.agg('{"terms": {"field": "__one_group"}}'::jsonb)
+FROM pinned_key_internal
+WHERE agg_0 = 1 AND id @@@ paradedb.all()
+GROUP BY k, agg_0
+ORDER BY k;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT agg_0, k, COUNT(*)
+FROM pinned_key_internal
+WHERE agg_0 = 1 AND id @@@ paradedb.all()
+GROUP BY agg_0, k
+ORDER BY k;
+
+SELECT __one_group, COUNT(*)
+FROM pinned_key_internal
+WHERE __one_group = 1 AND id @@@ paradedb.all()
+GROUP BY __one_group;
+
+SELECT id, agg_0, COUNT(*)
+FROM pinned_key_internal
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 3;
+
+SELECT agg_0, k, COUNT(*)
+FROM pinned_key_internal
+WHERE k = 'a' AND id @@@ paradedb.all()
+GROUP BY agg_0, k
+HAVING COUNT(*) > agg_0
+ORDER BY COUNT(*) DESC, agg_0
+LIMIT 2;
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE pinned_key_items;
+DROP TABLE pinned_key_internal;
 DROP TABLE pinned_key_names;
 DROP TABLE pinned_key_arrays;
 DROP TABLE pinned_key_dst;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791056159264,
+  "lastUpdate": 1791056200185,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7488,6 +7488,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 716.889,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63152b584eda4e5b89ecd4da9823935017cde438",
+          "message": "fix: run AggregateScan when PostgreSQL moves a `HAVING` condition to `WHERE` (#6638)\n\n## Ticket(s) Closed\n\n- Closes #6636\n\n## What\n\nThis PR lets AggregateScan run a `GROUP BY` query with a `HAVING`\ncondition on a grouping key, and a grouped subquery with a condition of\nthe outer query on a grouping key:\n\n```sql\nSELECT *\nFROM (\n    SELECT account_id, kind, COUNT(*) AS n\n    FROM items\n    WHERE id @@@ paradedb.all()\n    GROUP BY account_id, kind\n) AS grouped\nWHERE account_id > 1;\n```\n\nBoth declined with `HAVING clause is not supported`.\n\n## Why\n\nPostgres moves a `HAVING` condition that has no aggregate to `WHERE`\n(`subquery_planner()`), and it pushes a condition of an outer query into\na grouped subquery the same way. No `HAVING` clause is left, but\n`root->hasHavingQual` stays set, and the Tantivy backend read that flag.\n\n## How\n\nThe backend reads `parse->havingQual` instead, which holds only the\nconditions that Postgres keeps in `HAVING`. A condition with an\naggregate, a volatile function or a SubPlan stays there and declines as\nbefore. So does any condition other than constant true when there is no\n`GROUP BY`.\n\nA grouped subquery with an outer `ORDER BY` on its keys can return the\ngroups in the wrong order (#6616). That happens on `main` without an\nouter condition too.\n\n## Tests\n\n- New regress test `aggregate_having_moved_to_where`. It covers the kept\nand dropped conditions, a moved condition checked on the heap, a generic\nplan and `pdb.agg()`.",
+          "timestamp": "2026-10-03T11:27:17-07:00",
+          "tree_id": "e771232591136e1165fdab8fb45a7d0d8737574e",
+          "url": "https://github.com/paradedb/paradedb/commit/63152b584eda4e5b89ecd4da9823935017cde438"
+        },
+        "date": 1791056197792,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 142.381,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 53.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 238.596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.379,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 165.578,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.499,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 207.5,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 39.902,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 727.857,
             "unit": "ms"
           }
         ]

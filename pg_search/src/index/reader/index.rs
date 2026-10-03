@@ -2792,7 +2792,7 @@ mod tests {
             );
             assert_eq!(
                 calls.load(Relaxed),
-                usize::from(expected_included + expected_partial > 0)
+                usize::from(expected_included > 0) + usize::from(expected_partial > 0)
             );
         };
 

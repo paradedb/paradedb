@@ -379,8 +379,7 @@ jobs:
       # develop: the cloudnative-pg operator and logical-replication-publisher (a vanilla
       # Postgres container).
       - name: Trigger Antithesis Test
-        # Upstream publishes minor-version tags, not @v0; retain the supported tag.
-        uses: antithesishq/antithesis-trigger-action@v0.12
+        uses: antithesishq/antithesis-trigger-action@v0.12 # Upstream does not publish a moving @v0 tag
         with:
           notebook_name: ${{ github.event.inputs.notebook || 'paradedb' }}
           tenant: paradedb

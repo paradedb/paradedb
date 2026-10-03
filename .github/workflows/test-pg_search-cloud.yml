@@ -86,8 +86,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=cloud-source-pg18-arm64
 
       - name: Install Cosign
-        # Upstream does not publish a moving @v4 tag; retain the supported release pin.
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
 
       - name: Sign Cloud Test Image
         env:

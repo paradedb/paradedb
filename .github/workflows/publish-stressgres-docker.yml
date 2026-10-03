@@ -70,8 +70,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Install Cosign
-        # Upstream does not publish a moving @v4 tag; retain the supported release pin.
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the image digest. Works without GitHub Enterprise.
       - name: Sign Image with Cosign (keyless)

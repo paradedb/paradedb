@@ -1,0 +1,179 @@
+-- Tests search predicates that keep a partitioned table's parent index (#4643).
+-- Per-relation predicates are re-planned against each partition's own index, but a
+-- predicate above the Append (a join-level OR, for instance) keeps the parent, whose
+-- storage does not exist. Plan-time selectivity then aggregates over the leaf indexes,
+-- and execution resolves each row's leaf through its tableoid.
+
+\i common/common_setup.sql
+
+DROP TABLE IF EXISTS orders_part CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+
+CREATE TABLE orders_part (
+    order_id INT,
+    customer_name TEXT,
+    part_key INT
+) PARTITION BY LIST (part_key);
+CREATE TABLE orders_part_0 PARTITION OF orders_part FOR VALUES IN (0);
+CREATE TABLE orders_part_1 PARTITION OF orders_part FOR VALUES IN (1);
+
+INSERT INTO orders_part
+SELECT i, CASE WHEN i % 2 = 0 THEN 'John Smith' ELSE 'Jane Doe' END, i % 2
+FROM generate_series(1, 64) i;
+
+CREATE INDEX orders_part_idx ON orders_part
+USING bm25 (order_id, customer_name);
+
+CREATE TABLE products (
+    product_id INT,
+    description TEXT
+);
+INSERT INTO products
+SELECT i, CASE WHEN i % 3 = 0 THEN 'blue widget' ELSE 'plain widget' END
+FROM generate_series(1, 64) i;
+
+CREATE INDEX products_idx ON products
+USING bm25 (product_id, description);
+
+ANALYZE orders_part;
+ANALYZE products;
+
+\echo '=== single-relation predicates on the parent (re-planned per partition) ==='
+SELECT count(*) FROM orders_part WHERE customer_name ||| 'John';
+SELECT count(*) FROM orders_part WHERE NOT (customer_name ||| 'John');
+SELECT count(*) FROM orders_part WHERE orders_part @@@ 'John';
+
+\echo '=== the reported shape: join-level OR keeps the parent index ==='
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ||| 'John' OR p.description ||| 'blue';
+
+\echo '=== every RHS shape of the heap filter takes the same path ==='
+-- regex plans through heuristic selectivity, so only execution sees the parent
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name @@@ pdb.regex('john.*') OR p.description @@@ pdb.regex('blue.*');
+
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name @@@ pdb.match('Jonh', distance => 1) OR p.description @@@ pdb.match('bleu', distance => 1);
+
+\echo '=== the remaining token operators rewrite through the same operator ==='
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name &&& 'John Smith' OR p.description &&& 'blue widget';
+
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name === 'john' OR p.description === 'blue';
+
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ### 'john smith' OR p.description ### 'blue widget';
+
+\echo '=== prepared statement: custom plans, then the generic plan ==='
+PREPARE join_or(text, text) AS
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ||| $1 OR p.description ||| $2;
+EXECUTE join_or('John', 'blue');
+EXECUTE join_or('John', 'blue');
+EXECUTE join_or('John', 'blue');
+EXECUTE join_or('John', 'blue');
+EXECUTE join_or('John', 'blue');
+EXECUTE join_or('John', 'blue');
+DEALLOCATE join_or;
+
+\echo '=== the same shapes without the custom scan ==='
+SET paradedb.enable_custom_scan = off;
+SELECT count(*) FROM orders_part WHERE customer_name ||| 'John';
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ||| 'John' OR p.description ||| 'blue';
+RESET paradedb.enable_custom_scan;
+
+\echo '=== left join keeps the non-strict form ==='
+SELECT count(*)
+FROM products p LEFT JOIN orders_part o ON o.order_id = p.product_id AND o.part_key = 0
+WHERE o.customer_name ||| 'John' OR p.description ||| 'blue';
+
+\echo '=== runtime pruning only builds match sets for surviving partitions ==='
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.part_key = 0 AND (o.customer_name ||| 'John' OR p.description ||| 'zzznomatch');
+
+\echo '=== rows in different partitions share CTIDs: matches must not leak across ==='
+DROP TABLE IF EXISTS leak_part CASCADE;
+DROP TABLE IF EXISTS leak_plain CASCADE;
+CREATE TABLE leak_part (id INT, body TEXT, pk INT) PARTITION BY LIST (pk);
+CREATE TABLE leak_p0 PARTITION OF leak_part FOR VALUES IN (0);
+CREATE TABLE leak_p1 PARTITION OF leak_part FOR VALUES IN (1);
+-- one row per partition, so both live at ctid (0,1)
+INSERT INTO leak_p0 VALUES (1, 'alpha only here', 0);
+INSERT INTO leak_p1 VALUES (2, 'beta only here', 1);
+CREATE INDEX leak_part_idx ON leak_part USING bm25 (id, body);
+CREATE TABLE leak_plain (id INT, tag TEXT);
+INSERT INTO leak_plain VALUES (1, 'x'), (2, 'x');
+CREATE INDEX leak_plain_idx ON leak_plain USING bm25 (id, tag);
+ANALYZE leak_part;
+ANALYZE leak_plain;
+
+SELECT o.id, o.body FROM leak_part o JOIN leak_plain p ON o.id = p.id
+WHERE o.body ||| 'alpha' OR p.tag ||| 'zzznomatch' ORDER BY o.id;
+SELECT o.id, o.body FROM leak_part o JOIN leak_plain p ON o.id = p.id
+WHERE o.body ||| 'beta' OR p.tag ||| 'zzznomatch' ORDER BY o.id;
+
+\echo '=== the same id value lives in both partitions: matches must stay in their own ==='
+DROP TABLE IF EXISTS dup_part CASCADE;
+CREATE TABLE dup_part (
+    order_id INT,
+    body TEXT,
+    part_key INT,
+    PRIMARY KEY (order_id, part_key)
+) PARTITION BY LIST (part_key);
+CREATE TABLE dup_p0 PARTITION OF dup_part FOR VALUES IN (0);
+CREATE TABLE dup_p1 PARTITION OF dup_part FOR VALUES IN (1);
+-- the same order_id lives in both partitions, and only the one in dup_p0 matches
+INSERT INTO dup_p0 VALUES (1, 'alpha only here', 0), (2, 'no match here', 0);
+INSERT INTO dup_p1 VALUES (1, 'beta only here', 1), (2, 'no match here', 1);
+CREATE INDEX dup_part_idx ON dup_part USING bm25 (order_id, body);
+ANALYZE dup_part;
+
+SELECT o.order_id, o.part_key, o.body
+FROM dup_part o JOIN leak_plain p ON o.order_id = p.id
+WHERE o.body ||| 'alpha' OR p.tag ||| 'zzznomatch'
+ORDER BY o.order_id, o.part_key;
+
+SELECT o.order_id, o.part_key, o.body
+FROM dup_part o JOIN leak_plain p ON o.order_id = p.id
+WHERE o.body ||| 'beta' OR p.tag ||| 'zzznomatch'
+ORDER BY o.order_id, o.part_key;
+
+\echo '=== multi-level partitioning resolves leaves through intermediate parents ==='
+DROP TABLE IF EXISTS ml_part CASCADE;
+CREATE TABLE ml_part (id INT, body TEXT, a INT, b INT) PARTITION BY LIST (a);
+CREATE TABLE ml_a0 PARTITION OF ml_part FOR VALUES IN (0) PARTITION BY LIST (b);
+CREATE TABLE ml_a0_b0 PARTITION OF ml_a0 FOR VALUES IN (0);
+CREATE TABLE ml_a0_b1 PARTITION OF ml_a0 FOR VALUES IN (1);
+CREATE TABLE ml_a1 PARTITION OF ml_part FOR VALUES IN (1);
+INSERT INTO ml_part
+SELECT i, CASE i % 3 WHEN 0 THEN 'red apple' WHEN 1 THEN 'green leaf' ELSE 'blue sky' END, i % 2, (i / 2) % 2
+FROM generate_series(1, 40) i;
+CREATE INDEX ml_part_idx ON ml_part USING bm25 (id, body);
+ANALYZE ml_part;
+
+SELECT count(*) FROM ml_part WHERE body ||| 'red';
+SELECT count(*) FROM ml_part o JOIN ml_part p ON o.id = p.id
+WHERE o.body ||| 'red' OR p.body ||| 'blue';
+SELECT count(*) FROM ml_part WHERE NOT (body ||| 'red');
+
+\echo '=== both join sides partitioned ==='
+SELECT count(*) FROM orders_part o JOIN ml_part m ON o.order_id = m.id
+WHERE o.customer_name ||| 'John' OR m.body ||| 'blue';
+
+DROP TABLE orders_part CASCADE;
+DROP TABLE products CASCADE;
+DROP TABLE leak_part CASCADE;
+DROP TABLE leak_plain CASCADE;
+DROP TABLE dup_part CASCADE;
+DROP TABLE ml_part CASCADE;

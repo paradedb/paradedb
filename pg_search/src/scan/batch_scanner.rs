@@ -168,6 +168,7 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
+    pub(crate) score_threshold_pushed: bool,
     score_threshold: Option<Score>,
     tagged_queries: Vec<TaggedMatchQuery>,
     current_segment_ord: Option<SegmentOrdinal>,
@@ -311,6 +312,7 @@ impl Scanner {
             fetch_ordinals_in_scan,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
+            score_threshold_pushed: false,
             score_threshold: None,
             tagged_queries: Vec::new(),
             current_segment_ord: None,
@@ -395,6 +397,7 @@ impl Scanner {
             let segment_ord = scorer_iter.segment_ord();
             if can_pushdown && let Some(threshold) = self.score_threshold {
                 scorer_iter.set_threshold(threshold);
+                self.score_threshold_pushed = true;
             }
 
             // Collect a batch of ids/scores for this segment.

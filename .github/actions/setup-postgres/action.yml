@@ -45,7 +45,7 @@ runs:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: echo "/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin" >> "$GITHUB_PATH"
 
-    # System packages cannot install into pgrx's private PostgreSQL prefix.
+    # System packages cannot install into pgrx's private PostgreSQL prefix, so we compile it from source.
     - name: Install pgvector Dependency (pgrx)
       if: inputs.pg_impl == 'pgrx'
       shell: bash

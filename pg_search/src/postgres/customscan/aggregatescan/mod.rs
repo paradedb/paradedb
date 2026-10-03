@@ -1398,6 +1398,11 @@ impl AggregateScan {
             return Vec::new();
         };
 
+        // Such a `pdb.agg()` query comes here only when the DataFusion backend
+        // cannot run its spec, and this backend has no row to read the column from.
+        let ungrouped_pdb_agg =
+            has_paradedb_agg && unsafe { groupby::has_ungrouped_column(builder.args()) };
+
         match AggregateCSClause::build(builder, heap_rti, &index) {
             Ok((builder, mut aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
@@ -1418,7 +1423,14 @@ impl AggregateScan {
                 })]
             }
             Err(CustomScanBuildError::Incompatible(e)) => {
-                if has_paradedb_agg {
+                if ungrouped_pdb_agg {
+                    pgrx::error!(
+                        "Cannot execute pdb.agg: the DataFusion backend cannot run this spec, \
+                         and the Tantivy backend cannot return a column that PostgreSQL does \
+                         not group on, such as a GROUP BY key that the WHERE clause sets to \
+                         one value"
+                    );
+                } else if has_paradedb_agg {
                     pgrx::error!("Cannot execute pdb.agg: {}", e);
                 } else if gucs::enable_aggregate_custom_scan()
                     && gucs::planner_warnings() != gucs::PlannerWarnings::Off

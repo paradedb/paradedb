@@ -1039,6 +1039,36 @@ WHERE k = 'a' AND id @@@ paradedb.all()
 GROUP BY row_1, k
 ORDER BY row_1, k;
 
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+\echo 'Test 11.1: pdb.agg() that only the Tantivy backend runs, with a pinned key -> error'
+SELECT account_id, pdb.agg('{"percentiles": {"field": "price", "percents": [50]}}'::jsonb)
+FROM pinned_key_items
+WHERE account_id = 1 AND id @@@ paradedb.all()
+GROUP BY account_id;
+
+\echo 'Test 11.2: the same, with a column that the primary key decides -> error'
+SELECT id, kind, pdb.agg('{"stats": {"field": "price"}}'::jsonb)
+FROM pinned_key_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 2;
+
+\echo 'Test 11.3: the same spec, when PostgreSQL groups on every key'
+SELECT account_id, pdb.agg('{"stats": {"field": "region"}}'::jsonb) -> 'count' AS region_count
+FROM pinned_key_items
+WHERE account_id IN (2, 3) AND id @@@ paradedb.all()
+GROUP BY account_id
+ORDER BY account_id;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT account_id, COUNT(region) AS region_count
+FROM pinned_key_items
+WHERE account_id IN (2, 3) AND id @@@ paradedb.all()
+GROUP BY account_id
+ORDER BY account_id;
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE pinned_key_items;
 DROP TABLE pinned_key_names;

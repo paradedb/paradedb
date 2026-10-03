@@ -38,7 +38,7 @@ use std::ptr::addr_of_mut;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use crate::api::operator::{estimate_query_cost, estimate_selectivity_and_cost};
+use crate::api::operator::estimate_query_cost;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
@@ -96,8 +96,7 @@ use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::schema::SearchIndexSchema;
 use crate::vector::metric::VectorMetric;
-use crate::{DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
-use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
+use crate::{DEFAULT_STARTUP_COST, FULL_RELATION_SELECTIVITY, nodecast};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
@@ -861,30 +860,17 @@ impl CustomScan for BaseScan {
             );
 
             let mut query = SearchQueryInput::from(&quals);
-            let norm_selec = if restrict_info.len() == 1 {
-                (*restrict_info.get_ptr(0).unwrap()).norm_selec
-            } else {
-                UNASSIGNED_SELECTIVITY
-            };
-
-            // Reuse any work estimate returned alongside selectivity for TopK costing.
-            let mut precomputed_query_cost: Option<u64> = None;
-
-            let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
-                // we can use the norm_selec that already happened
-                norm_selec
-            } else if quals.contains_external_var() {
-                // if the query has external vars (references to other relations which decide whether the rows in this
-                // relation are visible) then we end up returning *everything* from _this_ relation
+            let selectivity = if quals.contains_external_var() {
                 FULL_RELATION_SELECTIVITY
-            } else if quals.contains_exprs() {
-                // if the query has expressions then it's parameterized and we have to guess something
-                PARAMETERIZED_SELECTIVITY
             } else {
-                let (sel, cost) =
-                    estimate_selectivity_and_cost(&bm25_index, query.clone(), Some((root, rti)));
-                precomputed_query_cost = cost;
-                sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                // Reuse the original SQL predicates, including cached estimates for @@@ clauses.
+                pg_sys::clauselist_selectivity(
+                    root,
+                    restrict_info.as_ptr(),
+                    rti as _,
+                    pg_sys::JoinType::JOIN_INNER,
+                    std::ptr::null_mut(),
+                )
             };
 
             // Use planning_estimate for costing so parameterized limits still
@@ -956,9 +942,7 @@ impl CustomScan for BaseScan {
                 DEFAULT_STARTUP_COST + harvested_bitmap.as_ref().map_or(0.0, |h| h.build_cost);
             let mut custom_paths = Vec::new();
             let parallel_leader_participates = pg_sys::parallel_leader_participation;
-            // Seed the cost memo from the open create_custom_path already did for selectivity (if
-            // any), so the cost computation opens the index at most once per query.
-            let mut cost_memo = CostMemo::from_precomputed(precomputed_query_cost);
+            let mut cost_memo = CostMemo::NotComputed;
 
             // Cost the query once (memoized) for costable scans; `None` marks the scan uncostable, so
             // pg_search forces the worker decision (and an effective-LIMIT scan uses the magnitude in

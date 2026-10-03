@@ -7,7 +7,7 @@ DECLARE
 BEGIN
     SELECT EXISTS (
         SELECT 1 FROM pg_opclass c JOIN pg_am a ON a.oid = c.opcmethod
-        WHERE c.opcname = 'vector_l2_ops' AND a.amname = 'bm25'
+        WHERE c.opcname = 'vector_l2_ops' AND a.amname = 'paradedb'
     ) INTO supported;
     INSERT INTO vector_upgrade_state VALUES (supported);
     IF NOT supported THEN
@@ -23,7 +23,7 @@ BEGIN
     INSERT INTO vector_upgrade_docs
         SELECT g, ARRAY[(100 + g)::real, 0, 0]::vector FROM generate_series(4, 10000) g;
     CREATE INDEX vector_upgrade_idx ON vector_upgrade_docs
-        USING bm25 (id, embedding vector_l2_ops)
+        USING paradedb (id, embedding vector_l2_ops)
         WITH (key_field = 'id', target_segment_count = 1,
               mutable_segment_rows = 0, layer_sizes = '1GB', background_layer_sizes = '0');
     IF NOT EXISTS (SELECT FROM paradedb.vector_info('vector_upgrade_idx', 'embedding')

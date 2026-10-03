@@ -238,8 +238,8 @@ runs:
         fi
         echo "Upgraded schema matches a fresh install."
 
-    # We test each BM25 index after the upgrade to test for version compatibility.
-    - name: Test BM25 Index
+    # We test each ParadeDB index after the upgrade to test for version compatibility.
+    - name: Test ParadeDB Index
       working-directory: pg_search/
       shell: bash
       env:

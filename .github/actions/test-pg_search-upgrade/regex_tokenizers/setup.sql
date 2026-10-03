@@ -1,11 +1,11 @@
--- Runs on the prior release, including v0.22.0: use its access method and options.
+-- Runs on the prior release, starting at v0.25.0: use its supported options.
 -- Equal filters intentionally make these patterns collide under the legacy name.
 CREATE TABLE regex_patterns (id INTEGER PRIMARY KEY, digits TEXT, letters TEXT);
 INSERT INTO regex_patterns VALUES
     (1, 'abc123', 'abc123'),
     (2, 'def456', 'def456'),
     (3, 'xyz789', 'xyz789');
-CREATE INDEX regex_patterns_idx ON regex_patterns USING bm25 (id, digits, letters)
+CREATE INDEX regex_patterns_idx ON regex_patterns USING paradedb (id, digits, letters)
 WITH (
     key_field = 'id',
     text_fields = '{

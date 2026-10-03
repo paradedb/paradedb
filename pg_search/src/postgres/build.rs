@@ -116,6 +116,10 @@ pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
 }
 
 unsafe fn build_empty(index_relation: &PgSearchRelation) {
+    crate::postgres::storage::mutable_cache::invalidate_index(
+        pg_sys::MyDatabaseId,
+        index_relation.oid(),
+    );
     unsafe {
         MetaPage::init(index_relation);
     }

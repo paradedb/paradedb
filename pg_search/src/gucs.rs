@@ -367,6 +367,12 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+/// Allows the user to toggle caching read-time indexed mutable segments in shared memory.
+static ENABLE_MUTABLE_SEGMENT_CACHE: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Size of the shared memory slab pool used to cache read-time indexed mutable segments.
+static MUTABLE_SEGMENT_CACHE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -943,6 +949,70 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_S,
     );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_mutable_segment_cache",
+        c"Enable caching read-time indexed mutable segments in PostgreSQL shared memory",
+        c"When enabled (default), mutable segments indexed during query execution are cached \
+          in PostgreSQL shared memory to avoid redundant re-indexing across queries and parallel workers.",
+        &ENABLE_MUTABLE_SEGMENT_CACHE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    unsafe {
+        GucRegistry::define_int_guc_with_hooks(
+            c"paradedb.mutable_segment_cache_size",
+            c"Shared-memory cache size for read-time indexed mutable segments",
+            c"Sets the shared memory allocated at startup for the mutable segment slab cache. \
+              Must be a power of two (e.g. '64MB', '128MB'). Default is 64MB.",
+            &MUTABLE_SEGMENT_CACHE_SIZE,
+            1024 * 1024,
+            1024 * 1024 * 1024,
+            GucContext::Postmaster,
+            GucFlags::UNIT_BYTE,
+            Some(check_mutable_segment_cache_size),
+            None,
+            None,
+        );
+    }
+}
+
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn check_mutable_segment_cache_size(
+    newval: *mut std::ffi::c_int,
+    _extra: *mut *mut std::ffi::c_void,
+    _source: pg_sys::GucSource::Type,
+) -> bool {
+    if newval.is_null() {
+        return false;
+    }
+    let val = unsafe { *newval };
+    if val <= 0 || !(val as u32).is_power_of_two() {
+        unsafe {
+            pgrx::guc::GucCheckError::new(
+                "paradedb.mutable_segment_cache_size must be a power of two",
+            )
+            .with_detail("The mutable segment slab allocator requires power-of-two sizing.")
+            .with_hint("Specify a power of two in bytes (e.g. '32MB', '64MB', '128MB', '256MB').")
+            .apply();
+        }
+        return false;
+    }
+    true
+}
+
+pub fn enable_mutable_segment_cache() -> bool {
+    ENABLE_MUTABLE_SEGMENT_CACHE.get()
+}
+
+pub fn mutable_segment_cache_size() -> usize {
+    let size = MUTABLE_SEGMENT_CACHE_SIZE.get().max(1024 * 1024) as usize;
+    assert!(
+        size.is_power_of_two(),
+        "paradedb.mutable_segment_cache_size must be a power of two"
+    );
+    size
 }
 
 /// Whether DataFusion queries spill to a `BufFile` temp file on `work_mem` overflow.

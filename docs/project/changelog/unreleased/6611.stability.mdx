@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Fixed `PgList does not contain pointers` when a prepared statement runs a `GROUP BY` aggregate on Aggregate Scan more than one time. The error came on the second run of a cached plan, which a driver that prepares its statements reaches when it sends the same query two times (#6136).

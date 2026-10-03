@@ -1,8 +1,0 @@
----
-header: performance
-title: Faster Text Search
----
-
-This release includes the text search performance improvements described in [PlanetScale Released Text Search and We Have a Lot to Say (Part I)](https://www.paradedb.com/blog/opening-a-closed-tin).
-
-To benefit from all of these improvements, existing indexes must be [reindexed](/operate/index-maintenance/reindexing) after upgrading. For the BM25 scoring improvements, also set [`pnorms=true`](https://www.paradedb.com/docs/reference/indexing/faster-bm25-queries) on the tokenizer cast for each text field used in scoring when rebuilding the index.

@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Search predicates combined with an OR of indexable conditions now intersect a `BitmapOr` of those conditions' indexes, rejecting non matching rows without a heap fetch.

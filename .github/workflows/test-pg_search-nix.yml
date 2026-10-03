@@ -37,6 +37,7 @@ jobs:
       - name: Generate GitHub App Token
         id: app-token
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        # Keep the exact pin: actionlint 1.7.12 has stale @v3 metadata that rejects client-id.
         uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}

@@ -87,6 +87,7 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app-token
+        # Keep the exact pin: actionlint 1.7.12 has stale @v3 metadata that rejects client-id.
         uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
@@ -296,6 +297,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Scan Image for Vulnerabilities (Trivy)
+        # Upstream does not publish a moving @v0 tag; retain the supported release pin.
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
@@ -314,6 +316,7 @@ jobs:
           exit-code: "1"
 
       - name: Install Cosign
+        # Upstream does not publish a moving @v4 tag; retain the supported release pin.
         uses: sigstore/cosign-installer@v4.1.2
 
       # Keyless Sigstore signature over the image digest. Works without GitHub Enterprise

@@ -270,6 +270,7 @@ jobs:
           rm -f "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Install Cosign
+        # Upstream does not publish a moving @v4 tag; retain the supported release pin.
         uses: sigstore/cosign-installer@v4.1.2
 
       # Keyless Sigstore signature over the .pkg. Works without GitHub Enterprise;
@@ -313,6 +314,7 @@ jobs:
 
       - name: Generate GitHub App Token for PostgresApp Fork
         id: postgresapp-app-token
+        # Keep the exact pin: actionlint 1.7.12 has stale @v3 metadata that rejects client-id.
         uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}

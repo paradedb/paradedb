@@ -1,5 +1,5 @@
 name: Set Up PostgreSQL
-description: Configure the PostgreSQL APT repository (PGDG) and install PostgreSQL packages
+description: Configure PGDG and install PostgreSQL with the pgvector dependency required by pg_search
 
 inputs:
   pg_version:
@@ -36,3 +36,8 @@ runs:
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: echo "/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin" >> "$GITHUB_PATH"
+
+    - name: Install pgvector Dependency
+      uses: ./.github/actions/install-pgvector
+      with:
+        pg_version: ${{ inputs.pg_version }}

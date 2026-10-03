@@ -125,14 +125,6 @@ jobs:
         with:
           pg_version: ${{ matrix.pg_version }}
 
-      # Needed for hybrid search unit tests
-      - name: Install pgvector
-        run: |
-          git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
-          cd pgvector/
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
-
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 

@@ -146,22 +146,12 @@ jobs:
         if: matrix.pg_impl == 'pgrx' && steps.cache-pgrx-pg.outputs.cache-hit != 'true'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
-      # Needed for hybrid search unit/integration tests
-      - name: Install pgvector (system)
-        if: matrix.pg_impl == 'system'
-        run: |
-          git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
-          cd pgvector/
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
-
-      - name: Install pgvector (pgrx)
+      - name: Install pgvector Dependency (pgrx)
         if: matrix.pg_impl == 'pgrx'
-        run: |
-          git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
-          cd pgvector/
-          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
-          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
+        uses: ./.github/actions/install-pgvector
+        with:
+          pg_version: ${{ matrix.pg_version }}
+          pg_impl: pgrx
 
       # Needed for Citus compatibility tests
       # Citus 13 supports PG 15-17, Citus 14 supports PG 16-18

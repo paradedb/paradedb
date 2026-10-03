@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790986206497,
+  "lastUpdate": 1790987563856,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7192,6 +7192,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 724.951,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8f66bb1c5a468bb5c99e3b0c746d113947bbb12f",
+          "message": "ci: require impl_safe_drop! or a stated reason on every impl Drop (#6572)\n\n# Ticket(s) Closed\n\n- Closes #6530\n\n## What\n\n`lint-rust` and pre-commit now fail on any `impl Drop` in\n`pg_search/src` unless the comment directly above it names\n`impl_safe_drop!` and says why the macro does not apply. Every site on\nmain is classified.\n\n## Why\n\nA bare `Drop` that calls into Postgres can raise a second error while an\nERROR unwinds or the backend exits, and it is easy to miss in review.\n\n## How\n\n`.github/scripts/check_impl_drop.py`, same shape as\n`check_migration_diff.py`, matches a header from `impl` to its brace\n(nested generics, a qualified `Drop` and wrapped headers included); the\noverride is the comment the four annotated sites already carry. Of the\nother 20 sites, 14 stay bare with a reason (Rust only bodies and one\ncommit assertion, the release callback guards and interrupt hold that\nmust run while unwinding, the BufFile closers `may_close` already gates)\nand 6 move to the macro: `SysCacheEntry`, `TempPgList` and\n`BitmapCursor` released bare, `PgExprState` and `FrameGuard` had a hand\nrolled `panicking()` check, and `BufferIter`'s drop drains its iterator,\nwhich extends the relation and locks each page mid unwind.\n`impl_safe_drop!` gains a bracketed generics arm for `BufferIter`.\n\nThe `TODO(#6530)` in `utils.rs` is reworded rather than resolved: the\nvalues `leak_and_drop_unless_exiting` protects are std, tokio, tantivy\nand DataFusion types with no `Drop` of ours to mark, so the whole state\nskip stays.\n\n## Tests\n\nThe script checks its matcher against fixed cases on every run and\nreports 20 on main, 0 here; reverting any conversion to a bare `Drop`\nfails it. No test drives the unwind or exit path of the converted drops.\npg18 regress green locally.",
+          "timestamp": "2026-10-02T16:23:04-07:00",
+          "tree_id": "580246abaad4acd58df7b2b8cdbf048cbad41d82",
+          "url": "https://github.com/paradedb/paradedb/commit/8f66bb1c5a468bb5c99e3b0c746d113947bbb12f"
+        },
+        "date": 1790987561540,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.5,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 143.829,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 51.753,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 240.749,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.088,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 161.764,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 23.988,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 206.558,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 37.992,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 722.351,
             "unit": "ms"
           }
         ]

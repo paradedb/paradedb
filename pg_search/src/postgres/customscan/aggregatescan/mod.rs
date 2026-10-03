@@ -109,7 +109,9 @@ use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{
     build_physical_plan, build_task_context, clone_task_context_with_config,
 };
-use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
+use crate::postgres::customscan::projections::{
+    PlaceholderColumns, create_placeholder_targetlist, placeholder_procid,
+};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
 use crate::postgres::datetime::PostgresDateTime;
@@ -136,6 +138,7 @@ enum GroupingPushdownDeclineReason {
     GroupingSets,
     MissingPathKeys,
     NondeterministicCollation,
+    NondeterministicAggregateKey,
 }
 
 impl GroupingPushdownDeclineReason {
@@ -144,6 +147,9 @@ impl GroupingPushdownDeclineReason {
             Self::GroupingSets => "GROUPING SETS are not supported",
             Self::MissingPathKeys => "could not verify GROUP BY semantics",
             Self::NondeterministicCollation => "GROUP BY uses a nondeterministic collation",
+            Self::NondeterministicAggregateKey => {
+                "an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation"
+            }
         }
     }
 }
@@ -164,40 +170,12 @@ unsafe fn validate_grouping_pushdown(
         return Err(GroupingPushdownDeclineReason::GroupingSets);
     }
 
-    if args.root().group_pathkeys.is_null() {
-        // A scalar aggregate has no grouping keys.
-        if parse.is_null() || (*parse).groupClause.is_null() {
-            return Ok(());
-        }
-
-        // For multi-table join aggregates (which execute on DataFusion), grouping columns
-        // are extracted directly from the target list expressions rather than group_pathkeys.
-        // When all grouping keys are constant (e.g. `WHERE orders.color = 'blue' GROUP BY orders.color`),
-        // PostgreSQL's optimizer omits them from group_pathkeys via `EC_has_const`.
-        // We verify collation safety directly from `parse.groupClause`.
-        if args.input_rel().reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL {
-            let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
-            for gc in group_clauses.iter_ptr() {
-                let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
-                if expr.is_null() {
-                    return Err(GroupingPushdownDeclineReason::MissingPathKeys);
-                }
-                let collation = pg_sys::exprCollation(expr);
-                if assess_collation(collation, CollationOperation::Equality)
-                    == CollationSafety::NondeterministicEquality
-                {
-                    return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
-                }
-            }
-            return Ok(());
-        }
-
-        // For single-table aggregates on Tantivy, missing pathkeys prevent Tantivy
-        // from discovering grouping columns (see `groupby.rs`).
-        return Err(GroupingPushdownDeclineReason::MissingPathKeys);
-    }
-
-    for pathkey in PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys).iter_ptr() {
+    // On PG16 and later, the sort keys of ordered and DISTINCT aggregates follow
+    // the GROUP BY keys in `group_pathkeys`. This checks them too: the DataFusion
+    // backend compares them by their bytes, like the GROUP BY keys.
+    let num_group_by_keys = args.group_by_pathkeys().len();
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys);
+    for (i, pathkey) in pathkeys.iter_ptr().enumerate() {
         let equivalence_class = (*pathkey).pk_eclass;
         if equivalence_class.is_null() {
             return Err(GroupingPushdownDeclineReason::MissingPathKeys);
@@ -207,7 +185,32 @@ unsafe fn validate_grouping_pushdown(
         if assess_collation(collation, CollationOperation::Equality)
             == CollationSafety::NondeterministicEquality
         {
-            return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
+            return Err(if i < num_group_by_keys {
+                GroupingPushdownDeclineReason::NondeterministicCollation
+            } else {
+                GroupingPushdownDeclineReason::NondeterministicAggregateKey
+            });
+        }
+    }
+
+    // PostgreSQL leaves a key out of `group_pathkeys` when the WHERE clause pins
+    // it to a constant (`WHERE orders.color = 'blue' GROUP BY orders.color`) or
+    // a unique key decides it, so the loop above does not see it. The
+    // DataFusion backend can still group on such a key: PG15 groups on a pinned
+    // key, and a key that the primary key decides costs less to group on.
+    if !parse.is_null() {
+        let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+        for gc in group_clauses.iter_ptr() {
+            let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
+            if expr.is_null() {
+                return Err(GroupingPushdownDeclineReason::MissingPathKeys);
+            }
+            let collation = pg_sys::exprCollation(expr);
+            if assess_collation(collation, CollationOperation::Equality)
+                == CollationSafety::NondeterministicEquality
+            {
+                return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
+            }
         }
     }
 
@@ -219,20 +222,19 @@ unsafe fn validate_grouping_pushdown(
 /// This is stricter than grouping equality: deterministic ICU collations are
 /// safe for grouping, but PostgreSQL must still perform their ordering.
 unsafe fn grouping_key_order_is_pushdown_safe(args: &CreateUpperPathsHookArgs) -> bool {
-    if args.root().group_pathkeys.is_null() {
+    let pathkeys = args.group_by_pathkeys();
+    if pathkeys.is_empty() {
         return false;
     }
 
-    PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys)
-        .iter_ptr()
-        .all(|pathkey| {
-            let equivalence_class = (*pathkey).pk_eclass;
-            !equivalence_class.is_null()
-                && collation_supports(
-                    (*equivalence_class).ec_collation,
-                    CollationOperation::Ordering,
-                )
-        })
+    pathkeys.into_iter().all(|pathkey| {
+        let equivalence_class = (*pathkey).pk_eclass;
+        !equivalence_class.is_null()
+            && collation_supports(
+                (*equivalence_class).ec_collation,
+                CollationOperation::Ordering,
+            )
+    })
 }
 
 /// A collection of index information that is necessary for making result-rewriting decisions
@@ -542,6 +544,7 @@ impl CustomScan for AggregateScan {
                             // This only selects the backend to consider: the extractor still
                             // rejects DATE(timestamptz) and non-bare timestamp expressions.
                             || (!has_paradedb_agg && builder.args().has_date_group())
+                            || groupby::has_ungrouped_column(builder.args())
                     };
                 let use_datafusion = use_datafusion && (!has_paradedb_agg || pdb_route.is_some());
                 if use_datafusion {
@@ -713,6 +716,7 @@ impl CustomScan for AggregateScan {
                     current_batch: None,
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
+                    num_group_exprs: 0,
                     pdb_plan: None,
                     pdb_root_having: None,
                     pdb_agg_json: None,
@@ -765,14 +769,13 @@ impl CustomScan for AggregateScan {
                 }
 
                 // Show GROUP BY columns
-                if !df_state.targetlist.group_columns.is_empty() {
+                if df_state.targetlist.grouping_keys().next().is_some() {
                     // TODO: When grouping on expressions with the same underlying input columns,
                     // it's possible to get dupes here. We should consider rendering the expression
                     // instead, but for now we dedupe.
                     let mut groups: Vec<String> = df_state
                         .targetlist
-                        .group_columns
-                        .iter()
+                        .grouping_keys()
                         .map(|gc| match gc.transform {
                             GroupingTransform::Identity => gc.field_name.clone(),
                             GroupingTransform::TimestampToDate => {
@@ -944,19 +947,24 @@ impl CustomScan for AggregateScan {
                 pg_sys::MakeTupleTableSlot((*planstate).ps_ResultTupleDesc, &pg_sys::TTSOpsVirtual);
             state.custom_state_mut().scan_slot = Some(scan_slot);
 
-            // Set up placeholder targetlist for wrapped aggregate expression projection.
+            // Set up the projection for wrapped aggregate expressions.
             let plan_targetlist = (*(*planstate).plan).targetlist;
             // This creates a copy of the plan's targetlist with FuncExpr placeholders replaced
-            // by Const nodes. The Const nodes will be mutated with actual aggregate values
-            // before each ExecBuildProjectionInfo call in exec_custom_scan (basescan pattern).
-            let (placeholder_tlist, const_nodes, needs_projection) =
-                create_placeholder_targetlist(plan_targetlist);
+            // by Vars. They read the aggregate values that exec_custom_scan writes into the
+            // placeholder columns for each row.
+            let mut columns = PlaceholderColumns::default();
+            let (placeholder_tlist, placeholders, needs_projection) =
+                create_placeholder_targetlist(plan_targetlist, &mut columns);
             if needs_projection && !placeholder_tlist.is_null() {
+                let projection = columns.build_projection(
+                    placeholder_tlist,
+                    planstate,
+                    (*planstate).ps_ResultTupleDesc,
+                );
                 state.custom_state_mut().wrapped_projection = Some(WrappedAggregateProjection {
-                    targetlist: placeholder_tlist,
-                    const_nodes,
+                    projection,
+                    placeholders,
                 });
-                // Note: projection is built per-row in exec_custom_scan, not here
             }
         }
     }
@@ -1245,6 +1253,7 @@ impl AggregateScan {
             )
             .await?;
             df_state.group_df_indices = built.group_df_indices;
+            df_state.num_group_exprs = built.num_group_exprs;
             df_state.pdb_plan = built.pdb_plan;
             df_state.pdb_root_having = built.pdb_root_having;
             build_physical_plan(ctx, built.logical).await
@@ -1389,6 +1398,11 @@ impl AggregateScan {
             return Vec::new();
         };
 
+        // Such a `pdb.agg()` query comes here only when the DataFusion backend
+        // cannot run its spec, and this backend has no row to read the column from.
+        let ungrouped_pdb_agg =
+            has_paradedb_agg && unsafe { groupby::has_ungrouped_column(builder.args()) };
+
         match AggregateCSClause::build(builder, heap_rti, &index) {
             Ok((builder, mut aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
@@ -1409,7 +1423,14 @@ impl AggregateScan {
                 })]
             }
             Err(CustomScanBuildError::Incompatible(e)) => {
-                if has_paradedb_agg {
+                if ungrouped_pdb_agg {
+                    pgrx::error!(
+                        "Cannot execute pdb.agg: the DataFusion backend cannot run this spec, \
+                         and the Tantivy backend cannot return a column that PostgreSQL does \
+                         not group on, such as a GROUP BY key that the WHERE clause sets to \
+                         one value"
+                    );
+                } else if has_paradedb_agg {
                     pgrx::error!("Cannot execute pdb.agg: {}", e);
                 } else if gucs::enable_aggregate_custom_scan()
                     && gucs::planner_warnings() != gucs::PlannerWarnings::Off
@@ -1817,8 +1838,8 @@ impl AggregateScan {
         row
     }
 
-    /// If `wrapped_projection` is set on the scan state, mutate the
-    /// pre-baked Const nodes with the row's native aggregate values, switch
+    /// If `wrapped_projection` is set on the scan state, write the row's
+    /// native aggregate values into the placeholder columns, switch
     /// into the per-tuple memory context, and `ExecProject` to materialize
     /// the wrapped expressions. Returns the projected slot. When no wrapped
     /// projection is configured, returns the input slot unchanged.
@@ -1829,15 +1850,14 @@ impl AggregateScan {
     ) -> *mut pg_sys::TupleTableSlot {
         // Snapshot the projection state into locals so the immutable borrow
         // on `state.custom_state()` ends before the mutable `state.planstate()`
-        // call below. The targetlist is a raw pointer (Copy) and the const-node
-        // vec is small (one entry per output column).
-        let projection_snapshot: Option<(*mut pg_sys::List, Vec<Option<*mut pg_sys::Const>>)> =
-            state
-                .custom_state()
-                .wrapped_projection
-                .as_ref()
-                .map(|w| (w.targetlist, w.const_nodes.clone()));
-        let Some((placeholder_tlist, const_nodes)) = projection_snapshot else {
+        // call below. The projection is Copy and the placeholder vec is small
+        // (one entry per output column).
+        let projection_snapshot = state
+            .custom_state()
+            .wrapped_projection
+            .as_ref()
+            .map(|w| (w.projection, w.placeholders.clone()));
+        let Some((projection, placeholders)) = projection_snapshot else {
             return slot;
         };
 
@@ -1845,7 +1865,7 @@ impl AggregateScan {
         let expr_context = (*planstate).ps_ExprContext;
 
         // Switch to per-tuple memory context and reset it to avoid memory leaks
-        // from ExecBuildProjectionInfo allocations and wrapper functions
+        // from the wrapper functions
         let mut per_tuple_context = PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory);
         per_tuple_context.reset();
 
@@ -1855,16 +1875,15 @@ impl AggregateScan {
         let datums = std::slice::from_raw_parts((*slot).tts_values, natts);
         let isnull = std::slice::from_raw_parts((*slot).tts_isnull, natts);
 
-        // Mutate Const nodes with values directly from the row results.
+        // Set the placeholder columns with values directly from the row results.
         // We DON'T use the slot's datums for aggregates because those were converted
         // using the output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
         // but we need the native aggregate type (e.g., JSONB for pdb.agg).
-        // This matches basescan's approach of setting Const values directly.
         let mut agg_iter = row.aggregates.iter();
         let aggregate_clause = &state.custom_state().aggregate_clause;
         for (i, entry) in aggregate_clause.entries().enumerate() {
-            let Some(const_node) = const_nodes.get(i).copied().flatten() else {
-                // No Const node for this entry, skip the aggregate iterator if
+            let Some((column, typoid)) = placeholders.get(i).copied().flatten() else {
+                // No placeholder for this entry, skip the aggregate iterator if
                 // it's an aggregate that occupies a slot in `row.aggregates`
                 // (doc-count aggregates do not — see `uses_doc_count_path`).
                 if let TargetListEntry::Aggregate(agg_type) = entry
@@ -1877,7 +1896,7 @@ impl AggregateScan {
 
             let (datum, is_null) = match entry {
                 TargetListEntry::Aggregate(agg_type) => {
-                    // Use the native aggregate result type (from the Const node),
+                    // Use the native aggregate result type (from the placeholder),
                     // not the output tuple descriptor's type — those would have
                     // been converted to e.g. TEXT for jsonb_pretty output, but
                     // the wrapped projection wants the raw JSONB / numeric.
@@ -1894,7 +1913,7 @@ impl AggregateScan {
                     match aggregate_value_to_datum(
                         agg_type,
                         row,
-                        (*const_node).consttype,
+                        typoid,
                         aggregate_clause,
                         next_aggregate,
                         state
@@ -1915,25 +1934,10 @@ impl AggregateScan {
                 }
             };
 
-            (*const_node).constvalue = datum;
-            (*const_node).constisnull = is_null;
+            projection.set(column, (!is_null).then_some(datum));
         }
 
-        // Set the scan tuple for expression evaluation context
-        (*expr_context).ecxt_scantuple = slot;
-
-        // Build projection and execute in per-tuple memory context (basescan pattern)
-        // This ensures ExecBuildProjectionInfo allocations are cleaned up each row
-        per_tuple_context.switch_to(|_| {
-            let proj_info = pg_sys::ExecBuildProjectionInfo(
-                placeholder_tlist,
-                expr_context,
-                (*planstate).ps_ResultTupleSlot,
-                planstate,
-                (*slot).tts_tupleDescriptor,
-            );
-            pg_sys::ExecProject(proj_info)
-        })
+        per_tuple_context.switch_to(|_| projection.project(slot))
     }
 
     /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,
@@ -2137,6 +2141,7 @@ impl AggregateScan {
                         let row_idx = df_state.batch_row_idx;
                         let targetlist = &df_state.targetlist;
                         let group_df_indices = &df_state.group_df_indices;
+                        let num_group_exprs = df_state.num_group_exprs;
                         // Each row is projected once, so its documents move out.
                         let pdb_agg_json = df_state
                             .pdb_agg_json
@@ -2152,6 +2157,7 @@ impl AggregateScan {
                                 row_idx,
                                 targetlist,
                                 group_df_indices,
+                                num_group_exprs,
                                 pdb_agg_json,
                             );
                         });
@@ -2257,22 +2263,24 @@ impl AggregateScan {
         // A scalar aggregate answers with one row even over no input, and its
         // counts read 0 there, not NULL, so `HAVING` sees what Postgres would.
         // Only a scalar query synthesizes, so its aggregate columns start at 0.
-        let synthesize_empty_root = df_state.targetlist.group_columns.is_empty().then(|| {
-            df_state
-                .targetlist
-                .aggregates
-                .iter()
-                .filter(|agg| !matches!(agg.agg_kind, AggKind::PdbAgg(_)))
-                .enumerate()
-                .filter_map(|(col, agg)| {
-                    matches!(
-                        agg.agg_kind,
-                        AggKind::CountStar | AggKind::Count | AggKind::CountDistinct
-                    )
-                    .then_some(col)
-                })
-                .collect::<Vec<_>>()
-        });
+        let synthesize_empty_root = (df_state.targetlist.group_columns.is_empty()
+            && !df_state.targetlist.has_group_by)
+            .then(|| {
+                df_state
+                    .targetlist
+                    .aggregates
+                    .iter()
+                    .filter(|agg| !matches!(agg.agg_kind, AggKind::PdbAgg(_)))
+                    .enumerate()
+                    .filter_map(|(col, agg)| {
+                        matches!(
+                            agg.agg_kind,
+                            AggKind::CountStar | AggKind::Count | AggKind::CountDistinct
+                        )
+                        .then_some(col)
+                    })
+                    .collect::<Vec<_>>()
+            });
         let mut assembled =
             assemble_pdb_agg_rows(schema, &batches, pdb_plan, synthesize_empty_root.as_deref())
                 .unwrap_or_else(|e| pgrx::error!("Failed to assemble pdb.agg result: {}", e));
@@ -2353,7 +2361,7 @@ fn uses_doc_count_path(agg_type: &AggregateType, aggregate_clause: &AggregateCSC
 /// aggregate results by one.
 ///
 /// Used by both `fill_slot_from_row` (which targets the tupdesc type) and
-/// `project_wrapped_aggregates` (which targets the Const node's native type).
+/// `project_wrapped_aggregates` (which targets the placeholder's native type).
 /// Returns `None` when the result should be NULL.
 unsafe fn aggregate_value_to_datum(
     agg_type: &AggregateType,
@@ -2694,8 +2702,14 @@ unsafe fn detect_join_aggregate_topk(
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
-/// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
+/// This is called at plan time or at executor startup to avoid "Aggref found in non-Agg plan node" errors
 /// Uses expression_tree_mutator to handle nested Aggrefs (e.g., COALESCE(COUNT(*), 0))
+///
+/// The new target list lives in the memory context of the one it replaces. PostgreSQL
+/// can cache a plan and run it again (a prepared statement, or a statement in a
+/// function), so the plan can outlive the execution that calls this. The next
+/// execution finds no Aggref and changes nothing, so a plan keeps one old list
+/// and no more.
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     use pgrx::pg_guard;
 
@@ -2762,18 +2776,21 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     }
 
     // Build a new target list with Aggrefs replaced by placeholders and UNNEST stripped
-    let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
-    for te in targetlist.iter_ptr() {
-        let new_te = pg_sys::flatCopyTargetEntry(te);
+    let mut plan_context = PgMemoryContexts::of((*plan).targetlist.cast())
+        .expect("the target list should be in a memory context");
+    (*plan).targetlist = plan_context.switch_to(|_| {
+        let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
+        for te in targetlist.iter_ptr() {
+            let new_te = pg_sys::flatCopyTargetEntry(te);
 
-        // Use the mutator to replace any Aggref or UNNEST nodes in the expression
-        let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, std::ptr::null_mut());
-        (*new_te).expr = new_expr as *mut pg_sys::Expr;
+            // Use the mutator to replace any Aggref or UNNEST nodes in the expression
+            let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, std::ptr::null_mut());
+            (*new_te).expr = new_expr as *mut pg_sys::Expr;
 
-        new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
-    }
-
-    (*plan).targetlist = new_targetlist;
+            new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
+        }
+        new_targetlist
+    });
 }
 
 /// Creates a placeholder `FuncExpr` for a PostgreSQL `Aggref`.

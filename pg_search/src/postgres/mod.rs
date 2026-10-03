@@ -1417,6 +1417,9 @@ mod segment_info_tests {
             "clusters_skipped_empty",
             "eligible_charged",
             "rerank_rows",
+            "rerank_reads",
+            "rerank_bytes_read",
+            "rerank_storage_blocks",
             "scan_init_ns",
             "query_prep_ns",
             "routing_ns",
@@ -1469,6 +1472,14 @@ mod segment_info_tests {
         for layer in 0..3 {
             insert_counter(&mut fields, format!("layer{layer}_scan_ns"));
             insert_counter(&mut fields, format!("layer{layer}_scored"));
+            for suffix in [
+                "reads",
+                "bytes_read",
+                "storage_blocks",
+                "sign_word_fallbacks",
+            ] {
+                insert_counter(&mut fields, format!("layer{layer}_{suffix}"));
+            }
             insert_counter(&mut fields, format!("layer{layer}_survivors"));
             insert_counter(&mut fields, format!("boundary{layer}_ns"));
             stages.push(format!("layer{layer}_scan"));

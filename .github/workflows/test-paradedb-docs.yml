@@ -48,7 +48,7 @@ jobs:
         uses: runs-on/action@v2
 
       - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache: false
           rustflags: "" # Use .cargo/config.toml target-cpu flags
@@ -155,6 +155,9 @@ jobs:
           fi
 
           echo "🎉 All SEO checks passed!"
+
+      - name: Lint Changelog Fragments
+        run: python3 .github/scripts/release.py lint-fragments --changelog-only
 
       - name: Install pgrx
         env:

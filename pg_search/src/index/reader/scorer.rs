@@ -17,11 +17,7 @@
 
 use crate::index::reader::index::enable_scoring;
 use std::sync::{Arc, OnceLock};
-use tantivy::Term;
-use tantivy::query::{
-    BooleanQuery, EnableScoring, Explanation, Occur, PruningScorer, Query, Scorer, Weight,
-};
-use tantivy::schema::Field;
+use tantivy::query::{BooleanQuery, Occur, PruningScorer, Query, Scorer, Weight};
 use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -55,12 +51,12 @@ impl LazyWeight {
         }
     }
 
-    /// Conjoin another query using the same searcher and scoring mode, while sharing the
-    /// base query's prepared weight. Each segment still receives its own scorer.
+    /// Conjoin another query using the same searcher and scoring mode.
+    /// Each segment still receives its own scorer.
     pub(super) fn and_query(self: &Arc<Self>, query: Box<dyn Query>) -> Self {
         Self::new(
             Box::new(BooleanQuery::new(vec![
-                (Occur::Must, Box::new(SharedQuery(Arc::clone(self)))),
+                (Occur::Must, self.query.box_clone()),
                 (Occur::Must, query),
             ])),
             self.need_scores,
@@ -76,97 +72,6 @@ impl LazyWeight {
                     .expect("weight should be constructable")
             })
             .as_ref()
-    }
-}
-
-/// Lets Tantivy build its ordinary BooleanWeight without preparing the shared clause again.
-/// Every `Weight` method is forwarded so the base weight's scorer and pruning specializations
-/// are the ones that run; a method added to the trait with a default body would silently
-/// bypass them, so keep this impl in step with the trait.
-#[derive(Clone)]
-struct SharedQuery(Arc<LazyWeight>);
-
-impl std::fmt::Debug for SharedQuery {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.query.fmt(f)
-    }
-}
-
-impl tantivy::query::QueryEstimate for SharedQuery {
-    fn estimate_docs(
-        &self,
-        reader: &tantivy::SegmentReader,
-    ) -> tantivy::Result<Option<(u32, u64)>> {
-        self.0.query.estimate_docs(reader)
-    }
-}
-
-impl Query for SharedQuery {
-    fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
-        assert_eq!(
-            scoring.is_scoring_enabled(),
-            self.0.need_scores,
-            "constrained weight must use the base weight's scoring mode"
-        );
-        self.0.get();
-        Ok(Box::new(self.clone()))
-    }
-
-    fn query_terms(
-        &self,
-        field: Field,
-        reader: &SegmentReader,
-        visitor: &mut dyn FnMut(&Term, bool),
-    ) {
-        self.0.query.query_terms(field, reader, visitor);
-    }
-}
-
-impl Weight for SharedQuery {
-    fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
-        self.0.get().scorer(reader, boost)
-    }
-
-    fn pruning_scorer(
-        &self,
-        reader: &SegmentReader,
-        boost: Score,
-        threshold: Score,
-    ) -> tantivy::Result<Box<dyn PruningScorer>> {
-        self.0.get().pruning_scorer(reader, boost, threshold)
-    }
-
-    fn explain(&self, reader: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
-        self.0.get().explain(reader, doc)
-    }
-
-    fn count(&self, reader: &SegmentReader) -> tantivy::Result<u32> {
-        self.0.get().count(reader)
-    }
-
-    fn for_each(
-        &self,
-        reader: &SegmentReader,
-        callback: &mut dyn FnMut(DocId, Score),
-    ) -> tantivy::Result<()> {
-        self.0.get().for_each(reader, callback)
-    }
-
-    fn for_each_no_score(
-        &self,
-        reader: &SegmentReader,
-        callback: &mut dyn FnMut(&[DocId]),
-    ) -> tantivy::Result<()> {
-        self.0.get().for_each_no_score(reader, callback)
-    }
-
-    fn for_each_pruning(
-        &self,
-        threshold: Score,
-        reader: &SegmentReader,
-        callback: &mut dyn FnMut(DocId, Score) -> Score,
-    ) -> tantivy::Result<()> {
-        self.0.get().for_each_pruning(threshold, reader, callback)
     }
 }
 
@@ -208,8 +113,7 @@ impl DeferredScorer {
     }
 
     fn set_threshold(&mut self, threshold: Score) {
-        let scorer = self.scorer_mut();
-        scorer.set_threshold(threshold);
+        self.scorer_mut().set_threshold(threshold);
     }
 }
 

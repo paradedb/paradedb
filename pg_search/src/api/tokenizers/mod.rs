@@ -203,7 +203,8 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
-        SearchTokenizer::RegexTokenizer { pattern, filters } => {
+        SearchTokenizer::RegexTokenizer { pattern, filters }
+        | SearchTokenizer::RegexTokenizerDeprecated { pattern, filters } => {
             if let Some(Ok(r)) = parsed.try_get("pattern", 0).and_then(|p| p.as_regex()) {
                 *pattern = r.as_str().to_string();
             }
@@ -415,7 +416,8 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *token_chars = edge_ngram_typmod.token_chars;
             *filters = edge_ngram_typmod.filters;
         }
-        SearchTokenizer::RegexTokenizer { pattern, filters } => {
+        SearchTokenizer::RegexTokenizer { pattern, filters }
+        | SearchTokenizer::RegexTokenizerDeprecated { pattern, filters } => {
             let regex_typmod = RegexTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *pattern = regex_typmod.pattern.to_string();
             *filters = regex_typmod.filters;

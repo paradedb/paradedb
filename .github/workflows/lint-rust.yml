@@ -11,6 +11,7 @@ on:
     paths:
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/lint-rust.yml"
+      - ".github/scripts/check_impl_drop.py"
       - "**/*.rs"
       - "**/*.toml"
       - "Cargo.lock"
@@ -45,6 +46,10 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
+
+      # A bare `impl Drop` can abort the backend during an ERROR or at exit (#6479, #6530).
+      - name: Check impl Drop
+        run: python3 .github/scripts/check_impl_drop.py
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2

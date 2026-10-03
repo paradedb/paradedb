@@ -1252,9 +1252,10 @@ impl ExecutionPlan for PgSearchScanPlan {
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let plan_metrics = self.metrics.clone();
         let schema = self.properties.eq_properties.schema().clone();
-        let score_column_schema_idx: Option<usize> = schema
-            .column_with_name(&WhichFastField::Score.name())
-            .map(|(idx, _)| idx);
+        let score_column_schema_idx: Option<usize> = scanner_config
+            .which_fast_fields
+            .iter()
+            .position(|wff| wff.is_score());
         let dynamic_filters = self.dynamic_filters.clone();
         let scan_fetched_fields: Vec<String> = self
             .deferred_fields
@@ -1314,7 +1315,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             let need_scores = scanner_config
                 .which_fast_fields
                 .iter()
-                .any(|wff| matches!(wff, WhichFastField::Score));
+                .any(|wff| wff.is_score());
             let mut scanner = Scanner::new(
                 search_results,
                 scanner_config.batch_size_hint,
@@ -1341,6 +1342,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             }
 
             let mut pushdown_metric_recorded = false;
+            let mut score_pushdown_metric_recorded = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let (pre_filters, score_threshold) =
@@ -1381,6 +1383,13 @@ impl ExecutionPlan for PgSearchScanPlan {
                     }
                 }
 
+                if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
+                    MetricBuilder::new(&plan_metrics)
+                        .counter("dynamic_filter_pushdown_score", target_partition)
+                        .add(1);
+                    score_pushdown_metric_recorded = true;
+                }
+
                 match next_batch {
                     Some(batch) => {
                         let record_batch = batch.to_record_batch(&schema);
@@ -1398,6 +1407,11 @@ impl ExecutionPlan for PgSearchScanPlan {
                             };
                             MetricBuilder::new(&plan_metrics)
                                 .counter(metric_name, target_partition)
+                                .add(1);
+                        }
+                        if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
+                            MetricBuilder::new(&plan_metrics)
+                                .counter("dynamic_filter_pushdown_score", target_partition)
                                 .add(1);
                         }
                         // Flush pre-materialization filter stats from Scanner.

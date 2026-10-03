@@ -28,3 +28,9 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
   `max_leaf_size`, set at build time. See [Index
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>
+
+## Quantization settings
+
+Quantization settings in `vector_fields` take effect only during `CREATE INDEX` and
+`REINDEX`. Changing quantization with `ALTER INDEX ... SET (vector_fields = ...)`
+does not affect new or existing segments until `REINDEX` rebuilds the index.

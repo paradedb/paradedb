@@ -102,7 +102,7 @@ fn ensure_column_fetched(
                 }
             });
         }
-        WhichFastField::Score
+        WhichFastField::Score(_)
         | WhichFastField::Ctid
         | WhichFastField::TableOid
         | WhichFastField::Junk(_)
@@ -168,6 +168,7 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
+    pub(crate) score_threshold_pushed: bool,
     score_threshold: Option<Score>,
     tagged_queries: Vec<TaggedMatchQuery>,
     current_segment_ord: Option<SegmentOrdinal>,
@@ -311,6 +312,7 @@ impl Scanner {
             fetch_ordinals_in_scan,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
+            score_threshold_pushed: false,
             score_threshold: None,
             tagged_queries: Vec::new(),
             current_segment_ord: None,
@@ -395,6 +397,7 @@ impl Scanner {
             let segment_ord = scorer_iter.segment_ord();
             if can_pushdown && let Some(threshold) = self.score_threshold {
                 scorer_iter.set_threshold(threshold);
+                self.score_threshold_pushed = true;
             }
 
             // Collect a batch of ids/scores for this segment.
@@ -444,14 +447,10 @@ impl Scanner {
             }
         }
 
-        if self
-            .which_fast_fields
-            .iter()
-            .any(|ff| matches!(ff, WhichFastField::Score))
-        {
+        if self.which_fast_fields.iter().any(|ff| ff.is_score()) {
             let scores_array = Arc::new(Float32Array::from(scores)) as ArrayRef;
             for (idx, ff) in self.which_fast_fields.iter().enumerate() {
-                if matches!(ff, WhichFastField::Score) {
+                if ff.is_score() {
                     memoized_columns[idx] = Some(scores_array.clone());
                 }
             }
@@ -617,7 +616,7 @@ impl Scanner {
             .enumerate()
             .map(|(ff_index, which_ff)| match which_ff {
                 WhichFastField::Ctid => Some(ctids_array.clone().unwrap()),
-                WhichFastField::Score => Some(memoized_columns[ff_index].clone().unwrap()),
+                WhichFastField::Score(_) => Some(memoized_columns[ff_index].clone().unwrap()),
                 WhichFastField::TableOid => {
                     let mut builder = arrow_array::builder::UInt32Builder::with_capacity(ids.len());
                     for _ in 0..ids.len() {

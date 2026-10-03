@@ -503,7 +503,7 @@ impl pdb::Query {
                     "pdb::Query::UnclassifiedArray cannot be converted into a TantivyQuery"
                 )
             }
-            pdb::Query::Exists => exists(field, searcher)?,
+            pdb::Query::Exists => Box::new(exists(field, searcher)?),
             pdb::Query::ScoreAdjusted { query, score } => {
                 let query = query.into_tantivy_query(
                     field,
@@ -521,13 +521,18 @@ impl pdb::Query {
             pdb::Query::FastFieldRangeWeight {
                 lower_bound,
                 upper_bound,
-            } => fast_field_range_weight(&field, schema, lower_bound, upper_bound),
+            } => Box::new(fast_field_range_weight(
+                &field,
+                schema,
+                lower_bound,
+                upper_bound,
+            )),
             pdb::Query::FuzzyTerm {
                 value,
                 distance,
                 transposition_cost_one,
                 prefix,
-            } => fuzzy_term(
+            } => Box::new(fuzzy_term(
                 &field,
                 schema,
                 index_created_by_version,
@@ -535,7 +540,7 @@ impl pdb::Query {
                 distance,
                 transposition_cost_one,
                 prefix,
-            )?,
+            )?),
             pdb::Query::Match {
                 value,
                 tokenizer,
@@ -599,14 +604,14 @@ impl pdb::Query {
                 fuzzy_data,
             )?,
 
-            pdb::Query::Phrase { phrases, slop } => phrase(
+            pdb::Query::Phrase { phrases, slop } => Box::new(phrase(
                 &field,
                 schema,
                 index_created_by_version,
                 searcher,
                 phrases,
                 slop,
-            )?,
+            )?),
             pdb::Query::PhraseArray { tokens, slop } => {
                 phrase_array(&field, schema, index_created_by_version, tokens, slop)?
             }
@@ -637,23 +642,23 @@ impl pdb::Query {
             pdb::Query::Range {
                 lower_bound,
                 upper_bound,
-            } => range(
+            } => Box::new(range(
                 &field,
                 schema,
                 index_created_by_version,
                 lower_bound,
                 upper_bound,
-            )?,
+            )?),
             pdb::Query::RangeContains {
                 lower_bound,
                 upper_bound,
-            } => range_contains(
+            } => Box::new(range_contains(
                 &field,
                 schema,
                 index_created_by_version,
                 lower_bound,
                 upper_bound,
-            )?,
+            )?),
             pdb::Query::RangeIntersects {
                 lower_bound,
                 upper_bound,
@@ -664,9 +669,12 @@ impl pdb::Query {
                 lower_bound,
                 upper_bound,
             )?,
-            pdb::Query::RangeTerm { value } => {
-                range_term(&field, schema, index_created_by_version, &value)?
-            }
+            pdb::Query::RangeTerm { value } => Box::new(range_term(
+                &field,
+                schema,
+                index_created_by_version,
+                &value,
+            )?),
             pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
@@ -677,15 +685,17 @@ impl pdb::Query {
                 lower_bound,
                 upper_bound,
             )?,
-            pdb::Query::Regex { pattern } => regex(&field, schema, &pattern)?,
+            pdb::Query::Regex { pattern } => Box::new(regex(&field, schema, &pattern)?),
             pdb::Query::RegexPhrase {
                 regexes,
                 slop,
                 max_expansions,
-            } => regex_phrase(&field, schema, regexes, slop, max_expansions)?,
-            pdb::Query::Term { value } => term(field, schema, index_created_by_version, &value)?,
+            } => Box::new(regex_phrase(&field, schema, regexes, slop, max_expansions)?),
+            pdb::Query::Term { value } => {
+                Box::new(term(field, schema, index_created_by_version, &value)?)
+            }
             pdb::Query::TermSet { terms } => {
-                term_set(field, schema, index_created_by_version, terms)?
+                Box::new(term_set(field, schema, index_created_by_version, terms)?)
             }
         };
 
@@ -785,7 +795,7 @@ fn term_set(
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     terms: Vec<PdbOwnedValue>,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
+) -> anyhow::Result<TermSetQuery> {
     let search_field = schema
         .search_field(&field)
         .expect("field should exist in schema");
@@ -799,18 +809,16 @@ fn term_set(
         .map(|term| convert_value_for_field(term, &search_field_type, index_created_by_version))
         .collect::<anyhow::Result<Vec<PdbOwnedValue>>>()?;
 
-    Ok(Box::new(TermSetQuery::new(
-        converted_terms.into_iter().map(|term| {
-            value_to_term(
-                tantivy_field,
-                &term,
-                field_type,
-                field.path().as_deref(),
-                index_created_by_version,
-            )
-            .expect("could not convert argument to search term")
-        }),
-    )))
+    Ok(TermSetQuery::new(converted_terms.into_iter().map(|term| {
+        value_to_term(
+            tantivy_field,
+            &term,
+            field_type,
+            field.path().as_deref(),
+            index_created_by_version,
+        )
+        .expect("could not convert argument to search term")
+    })))
 }
 
 fn term(
@@ -818,7 +826,7 @@ fn term(
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
+) -> anyhow::Result<TermQuery> {
     let record_option = IndexRecordOption::WithFreqs;
     let search_field = schema
         .search_field(field.root())
@@ -838,7 +846,7 @@ fn term(
         index_created_by_version,
     )?;
 
-    Ok(Box::new(TermQuery::new(term, record_option.into())))
+    Ok(TermQuery::new(term, record_option.into()))
 }
 
 fn regex_phrase(
@@ -847,7 +855,7 @@ fn regex_phrase(
     regexes: Vec<String>,
     slop: Option<u32>,
     max_expansions: Option<u32>,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
+) -> anyhow::Result<RegexPhraseQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?
@@ -861,22 +869,20 @@ fn regex_phrase(
     if let Some(max_expansions) = max_expansions {
         query.set_max_expansions(max_expansions)
     }
-    Ok(Box::new(query))
+    Ok(query)
 }
 
 fn regex(
     field: &FieldName,
     schema: &SearchIndexSchema,
     pattern: &str,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
+) -> anyhow::Result<RegexQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
 
-    Ok(Box::new(
-        RegexQuery::from_pattern(pattern, search_field.field())
-            .map_err(|err| QueryError::RegexError(err, pattern.to_string()))?,
-    ))
+    RegexQuery::from_pattern(pattern, search_field.field())
+        .map_err(|err| QueryError::RegexError(err, pattern.to_string()).into())
 }
 
 /// Note: For JSON numeric fast field limitations, see documentation on [`range`].
@@ -1053,7 +1059,7 @@ fn range_term(
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
+) -> anyhow::Result<BooleanQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1163,10 +1169,10 @@ fn range_term(
         ),
     ]);
 
-    Ok(Box::new(BooleanQuery::new(vec![
+    Ok(BooleanQuery::new(vec![
         (Occur::Must, Box::new(satisfies_lower_bound)),
         (Occur::Must, Box::new(satisfies_upper_bound)),
-    ])))
+    ]))
 }
 
 fn range_intersects(
@@ -1348,7 +1354,7 @@ fn range_contains(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
+) -> anyhow::Result<BooleanQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1488,10 +1494,10 @@ fn range_contains(
         ),
     ]);
 
-    Ok(Box::new(BooleanQuery::new(vec![
+    Ok(BooleanQuery::new(vec![
         (Occur::Must, Box::new(satisfies_lower_bound)),
         (Occur::Must, Box::new(satisfies_upper_bound)),
-    ])))
+    ]))
 }
 
 /// Canonicalize range endpoints into the storage-level scalar representation used by `range`.
@@ -1575,7 +1581,7 @@ fn range(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
+) -> anyhow::Result<RangeQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1623,7 +1629,7 @@ fn range(
         Bound::Unbounded => Bound::Unbounded,
     };
 
-    Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+    Ok(RangeQuery::new(lower_bound, upper_bound))
 }
 
 fn resolve_search_tokenizer(
@@ -1729,7 +1735,7 @@ fn phrase(
     searcher: &Searcher,
     phrases: Vec<String>,
     slop: Option<u32>,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
+) -> anyhow::Result<PhraseQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?
@@ -1776,7 +1782,7 @@ fn phrase(
     if let Some(slop) = slop {
         query.set_slop(slop)
     }
-    Ok(Box::new(query))
+    Ok(query)
 }
 
 fn phrase_array(
@@ -2080,7 +2086,7 @@ fn fuzzy_term(
     distance: Option<u8>,
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
+) -> anyhow::Result<FuzzyTermQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -2094,13 +2100,9 @@ fn fuzzy_term(
     )?;
     let distance = distance.unwrap_or(2);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
-    let query: Box<dyn TantivyQuery> = match prefix {
-        Some(true) => Box::new(FuzzyTermQuery::new_prefix(
-            term,
-            distance,
-            transposition_cost_one,
-        )),
-        Some(false) | None => Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one)),
+    let query = match prefix {
+        Some(true) => FuzzyTermQuery::new_prefix(term, distance, transposition_cost_one),
+        Some(false) | None => FuzzyTermQuery::new(term, distance, transposition_cost_one),
     };
 
     Ok(query)
@@ -2111,7 +2113,7 @@ fn fast_field_range_weight(
     schema: &SearchIndexSchema,
     lower_bound: Bound<u64>,
     upper_bound: Bound<u64>,
-) -> Box<FastFieldRangeQuery> {
+) -> FastFieldRangeQuery {
     let field = schema.search_field(field.root()).unwrap().field();
     let new_lower_bound = match lower_bound {
         Bound::Excluded(v) => Bound::Excluded(Term::from_field_u64(field, v)),
@@ -2125,20 +2127,17 @@ fn fast_field_range_weight(
         Bound::Unbounded => Bound::Unbounded,
     };
 
-    Box::new(FastFieldRangeQuery::new(new_lower_bound, new_upper_bound))
+    FastFieldRangeQuery::new(new_lower_bound, new_upper_bound)
 }
 
-fn exists(field: FieldName, searcher: &Searcher) -> anyhow::Result<Box<ExistsQuery>> {
+fn exists(field: FieldName, searcher: &Searcher) -> anyhow::Result<ExistsQuery> {
     let schema_field = searcher.schema().get_field(&field.root()).unwrap();
     let field_type = searcher.schema().get_field_entry(schema_field).field_type();
     anyhow::ensure!(
         field_type.is_fast(),
         "exists field '{field}' must be columnar. Add it to the index with 'columnar=true'"
     );
-    Ok(Box::new(ExistsQuery::new(
-        field.into_inner(),
-        field_type.is_json(),
-    )))
+    Ok(ExistsQuery::new(field.into_inner(), field_type.is_json()))
 }
 
 pub(super) fn parse_tantivy_query(

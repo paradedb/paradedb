@@ -868,7 +868,7 @@ fn selectivity_clause(
             // Check the logical type: SearchField::is_text() also includes UUID string storage.
             SearchQueryInput::FieldedQuery {
                 ref field,
-                query: pdb::Query::Term { .. },
+                query: pdb::Query::Term { ref value },
             } if indexrel
                 .schema()
                 .ok()
@@ -878,7 +878,7 @@ fn selectivity_clause(
                         field.field_type(),
                         crate::schema::SearchFieldType::Text(..)
                             | crate::schema::SearchFieldType::Tokenized(..)
-                    )
+                    ) || (field.is_json() && matches!(value, PdbOwnedValue::Str(_)))
                 }) =>
             {
                 break query;

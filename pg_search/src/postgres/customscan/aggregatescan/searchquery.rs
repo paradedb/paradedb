@@ -63,8 +63,11 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Result<Self, CustomScanBuildError> {
-        // We can't handle HAVING yet
-        if args.root().hasHavingQual {
+        // We can't handle HAVING yet. PostgreSQL moves a HAVING condition that
+        // has no aggregate to WHERE, and `hasHavingQual` stays set after that
+        // move, so this reads the clause itself.
+        let parse = args.root().parse;
+        if !parse.is_null() && unsafe { !(*parse).havingQual.is_null() } {
             return Err("HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206)".into());
         }
 

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Aggregate Scan now runs a `GROUP BY` query with a `HAVING` condition on a grouping key, and a grouped subquery with a condition of the outer query on a grouping key. Postgres moves such a condition to `WHERE`, and the scan declined the query with `HAVING clause is not supported` (#6636).

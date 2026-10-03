@@ -226,6 +226,235 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
           3 | 40
 (3 rows)
 
+\echo 'Test 6: a constant true HAVING on an aggregate without GROUP BY'
+Test 6: a constant true HAVING on an aggregate without GROUP BY
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
+                      QUERY PLAN                       
+-------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on having_items
+   Index: having_items_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"filter":"*"}}
+(5 rows)
+
+SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
+ count 
+-------
+   120
+(1 row)
+
+\echo 'Test 7: a constant false HAVING on an aggregate without GROUP BY stays in HAVING -> declined'
+Test 7: a constant false HAVING on an aggregate without GROUP BY stays in HAVING -> declined
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 2;
+WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
+           QUERY PLAN           
+--------------------------------
+ Aggregate
+   Filter: false
+   ->  Result
+         One-Time Filter: false
+(4 rows)
+
+SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 2;
+WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
+ count 
+-------
+(0 rows)
+
+\echo 'Test 8: a constant false HAVING with GROUP BY moves to WHERE'
+Test 8: a constant false HAVING with GROUP BY moves to WHERE
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT account_id, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id
+HAVING 1 = 2;
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on having_items
+   Index: having_items_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":["all"],"must_not":["all"]}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: account_id
+     Aggregate Definition: {"grouped":{"terms":{"field":"account_id","segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT account_id, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id
+HAVING 1 = 2;
+ account_id | count 
+------------+-------
+(0 rows)
+
+\echo 'Test 9: a volatile HAVING condition stays in HAVING -> declined'
+Test 9: a volatile HAVING condition stays in HAVING -> declined
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT account_id, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id
+HAVING account_id > random() * 0
+ORDER BY account_id;
+WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Sort
+   Sort Key: account_id
+   ->  HashAggregate
+         Group Key: account_id
+         Filter: ((account_id)::double precision > (random() * '0'::double precision))
+         ->  Custom Scan (ParadeDB Base Scan) on having_items
+               Table: having_items
+               Index: having_items_idx
+               Exec Method: ColumnarExecState
+               Columnar: account_id
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(13 rows)
+
+SELECT account_id, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id
+HAVING account_id > random() * 0
+ORDER BY account_id;
+WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: having_items)
+ account_id | count 
+------------+-------
+          1 |    40
+          2 |    40
+          3 |    40
+(3 rows)
+
+\echo 'Test 10: a moved condition that the index cannot answer is checked on the heap'
+Test 10: a moved condition that the index cannot answer is checked on the heap
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT account_id, kind, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id, kind
+HAVING length(kind) = 1 AND kind <> 'b'
+ORDER BY account_id, kind;
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on having_items
+   Index: having_items_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"b"}}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(kind) = 1)"}]}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: account_id, kind
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT account_id, kind, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id, kind
+HAVING length(kind) = 1 AND kind <> 'b'
+ORDER BY account_id, kind;
+ account_id | kind | count 
+------------+------+-------
+          1 | a    |    10
+          1 | c    |    10
+          1 | d    |    10
+          2 | a    |    10
+          2 | c    |    10
+          2 | d    |    10
+          3 | a    |    10
+          3 | c    |    10
+          3 | d    |    10
+(9 rows)
+
+\echo 'Test 11: a moved condition with a parameter in a generic plan'
+Test 11: a moved condition with a parameter in a generic plan
+PREPARE having_param(BIGINT) AS
+SELECT account_id, kind, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id, kind
+HAVING account_id > $1
+ORDER BY account_id, kind;
+SET plan_cache_mode TO force_generic_plan;
+EXPLAIN (COSTS OFF, TIMING OFF) EXECUTE having_param(1);
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on having_items
+   Index: having_items_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('account_id'::paradedb.fieldname, '>'::text, $1)"}}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: account_id, kind
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+EXECUTE having_param(1);
+ account_id | kind | count 
+------------+------+-------
+          2 | a    |    10
+          2 | b    |    10
+          2 | c    |    10
+          2 | d    |    10
+          3 | a    |    10
+          3 | b    |    10
+          3 | c    |    10
+          3 | d    |    10
+(8 rows)
+
+EXECUTE having_param(2);
+ account_id | kind | count 
+------------+------+-------
+          3 | a    |    10
+          3 | b    |    10
+          3 | c    |    10
+          3 | d    |    10
+(4 rows)
+
+RESET plan_cache_mode;
+DEALLOCATE having_param;
+\echo 'Test 12: pdb.agg() with a moved condition'
+Test 12: pdb.agg() with a moved condition
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT account_id, pdb.agg('{"terms": {"field": "kind"}}'::jsonb)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id
+HAVING account_id > 1
+ORDER BY account_id;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on having_items
+   Index: having_items_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"account_id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"kind"}})
+     Group By: account_id
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"kind"}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT account_id, pdb.agg('{"terms": {"field": "kind"}}'::jsonb)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id
+HAVING account_id > 1
+ORDER BY account_id;
+ account_id |                                                                                                  agg                                                                                                  
+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+          2 | {"buckets": [{"key": "a", "doc_count": 10}, {"key": "b", "doc_count": 10}, {"key": "c", "doc_count": 10}, {"key": "d", "doc_count": 10}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+          3 | {"buckets": [{"key": "a", "doc_count": 10}, {"key": "b", "doc_count": 10}, {"key": "c", "doc_count": 10}, {"key": "d", "doc_count": 10}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(2 rows)
+
+\echo 'Test 13: pdb.agg() with a condition on an aggregate -> error'
+Test 13: pdb.agg() with a condition on an aggregate -> error
+SELECT account_id, pdb.agg('{"terms": {"field": "kind"}}'::jsonb)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id
+HAVING COUNT(*) > 10
+ORDER BY account_id;
+ERROR:  Cannot execute pdb.agg: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206)
 \echo 'Same results from PostgreSQL'
 Same results from PostgreSQL
 SET paradedb.enable_aggregate_custom_scan TO off;
@@ -284,6 +513,54 @@ SELECT * FROM grouped WHERE kind >= 'c' ORDER BY account_id, kind;
           3 | c    | 10
           3 | d    | 10
 (6 rows)
+
+SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
+ count 
+-------
+   120
+(1 row)
+
+SELECT account_id, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id
+HAVING 1 = 2;
+ account_id | count 
+------------+-------
+(0 rows)
+
+SELECT account_id, kind, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id, kind
+HAVING length(kind) = 1 AND kind <> 'b'
+ORDER BY account_id, kind;
+ account_id | kind | count 
+------------+------+-------
+          1 | a    |    10
+          1 | c    |    10
+          1 | d    |    10
+          2 | a    |    10
+          2 | c    |    10
+          2 | d    |    10
+          3 | a    |    10
+          3 | c    |    10
+          3 | d    |    10
+(9 rows)
+
+SELECT account_id, kind, COUNT(*)
+FROM having_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id, kind
+HAVING account_id > 2
+ORDER BY account_id, kind;
+ account_id | kind | count 
+------------+------+-------
+          3 | a    |    10
+          3 | b    |    10
+          3 | c    |    10
+          3 | d    |    10
+(4 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE having_items;

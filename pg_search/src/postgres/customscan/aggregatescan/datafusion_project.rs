@@ -50,6 +50,7 @@ pub unsafe fn project_aggregate_row_to_slot(
     row_idx: usize,
     targetlist: &JoinAggregateTargetList,
     group_df_indices: &[usize],
+    num_group_exprs: usize,
     pdb_agg_json: Vec<serde_json::Value>,
 ) {
     let tupdesc = (*slot).tts_tupleDescriptor;
@@ -103,12 +104,9 @@ pub unsafe fn project_aggregate_row_to_slot(
         }
     }
 
-    // Fill aggregate columns
-    // Aggregate columns always follow ALL deduplicated GROUP BY columns in the
-    // RecordBatch. The number of deduplicated group columns is the number of
-    // unique indices in group_df_indices.
-    let num_unique_group_cols = group_df_indices.iter().max().map(|&m| m + 1).unwrap_or(0);
-    let mut df_col_idx = num_unique_group_cols;
+    // Aggregate columns follow the deduplicated GROUP BY columns in the
+    // RecordBatch.
+    let mut df_col_idx = num_group_exprs;
     let mut pdb_agg_json = pdb_agg_json.into_iter();
 
     for (offset, agg) in targetlist.aggregates.iter().enumerate() {

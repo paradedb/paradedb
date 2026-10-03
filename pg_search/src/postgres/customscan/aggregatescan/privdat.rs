@@ -17,6 +17,7 @@
 
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::datafusion_exec::row_value_alias;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     GroupingTransform, JoinAggregateTargetList,
 };
@@ -125,6 +126,9 @@ impl TopKSortTarget {
             TopKSortTarget::Aggregate(idx) => Column::new_unqualified(format!("agg_{idx}")),
             TopKSortTarget::GroupColumn(idx) => {
                 let gc = &targetlist.group_columns[*idx];
+                if gc.row_value {
+                    return Column::new_unqualified(row_value_alias(*idx));
+                }
                 let source = plan.source_at_plan_position(gc.plan_position);
                 let alias = if let Some(src) = source {
                     RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position)

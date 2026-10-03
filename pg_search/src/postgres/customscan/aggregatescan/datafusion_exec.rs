@@ -59,8 +59,8 @@ use datafusion::functions::core::expr_fn::coalesce;
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
-    array_agg, avg, bool_and, bool_or, count, max, min, stddev, stddev_pop, sum, var_pop,
-    var_sample,
+    array_agg, avg, bool_and, bool_or, count, first_value, max, min, stddev, stddev_pop, sum,
+    var_pop, var_sample,
 };
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
@@ -83,6 +83,8 @@ pub struct JoinAggregatePlan {
     pub logical: datafusion::logical_expr::LogicalPlan,
     /// Per `targetlist.group_columns` entry, its DataFusion output column.
     pub group_df_indices: Vec<usize>,
+    /// The number of DataFusion grouping columns. The aggregates follow them.
+    pub num_group_exprs: usize,
     /// Set when the query carries `pdb.agg()` calls.
     pub pdb_plan: Option<PdbAggPlan>,
     /// `HAVING` of a scalar `pdb.agg()` query, applied to the assembled root row
@@ -119,6 +121,18 @@ pub async fn build_join_aggregate_plan(
     )
     .await?;
 
+    // A row value column reads the row with the lowest ctids in its group. One
+    // order for all of them makes them read the same row, which matters when an
+    // expression above uses more than one. With an order, `first_value` also has
+    // a groups accumulator, which keeps its state small enough to spill.
+    let row_order: Vec<Sort> = df
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| CtidColumn::try_from(field.name().as_str()).is_ok())
+        .map(|field| col(field.name()).sort(true, false))
+        .collect();
+
     // Step 2: Build GROUP BY expressions
     // DataFusion deduplicates grouping expressions that resolve to the same
     // column name (e.g. metadata.brand). We must track which DataFusion output
@@ -126,8 +140,20 @@ pub async fn build_join_aggregate_plan(
     let mut group_exprs = Vec::new();
     let mut field_to_df_idx = crate::api::HashMap::default();
     let mut group_df_indices = Vec::with_capacity(targetlist.group_columns.len());
+    // A row value column is an aggregate, so its index is known after them.
+    let mut row_values = Vec::new();
 
-    for gc in &targetlist.group_columns {
+    for (gc_idx, gc) in targetlist.group_columns.iter().enumerate() {
+        if gc.row_value {
+            // PostgreSQL's Agg node reads such a column from one row of the group.
+            let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+            row_values.push((
+                gc_idx,
+                first_value(column, row_order.clone()).alias(row_value_alias(gc_idx)),
+            ));
+            group_df_indices.push(usize::MAX);
+            continue;
+        }
         // Dedup key by (plan_position, field_name, transform): plan_position is the
         // unique source identity; field_name distinguishes columns within
         // a source, transform distinguishes different transformations of the same column.
@@ -154,6 +180,12 @@ pub async fn build_join_aggregate_plan(
             std::collections::hash_map::Entry::Occupied(o) => *o.get(),
         };
         group_df_indices.push(df_idx);
+    }
+
+    // With no key to group on, a GROUP BY query has one group when a row
+    // matches and none when no row does. A constant key gives that.
+    if targetlist.has_group_by && group_exprs.is_empty() {
+        group_exprs.push(lit(true).alias(ONE_GROUP_KEY));
     }
 
     // Step 3: Build aggregate expressions. `pdb.agg()` entries contribute no
@@ -272,6 +304,12 @@ pub async fn build_join_aggregate_plan(
         })
         .filter_map(Result::transpose)
         .collect::<Result<Vec<Expr>>>()?;
+    let num_group_exprs = group_exprs.len();
+    let mut agg_exprs = agg_exprs;
+    for (gc_idx, expr) in row_values {
+        group_df_indices[gc_idx] = num_group_exprs + agg_exprs.len();
+        agg_exprs.push(expr);
+    }
 
     let having_expr = having_filter
         .map(|having| {
@@ -351,9 +389,18 @@ pub async fn build_join_aggregate_plan(
     Ok(JoinAggregatePlan {
         logical: optimize_logical_plan(df)?,
         group_df_indices,
+        num_group_exprs,
         pdb_plan,
         pdb_root_having,
     })
+}
+
+/// The grouping key of a GROUP BY query whose keys are all pinned to constants.
+const ONE_GROUP_KEY: &str = "__one_group";
+
+/// The DataFusion output name of the row value column `group_columns[gc_idx]`.
+pub(super) fn row_value_alias(gc_idx: usize) -> String {
+    format!("row_{gc_idx}")
 }
 
 /// An array key in a `pdb.agg()` spec that must be unnested.

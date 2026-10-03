@@ -24,6 +24,7 @@
 //! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
 //! lower into a DataFusion plan.
 
+use super::datafusion_exec::row_value_alias;
 use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{CompareOp, FilterExpr};
 use crate::api::operator::expr_contains_search_predicate;
@@ -1526,8 +1527,15 @@ impl FilterExpr {
                         .targetlist()
                         .group_columns
                         .iter()
-                        .find(|gc| gc.plan_position == pp && gc.attno == attno)
-                        .map(|gc| Self::GroupRef(gc.field_name.clone())),
+                        .enumerate()
+                        .find(|(_, gc)| gc.plan_position == pp && gc.attno == attno)
+                        .map(|(idx, gc)| {
+                            Self::GroupRef(if gc.row_value {
+                                row_value_alias(idx)
+                            } else {
+                                gc.field_name.clone()
+                            })
+                        }),
                 }
             }
             pg_sys::NodeTag::T_Const => {

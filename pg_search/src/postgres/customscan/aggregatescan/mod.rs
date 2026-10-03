@@ -193,37 +193,25 @@ unsafe fn validate_grouping_pushdown(
         }
     }
 
-    if num_group_by_keys == 0 {
-        // A scalar aggregate has no grouping keys.
-        if parse.is_null() || (*parse).groupClause.is_null() {
-            return Ok(());
-        }
-
-        // For multi-table join aggregates (which execute on DataFusion), grouping columns
-        // are extracted directly from the target list expressions rather than group_pathkeys.
-        // When all grouping keys are constant (e.g. `WHERE orders.color = 'blue' GROUP BY orders.color`),
-        // PostgreSQL's optimizer omits them from group_pathkeys via `EC_has_const`.
-        // We verify collation safety directly from `parse.groupClause`.
-        if args.input_rel().reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL {
-            let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
-            for gc in group_clauses.iter_ptr() {
-                let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
-                if expr.is_null() {
-                    return Err(GroupingPushdownDeclineReason::MissingPathKeys);
-                }
-                let collation = pg_sys::exprCollation(expr);
-                if assess_collation(collation, CollationOperation::Equality)
-                    == CollationSafety::NondeterministicEquality
-                {
-                    return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
-                }
+    // PostgreSQL leaves a key out of `group_pathkeys` when the WHERE clause pins
+    // it to a constant (`WHERE orders.color = 'blue' GROUP BY orders.color`) or
+    // the primary key decides it, so the loop above does not see it. The
+    // DataFusion backend can still group on such a key: PG15 groups on a pinned
+    // key, and a key that the primary key decides costs less to group on.
+    if !parse.is_null() {
+        let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+        for gc in group_clauses.iter_ptr() {
+            let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
+            if expr.is_null() {
+                return Err(GroupingPushdownDeclineReason::MissingPathKeys);
             }
-            return Ok(());
+            let collation = pg_sys::exprCollation(expr);
+            if assess_collation(collation, CollationOperation::Equality)
+                == CollationSafety::NondeterministicEquality
+            {
+                return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
+            }
         }
-
-        // For single-table aggregates on Tantivy, missing pathkeys prevent Tantivy
-        // from discovering grouping columns (see `groupby.rs`).
-        return Err(GroupingPushdownDeclineReason::MissingPathKeys);
     }
 
     Ok(())
@@ -556,6 +544,7 @@ impl CustomScan for AggregateScan {
                             // This only selects the backend to consider: the extractor still
                             // rejects DATE(timestamptz) and non-bare timestamp expressions.
                             || (!has_paradedb_agg && builder.args().has_date_group())
+                            || groupby::has_ungrouped_column(builder.args())
                     };
                 let use_datafusion = use_datafusion && (!has_paradedb_agg || pdb_route.is_some());
                 if use_datafusion {
@@ -727,6 +716,7 @@ impl CustomScan for AggregateScan {
                     current_batch: None,
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
+                    num_group_exprs: 0,
                     pdb_plan: None,
                     pdb_root_having: None,
                     pdb_agg_json: None,
@@ -779,14 +769,13 @@ impl CustomScan for AggregateScan {
                 }
 
                 // Show GROUP BY columns
-                if !df_state.targetlist.group_columns.is_empty() {
+                if df_state.targetlist.grouping_keys().next().is_some() {
                     // TODO: When grouping on expressions with the same underlying input columns,
                     // it's possible to get dupes here. We should consider rendering the expression
                     // instead, but for now we dedupe.
                     let mut groups: Vec<String> = df_state
                         .targetlist
-                        .group_columns
-                        .iter()
+                        .grouping_keys()
                         .map(|gc| match gc.transform {
                             GroupingTransform::Identity => gc.field_name.clone(),
                             GroupingTransform::TimestampToDate => {
@@ -1264,6 +1253,7 @@ impl AggregateScan {
             )
             .await?;
             df_state.group_df_indices = built.group_df_indices;
+            df_state.num_group_exprs = built.num_group_exprs;
             df_state.pdb_plan = built.pdb_plan;
             df_state.pdb_root_having = built.pdb_root_having;
             build_physical_plan(ctx, built.logical).await
@@ -2139,6 +2129,7 @@ impl AggregateScan {
                         let row_idx = df_state.batch_row_idx;
                         let targetlist = &df_state.targetlist;
                         let group_df_indices = &df_state.group_df_indices;
+                        let num_group_exprs = df_state.num_group_exprs;
                         // Each row is projected once, so its documents move out.
                         let pdb_agg_json = df_state
                             .pdb_agg_json
@@ -2154,6 +2145,7 @@ impl AggregateScan {
                                 row_idx,
                                 targetlist,
                                 group_df_indices,
+                                num_group_exprs,
                                 pdb_agg_json,
                             );
                         });
@@ -2259,22 +2251,24 @@ impl AggregateScan {
         // A scalar aggregate answers with one row even over no input, and its
         // counts read 0 there, not NULL, so `HAVING` sees what Postgres would.
         // Only a scalar query synthesizes, so its aggregate columns start at 0.
-        let synthesize_empty_root = df_state.targetlist.group_columns.is_empty().then(|| {
-            df_state
-                .targetlist
-                .aggregates
-                .iter()
-                .filter(|agg| !matches!(agg.agg_kind, AggKind::PdbAgg(_)))
-                .enumerate()
-                .filter_map(|(col, agg)| {
-                    matches!(
-                        agg.agg_kind,
-                        AggKind::CountStar | AggKind::Count | AggKind::CountDistinct
-                    )
-                    .then_some(col)
-                })
-                .collect::<Vec<_>>()
-        });
+        let synthesize_empty_root = (df_state.targetlist.group_columns.is_empty()
+            && !df_state.targetlist.has_group_by)
+            .then(|| {
+                df_state
+                    .targetlist
+                    .aggregates
+                    .iter()
+                    .filter(|agg| !matches!(agg.agg_kind, AggKind::PdbAgg(_)))
+                    .enumerate()
+                    .filter_map(|(col, agg)| {
+                        matches!(
+                            agg.agg_kind,
+                            AggKind::CountStar | AggKind::Count | AggKind::CountDistinct
+                        )
+                        .then_some(col)
+                    })
+                    .collect::<Vec<_>>()
+            });
         let mut assembled =
             assemble_pdb_agg_rows(schema, &batches, pdb_plan, synthesize_empty_root.as_deref())
                 .unwrap_or_else(|e| pgrx::error!("Failed to assemble pdb.agg result: {}", e));

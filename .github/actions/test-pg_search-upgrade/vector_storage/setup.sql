@@ -15,7 +15,8 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 0.25.0 has a fixed clustering threshold of 10,000 rows.
+    -- 0.25.0, the oldest version we test upgrades from in CI, has a fixed
+    -- clustering threshold of 10,000 rows.
     CREATE TABLE vector_upgrade_docs (id integer PRIMARY KEY, embedding vector(3));
     INSERT INTO vector_upgrade_docs VALUES
         (1, '[1,0,0]'), (2, '[0,1,0]'), (3, '[0,0,1]');

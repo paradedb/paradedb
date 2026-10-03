@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791010154295,
+  "lastUpdate": 1791056159264,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7414,6 +7414,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 712.172,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d25d38f8255282c99d6a71da587109969c4df8e",
+          "message": "fix: use AggregateScan when PostgreSQL drops a `GROUP BY` key (#6608)\n\n## Ticket(s) Closed\n\n- Closes #6606\n- Closes #6632\n- Closes #6633\n\n## What\n\nThis PR makes AggregateScan read the columns that PostgreSQL does not\ngroup on from one row of the group, as PostgreSQL's Agg node does.\n\n```sql\nSELECT account_id, kind, COUNT(*) FROM items\nWHERE account_id = 1 AND id @@@ paradedb.all()\nGROUP BY account_id, kind;\n\nSELECT id, rating, COUNT(*) FROM mock_items     -- id is the primary key\nWHERE id @@@ paradedb.all()\nGROUP BY id;\n```\n\nBoth fell back to a Postgres aggregate with `Field 'account_id' is not a\ngrouping column` or `could not verify GROUP BY semantics`, and\n`pdb.agg()` failed.\n\n## Why\n\nPostgreSQL leaves a key out of its grouping when the `WHERE` clause sets\nit to a constant (`pathkey_is_redundant()`) or when the primary key\ndecides it (`remove_useless_groupby_columns()`). The query can also\nreturn a column that the primary key decides, and the planner takes\ncolumns out of expressions that a node above computes. The Agg node\nreads all of these from one row of the group. The Tantivy backend\ndeclined such a query. The DataFusion backend grouped on the column,\nwhich splits a group when its rows hold different values (#6633).\n\n## How\n\nThe scan groups on the keys that PostgreSQL's Agg node groups on, and\nreads every other output column from one row of the group with\n`first_value`. Only the DataFusion backend can read such a column, so\nthese queries go there and hold their groups in `work_mem`. A column\nthat the primary key decides is still grouped on, because that gives the\nsame groups at a lower cost.\n\nA JSON-path key that the `WHERE` clause sets to a constant, an\nexpression key that is not in the index, and an array column still\ndecline. A `GROUP BY` key that is a cast of a column now declines\ninstead of failing (#6632).\n\n## Tests\n\n- New regress tests `aggregate_pinned_group_key` and\n`aggregate_dependent_column`.\n- New integration tests `test_group_by_key_pinned_to_constant` and\n`test_group_by_column_that_depends_on_keys`",
+          "timestamp": "2026-10-03T11:26:43-07:00",
+          "tree_id": "af75f6fc88650aa8a8f212d589b49d32d59225f1",
+          "url": "https://github.com/paradedb/paradedb/commit/5d25d38f8255282c99d6a71da587109969c4df8e"
+        },
+        "date": 1791056156744,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 20.042,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 154.621,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.472,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 244.591,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.414,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 171.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 29.212,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 220.061,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 39.322,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 716.889,
             "unit": "ms"
           }
         ]

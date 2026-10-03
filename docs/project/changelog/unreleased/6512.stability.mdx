@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed `COUNT(*)` and other aggregates over `ctid IN (SELECT ctid FROM ...)` failing with `Pre-filter failed: Column 0 not fetched` under the aggregate custom scan by leaving pre-filters over pseudo-columns like `ctid` to the parent operator (#6399).

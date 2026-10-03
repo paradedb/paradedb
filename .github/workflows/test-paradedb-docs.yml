@@ -170,11 +170,20 @@ jobs:
       - name: Add pgrx PostgreSQL binaries to PATH
         run: echo "$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n 1)" >> $GITHUB_PATH
 
+      # System packages cannot install into pgrx's private PostgreSQL prefix.
       - name: Install pgvector Dependency (pgrx)
-        uses: ./.github/actions/install-pgvector
-        with:
-          pg_version: ${{ matrix.pg_version }}
-          pg_impl: pgrx
+        env:
+          INPUTS_PG_VERSION: ${{ matrix.pg_version }}
+        run: |
+          set -euo pipefail
+          configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
+          PG_CONFIG="${configs[0]}"
+          test -x "$PG_CONFIG"
+          SOURCE_DIR="$(mktemp -d)"
+          trap 'rm -rf "$SOURCE_DIR"' EXIT
+          git clone --depth 1 --branch v0.8.6 https://github.com/pgvector/pgvector.git "$SOURCE_DIR"
+          make -C "$SOURCE_DIR" PG_CONFIG="$PG_CONFIG" -j "$(nproc)"
+          make -C "$SOURCE_DIR" PG_CONFIG="$PG_CONFIG" install
 
       - name: Compile & install pg_search extension (pgrx)
         working-directory: pg_search/

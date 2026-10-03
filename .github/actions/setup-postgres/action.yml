@@ -29,6 +29,7 @@ runs:
         packages: >-
           postgresql-${{ inputs.pg_version }}
           postgresql-server-dev-${{ inputs.pg_version }}
+          postgresql-${{ inputs.pg_version }}-pgvector
           ${{ inputs.extra_packages }}
 
     - name: Configure PostgreSQL PATH
@@ -36,8 +37,3 @@ runs:
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: echo "/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin" >> "$GITHUB_PATH"
-
-    - name: Install pgvector Dependency
-      uses: ./.github/actions/install-pgvector
-      with:
-        pg_version: ${{ inputs.pg_version }}

@@ -2868,25 +2868,28 @@ mod tests {
         );
         // Partition 0 owns the NULL rows, so a nullable segment inside its value range is fully
         // included and searches without the partition filter: all three rows belong to it.
-        // Partition 1 does not own NULLs, so the same segment stays partially included and
-        // the filter excludes the NULL row.
+        // With the edge inside the segment, partition 0 keeps the NULL row and drops the value
+        // above the edge. Partition 1 does not own NULLs, so the same segment stays partially
+        // included and the filter excludes the NULL row.
         for (split, partition, expected_all, included, partial) in
-            [(21, 0, 3, 1, 0), (5, 1, 2, 0, 1)]
+            [(21, 0, 3, 1, 0), (15, 0, 2, 0, 1), (5, 1, 2, 0, 1)]
         {
             let partitioning = RangePartitioning {
                 partition_by: FieldName::from("value"),
                 split_points: vec![PdbOwnedValue::I64(split)],
             };
-            check(
-                &index_rel,
-                &SearchQueryInput::All,
-                false,
-                &partitioning,
-                partition,
-                expected_all,
-                included,
-                partial,
-            );
+            for scoring in [false, true] {
+                check(
+                    &index_rel,
+                    &SearchQueryInput::All,
+                    scoring,
+                    &partitioning,
+                    partition,
+                    expected_all,
+                    included,
+                    partial,
+                );
+            }
         }
     }
 

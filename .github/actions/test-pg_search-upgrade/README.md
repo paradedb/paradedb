@@ -4,7 +4,7 @@ New versions of ParadeDB must maintain compatibility with old versions so that u
 
 To add a test, add a folder containing files called `setup.sql` and `queries.sql`. `setup.sql` should create the tables, indexes, and data necessary to arrange your test case and will be run on the old version of the DB. `queries.sql` should contain the queries to run against the upgraded DB. The folder name will be used as the name of the DB so that there is isolation between test cases.
 
-A case that arranges an index layout that only older releases build can name the first release without that layout in a `before_version` file, e.g. `0.26.0`. The case is skipped when the upgrade starts from that release or a newer one.
+The `Preserve SQL Files` step skips the legacy regex, key-field tokenizer, and vector-storage cases for starting releases at or after 0.26.0. The pinned 0.22.0 row covers legacy tokenizer behavior; the pinned 0.25.11 row also covers the old vector storage format. The latest-release row covers the current upgrade path.
 
 After upgrading, we also assert that the upgraded schema is byte-for-byte identical to a fresh `CREATE EXTENSION` of the new version (the "Verify Upgraded Schema Matches Fresh Install" step, using `schema_snapshot.sql`). This catches migrations that are incomplete on the `ALTER EXTENSION ... UPDATE` path -- e.g. when an object's DDL is emitted into an already-shipped migration file, so it reaches fresh installs but never reaches users upgrading from a later version. This is independent of the per-case `queries.sql`, which only catches drift in objects a query happens to touch.
 

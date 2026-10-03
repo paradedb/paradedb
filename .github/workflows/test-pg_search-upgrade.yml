@@ -63,9 +63,11 @@ jobs:
           echo "Resolved latest tag=$LATEST_TAG pgrx=$LATEST_PGRX"
 
           # v0.22.0 uses pgrx 0.17.0 with bindgen 0.72.1 for newer Clang compatibility.
-          # Dedup in case the latest tag happens to also be v0.22.0.
+          # v0.25.11 preserves coverage of the vector storage transition in 0.26.0.
+          # Dedup in case the latest tag matches a pinned release.
           MATRIX=$(jq -nc --arg p "$LATEST_TAG" --arg pgrx "$LATEST_PGRX" '[
             { "pg_search_version": "v0.22.0", "pgrx_version": "0.17.0" },
+            { "pg_search_version": "v0.25.11", "pgrx_version": "0.19.0" },
             { "pg_search_version": $p, "pgrx_version": $pgrx }
           ] | unique_by(.pg_search_version)')
           echo "prior_matrix=$MATRIX" >> $GITHUB_OUTPUT

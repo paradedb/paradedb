@@ -24,15 +24,16 @@ runs:
         PRIOR="${INPUTS_PRIOR_PG_SEARCH_VERSION#v}"
         for case_dir in "${GITHUB_ACTION_PATH}"/*; do
           [ -d "$case_dir" ] || continue
-          # A case that arranges an index layout only older releases build has
-          # nothing to upgrade from a release that no longer builds it.
-          if [ -f "$case_dir/before_version" ]; then
-            BEFORE="$(tr -d '[:space:]' < "$case_dir/before_version")"
-            if [ "$(printf '%s\n%s\n' "$BEFORE" "$PRIOR" | sort -V | head -n 1)" = "$BEFORE" ]; then
-              echo "Skipping $(basename "$case_dir"): it needs a release before $BEFORE"
-              continue
-            fi
-          fi
+          # These fixtures require pre-0.26 tokenizer behavior or vector storage.
+          # Keep them on the pinned older rows; newer releases cannot build them.
+          case "$(basename "$case_dir")" in
+            regex_tokenizers|key_field_tokenizers|vector_storage)
+              if [ "$(printf '%s\n%s\n' '0.26.0' "$PRIOR" | sort -V | head -n 1)" = '0.26.0' ]; then
+                echo "Skipping $(basename "$case_dir"): requires a release before 0.26.0"
+                continue
+              fi
+              ;;
+          esac
           cp -R "$case_dir" "$SQL_DIR/"
         done
         echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"

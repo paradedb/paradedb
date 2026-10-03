@@ -15,12 +15,12 @@ BEGIN
         RETURN;
     END IF;
 
-    PERFORM set_config('paradedb.vector_clustering_threshold', '64', true);
+    -- 0.25.0 has a fixed clustering threshold of 10,000 rows.
     CREATE TABLE vector_upgrade_docs (id integer PRIMARY KEY, embedding vector(3));
     INSERT INTO vector_upgrade_docs VALUES
         (1, '[1,0,0]'), (2, '[0,1,0]'), (3, '[0,0,1]');
     INSERT INTO vector_upgrade_docs
-        SELECT g, ARRAY[(100 + g)::real, 0, 0]::vector FROM generate_series(4, 2048) g;
+        SELECT g, ARRAY[(100 + g)::real, 0, 0]::vector FROM generate_series(4, 10000) g;
     CREATE INDEX vector_upgrade_idx ON vector_upgrade_docs
         USING bm25 (id, embedding vector_l2_ops)
         WITH (key_field = 'id', target_segment_count = 1,

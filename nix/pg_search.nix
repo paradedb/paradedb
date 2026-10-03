@@ -25,7 +25,7 @@ let
 
   # pg_search's tokenizer uses several language dictionaries used by the Lindera crate
   dictionaries = {
-    # https://github.com/lindera/lindera/blob/v5.0.1/lindera-ko-dic/build.rs#L15-L22
+    # https://github.com/lindera/lindera/blob/v6.2.0/lindera-ko-dic/build.rs#L15-L22
     lindera-ko-dic = rec {
       language = "Korean";
       filename = "mecab-ko-dic-2.1.1-20180720.tar.gz";
@@ -35,7 +35,7 @@ let
       };
     };
 
-    # https://github.com/lindera/lindera/blob/v5.0.1/lindera-cc-cedict/build.rs#L15-L22
+    # https://github.com/lindera/lindera/blob/v6.2.0/lindera-cc-cedict/build.rs#L15-L22
     lindera-cc-cedict = rec {
       language = "Chinese";
       filename = "CC-CEDICT-MeCab-0.1.0-20200409.tar.gz";
@@ -45,7 +45,7 @@ let
       };
     };
 
-    # https://github.com/lindera/lindera/blob/v5.0.1/lindera-ipadic/build.rs#L15-L22
+    # https://github.com/lindera/lindera/blob/v6.2.0/lindera-ipadic/build.rs#L15-L22
     lindera-ipadic = rec {
       language = "Japanese";
       filename = "mecab-ipadic-2.7.0-20250920.tar.gz";
@@ -65,7 +65,7 @@ buildPgrxExtension (finalAttrs: {
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
   # error: hash mismatch in fixed-output derivation '...'
-  cargoHash = "sha256-W6aqfTdhceMcfNeNnEicytvcnfqewcBBJaDYQ57JCnM=";
+  cargoHash = "sha256-sSUUeFOUdVtiWXJEf8q2QRumaApz6aSQwIEvQ7yGwiw=";
 
   inherit cargo-pgrx postgresql;
 

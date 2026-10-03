@@ -1,0 +1,7 @@
+---
+header: stability
+---
+
+Aggregate Scan now runs an aggregate whose `WHERE` clause filters a `GROUP BY` key to one value, as in `WHERE account_id = 1 ... GROUP BY account_id, kind`. It also runs an aggregate that returns a column which the primary key in the `GROUP BY` decides, as in `SELECT id, rating, COUNT(*) ... GROUP BY id`. Such a query fell back to a Postgres aggregate with `Field 'account_id' is not a grouping column` or `could not verify GROUP BY semantics`, and a `pdb.agg()` query failed (#6606). These queries run on the DataFusion backend, which holds the groups in `work_mem`.
+
+A `GROUP BY date(ts)` with a window function over an expression of the key now returns one row for each day (#6633), and a `GROUP BY` key that is a cast of a column no longer fails on the DataFusion backend (#6632).

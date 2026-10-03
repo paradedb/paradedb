@@ -37,7 +37,7 @@ use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
 
-use crate::api::operator::{estimate_query_cost, estimate_selectivity_and_cost};
+use crate::api::operator::estimate_query_cost;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
@@ -95,8 +95,7 @@ use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::schema::SearchIndexSchema;
 use crate::vector::metric::VectorMetric;
-use crate::{DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
-use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
+use crate::{DEFAULT_STARTUP_COST, FULL_RELATION_SELECTIVITY, nodecast};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
@@ -767,7 +766,7 @@ impl CustomScan for BaseScan {
             // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
             // execution may skip some of these segments.
             let segment_count = {
-                let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
+                let directory = MvccSatisfies::Estimation.directory(&bm25_index);
                 let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
                 crate::index::open_index(directory)
                     .expect("custom_scan: should be able to open index");
@@ -856,33 +855,17 @@ impl CustomScan for BaseScan {
             );
 
             let mut query = SearchQueryInput::from(&quals);
-            let norm_selec = if restrict_info.len() == 1 {
-                (*restrict_info.get_ptr(0).unwrap()).norm_selec
-            } else {
-                UNASSIGNED_SELECTIVITY
-            };
-
-            // Seeded only by the final `else` branch's selectivity open (every other branch leaves
-            // it `None`). It feeds the TopK cost memo so the worker decision reuses that open
-            // instead of opening the index a second time.
-            let mut precomputed_query_cost: Option<u64> = None;
-
-            let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
-                // we can use the norm_selec that already happened
-                norm_selec
-            } else if quals.contains_external_var() {
-                // if the query has external vars (references to other relations which decide whether the rows in this
-                // relation are visible) then we end up returning *everything* from _this_ relation
+            let selectivity = if quals.contains_external_var() {
                 FULL_RELATION_SELECTIVITY
-            } else if quals.contains_exprs() {
-                // if the query has expressions then it's parameterized and we have to guess something
-                PARAMETERIZED_SELECTIVITY
             } else {
-                // Ask the index. This is the one branch that opens, so reuse that same
-                // open's cost for the TopK worker decision instead of opening twice.
-                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone());
-                precomputed_query_cost = cost;
-                sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                // Reuse the original SQL predicates, including cached estimates for @@@ clauses.
+                pg_sys::clauselist_selectivity(
+                    root,
+                    restrict_info.as_ptr(),
+                    rti as _,
+                    pg_sys::JoinType::JOIN_INNER,
+                    std::ptr::null_mut(),
+                )
             };
 
             // Use planning_estimate for costing so parameterized limits still
@@ -954,9 +937,7 @@ impl CustomScan for BaseScan {
                 DEFAULT_STARTUP_COST + harvested_bitmap.as_ref().map_or(0.0, |h| h.build_cost);
             let mut custom_paths = Vec::new();
             let parallel_leader_participates = pg_sys::parallel_leader_participation;
-            // Seed the cost memo from the open create_custom_path already did for selectivity (if
-            // any), so the cost computation opens the index at most once per query.
-            let mut cost_memo = CostMemo::from_precomputed(precomputed_query_cost);
+            let mut cost_memo = CostMemo::NotComputed;
 
             // Cost the query once (memoized) for costable scans; `None` marks the scan uncostable, so
             // pg_search forces the worker decision (and an effective-LIMIT scan uses the magnitude in
@@ -1575,10 +1556,7 @@ impl CustomScan for BaseScan {
 
             // Show query with integrated estimates if GUC is enabled and verbose
             if gucs::explain_recursive_estimates() && explainer.is_verbose() {
-                // Get or create a search reader for estimates.
-                // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
-                // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
-                //   reader using MvccSatisfies::LargestSegment for estimation purposes only
+                // Reuse the existing reader, or open one to build the display tree.
                 let query_tree =
                     if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
                         // EXPLAIN ANALYZE: use the existing search reader
@@ -1595,11 +1573,11 @@ impl CustomScan for BaseScan {
 
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            base_query.without_heap_filters(),
-                            false,                         // don't need scores for estimates
-                            MvccSatisfies::LargestSegment, // Use largest segment for estimation
-                            None,                          // No expr_context needed for estimates
-                            None,                          // No planstate needed for estimates
+                            SearchQueryInput::Empty,
+                            false,
+                            MvccSatisfies::Estimation,
+                            None,
+                            None,
                             base_query.needs_tokenizer(),
                             None,
                         )

@@ -146,6 +146,15 @@ struct QueryWithContext {
     _context: Arc<ExprContextGuard>,
 }
 
+impl tantivy::query::QueryEstimate for QueryWithContext {
+    fn estimate_docs(
+        &self,
+        reader: &tantivy::SegmentReader,
+    ) -> tantivy::Result<Option<(u32, u64)>> {
+        self.query.estimate_docs(reader)
+    }
+}
+
 impl Query for QueryWithContext {
     fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
         self.query.weight(scoring)

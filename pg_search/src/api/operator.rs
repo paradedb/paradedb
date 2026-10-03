@@ -24,7 +24,7 @@ use crate::api::tokenizers::{AliasTypmod, try_get_alias, type_is_alias, type_is_
 use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::gucs::per_tuple_cost;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{DocsEstimate, SearchIndexReader};
+use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::lookup_type_name;
@@ -34,6 +34,7 @@ use crate::postgres::customscan::opexpr::{
 };
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::node::NodeExt;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::sequentialscan::MaybeInlineRow;
@@ -41,10 +42,9 @@ use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
 use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
-use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
-use crate::scan::info::RowEstimate;
+use crate::query::{SearchQueryInput, TermInput};
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pg_sys::panic::ErrorReport;
@@ -52,6 +52,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::*;
+use std::ops::Bound;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
@@ -71,6 +72,7 @@ mod atatat;
 pub(crate) mod boost;
 pub(crate) mod const_score;
 mod eqeqeq;
+mod estimate;
 pub(crate) mod fuzzy;
 mod hashhashhash;
 mod ororor;
@@ -646,119 +648,331 @@ pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
     }
 }
 
-/// #4172: for queries whose scorer is expensive to build (fuzzy, regex, range),
-/// estimate heuristically rather than opening the index. Both selectivity and the
-/// TopK worker decision honor this so neither pays full scorer construction at
-/// plan time.
-fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
-    crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
-}
-
-/// Open a single-segment (`LargestSegment`) reader and estimate matching docs,
-/// total docs, and the query's Tantivy `DocSet::cost()` in one pass. The single
-/// source for both `estimate_selectivity` and `estimate_query_cost`.
-///
-/// Returns `None` if the reader can't be opened (e.g. a transient/concurrent-DDL
-/// failure); callers degrade gracefully rather than crash planning. The same open
-/// would also fail in the executor, so `None` here doesn't mask a real problem.
-fn open_and_estimate_docs(
-    indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
-) -> Option<DocsEstimate> {
-    let heap_rel = indexrel
-        .heap_relation()
-        .expect("indexrel should be an index");
-    let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-
-    let search_reader = SearchIndexReader::open(
-        indexrel,
-        search_query_input,
-        false,
-        MvccSatisfies::LargestSegment,
-    )
-    .ok()?;
-
-    Some(search_reader.estimate_docs(row_estimate))
-}
-
-/// One index open, both planning answers: selectivity (matching/total docs) and the
-/// query's Tantivy `DocSet::cost()`. basescan path generation needs both for the same
-/// combined query, so it opens once here instead of calling `estimate_selectivity` and
-/// `estimate_query_cost` back-to-back.
-///
-/// Returns `(selectivity, query_cost)`:
-/// - expensive-to-estimate query (#4172): `(selectivity_heuristic, scaled match estimate)`
-///   -- no open; the cost is the heuristic match estimate scaled by
-///   `EXPENSIVE_QUERY_COST_FACTOR` (`None` only when the row count is unknown);
-/// - empty index / no valid total: `(None, Some(0))` -- the cost is a known 0;
-/// - open failure: `(None, None)`.
 pub(crate) fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
+    query: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> (Option<f64>, Option<u64>) {
-    if estimate_heuristically(&search_query_input) {
-        // #4172 skips opening the index, so derive the work estimate from the same
-        // heuristic: these shapes drive far more docset work than they match, so scale the
-        // heuristic match estimate (selectivity x rows) by EXPENSIVE_QUERY_COST_FACTOR.
-        let selectivity = search_query_input.selectivity_heuristic();
-        let cost = indexrel
-            .heap_relation()
-            .and_then(|heap| heap.reltuples())
-            .map(|reltuples| {
-                (selectivity * reltuples as f64 * crate::gucs::expensive_query_cost_factor()) as u64
-            });
-        return (Some(selectivity), cost);
-    }
+    let reader = OnceLock::new();
+    let (clause, cost) = selectivity_clause(indexrel, query, planner, &reader);
+    (
+        Some(unsafe { estimate::Selectivity::estimate(clause, planner) }),
+        cost,
+    )
+}
 
-    let Some(estimate) = open_and_estimate_docs(indexrel, search_query_input) else {
-        return (None, None);
+fn selectivity_clause(
+    indexrel: &PgSearchRelation,
+    mut query: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
+    reader: &OnceLock<anyhow::Result<SearchIndexReader>>,
+) -> (*mut pg_sys::Node, Option<u64>) {
+    let fallback = || {
+        (
+            estimate::Selectivity(crate::UNKNOWN_SELECTIVITY).into(),
+            None,
+        )
+    };
+    let query = loop {
+        query = match query {
+            SearchQueryInput::All
+            | SearchQueryInput::FieldedQuery {
+                query: pdb::Query::All,
+                ..
+            } => {
+                return (
+                    estimate::Selectivity(crate::FULL_RELATION_SELECTIVITY).into(),
+                    None,
+                );
+            }
+            SearchQueryInput::Empty
+            | SearchQueryInput::FieldedQuery {
+                query: pdb::Query::Empty,
+                ..
+            } => {
+                return (estimate::Selectivity(0.0).into(), Some(0));
+            }
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. } => *query,
+            SearchQueryInput::FieldedQuery {
+                field,
+                query: pdb::Query::ScoreAdjusted { query, .. },
+            } => SearchQueryInput::FieldedQuery {
+                field,
+                query: *query,
+            },
+            SearchQueryInput::HeapFilter {
+                indexed_query,
+                always_filters,
+                recheck_filters,
+                ..
+            } => {
+                let (child, cost) = selectivity_clause(indexrel, *indexed_query, planner, reader);
+                let mut boolean = estimate::BooleanClause {
+                    must: vec![child],
+                    ..Default::default()
+                };
+                for filter in always_filters.iter().chain(&recheck_filters) {
+                    // Heap filters retain their original PostgreSQL predicates.
+                    boolean
+                        .must
+                        .push(if planner.is_some_and(|(root, _)| !root.is_null()) {
+                            unsafe { filter.get_expression_node() }
+                        } else {
+                            fallback().0
+                        });
+                }
+                let cost = if always_filters.is_empty() && recheck_filters.is_empty() {
+                    cost
+                } else {
+                    None
+                };
+                return (unsafe { boolean.into_clause(planner) }, cost);
+            }
+            SearchQueryInput::ScoreFilter { bounds, query } => {
+                if bounds.is_empty() {
+                    return (estimate::Selectivity(0.0).into(), Some(0));
+                }
+                let Some(query) = query else {
+                    return fallback();
+                };
+                let (child, cost) = selectivity_clause(indexrel, *query, planner, reader);
+                if bounds
+                    .iter()
+                    .any(|bounds| matches!(bounds, (Bound::Unbounded, Bound::Unbounded)))
+                {
+                    return (child, cost);
+                }
+                // No score-distribution statistics: apply the shared fallback to the child.
+                let boolean = estimate::BooleanClause {
+                    must: vec![child, fallback().0],
+                    ..Default::default()
+                };
+                return (unsafe { boolean.into_clause(planner) }, cost);
+            }
+            SearchQueryInput::PostgresExpression { .. } => {
+                // This produces a search query at execution time, not a Boolean SQL predicate.
+                return (
+                    estimate::Selectivity(crate::PARAMETERIZED_SELECTIVITY).into(),
+                    None,
+                );
+            }
+            SearchQueryInput::FieldedQuery {
+                field,
+                query:
+                    pdb::Query::FastFieldRangeWeight {
+                        lower_bound,
+                        upper_bound,
+                    },
+            } => {
+                if matches!(
+                    (&lower_bound, &upper_bound),
+                    (Bound::Unbounded, Bound::Unbounded)
+                ) {
+                    return (
+                        estimate::Selectivity(crate::FULL_RELATION_SELECTIVITY).into(),
+                        None,
+                    );
+                }
+                // This query creates U64 terms, so its bounds are ordinary unsigned values.
+                if !indexrel
+                    .schema()
+                    .ok()
+                    .and_then(|schema| schema.search_field(&field))
+                    .is_some_and(|field| {
+                        matches!(field.field_type(), crate::schema::SearchFieldType::U64(..))
+                    })
+                {
+                    return fallback();
+                }
+                SearchQueryInput::FieldedQuery {
+                    field,
+                    query: pdb::Query::Range {
+                        lower_bound: lower_bound.map(PdbOwnedValue::U64),
+                        upper_bound: upper_bound.map(PdbOwnedValue::U64),
+                    },
+                }
+            }
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => {
+                let minimum_should_match = minimum_should_match.map_or(0, |n| n as usize);
+                if must.is_empty() && should.is_empty() || minimum_should_match > should.len() {
+                    return (estimate::Selectivity(0.0).into(), Some(0));
+                }
+                let mut cost = Some(0u64);
+                let mut clauses = |queries: Vec<SearchQueryInput>| {
+                    queries
+                        .into_iter()
+                        .map(|query| {
+                            let (clause, child_cost) =
+                                selectivity_clause(indexrel, query, planner, reader);
+                            cost = cost
+                                .zip(child_cost)
+                                .map(|(total, child)| total.saturating_add(child));
+                            clause
+                        })
+                        .collect()
+                };
+                let boolean = estimate::BooleanClause {
+                    must: clauses(must),
+                    should: clauses(should),
+                    must_not: clauses(must_not),
+                    minimum_should_match,
+                };
+                return (unsafe { boolean.into_clause(planner) }, cost);
+            }
+            // DisjunctionMax has the same matches as OR; only scoring differs.
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => SearchQueryInput::Boolean {
+                must: vec![],
+                should: disjuncts,
+                must_not: vec![],
+                minimum_should_match: None,
+            },
+            SearchQueryInput::FieldedQuery {
+                field,
+                query: pdb::Query::TermSet { terms },
+            } => SearchQueryInput::TermSet {
+                terms: terms
+                    .into_iter()
+                    .map(|value| TermInput {
+                        field: field.clone(),
+                        value,
+                    })
+                    .collect(),
+            },
+            SearchQueryInput::TermSet { terms } => {
+                let mut seen = std::collections::HashSet::new();
+                SearchQueryInput::Boolean {
+                    must: vec![],
+                    should: terms
+                        .into_iter()
+                        .filter_map(|TermInput { field, value }| {
+                            seen.insert((field.clone(), value.clone())).then_some(
+                                SearchQueryInput::FieldedQuery {
+                                    field,
+                                    query: pdb::Query::Term { value },
+                                },
+                            )
+                        })
+                        .collect(),
+                    must_not: vec![],
+                    minimum_should_match: None,
+                }
+            }
+            // Term supports both text and non-text equality; only text uses Tantivy estimates.
+            // Check the logical type: SearchField::is_text() also includes UUID string storage.
+            SearchQueryInput::FieldedQuery {
+                ref field,
+                query: pdb::Query::Term { ref value },
+            } if indexrel
+                .schema()
+                .ok()
+                .and_then(|schema| schema.search_field(field))
+                .is_some_and(|field| {
+                    matches!(
+                        field.field_type(),
+                        crate::schema::SearchFieldType::Text(..)
+                            | crate::schema::SearchFieldType::Tokenized(..)
+                    ) || (field.is_json() && matches!(value, PdbOwnedValue::Str(_)))
+                }) =>
+            {
+                break query;
+            }
+            query @ (SearchQueryInput::FieldedQuery {
+                query:
+                    pdb::Query::Match { .. }
+                    | pdb::Query::MatchArray { .. }
+                    | pdb::Query::Phrase { .. }
+                    | pdb::Query::PhraseArray { .. }
+                    | pdb::Query::TokenizedPhrase { .. }
+                    | pdb::Query::PhrasePrefix { .. }
+                    | pdb::Query::Regex { .. }
+                    | pdb::Query::RegexPhrase { .. }
+                    | pdb::Query::FuzzyTerm { .. }
+                    | pdb::Query::Parse { .. }
+                    | pdb::Query::ParseWithField { .. }
+                    | pdb::Query::MoreLikeThis { .. },
+                ..
+            }
+            | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::MoreLikeThis { .. }) => break query,
+            SearchQueryInput::FieldedQuery {
+                field,
+                query:
+                    query @ (pdb::Query::Term { .. }
+                    | pdb::Query::Exists
+                    | pdb::Query::Range { .. }
+                    | pdb::Query::RangeContains { .. }
+                    | pdb::Query::RangeIntersects { .. }
+                    | pdb::Query::RangeTerm { .. }
+                    | pdb::Query::RangeWithin { .. }),
+            } => {
+                return planner
+                    .and_then(|(root, rti)| unsafe {
+                        estimate::non_text_clause(root, rti, indexrel, &field, &query)
+                    })
+                    .map(|clause| (clause, None))
+                    .unwrap_or_else(fallback);
+            }
+            SearchQueryInput::FieldedQuery {
+                query:
+                    pdb::Query::Proximity { .. }
+                    | pdb::Query::UnclassifiedString { .. }
+                    | pdb::Query::UnclassifiedArray { .. },
+                ..
+            }
+            | SearchQueryInput::Uninitialized => return fallback(),
+        };
     };
 
-    let total_rows = estimate.total_docs as f64;
-    let selectivity =
-        (total_rows > 0.0).then(|| (estimate.matching_docs as f64 / total_rows).min(1.0));
-    (selectivity, Some(estimate.query_cost))
+    let Ok(reader) = reader.get_or_init(|| {
+        SearchIndexReader::open_with_context(
+            indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Estimation,
+            None,
+            None,
+            true,
+            None,
+        )
+    }) else {
+        return fallback();
+    };
+    let query = reader.make_query(&query, None);
+    reader
+        .estimate_docs(estimate::query_estimate(query.as_ref()).as_ref())
+        .map(|(selectivity, cost)| (estimate::Selectivity(selectivity).into(), Some(cost)))
+        .unwrap_or_else(fallback)
 }
 
 pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<f64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).0
+    estimate_selectivity_and_cost(indexrel, search_query_input, planner).0
 }
 
-/// The estimated number of heap rows matching `search_query_input`, scaled from the
-/// largest segment up to the whole relation. Unlike `estimate_selectivity` this is an
-/// absolute row count, which is what `visibility => 'threshold'` compares against
-/// `paradedb.visibility_threshold`.
-///
-/// `None` when there is nothing to estimate from: an index that can't be opened, or an
-/// expensive-to-estimate query (#4172) over a heap with no `reltuples`.
 pub(crate) fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
-    if estimate_heuristically(&search_query_input) {
-        let selectivity = search_query_input.selectivity_heuristic();
-        return indexrel
-            .heap_relation()
-            .and_then(|heap| heap.reltuples())
-            .map(|reltuples| (selectivity * reltuples as f64) as u64);
-    }
-
-    open_and_estimate_docs(indexrel, search_query_input)
-        .map(|estimate| estimate.matching_docs as u64)
+    let selectivity = estimate_selectivity(indexrel, search_query_input, None)?;
+    let rows = indexrel.heap_relation()?.reltuples()?;
+    (rows >= 0.0).then(|| (selectivity * rows as f64).ceil() as u64)
 }
 
-/// Estimate the query's Tantivy `DocSet::cost()` -- a synthetic measure of how much work
-/// driving the docset takes -- for the score-DESC TopK worker decision
-/// (`decide_nonprunable_topk_workers`). `None` (caller falls back to the general worker
-/// path) for expensive-to-estimate queries (#4172) and when the index can't be opened.
 pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).1
+    estimate_selectivity_and_cost(indexrel, search_query_input, None).1
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

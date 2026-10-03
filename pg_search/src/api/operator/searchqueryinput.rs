@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use super::anyelement_query_input_opoid;
 use crate::api::operator::{ReturnedNodePointer, estimate_selectivity, find_var_relation};
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
@@ -124,9 +125,12 @@ pub(super) fn query_input_selectivity(
             else {
                 return UNKNOWN_SELECTIVITY;
             };
-            estimate_selectivity(&indexrel, search_query_input).unwrap_or(UNKNOWN_SELECTIVITY)
+            estimate_selectivity(&indexrel, search_query_input, unsafe {
+                ((*var).varlevelsup == 0).then_some((planner_info, (*var).varno as pg_sys::Index))
+            })
+            .unwrap_or(UNKNOWN_SELECTIVITY)
         }
-        pg_sys::NodeTag::T_Param => PARAMETERIZED_SELECTIVITY,
+        _ if rhs.contains_param() => PARAMETERIZED_SELECTIVITY,
         _ => UNKNOWN_SELECTIVITY,
     };
 

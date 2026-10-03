@@ -1,0 +1,39 @@
+# Run independently of publishing runners so disk exhaustion or runner crashes
+# cannot prevent failure notifications. Never check out or execute the source run.
+name: Notify Publish Failure
+
+on:
+  workflow_run:
+    workflows:
+      - "Publish GitHub Release"
+      - "Publish ParadeDB (Docker)"
+      - "Publish ParadeDB (Docs)"
+      - "Publish pg_search (Debian)"
+      - "Publish pg_search (macOS)"
+      - "Publish pg_search (PGXN)"
+      - "Publish pg_search (Postgres.app)"
+      - "Publish pg_search (Red Hat)"
+      - "Publish pg_search (Schema)"
+      - "Publish pg_search (Ubuntu)"
+      - "Publish Stressgres (Docker)"
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  notify-slack:
+    name: Notify Slack on Publish Failure
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on Failure
+        uses: paradedb/actions/slack-alert@v14
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.event.workflow_run.name }} Failed"
+          workflow: ${{ github.event.workflow_run.name }}
+          branch: ${{ github.event.workflow_run.head_branch }}
+          actor: ${{ github.event.workflow_run.actor.login }}
+          run_id: ${{ github.event.workflow_run.id }}
+          run_url: ${{ github.event.workflow_run.html_url }}

@@ -37,6 +37,8 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
+      # Rust build artifacts and RPM staging share the runner root disk.
+      - volume=120gb
     container:
       image: ${{ matrix.image }}
     defaults:
@@ -416,11 +418,3 @@ jobs:
           asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm.cosign.bundle
           asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm.cosign.bundle
           overwrite: true
-
-      - name: Notify Slack on Failure
-        if: failure()
-        uses: paradedb/actions/slack-alert@v14
-        with:
-          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
-          title: "${{ github.workflow }} Failed"

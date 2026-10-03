@@ -368,11 +368,3 @@ jobs:
       - name: Remove Bot Signing Key
         if: always()
         run: rm -f "$RUNNER_TEMP/github-bot-signing-key" "$RUNNER_TEMP/github-bot-signing-key.allowed-signers"
-
-      - name: Notify Slack on Failure
-        if: failure()
-        uses: paradedb/actions/slack-alert@v14
-        with:
-          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
-          title: "${{ github.workflow }} Failed"

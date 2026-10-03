@@ -397,3 +397,11 @@ jobs:
           asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb.cosign.bundle
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb.cosign.bundle
           overwrite: true
+
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: paradedb/actions/slack-alert@v14
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.workflow }} Failed"

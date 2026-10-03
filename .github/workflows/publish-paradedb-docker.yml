@@ -665,7 +665,7 @@ jobs:
           # Attempt every repo even if one fails (e.g. the ParadeDB GitHub App is
           # not installed on it), so a single misconfigured repo doesn't block the
           # rest. Collect failures and fail the step at the end, which trips the
-          # publish failure notification workflow.
+          # notify-slack-on-failure job.
           failed=()
           while IFS= read -r repo; do
             repo=$(echo "$repo" | xargs)
@@ -683,3 +683,26 @@ jobs:
             echo "Failed to notify the following ORM repos: ${failed[*]}"
             exit 1
           fi
+
+  # Single failure sink for the whole workflow: if any publishing job (including
+  # the regular image, the extension image, Dockerfile generation/testing, or the
+  # ORM dispatch) fails, alert Slack once with a link to the run.
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    runs-on: ubuntu-latest
+    needs:
+      - set-matrix
+      - generate-dockerfiles
+      - test-generated-dockerfiles
+      - publish-paradedb-docker-image
+      - publish-extension-image
+      - open-dockerfile-prs
+      - notify-orm-repos
+    if: ${{ always() && (needs.set-matrix.result == 'failure' || needs.generate-dockerfiles.result == 'failure' || needs.test-generated-dockerfiles.result == 'failure' || needs.publish-paradedb-docker-image.result == 'failure' || needs.publish-extension-image.result == 'failure' || needs.open-dockerfile-prs.result == 'failure' || needs.notify-orm-repos.result == 'failure') }}
+    steps:
+      - name: Notify Slack on Failure
+        uses: paradedb/actions/slack-alert@v14
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.workflow }} Failed"

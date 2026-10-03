@@ -206,7 +206,7 @@ pub(super) unsafe fn non_text_clause(
         }
         pdb::Query::TermSet { .. } => unreachable!("the caller expands term sets"),
         pdb::Query::FastFieldRangeWeight { .. } => {
-            todo!("translate fast-field bounds into PostgreSQL column values")
+            unreachable!("the caller converts fast-field bounds to a range")
         }
         pdb::Query::Proximity { .. } => todo!("implement a text estimator for proximity"),
         pdb::Query::UnclassifiedString { .. } | pdb::Query::UnclassifiedArray { .. } => {

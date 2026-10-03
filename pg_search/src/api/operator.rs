@@ -34,6 +34,7 @@ use crate::postgres::customscan::opexpr::{
 };
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::node::NodeExt;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::sequentialscan::MaybeInlineRow;
@@ -51,6 +52,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::*;
+use std::ops::Bound;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
@@ -700,6 +702,98 @@ fn selectivity_clause(
                 field,
                 query: *query,
             },
+            SearchQueryInput::HeapFilter {
+                indexed_query,
+                always_filters,
+                recheck_filters,
+                ..
+            } => {
+                let (child, cost) = selectivity_clause(indexrel, *indexed_query, planner, reader);
+                let mut boolean = estimate::BooleanClause {
+                    must: vec![child],
+                    ..Default::default()
+                };
+                for filter in always_filters.iter().chain(&recheck_filters) {
+                    // Heap filters retain their original PostgreSQL predicates.
+                    boolean
+                        .must
+                        .push(if planner.is_some_and(|(root, _)| !root.is_null()) {
+                            unsafe { filter.get_expression_node() }
+                        } else {
+                            fallback().0
+                        });
+                }
+                let cost = if always_filters.is_empty() && recheck_filters.is_empty() {
+                    cost
+                } else {
+                    None
+                };
+                return (unsafe { boolean.into_clause(planner) }, cost);
+            }
+            SearchQueryInput::ScoreFilter { bounds, query } => {
+                if bounds.is_empty() {
+                    return (estimate::Selectivity(0.0).into(), Some(0));
+                }
+                let Some(query) = query else {
+                    return fallback();
+                };
+                let (child, cost) = selectivity_clause(indexrel, *query, planner, reader);
+                if bounds
+                    .iter()
+                    .any(|bounds| matches!(bounds, (Bound::Unbounded, Bound::Unbounded)))
+                {
+                    return (child, cost);
+                }
+                // No score-distribution statistics: apply the shared fallback to the child.
+                let boolean = estimate::BooleanClause {
+                    must: vec![child, fallback().0],
+                    ..Default::default()
+                };
+                return (unsafe { boolean.into_clause(planner) }, cost);
+            }
+            SearchQueryInput::PostgresExpression { .. } => {
+                // This produces a search query at execution time, not a Boolean SQL predicate.
+                return (
+                    estimate::Selectivity(crate::PARAMETERIZED_SELECTIVITY).into(),
+                    None,
+                );
+            }
+            SearchQueryInput::FieldedQuery {
+                field,
+                query:
+                    pdb::Query::FastFieldRangeWeight {
+                        lower_bound,
+                        upper_bound,
+                    },
+            } => {
+                if matches!(
+                    (&lower_bound, &upper_bound),
+                    (Bound::Unbounded, Bound::Unbounded)
+                ) {
+                    return (
+                        estimate::Selectivity(crate::FULL_RELATION_SELECTIVITY).into(),
+                        None,
+                    );
+                }
+                // This query creates U64 terms, so its bounds are ordinary unsigned values.
+                if !indexrel
+                    .schema()
+                    .ok()
+                    .and_then(|schema| schema.search_field(&field))
+                    .is_some_and(|field| {
+                        matches!(field.field_type(), crate::schema::SearchFieldType::U64(..))
+                    })
+                {
+                    return fallback();
+                }
+                SearchQueryInput::FieldedQuery {
+                    field,
+                    query: pdb::Query::Range {
+                        lower_bound: lower_bound.map(PdbOwnedValue::U64),
+                        upper_bound: upper_bound.map(PdbOwnedValue::U64),
+                    },
+                }
+            }
             SearchQueryInput::Boolean {
                 must,
                 should,
@@ -827,16 +921,12 @@ fn selectivity_clause(
             }
             SearchQueryInput::FieldedQuery {
                 query:
-                    pdb::Query::FastFieldRangeWeight { .. }
-                    | pdb::Query::Proximity { .. }
+                    pdb::Query::Proximity { .. }
                     | pdb::Query::UnclassifiedString { .. }
                     | pdb::Query::UnclassifiedArray { .. },
                 ..
             }
-            | SearchQueryInput::Uninitialized
-            | SearchQueryInput::ScoreFilter { .. }
-            | SearchQueryInput::HeapFilter { .. }
-            | SearchQueryInput::PostgresExpression { .. } => return fallback(),
+            | SearchQueryInput::Uninitialized => return fallback(),
         };
     };
 

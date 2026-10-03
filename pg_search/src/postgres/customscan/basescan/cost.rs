@@ -162,7 +162,7 @@ fn drive_fraction(is_sorted: bool, limit: Option<f64>, matches: f64) -> f64 {
     }
 }
 
-/// `Query::cost`, memoized so the index opens at most once per query.
+/// Memoize the query work estimate across scan paths.
 pub(super) enum CostMemo {
     /// Not yet opened/estimated.
     NotComputed,
@@ -172,15 +172,6 @@ pub(super) enum CostMemo {
 }
 
 impl CostMemo {
-    /// Seed from `create_custom_path`'s selectivity open: `Some(c)` was already costed, `None`
-    /// wasn't.
-    pub(super) fn from_precomputed(precomputed: Option<u64>) -> Self {
-        match precomputed {
-            Some(c) => Self::Computed(Some(c)),
-            None => Self::NotComputed,
-        }
-    }
-
     /// The cost, computing+memoizing it on first use.
     fn get_or_compute(&mut self, compute: impl FnOnce() -> Option<u64>) -> Option<u64> {
         match self {

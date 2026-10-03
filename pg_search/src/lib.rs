@@ -42,9 +42,6 @@ pub mod parallel_worker;
 use self::postgres::customscan;
 use pgrx::*;
 
-/// Postgres' value for a `norm_selec` that hasn't been assigned
-const UNASSIGNED_SELECTIVITY: f64 = -1.0;
-
 /// A hardcoded value when we can't figure out a good selectivity value
 const UNKNOWN_SELECTIVITY: f64 = pg_sys::DEFAULT_MATCH_SEL;
 

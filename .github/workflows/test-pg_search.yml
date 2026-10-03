@@ -130,9 +130,6 @@ jobs:
         with:
           pg_version: ${{ matrix.pg_version }}
 
-      - name: Initialize pgrx Environment (System)
-        if: matrix.pg_impl == 'system'
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=${{ steps.postgres-system.outputs.pg_config }}"
 
       # ---------- pgrx-managed Postgres setup ----------
       - name: Cache pgrx-compiled Postgres
@@ -150,7 +147,7 @@ jobs:
         with:
           pg_version: ${{ matrix.pg_version }}
           pg_impl: pgrx
-          initialize_pgrx: ${{ steps.cache-pgrx-pg.outputs.cache-hit != 'true' }}
+          pgrx_cache_hit: ${{ steps.cache-pgrx-pg.outputs.cache-hit == 'true' }}
 
       # Needed for Citus compatibility tests
       # Citus 13 supports PG 15-17, Citus 14 supports PG 16-18

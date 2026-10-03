@@ -63,8 +63,6 @@ jobs:
           pg_version: ${{ env.pg_version }}
           extra_packages: libopenblas-dev lld
 
-      - name: Initialize pgrx Environment
-        run: cargo pgrx init "--pg${{ env.pg_version }}=${{ steps.postgres.outputs.pg_config }}"
 
       - name: Generate pg_search Schema
         run: cargo pgrx schema -p pg_search pg${{ env.pg_version }} > pg_search.schema.sql

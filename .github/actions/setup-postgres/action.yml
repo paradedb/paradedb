@@ -7,9 +7,13 @@ inputs:
     required: false
     default: "system"
   initialize_pgrx:
-    description: "Download and compile pgrx-managed PostgreSQL; disable to initialize from cached binaries"
+    description: "Initialize cargo-pgrx for PostgreSQL; requires cargo-pgrx to be installed first"
     required: false
     default: "true"
+  pgrx_cache_hit:
+    description: "Use restored pgrx PostgreSQL binaries instead of downloading and compiling"
+    required: false
+    default: "false"
   pg_version:
     description: "PostgreSQL major version to install (e.g. 17, 18)"
     required: true
@@ -48,14 +52,14 @@ runs:
           ${{ inputs.extra_packages }}
 
     - name: Initialize pgrx-managed PostgreSQL
-      if: inputs.pg_impl == 'pgrx'
+      if: inputs.pg_impl == 'pgrx' && inputs.initialize_pgrx == 'true'
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-        INITIALIZE_PGRX: ${{ inputs.initialize_pgrx }}
+        PGRX_CACHE_HIT: ${{ inputs.pgrx_cache_hit }}
       run: |
         set -euo pipefail
-        if [ "$INITIALIZE_PGRX" = 'true' ]; then
+        if [ "$PGRX_CACHE_HIT" != 'true' ]; then
           cargo pgrx init "--pg${INPUTS_PG_VERSION}=download" --configure-flag="--without-readline"
         else
           # Only compiled binaries are cached; recreate pgrx config and database state.
@@ -83,6 +87,14 @@ runs:
         test -x "$PG_CONFIG"
         echo "$(dirname "$PG_CONFIG")" >> "$GITHUB_PATH"
         echo "pg_config=$PG_CONFIG" >> "$GITHUB_OUTPUT"
+
+    - name: Initialize pgrx for System PostgreSQL
+      if: inputs.pg_impl == 'system' && inputs.initialize_pgrx == 'true'
+      shell: bash
+      env:
+        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+        PG_CONFIG: ${{ steps.postgres.outputs.pg_config }}
+      run: cargo pgrx init "--pg${INPUTS_PG_VERSION}=${PG_CONFIG}"
 
     # System packages cannot install into pgrx's private PostgreSQL prefix, so we compile it from source.
     - name: Install pgvector Dependency (pgrx)

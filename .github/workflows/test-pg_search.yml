@@ -146,21 +146,12 @@ jobs:
         if: matrix.pg_impl == 'pgrx' && steps.cache-pgrx-pg.outputs.cache-hit != 'true'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
-      # System packages cannot install into pgrx's private PostgreSQL prefix.
-      - name: Install pgvector Dependency (pgrx)
+      - name: Configure PostgreSQL Dependencies (pgrx)
         if: matrix.pg_impl == 'pgrx'
-        env:
-          INPUTS_PG_VERSION: ${{ matrix.pg_version }}
-        run: |
-          set -euo pipefail
-          configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
-          PG_CONFIG="${configs[0]}"
-          test -x "$PG_CONFIG"
-          SOURCE_DIR="$(mktemp -d)"
-          trap 'rm -rf "$SOURCE_DIR"' EXIT
-          git clone --depth 1 --branch v0.8.6 https://github.com/pgvector/pgvector.git "$SOURCE_DIR"
-          make -C "$SOURCE_DIR" PG_CONFIG="$PG_CONFIG" -j "$(nproc)"
-          make -C "$SOURCE_DIR" PG_CONFIG="$PG_CONFIG" install
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ matrix.pg_version }}
+          pg_impl: pgrx
 
       # Needed for Citus compatibility tests
       # Citus 13 supports PG 15-17, Citus 14 supports PG 16-18

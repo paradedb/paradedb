@@ -1,7 +1,11 @@
 name: Set Up PostgreSQL
-description: Configure PGDG and install PostgreSQL with the pgvector dependency required by pg_search
+description: Set up system PostgreSQL or an initialized pgrx installation with the required pgvector dependency
 
 inputs:
+  pg_impl:
+    description: "PostgreSQL installation: system or an already initialized pgrx installation"
+    required: false
+    default: "system"
   pg_version:
     description: "PostgreSQL major version to install (e.g. 17, 18)"
     required: true
@@ -14,6 +18,7 @@ runs:
   using: composite
   steps:
     - name: Configure PGDG APT repository
+      if: inputs.pg_impl == 'system'
       shell: bash
       run: |
         set -euo pipefail
@@ -24,6 +29,7 @@ runs:
           | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
 
     - name: Install PostgreSQL Packages
+      if: inputs.pg_impl == 'system'
       uses: paradedb/actions/apt-install@v14
       with:
         packages: >-
@@ -33,7 +39,25 @@ runs:
           ${{ inputs.extra_packages }}
 
     - name: Configure PostgreSQL PATH
+      if: inputs.pg_impl == 'system'
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
       run: echo "/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin" >> "$GITHUB_PATH"
+
+    # System packages cannot install into pgrx's private PostgreSQL prefix.
+    - name: Install pgvector Dependency (pgrx)
+      if: inputs.pg_impl == 'pgrx'
+      shell: bash
+      env:
+        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+      run: |
+        set -euo pipefail
+        configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
+        PG_CONFIG="${configs[0]}"
+        test -x "$PG_CONFIG"
+        SOURCE_DIR="$(mktemp -d)"
+        trap 'rm -rf "$SOURCE_DIR"' EXIT
+        git clone --depth 1 --branch v0.8.6 https://github.com/pgvector/pgvector.git "$SOURCE_DIR"
+        make -C "$SOURCE_DIR" PG_CONFIG="$PG_CONFIG" -j "$(nproc)"
+        make -C "$SOURCE_DIR" PG_CONFIG="$PG_CONFIG" install

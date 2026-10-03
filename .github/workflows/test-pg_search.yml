@@ -142,16 +142,13 @@ jobs:
           path: ~/.pgrx
           key: pgrx-pg-${{ matrix.runner_image }}-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Initialize pgrx Environment (pgrx Download)
-        if: matrix.pg_impl == 'pgrx' && steps.cache-pgrx-pg.outputs.cache-hit != 'true'
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
-
-      - name: Configure PostgreSQL Dependencies (pgrx)
+      - name: Set Up PostgreSQL (pgrx)
         if: matrix.pg_impl == 'pgrx'
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
           pg_impl: pgrx
+          initialize_pgrx: ${{ steps.cache-pgrx-pg.outputs.cache-hit != 'true' }}
 
       # Needed for Citus compatibility tests
       # Citus 13 supports PG 15-17, Citus 14 supports PG 16-18

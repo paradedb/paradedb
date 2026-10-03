@@ -164,13 +164,7 @@ jobs:
           STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${STEP_PGRX_VERSION}" --debug
 
-      - name: Initialize pgrx Environment
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
-
-      - name: Add pgrx PostgreSQL binaries to PATH
-        run: echo "$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n 1)" >> $GITHUB_PATH
-
-      - name: Configure PostgreSQL Dependencies (pgrx)
+      - name: Set Up PostgreSQL (pgrx)
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}

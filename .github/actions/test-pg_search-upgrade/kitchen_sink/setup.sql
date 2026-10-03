@@ -1,9 +1,7 @@
 -- NOTE: this file runs against the PRIOR extension version, not the one being built.
 -- The `Preserve SQL Files` step copies these fixtures out of the PR head into a
 -- tmpdir, then checks out an older tag and installs that version, so everything here
--- must be valid SQL for every tag in the upgrade matrix. That is why the index
--- below says `using bm25` rather than `using paradedb` (the `paradedb` access method
--- only exists from 0.25.0 onward). Do not sweep these into current naming.
+-- must be valid SQL for every tag in the upgrade matrix.
 
 -- 0.26.0 renamed `paradedb.create_bm25_test_table` and dropped the old name, so the
 -- oldest and the newest tag in the matrix have one name each.
@@ -36,7 +34,7 @@ SET
     active_period = daterange(last_updated_date, last_updated_date + rating, '[]');
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
     id,
     description,
     (category::pdb.literal),

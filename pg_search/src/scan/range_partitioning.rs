@@ -93,7 +93,7 @@ impl RangePartitioning {
                 Bound::Unbounded => None,
             }
         {
-            return self.all_except(Query::Range {
+            return self.all_except(Query::StoredRange {
                 lower_bound: at_or_above,
                 upper_bound: Bound::Unbounded,
             });
@@ -107,7 +107,8 @@ impl RangePartitioning {
                     // unbounded bounds compile to a match-all, which would take the NULLs too.
                     Query::Exists
                 } else {
-                    Query::Range {
+                    // Partition boundaries are already encoded in the index's stored form.
+                    Query::StoredRange {
                         lower_bound: lower.clone(),
                         upper_bound: upper.clone(),
                     }
@@ -225,7 +226,37 @@ pub struct RangeSplitPoints {
     /// The points to cut on, sorted ascending: the edges of every box the build stamped, so a
     /// partition cut on them lines up with the segments. Typically there are more than the
     /// target number of partitions, so `build` can down-sample them evenly.
+    ///
+    /// The default `PdbOwnedValue` serde is lossy e.g. a non-negative `I64` comes back as `U64`, so the
+    /// entries carry the exact scalar wire form the kd-tree also ships over the DSM.
+    #[serde(with = "exact_points_wire")]
     pub points: Vec<PdbOwnedValue>,
+}
+
+mod exact_points_wire {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
+
+    #[derive(Serialize)]
+    struct WireRef<'a>(#[serde(with = "exact_scalar_wire")] &'a PdbOwnedValue);
+
+    pub fn serialize<S: Serializer>(
+        points: &[PdbOwnedValue],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(points.iter().map(WireRef))
+    }
+
+    #[derive(Deserialize)]
+    struct Wire(#[serde(with = "exact_scalar_wire")] PdbOwnedValue);
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<PdbOwnedValue>, D::Error> {
+        let wires = Vec::<Wire>::deserialize(deserializer)?;
+        Ok(wires.into_iter().map(|w| w.0).collect())
+    }
 }
 
 impl RangeSplitPoints {
@@ -315,5 +346,35 @@ impl RangeSplitPoints {
         DataFusionRangePartitioning::try_new_with_samples(ordering, samples, partition_count)
             .ok()
             .map(Partitioning::Range)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn range_split_points_survive_json_wire() {
+        let originals = [
+            RangeSplitPoints {
+                partition_by: FieldName::from("numeric64_amount"),
+                points: vec![PdbOwnedValue::I64(123), PdbOwnedValue::I64(456)],
+            },
+            RangeSplitPoints {
+                partition_by: FieldName::from("numeric_bytes_amount"),
+                points: vec![
+                    PdbOwnedValue::Bytes(vec![255, 64, 2, 54, 33]),
+                    PdbOwnedValue::Bytes(vec![255, 64, 5, 69, 66]),
+                ],
+            },
+        ];
+
+        for original in originals {
+            let bytes = serde_json::to_vec(&original).expect("serialize split points");
+            let back: RangeSplitPoints =
+                serde_json::from_slice(&bytes).expect("deserialize split points");
+
+            assert_eq!(back, original);
+        }
     }
 }

@@ -130,7 +130,6 @@ jobs:
         with:
           pg_version: ${{ matrix.pg_version }}
 
-
       # ---------- pgrx-managed Postgres setup ----------
       - name: Cache pgrx-compiled Postgres
         if: matrix.pg_impl == 'pgrx'

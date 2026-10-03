@@ -69,7 +69,6 @@ jobs:
           pg_version: ${{ matrix.pg_version }}
           extra_packages: lld libfontconfig1-dev libopenblas-dev
 
-
       - name: Run Rustfmt
         run: cargo fmt --all -- --check
 

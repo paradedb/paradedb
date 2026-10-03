@@ -7,7 +7,7 @@ This directory contains schemas, indexes, and queries for benchmarking ParadeDB 
 Queries are split into three families with different comparison strategies:
 
 - Top-K:
-  - Single table - Measures Block-Max WAND optimizations, single-worker behavior, and tiebreakers across selectivity tiers without external baseline comparisons.
+  - Single table - Measures Block-Max WAND optimizations, single-worker behavior, tiebreakers, and range filters across selectivity tiers without external baseline comparisons.
     - Note that we currently do not compare to GIN here.
   - Joins - PostgreSQL can be competitive when supported by appropriate indexes (often finding efficient nested loop join plans or early-termination paths). B-tree and GIN indexes are defined in `indexes/bm25.sql`. Highly uncompetitive PostgreSQL join baselines (such as `join_top_k_score_desc_low_selectivity/postgres.sql`, which took ~9.0 seconds per iteration and required a dedicated 410 MB GIN index on `stackoverflow_posts.body`) were omitted to keep benchmark runtimes fast; see that query directory's `README.md` for a query plan breakdown.
 - Aggregates:

@@ -952,7 +952,66 @@ FROM pinned_key_items
 WHERE account_id = 2 AND id @@@ paradedb.all()
 GROUP BY account_id;
 
+CREATE TABLE pinned_key_arrays (id SERIAL PRIMARY KEY, tags INT[], k TEXT);
+INSERT INTO pinned_key_arrays (tags, k) SELECT ARRAY[1], 'a' FROM generate_series(1, 10);
+INSERT INTO pinned_key_arrays (tags, k) SELECT ARRAY[2, 3], 'b' FROM generate_series(1, 4);
+CREATE INDEX pinned_key_arrays_idx ON pinned_key_arrays
+USING paradedb (id, tags, (k::pdb.literal));
+
+\echo 'Test 9.1: the only key is pinned to an array -> declined'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY tags;
+
+SELECT tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY tags;
+
+\echo 'Test 9.2: a key pinned to an array, next to a free key -> declined'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT k, tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY k, tags;
+
+SELECT k, tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY k, tags;
+
+\echo 'Test 9.3: DISTINCT with an array condition'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT k
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+ORDER BY k;
+
+SELECT DISTINCT k
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+ORDER BY k;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY tags;
+
+SELECT k, tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY k, tags;
+
+SELECT DISTINCT k
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+ORDER BY k;
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE pinned_key_items;
+DROP TABLE pinned_key_arrays;
 DROP TABLE pinned_key_dst;
 DROP COLLATION pinned_key_case_insensitive;

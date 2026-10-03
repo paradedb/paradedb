@@ -2018,7 +2018,137 @@ GROUP BY account_id;
           2 |    10 |  20
 (1 row)
 
+CREATE TABLE pinned_key_arrays (id SERIAL PRIMARY KEY, tags INT[], k TEXT);
+INSERT INTO pinned_key_arrays (tags, k) SELECT ARRAY[1], 'a' FROM generate_series(1, 10);
+INSERT INTO pinned_key_arrays (tags, k) SELECT ARRAY[2, 3], 'b' FROM generate_series(1, 4);
+CREATE INDEX pinned_key_arrays_idx ON pinned_key_arrays
+USING paradedb (id, tags, (k::pdb.literal));
+\echo 'Test 9.1: the only key is pinned to an array -> declined'
+Test 9.1: the only key is pinned to an array -> declined
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY tags;
+WARNING:  Aggregate Scan (DataFusion) not used: output column tags is an array, which is not read from the index (table: pinned_key_arrays)
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   ->  Custom Scan (ParadeDB Base Scan) on pinned_key_arrays
+         Table: pinned_key_arrays
+         Index: pinned_key_arrays_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(tags = '{1}'::integer[])"}]}}]}}
+(8 rows)
+
+SELECT tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY tags;
+WARNING:  Aggregate Scan (DataFusion) not used: output column tags is an array, which is not read from the index (table: pinned_key_arrays)
+ tags | count 
+------+-------
+ {1}  |    10
+(1 row)
+
+\echo 'Test 9.2: a key pinned to an array, next to a free key -> declined'
+Test 9.2: a key pinned to an array, next to a free key -> declined
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT k, tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY k, tags;
+WARNING:  Aggregate Scan (DataFusion) not used: output column tags is an array, which is not read from the index (table: pinned_key_arrays)
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: k
+   ->  Sort
+         Sort Key: k
+         ->  Custom Scan (ParadeDB Base Scan) on pinned_key_arrays
+               Table: pinned_key_arrays
+               Index: pinned_key_arrays_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(tags = '{1}'::integer[])"}]}}]}}
+(11 rows)
+
+SELECT k, tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY k, tags;
+WARNING:  Aggregate Scan (DataFusion) not used: output column tags is an array, which is not read from the index (table: pinned_key_arrays)
+ k | tags | count 
+---+------+-------
+ a | {1}  |    10
+(1 row)
+
+\echo 'Test 9.3: DISTINCT with an array condition'
+Test 9.3: DISTINCT with an array condition
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT k
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+ORDER BY k;
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: k
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: pinned_key_arrays_idx (pinned_key_arrays)
+         Group By: k
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[k@0 as k], aggr=[]
+           :   TantivyDecodeExec: decode=[k]
+           :     AggregateExec: mode=Partial, gby=[k@0 as k], aggr=[]
+           :       TantivyFetchExec: fetch=[k]
+           :         CooperativeExec
+           :           PgSearchScan: table=pinned_key_arrays, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(tags = '{1}'::integer[])"}]}}]}}
+(13 rows)
+
+SELECT DISTINCT k
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+ORDER BY k;
+ k 
+---
+ a
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY tags;
+ tags | count 
+------+-------
+ {1}  |    10
+(1 row)
+
+SELECT k, tags, COUNT(*)
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+GROUP BY k, tags;
+ k | tags | count 
+---+------+-------
+ a | {1}  |    10
+(1 row)
+
+SELECT DISTINCT k
+FROM pinned_key_arrays
+WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
+ORDER BY k;
+ k 
+---
+ a
+(1 row)
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE pinned_key_items;
+DROP TABLE pinned_key_arrays;
 DROP TABLE pinned_key_dst;
 DROP COLLATION pinned_key_case_insensitive;

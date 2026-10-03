@@ -17,10 +17,23 @@ runs:
   steps:
     - name: Preserve SQL Files
       shell: bash
+      env:
+        INPUTS_PRIOR_PG_SEARCH_VERSION: ${{ inputs.prior_pg_search_version }}
       run: |
         SQL_DIR="$(mktemp -d)"
+        PRIOR="${INPUTS_PRIOR_PG_SEARCH_VERSION#v}"
         for case_dir in "${GITHUB_ACTION_PATH}"/*; do
-          [ -d "$case_dir" ] && cp -R "$case_dir" "$SQL_DIR/"
+          [ -d "$case_dir" ] || continue
+          # A case that arranges an index layout only older releases build has
+          # nothing to upgrade from a release that no longer builds it.
+          if [ -f "$case_dir/before_version" ]; then
+            BEFORE="$(tr -d '[:space:]' < "$case_dir/before_version")"
+            if [ "$(printf '%s\n%s\n' "$BEFORE" "$PRIOR" | sort -V | head -n 1)" = "$BEFORE" ]; then
+              echo "Skipping $(basename "$case_dir"): it needs a release before $BEFORE"
+              continue
+            fi
+          fi
+          cp -R "$case_dir" "$SQL_DIR/"
         done
         echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"
 

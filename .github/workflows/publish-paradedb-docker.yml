@@ -355,7 +355,7 @@ jobs:
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: docker/scout-action@v1.26.0
+        uses: docker/scout-action@v1
         with:
           dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
@@ -366,7 +366,7 @@ jobs:
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: docker/scout-action@v1.26.0
+        uses: docker/scout-action@v1
         with:
           dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
@@ -521,7 +521,7 @@ jobs:
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: docker/scout-action@v1.26.0
+        uses: docker/scout-action@v1
         with:
           dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
@@ -532,7 +532,7 @@ jobs:
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: docker/scout-action@v1.26.0
+        uses: docker/scout-action@v1
         with:
           dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}

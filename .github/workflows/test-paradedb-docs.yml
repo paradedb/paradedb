@@ -10,6 +10,8 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/scripts/**"
+      - ".github/actions/setup-postgres/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-paradedb-docs.yml"
       - "docs/**"
   workflow_dispatch:
@@ -47,28 +49,12 @@ jobs:
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v2
+      # Reuse the shared cache without saving entries from this workflow.
+      - name: Set Up pg_search Toolchain
+        uses: ./.github/actions/setup-pg-search-toolchain
         with:
-          cache: false
-          rustflags: "" # Use .cargo/config.toml target-cpu flags
-
-      - name: Extract pgrx Version
-        id: pgrx
-        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
-
-      # Cache notes:
-      # - Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
-      #   See test-pg_search.yml for rationale.
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          prefix-key: "v3-rust-cache-ubuntu-26.04" # Match the build OS used by the shared toolchain cache.
-          shared-key: pg${{ matrix.pg_version }}
-          cache-targets: true
-          cache-all-crates: true
-          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
-          save-if: false
+          pg_version: ${{ matrix.pg_version }}
+          cache_save: "false"
 
       - name: Install System Dependencies
         uses: paradedb/actions/apt-install@v14
@@ -159,12 +145,8 @@ jobs:
       - name: Lint Changelog Fragments
         run: python3 .github/scripts/release.py lint-fragments --changelog-only
 
-      - name: Install pgrx
-        env:
-          STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version "${STEP_PGRX_VERSION}" --debug
-
       - name: Set Up PostgreSQL (pgrx)
+        id: postgres
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
@@ -172,7 +154,7 @@ jobs:
 
       - name: Compile & install pg_search extension (pgrx)
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},block_tracker"
+        run: cargo pgrx install --pg-config "${{ steps.postgres.outputs.pg_config }}" --features="pg${{ matrix.pg_version }},block_tracker"
 
       - name: Add extension to shared_preload_libraries
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/

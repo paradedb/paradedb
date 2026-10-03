@@ -7,7 +7,7 @@ inputs:
     required: false
     default: "system"
   initialize_pgrx:
-    description: "Download and compile pgrx-managed PostgreSQL; disable when restored from cache"
+    description: "Download and compile pgrx-managed PostgreSQL; disable to initialize from cached binaries"
     required: false
     default: "true"
   pg_version:
@@ -17,6 +17,11 @@ inputs:
     description: "Additional apt packages to install alongside PostgreSQL"
     required: false
     default: ""
+
+outputs:
+  pg_config:
+    description: "Absolute path to the configured PostgreSQL pg_config"
+    value: ${{ steps.postgres.outputs.pg_config }}
 
 runs:
   using: composite
@@ -42,42 +47,51 @@ runs:
           postgresql-${{ inputs.pg_version }}-pgvector
           ${{ inputs.extra_packages }}
 
-    - name: Configure PostgreSQL PATH
-      if: inputs.pg_impl == 'system'
-      shell: bash
-      env:
-        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: echo "/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin" >> "$GITHUB_PATH"
-
     - name: Initialize pgrx-managed PostgreSQL
-      if: inputs.pg_impl == 'pgrx' && inputs.initialize_pgrx == 'true'
-      shell: bash
-      env:
-        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: cargo pgrx init "--pg${INPUTS_PG_VERSION}=download" --configure-flag="--without-readline"
-
-    - name: Configure pgrx PostgreSQL PATH
       if: inputs.pg_impl == 'pgrx'
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+        INITIALIZE_PGRX: ${{ inputs.initialize_pgrx }}
       run: |
         set -euo pipefail
-        configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
-        test -x "${configs[0]}"
-        echo "$(dirname "${configs[0]}")" >> "$GITHUB_PATH"
+        if [ "$INITIALIZE_PGRX" = 'true' ]; then
+          cargo pgrx init "--pg${INPUTS_PG_VERSION}=download" --configure-flag="--without-readline"
+        else
+          # Only compiled binaries are cached; recreate pgrx config and database state.
+          configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
+          test -x "${configs[0]}"
+          cargo pgrx init "--pg${INPUTS_PG_VERSION}=${configs[0]}"
+        fi
+
+    - name: Configure PostgreSQL PATH
+      id: postgres
+      shell: bash
+      env:
+        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+        INPUTS_PG_IMPL: ${{ inputs.pg_impl }}
+      run: |
+        set -euo pipefail
+        case "$INPUTS_PG_IMPL" in
+          system) PG_CONFIG="/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config" ;;
+          pgrx)
+            configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
+            PG_CONFIG="${configs[0]}"
+            ;;
+          *) echo "Unsupported PostgreSQL installation: $INPUTS_PG_IMPL" >&2; exit 1 ;;
+        esac
+        test -x "$PG_CONFIG"
+        echo "$(dirname "$PG_CONFIG")" >> "$GITHUB_PATH"
+        echo "pg_config=$PG_CONFIG" >> "$GITHUB_OUTPUT"
 
     # System packages cannot install into pgrx's private PostgreSQL prefix, so we compile it from source.
     - name: Install pgvector Dependency (pgrx)
       if: inputs.pg_impl == 'pgrx'
       shell: bash
       env:
-        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+        PG_CONFIG: ${{ steps.postgres.outputs.pg_config }}
       run: |
         set -euo pipefail
-        configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
-        PG_CONFIG="${configs[0]}"
-        test -x "$PG_CONFIG"
         SOURCE_DIR="$(mktemp -d)"
         trap 'rm -rf "$SOURCE_DIR"' EXIT
         git clone --depth 1 --branch v0.8.6 https://github.com/pgvector/pgvector.git "$SOURCE_DIR"

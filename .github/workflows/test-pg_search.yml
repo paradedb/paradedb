@@ -124,6 +124,7 @@ jobs:
 
       # ---------- System-managed Postgres setup ----------
       - name: Install & Configure Supported PostgreSQL Version (system)
+        id: postgres-system
         if: matrix.pg_impl == 'system'
         uses: ./.github/actions/setup-postgres
         with:
@@ -131,7 +132,7 @@ jobs:
 
       - name: Initialize pgrx Environment (System)
         if: matrix.pg_impl == 'system'
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=${{ steps.postgres-system.outputs.pg_config }}"
 
       # ---------- pgrx-managed Postgres setup ----------
       - name: Cache pgrx-compiled Postgres
@@ -139,10 +140,11 @@ jobs:
         id: cache-pgrx-pg
         uses: actions/cache@v6
         with:
-          path: ~/.pgrx
-          key: pgrx-pg-${{ matrix.runner_image }}-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
+          path: ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install
+          key: pgrx-install-v1-${{ matrix.runner_image }}-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Set Up PostgreSQL (pgrx)
+        id: postgres-pgrx
         if: matrix.pg_impl == 'pgrx'
         uses: ./.github/actions/setup-postgres
         with:
@@ -162,11 +164,7 @@ jobs:
           git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
           cd citus
 
-          if [ "${{ matrix.pg_impl }}" = "system" ]; then
-            PG_CONFIG="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          else
-            PG_CONFIG="$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n1)/pg_config"
-          fi
+          PG_CONFIG="${{ steps.postgres-system.outputs.pg_config || steps.postgres-pgrx.outputs.pg_config }}"
 
           PG_CONFIG="${PG_CONFIG}" ./configure --without-libcurl
           PG_CONFIG="${PG_CONFIG}" make -j"$(nproc)"
@@ -182,11 +180,7 @@ jobs:
           git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
           cd citus
 
-          if [ "${{ matrix.pg_impl }}" = "system" ]; then
-            PG_CONFIG="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          else
-            PG_CONFIG="$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n1)/pg_config"
-          fi
+          PG_CONFIG="${{ steps.postgres-system.outputs.pg_config || steps.postgres-pgrx.outputs.pg_config }}"
 
           PG_CONFIG="${PG_CONFIG}" ./configure
           PG_CONFIG="${PG_CONFIG}" make -j"$(nproc)"
@@ -202,7 +196,7 @@ jobs:
       - name: Compile & install pg_search extension (system)
         if: matrix.pg_impl == 'system'
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features block_tracker --pg-config="${{ steps.postgres-system.outputs.pg_config }}"
 
       # Coverage instrumentation runs on schedule + push-to-main, plus PG 18
       # entries on PRs (so Codecov has fresh data per PR). Older-version PR
@@ -223,7 +217,7 @@ jobs:
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},block_tracker"
+        run: cargo pgrx install --pg-config "${{ steps.postgres-pgrx.outputs.pg_config }}" --features="pg${{ matrix.pg_version }},block_tracker"
 
       # ---------- Start Postgres ----------
       - name: Start Postgres (system)
@@ -238,10 +232,7 @@ jobs:
         working-directory: tests/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-          # The cached ~/.pgrx directory includes the data directory, so restore hits
-          # can already contain a pg_search database from a previous run.
-          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p 288${{ matrix.pg_version }} -h localhost pg_search
-          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
+          createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
       - name: Dump Postgres startup log on failure
         if: failure()

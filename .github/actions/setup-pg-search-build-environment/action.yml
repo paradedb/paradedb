@@ -27,6 +27,7 @@ runs:
   using: composite
   steps:
     - name: Install PostgreSQL ${{ inputs.pg_version }} and Build Dependencies
+      id: postgres
       uses: ./.github/actions/setup-postgres
       with:
         pg_version: ${{ inputs.pg_version }}
@@ -44,4 +45,4 @@ runs:
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: cargo pgrx init "--pg${INPUTS_PG_VERSION}=/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config"
+      run: cargo pgrx init "--pg${INPUTS_PG_VERSION}=${{ steps.postgres.outputs.pg_config }}"

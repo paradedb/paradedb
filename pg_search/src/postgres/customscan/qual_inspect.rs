@@ -759,6 +759,97 @@ pub fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bo
     unsafe { walker(node, std::ptr::null_mut()) }
 }
 
+/// Whether a WHERE clause can be pushed into the scan without breaking RLS ordering.
+pub enum SecurityPushdown {
+    /// Securely promotable, or it would not become a heap filter.
+    Safe,
+    /// A non-leakproof heap filter that must not run before the relation's RLS policy /
+    /// security-barrier quals, or it could leak hidden rows (e.g. through an error message).
+    LeakyHeapFilter {
+        /// It also uses `@@@`, so it can't be evaluated above the scan either.
+        uses_our_operator: bool,
+    },
+}
+
+/// Classify `ri`, a clause of `rel`'s `baserestrictinfo`, per [`SecurityPushdown`].
+pub unsafe fn classify_security_pushdown(
+    context: &PlannerContext,
+    rel: *mut pg_sys::RelOptInfo,
+    rti: pg_sys::Index,
+    ri: *mut pg_sys::RestrictInfo,
+    ri_type: RestrictInfoType,
+    indexrel: &PgSearchRelation,
+    attempt_pushdown: bool,
+) -> SecurityPushdown {
+    if pg_sys::restriction_is_securely_promotable(ri, rel) {
+        return SecurityPushdown::Safe;
+    }
+
+    let mut probe = QualExtractState::default();
+    let _ = extract_quals(
+        context,
+        rti,
+        ri.cast(),
+        ri_type,
+        indexrel,
+        false,
+        &mut probe,
+        attempt_pushdown,
+    );
+    if probe.uses_heap_expr {
+        SecurityPushdown::LeakyHeapFilter {
+            uses_our_operator: probe.uses_our_operator,
+        }
+    } else {
+        SecurityPushdown::Safe
+    }
+}
+
+/// `restriction_is_securely_promotable` for an expression over `rti` that is not a
+/// `baserestrictinfo` clause, such as an aggregate `FILTER (WHERE ...)`.
+pub unsafe fn expr_is_securely_promotable(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    expr: *mut pg_sys::Node,
+) -> bool {
+    let rel_array = (*root).simple_rel_array;
+    if rel_array.is_null() || rti as isize >= (*root).simple_rel_array_size as isize {
+        return false;
+    }
+    let rel = *rel_array.offset(rti as isize);
+    if rel.is_null() {
+        return false;
+    }
+    (*root).qual_security_level <= (*rel).baserestrict_min_security
+        || !pg_sys::contain_leaked_vars(expr)
+}
+
+/// True if any clause of `restrict_info` is a [`SecurityPushdown::LeakyHeapFilter`]. Scans
+/// with no filter step above them must decline when it is.
+pub unsafe fn has_leaky_heap_filter(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+    rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+) -> bool {
+    let context = PlannerContext::from_planner(root);
+    restrict_info.iter_ptr().any(|ri| {
+        matches!(
+            classify_security_pushdown(
+                &context,
+                rel,
+                rti,
+                ri,
+                RestrictInfoType::BaseRelation,
+                indexrel,
+                true,
+            ),
+            SecurityPushdown::LeakyHeapFilter { .. }
+        )
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn extract_quals(
     context: &PlannerContext,

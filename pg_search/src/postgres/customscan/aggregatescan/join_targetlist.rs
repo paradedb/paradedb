@@ -641,7 +641,7 @@ unsafe fn keys_decide_column(
     keys: &[*mut pg_sys::Node],
     expr: *mut pg_sys::Node,
 ) -> bool {
-    let Some(var) = nodecast!(Var, T_Var, expr) else {
+    let Some(var) = nodecast!(Var, T_Var, strip_relabel(expr)) else {
         return false;
     };
     let rte = pg_sys::rt_fetch((*var).varno as pg_sys::Index, (*parse).rtable);
@@ -650,10 +650,12 @@ unsafe fn keys_decide_column(
     }
     let mut key_vars = PgList::<pg_sys::Var>::new();
     for key in keys {
-        if let Some(key_var) = nodecast!(Var, T_Var, *key) {
+        if let Some(key_var) = nodecast!(Var, T_Var, strip_relabel(*key)) {
             key_vars.push(key_var);
         }
     }
+    // `check_functional_grouping` writes the primary key's OID through this
+    // pointer without a null check.
     let mut constraint_deps: *mut pg_sys::List = std::ptr::null_mut();
 
     pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {

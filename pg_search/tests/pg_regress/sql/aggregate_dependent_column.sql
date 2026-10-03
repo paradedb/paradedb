@@ -350,6 +350,26 @@ ORDER BY 1;
 
 RESET paradedb.max_term_agg_buckets;
 
+\echo 'Test 18: the key is a binary cast of the primary key, and the column is pinned -> grouped on'
+CREATE TABLE dependent_col_codes (code VARCHAR PRIMARY KEY, title TEXT);
+INSERT INTO dependent_col_codes
+SELECT 'c' || g, CASE WHEN g % 2 = 0 THEN 'x' ELSE 'y' END FROM generate_series(1, 10) g;
+CREATE INDEX dependent_col_codes_idx ON dependent_col_codes
+USING paradedb ((code::pdb.literal), (title::pdb.literal));
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT code::text AS code, title, COUNT(*)
+FROM dependent_col_codes
+WHERE code @@@ paradedb.all() AND title = 'x'
+GROUP BY code::text, title
+ORDER BY 1;
+
+SELECT code::text AS code, title, COUNT(*)
+FROM dependent_col_codes
+WHERE code @@@ paradedb.all() AND title = 'x'
+GROUP BY code::text, title
+ORDER BY 1;
+
 \echo 'Same results from PostgreSQL'
 SET paradedb.enable_aggregate_custom_scan TO off;
 
@@ -452,6 +472,13 @@ WHERE id @@@ paradedb.all()
 GROUP BY date(ts)
 ORDER BY 1;
 
+SELECT code::text AS code, title, COUNT(*)
+FROM dependent_col_codes
+WHERE code @@@ paradedb.all() AND title = 'x'
+GROUP BY code::text, title
+ORDER BY 1;
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE dependent_col_items;
 DROP TABLE dependent_col_days;
+DROP TABLE dependent_col_codes;

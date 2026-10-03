@@ -857,6 +857,50 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a c
 (6 rows)
 
 RESET paradedb.max_term_agg_buckets;
+\echo 'Test 18: the key is a binary cast of the primary key, and the column is pinned -> grouped on'
+Test 18: the key is a binary cast of the primary key, and the column is pinned -> grouped on
+CREATE TABLE dependent_col_codes (code VARCHAR PRIMARY KEY, title TEXT);
+INSERT INTO dependent_col_codes
+SELECT 'c' || g, CASE WHEN g % 2 = 0 THEN 'x' ELSE 'y' END FROM generate_series(1, 10) g;
+CREATE INDEX dependent_col_codes_idx ON dependent_col_codes
+USING paradedb ((code::pdb.literal), (title::pdb.literal));
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT code::text AS code, title, COUNT(*)
+FROM dependent_col_codes
+WHERE code @@@ paradedb.all() AND title = 'x'
+GROUP BY code::text, title
+ORDER BY 1;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((code)::text), title, (count(*))
+   Sort Key: ((dependent_col_codes.code)::text)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((code)::text), title, (count(*))
+         Backend: DataFusion
+         Indexes: dependent_col_codes_idx (dependent_col_codes)
+         Group By: code, title
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[code@0 as code, title@1 as title], aggr=[count(1) as agg_0]
+           :   CooperativeExec
+           :     PgSearchScan: table=dependent_col_codes, segments=1, eager=[code, title], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"title","value":"x"}}]}}
+(13 rows)
+
+SELECT code::text AS code, title, COUNT(*)
+FROM dependent_col_codes
+WHERE code @@@ paradedb.all() AND title = 'x'
+GROUP BY code::text, title
+ORDER BY 1;
+ code | title | count 
+------+-------+-------
+ c10  | x     |     1
+ c2   | x     |     1
+ c4   | x     |     1
+ c6   | x     |     1
+ c8   | x     |     1
+(5 rows)
+
 \echo 'Same results from PostgreSQL'
 Same results from PostgreSQL
 SET paradedb.enable_aggregate_custom_scan TO off;
@@ -1086,6 +1130,21 @@ ORDER BY 1;
  01-09-2024 | 3 |    30
 (9 rows)
 
+SELECT code::text AS code, title, COUNT(*)
+FROM dependent_col_codes
+WHERE code @@@ paradedb.all() AND title = 'x'
+GROUP BY code::text, title
+ORDER BY 1;
+ code | title | count 
+------+-------+-------
+ c10  | x     |     1
+ c2   | x     |     1
+ c4   | x     |     1
+ c6   | x     |     1
+ c8   | x     |     1
+(5 rows)
+
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE dependent_col_items;
 DROP TABLE dependent_col_days;
+DROP TABLE dependent_col_codes;

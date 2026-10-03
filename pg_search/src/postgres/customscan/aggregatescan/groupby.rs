@@ -226,6 +226,7 @@ pub(super) unsafe fn has_ungrouped_column(args: &<AggregateScan as CustomScan>::
     let keys: Vec<*mut pg_sys::Node> = args
         .group_by_pathkeys()
         .into_iter()
+        .filter(|pathkey| !(**pathkey).pk_eclass.is_null())
         .flat_map(|pathkey| {
             PgList::<pg_sys::EquivalenceMember>::from_pg((*(*pathkey).pk_eclass).ec_members)
                 .iter_ptr()

@@ -579,9 +579,9 @@ pub fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
 /// Strips the `RelabelType` wrappers from an expression.
 ///
 /// # Safety
-/// `node` must point to a valid node.
+/// `node` must be null or point to a valid node.
 pub unsafe fn strip_relabel(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    while (*node).type_ == pg_sys::NodeTag::T_RelabelType {
+    while !node.is_null() && (*node).type_ == pg_sys::NodeTag::T_RelabelType {
         node = (*node.cast::<pg_sys::RelabelType>()).arg.cast();
     }
     node

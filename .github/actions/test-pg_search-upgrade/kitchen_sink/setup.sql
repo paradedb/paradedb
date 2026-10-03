@@ -1,12 +1,20 @@
 -- NOTE: this file runs against the PRIOR extension version, not the one being built.
 -- The `Preserve SQL Files` step copies these fixtures out of the PR head into a
 -- tmpdir, then checks out an older tag and installs that version, so everything here
--- must be valid SQL for the oldest tag in the upgrade matrix. That is why the index
+-- must be valid SQL for every tag in the upgrade matrix. That is why the index
 -- below says `using bm25` rather than `using paradedb` (the `paradedb` access method
--- only exists from 0.25.0 onward), and why `paradedb.create_bm25_test_table` keeps its
--- pre-rename name. Do not sweep these into current naming.
+-- only exists from 0.25.0 onward). Do not sweep these into current naming.
 
-CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');
+-- 0.26.0 renamed `paradedb.create_bm25_test_table` and dropped the old name, so the
+-- oldest and the newest tag in the matrix have one name each.
+DO $$
+BEGIN
+    IF to_regproc('paradedb.create_paradedb_test_table') IS NOT NULL THEN
+        CALL paradedb.create_paradedb_test_table(schema_name => 'public', table_name => 'mock_items');
+    ELSE
+        CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');
+    END IF;
+END $$;
 
 ALTER TABLE mock_items
 ADD COLUMN price NUMERIC(10, 2),

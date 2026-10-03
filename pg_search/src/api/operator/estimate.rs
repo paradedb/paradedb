@@ -16,10 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::api::operator::row_expr_from_indexed_expr;
+use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{ConstNode, TantivyValueError};
-use crate::postgres::utils::ToPalloc;
+use crate::postgres::utils::{FieldSource, ToPalloc, strip_tokenizer_cast};
 use crate::query::pdb_query::pdb;
 use pgrx::{PgList, pg_sys};
 use std::ffi::CStr;
@@ -42,18 +44,11 @@ pub(super) unsafe fn non_text_clause(
     if root.is_null() {
         return None;
     }
-    if field.path().is_some() {
-        todo!("estimate JSON paths using expression statistics");
-    }
     let schema = index.schema().ok()?;
     let fields = schema.categorized_fields();
-    let (search_field, data) = fields.iter().find(|(f, _)| f.field_name() == field)?;
-    if data.is_array {
-        todo!("estimate array elements using array statistics");
-    }
-    if data.is_json {
-        todo!("estimate JSON filters using expression statistics");
-    }
+    let (search_field, data) = fields
+        .iter()
+        .find(|(f, _)| f.field_name().as_ref() == field.root())?;
     // A range over text terms is not a range over whole column values.
     if matches!(query, pdb::Query::Range { .. })
         && matches!(
@@ -64,46 +59,70 @@ pub(super) unsafe fn non_text_clause(
     {
         return None;
     }
-    let attno = data
-        .source
-        .heap_attno(index)
-        .unwrap_or_else(|| todo!("estimate computed fields using expression statistics"));
     let heap = index.heap_relation()?;
     let rte = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable)
         .get_ptr(rti.checked_sub(1)? as usize)?;
     if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION || (*rte).relid != heap.oid() {
         return None;
     }
-    let desc = heap.tuple_desc();
-    let attr = desc.get(attno)?;
-    let oid = attr.atttypid;
-    let var = pg_sys::makeVar(
-        rti as _,
-        (attno + 1) as _,
-        oid,
-        attr.atttypmod,
-        attr.attcollation,
-        0,
-    );
+    let expr = FieldExpression::try_from((&data.source, index, rti))
+        .ok()?
+        .0;
+    if data.is_json {
+        let value = JsonPredicate { field, query }.try_into().ok()?;
+        let expr = if pg_sys::exprType(expr.cast()) == pg_sys::JSONBOID {
+            expr
+        } else {
+            let mut args = PgList::new();
+            args.push(expr);
+            pg_sys::makeFuncExpr(
+                pg_sys::F_TO_JSONB.into(),
+                pg_sys::JSONBOID,
+                args.into_pg(),
+                pg_sys::InvalidOid,
+                pg_sys::InvalidOid,
+                pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            )
+            .cast()
+        };
+        return Some(Comparison::try_from((&*expr, c"@?", value)).ok()?.into());
+    }
+    let expr_oid = pg_sys::exprType(expr.cast());
+    let element_oid = pg_sys::get_base_element_type(expr_oid);
+    let is_array = element_oid != pg_sys::InvalidOid;
+    let oid = if is_array { element_oid } else { expr_oid };
+    if is_array
+        && matches!(query, pdb::Query::Range { lower_bound, upper_bound }
+        if !matches!(lower_bound, Bound::Unbounded) && !matches!(upper_bound, Bound::Unbounded))
+    {
+        // Two ANY predicates may match different elements; PostgreSQL has no same-element range statistics.
+        return None;
+    }
     let mut clauses = PgList::<pg_sys::Node>::new();
     let exists = || {
-        pg_sys::NullTest {
-            xpr: pg_sys::Expr {
-                type_: pg_sys::NodeTag::T_NullTest,
-            },
-            arg: var.cast(),
-            nulltesttype: pg_sys::NullTestType::IS_NOT_NULL,
-            argisrow: false,
-            location: -1,
+        if is_array {
+            // Null, empty, and all-null arrays have no value; column null statistics cannot distinguish them.
+            return None;
         }
-        .palloc()
-        .cast()
+        Some(
+            pg_sys::NullTest {
+                xpr: pg_sys::Expr {
+                    type_: pg_sys::NodeTag::T_NullTest,
+                },
+                arg: expr,
+                nulltesttype: pg_sys::NullTestType::IS_NOT_NULL,
+                argisrow: false,
+                location: -1,
+            }
+            .palloc()
+            .cast(),
+        )
     };
     match query {
-        pdb::Query::Exists => clauses.push(exists()),
+        pdb::Query::Exists => clauses.push(exists()?),
         pdb::Query::Term { value } => {
             let value: ConstNode = (value, oid).try_into().ok()?;
-            clauses.push(Comparison::try_from((&*var, c"=", value)).ok()?.into());
+            clauses.push(Comparison::try_from((&*expr, c"=", value)).ok()?.into());
         }
         pdb::Query::Range {
             lower_bound,
@@ -118,10 +137,10 @@ pub(super) unsafe fn non_text_clause(
                     Bound::Unbounded => continue,
                 };
                 let value: ConstNode = (value, oid).try_into().ok()?;
-                clauses.push(Comparison::try_from((&*var, name, value)).ok()?.into());
+                clauses.push(Comparison::try_from((&*expr, name, value)).ok()?.into());
             }
             if clauses.is_empty() {
-                clauses.push(exists());
+                clauses.push(exists()?);
             }
         }
         pdb::Query::RangeTerm { value } => {
@@ -131,7 +150,7 @@ pub(super) unsafe fn non_text_clause(
             }
             clauses.push(
                 Comparison {
-                    var: &*var,
+                    expr: &*expr,
                     op: pg_sys::Oid::from(pg_sys::OID_RANGE_CONTAINS_ELEM_OP),
                     value: (value, subtype).try_into().ok()?,
                 }
@@ -181,7 +200,7 @@ pub(super) unsafe fn non_text_clause(
             };
             clauses.push(
                 Comparison {
-                    var: &*var,
+                    expr: &*expr,
                     op: pg_sys::Oid::from(op),
                     value,
                 }
@@ -216,17 +235,147 @@ pub(super) unsafe fn non_text_clause(
     Some(pg_sys::make_ands_explicit(clauses.into_pg()).cast())
 }
 
+struct FieldExpression(*mut pg_sys::Expr);
+
+impl TryFrom<(&FieldSource, &PgSearchRelation, pg_sys::Index)> for FieldExpression {
+    type Error = ();
+
+    fn try_from(
+        (source, index, rti): (&FieldSource, &PgSearchRelation, pg_sys::Index),
+    ) -> Result<Self, Self::Error> {
+        unsafe {
+            let expr = match *source {
+                FieldSource::Heap { attno } => {
+                    let heap = index.heap_relation().ok_or(())?;
+                    let desc = heap.tuple_desc();
+                    let attr = desc.get(attno).ok_or(())?;
+                    pg_sys::makeVar(
+                        1,
+                        (attno + 1) as _,
+                        attr.atttypid,
+                        attr.atttypmod,
+                        attr.attcollation,
+                        0,
+                    )
+                    .cast()
+                }
+                FieldSource::Expression { att_idx } => {
+                    index.index_expressions().get_ptr(att_idx).ok_or(())?
+                }
+                FieldSource::CompositeField {
+                    expression_idx,
+                    field_idx,
+                    composite_type_oid,
+                    ..
+                } => {
+                    let expr = index
+                        .index_expressions()
+                        .get_ptr(expression_idx)
+                        .ok_or(())?;
+                    if let Some(row) = row_expr_from_indexed_expr(expr) {
+                        PgList::<pg_sys::Expr>::from_pg((*row).args)
+                            .get_ptr(field_idx)
+                            .ok_or(())?
+                    } else {
+                        let fields =
+                            get_composite_type_fields(composite_type_oid).map_err(|_| ())?;
+                        let field = fields
+                            .iter()
+                            .find(|f| f.field_index == field_idx)
+                            .ok_or(())?;
+                        pg_sys::FieldSelect {
+                            xpr: pg_sys::Expr {
+                                type_: pg_sys::NodeTag::T_FieldSelect,
+                            },
+                            arg: expr,
+                            fieldnum: (field_idx + 1) as _,
+                            resulttype: field.type_oid,
+                            resulttypmod: field.typmod,
+                            resultcollid: pg_sys::get_typcollation(field.type_oid),
+                        }
+                        .palloc()
+                        .cast()
+                    }
+                }
+            };
+            // Copy catalog expressions before rebinding their Vars to the query's table.
+            let expr = pg_sys::copyObjectImpl(strip_tokenizer_cast(expr.cast()).cast()).cast();
+            pg_sys::ChangeVarNodes(expr, 1, rti as _, 0);
+            Ok(Self(expr.cast()))
+        }
+    }
+}
+
+struct JsonPredicate<'a> {
+    field: &'a FieldName,
+    query: &'a pdb::Query,
+}
+
+impl TryFrom<JsonPredicate<'_>> for ConstNode {
+    type Error = ();
+
+    fn try_from(predicate: JsonPredicate<'_>) -> Result<Self, Self::Error> {
+        let literal = |value: &PdbOwnedValue| {
+            match value {
+                PdbOwnedValue::I64(_) | PdbOwnedValue::U64(_) | PdbOwnedValue::Bool(_) => {}
+                PdbOwnedValue::F64(v) if v.is_finite() => {}
+                // Text uses Tantivy; typed dates and other values have no equivalent JSON comparison here.
+                _ => return Err(()),
+            }
+            serde_json::to_string(value).map_err(|_| ())
+        };
+        let mut path = String::from("lax $");
+        for key in tantivy::json_utils::split_json_path(predicate.field)
+            .into_iter()
+            .skip(1)
+        {
+            path.push('.');
+            path.push_str(&serde_json::to_string(&key).map_err(|_| ())?);
+        }
+        match predicate.query {
+            pdb::Query::Term { value } => path.push_str(&format!(" ? (@ == {})", literal(value)?)),
+            pdb::Query::Range {
+                lower_bound,
+                upper_bound,
+            } => {
+                let mut bounds = Vec::new();
+                for (bound, inclusive, exclusive) in
+                    [(lower_bound, ">=", ">"), (upper_bound, "<=", "<")]
+                {
+                    let (value, op) = match bound {
+                        Bound::Included(value) => (value, inclusive),
+                        Bound::Excluded(value) => (value, exclusive),
+                        Bound::Unbounded => continue,
+                    };
+                    bounds.push(format!("@ {op} {}", literal(value)?));
+                }
+                if bounds.is_empty() {
+                    // Without a bound, the JSON value type to compare is unknown.
+                    return Err(());
+                }
+                path.push_str(&format!(" ? ({})", bounds.join(" && ")));
+            }
+            pdb::Query::Exists => path
+                .push_str(".** ? (@ != null && @.type() != \"array\" && @.type() != \"object\")"),
+            _ => return Err(()),
+        }
+        (&PdbOwnedValue::Str(path), pg_sys::JSONPATHOID)
+            .try_into()
+            .map_err(|_| ())
+    }
+}
+
 struct Comparison<'a> {
-    var: &'a pg_sys::Var,
+    expr: &'a pg_sys::Expr,
     op: pg_sys::Oid,
     value: ConstNode,
 }
 
-impl<'a> TryFrom<(&'a pg_sys::Var, &CStr, ConstNode)> for Comparison<'a> {
+impl<'a> TryFrom<(&'a pg_sys::Expr, &CStr, ConstNode)> for Comparison<'a> {
     type Error = ();
 
     fn try_from(
-        (var, name, value): (&'a pg_sys::Var, &CStr, ConstNode),
+        (expr, name, value): (&'a pg_sys::Expr, &CStr, ConstNode),
     ) -> Result<Self, Self::Error> {
         unsafe {
             let mut names = PgList::<pg_sys::Node>::new();
@@ -234,12 +383,21 @@ impl<'a> TryFrom<(&'a pg_sys::Var, &CStr, ConstNode)> for Comparison<'a> {
                 names.push(pg_sys::makeString(pg_sys::pstrdup(name.as_ptr())).cast());
             }
             let konst: *mut pg_sys::Const = (&value).into();
-            let op =
-                pg_sys::compatible_oper_opid(names.as_ptr(), var.vartype, (*konst).consttype, true);
-            if op == pg_sys::InvalidOid {
+            let expr_oid = pg_sys::exprType(std::ptr::from_ref(expr).cast_mut().cast());
+            let element_oid = pg_sys::get_base_element_type(expr_oid);
+            let oid = if element_oid == pg_sys::InvalidOid {
+                expr_oid
+            } else {
+                element_oid
+            };
+            let op = pg_sys::compatible_oper_opid(names.as_ptr(), oid, (*konst).consttype, true);
+            if op == pg_sys::InvalidOid
+                || (element_oid != pg_sys::InvalidOid
+                    && pg_sys::get_commutator(op) == pg_sys::InvalidOid)
+            {
                 return Err(());
             }
-            Ok(Self { var, op, value })
+            Ok(Self { expr, op, value })
         }
     }
 }
@@ -248,14 +406,36 @@ impl From<Comparison<'_>> for *mut pg_sys::Node {
     fn from(comparison: Comparison<'_>) -> Self {
         let value: *mut pg_sys::Const = comparison.value.into();
         unsafe {
+            let expr = std::ptr::from_ref(comparison.expr).cast_mut();
+            let collation = pg_sys::exprCollation(expr.cast());
+            if pg_sys::get_base_element_type(pg_sys::exprType(expr.cast())) != pg_sys::InvalidOid {
+                let op = pg_sys::get_commutator(comparison.op);
+                let mut args = PgList::new();
+                args.push(value.cast::<pg_sys::Expr>());
+                args.push(expr);
+                return pg_sys::ScalarArrayOpExpr {
+                    xpr: pg_sys::Expr {
+                        type_: pg_sys::NodeTag::T_ScalarArrayOpExpr,
+                    },
+                    opno: op,
+                    opfuncid: pg_sys::get_opcode(op),
+                    useOr: true,
+                    inputcollid: collation,
+                    args: args.into_pg(),
+                    location: -1,
+                    ..Default::default()
+                }
+                .palloc()
+                .cast();
+            }
             pg_sys::make_opclause(
                 comparison.op,
                 pg_sys::BOOLOID,
                 false,
-                std::ptr::from_ref(comparison.var).cast_mut().cast(),
+                expr,
                 value.cast(),
                 pg_sys::InvalidOid,
-                comparison.var.varcollid,
+                collation,
             )
             .cast()
         }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791099911787,
+  "lastUpdate": 1791103153366,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7636,6 +7636,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 732.096,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "144e89c910eaaa0b3d198d45288e04452abe99b2",
+          "message": "perf: pin Tantivy at the `Exclude` probe that does not walk excluded runs (#6658)\n\n## Ticket(s) Closed\n\n- None. Follow-up to #6592, with the fix in paradedb/tantivy#292.\n\n## What\n\nThis PR pins Tantivy at the commit that answers an `Exclude` probe with\none lookup instead of a walk.\n\n## Why\n\n#6592 writes the first range partition's bounds as `all AND NOT (key >=\nupper)`. In `join_conjunctive_score_sort - range_partitioned`, posts are\npartitioned on `id` and stored in `id` order, so the excluded docs of a\ncrossing segment form one run. `Exclude` had no `seek_danger` of its\nown, and the default walked that run to the end of the segment. That\ntask's posts scan took 23 ms against 7 ms on `main`. Every `must_not`\nfilter under a Top K gets the same fix.\n\n## How\n\nA dependency bump only. The pin is the fork's `main` at the merge of\nparadedb/tantivy#292.\n\n## Tests\n\nThe unit tests are in paradedb/tantivy#292.\n\nOn the 20m-row benchmark, `join_conjunctive_score_sort -\nrange_partitioned` is back at `main`'s 115 ms, where #6592 alone sat at\n131 ms. The three range joins #6592 sped up keep their gains, at 0.76 to\n0.81 of `main`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-04T00:29:51-07:00",
+          "tree_id": "93732405ce43201b9ab481900fc3a2a55e052cd3",
+          "url": "https://github.com/paradedb/paradedb/commit/144e89c910eaaa0b3d198d45288e04452abe99b2"
+        },
+        "date": 1791103150291,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.096,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 142.486,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 53.765,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 239.206,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.311,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 160.52,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.469,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 209.897,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 41.643,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 749.849,
             "unit": "ms"
           }
         ]

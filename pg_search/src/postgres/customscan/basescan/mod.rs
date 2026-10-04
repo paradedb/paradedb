@@ -264,16 +264,10 @@ impl BaseScan {
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_planner(root);
 
-        // Filter out predicates that are implied by the partial index predicate.
-        // If a partial index has predicate P (e.g., "deleted_at IS NULL"), and the query
-        // also has predicate P, we don't need to create a heap filter for P since the
-        // partial index already guarantees it.
-        let filtered_restrict_info = filter_implied_predicates(indexrel.rd_indpred, &restrict_info);
-
         let mut quals = extract_quals(
             &context,
             rti,
-            filtered_restrict_info.as_ptr().cast(),
+            restrict_info.as_ptr().cast(),
             ri_type,
             indexrel,
             false, // Base relation quals should not convert external to all
@@ -294,7 +288,7 @@ impl BaseScan {
             let mut partial_quals = Vec::new();
             let mut partial_state = QualExtractState::default();
             let mut all_skipped_are_subplans = true;
-            for ri in filtered_restrict_info.iter_ptr() {
+            for ri in restrict_info.iter_ptr() {
                 if let Some(qual) = extract_quals(
                     &context,
                     rti,
@@ -331,16 +325,43 @@ impl BaseScan {
         let quals = if quals.is_none() {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
-            let mut quals = extract_quals(
-                &context,
-                rti,
-                joinri.as_ptr().cast(),
-                RestrictInfoType::Join,
-                indexrel,
-                true, // Join quals should convert external to all
-                &mut state,
-                attempt_pushdown,
-            );
+            let mut join_quals = Vec::new();
+            for ri in joinri.iter_ptr() {
+                let qual = extract_quals(
+                    &context,
+                    rti,
+                    ri.cast(),
+                    RestrictInfoType::Join,
+                    indexrel,
+                    true, // Join quals should convert external to all
+                    &mut state,
+                    attempt_pushdown,
+                )?;
+                // SECURITY: the join above re-evaluates every join clause after RLS, so a leaky
+                // one only needs a superset here and must not run its heap filters early.
+                let is_leaky = matches!(
+                    classify_security_pushdown(
+                        &context,
+                        builder.args().rel,
+                        rti,
+                        ri,
+                        RestrictInfoType::Join,
+                        indexrel,
+                        attempt_pushdown,
+                    ),
+                    SecurityPushdown::LeakyHeapFilter { .. }
+                );
+                join_quals.push(if is_leaky {
+                    qual.without_heap_exprs()?
+                } else {
+                    qual
+                });
+            }
+            let mut quals = match join_quals.len() {
+                0 => None,
+                1 => join_quals.pop(),
+                _ => Some(Qual::And(join_quals)),
+            };
 
             let quals =
                 Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator);
@@ -600,9 +621,11 @@ unsafe fn has_non_pushable_predicates(
     Ok(())
 }
 
-/// Split `baserestrictinfo` into the clauses that may be pushed into the scan and the
+/// Split `restrict_info` into the clauses that may be pushed into the scan and the
 /// `nodeToString` form of the leaky ones (see [`SecurityPushdown`]), which `plan_custom_path`
 /// evaluates in `plan.qual` so they never see rows an RLS policy rejects.
+///
+/// A leaky clause is still pushed down when [`runs_after_lower_security_quals`] holds.
 ///
 /// Returns `None` if a leaky clause also uses `@@@` (e.g. `body @@@ 'x' OR secret::int > 0`):
 /// it can be neither pushed down nor deferred, so the scan must decline.
@@ -635,11 +658,66 @@ unsafe fn split_leaky_quals(
             } => return None,
             SecurityPushdown::LeakyHeapFilter {
                 uses_our_operator: false,
+            } if matches!(ri_type, RestrictInfoType::BaseRelation)
+                && runs_after_lower_security_quals(
+                    &context,
+                    rti,
+                    indexrel,
+                    ri,
+                    restrict_info,
+                    attempt_pushdown,
+                ) =>
+            {
+                pushable.push(ri)
+            }
+            SecurityPushdown::LeakyHeapFilter {
+                uses_our_operator: false,
             } => deferred.push(node_to_string_owned((*ri).clause.cast())),
         }
     }
 
     Some((pushable, deferred))
+}
+
+/// True if the leaky base clause `ri` becomes a top-level heap filter and every clause of a
+/// lower `security_level` (e.g. an RLS policy) becomes an indexed conjunct. The heap filter
+/// then only evaluates `ri` on documents its `indexed_query`, which includes those clauses,
+/// already matched, so `ri` never sees a row they reject.
+unsafe fn runs_after_lower_security_quals(
+    context: &PlannerContext,
+    rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
+    ri: *mut pg_sys::RestrictInfo,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+    attempt_pushdown: bool,
+) -> bool {
+    let extract = |clause: *mut pg_sys::RestrictInfo| {
+        extract_quals(
+            context,
+            rti,
+            clause.cast(),
+            RestrictInfoType::BaseRelation,
+            indexrel,
+            false,
+            &mut QualExtractState::default(),
+            attempt_pushdown,
+        )
+    };
+
+    let is_top_level_heap_filter = matches!(
+        extract(ri),
+        Some(Qual::HeapExpr { search_query_input, .. })
+            if matches!(*search_query_input, SearchQueryInput::All)
+    );
+
+    is_top_level_heap_filter
+        && restrict_info
+            .iter_ptr()
+            .filter(|&other| (*other).security_level < (*ri).security_level)
+            .all(|lower| {
+                extract(lower)
+                    .is_some_and(|qual| qual.is_indexed_conjunct() && !qual.contains_heap_expr())
+            })
 }
 
 /// Returns true if the query's LIMIT can safely be pushed into this scan node.
@@ -774,6 +852,11 @@ impl CustomScan for BaseScan {
             let is_select =
                 (*(*builder.args().root).parse).commandType == pg_sys::CmdType::CMD_SELECT;
 
+            // Predicates implied by the partial index predicate are never evaluated, so they
+            // can't leak.
+            let filtered_restrict_info =
+                filter_implied_predicates(bm25_index.rd_indpred, &restrict_info);
+
             // SECURITY: keep leaky clauses out of the scan; they run in `plan.qual` instead.
             let (pushable_restrict_info, deferred_plan_quals) = split_leaky_quals(
                 root,
@@ -781,7 +864,7 @@ impl CustomScan for BaseScan {
                 rti,
                 &bm25_index,
                 ri_type,
-                &restrict_info,
+                &filtered_restrict_info,
                 is_select,
             )?;
             let has_deferred_quals = !deferred_plan_quals.is_empty();

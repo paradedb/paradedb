@@ -256,6 +256,43 @@ impl Qual {
         }
     }
 
+    /// True if, as a top-level AND branch, [`optimize_quals_with_heap_expr`] merges this qual
+    /// into the `indexed_query` of each sibling heap filter.
+    pub fn is_indexed_conjunct(&self) -> bool {
+        matches!(
+            self,
+            Qual::OpExpr { .. }
+                | Qual::PushdownExpr { .. }
+                | Qual::PushdownVarEqTrue { .. }
+                | Qual::PushdownVarEqFalse { .. }
+                | Qual::PushdownVarIsTrue { .. }
+                | Qual::PushdownVarIsFalse { .. }
+                | Qual::PushdownIsNotNull { .. }
+                | Qual::Or(_)
+        )
+    }
+
+    /// Replace each heap filter with `All`, so the qual matches a superset of its rows without
+    /// evaluating any heap expression. Returns `None` if a heap filter is under a `Not`, where
+    /// `All` would narrow the match instead.
+    pub fn without_heap_exprs(self) -> Option<Qual> {
+        match self {
+            Qual::HeapExpr { .. } => Some(Qual::All),
+            Qual::And(quals) => quals
+                .into_iter()
+                .map(Qual::without_heap_exprs)
+                .collect::<Option<_>>()
+                .map(Qual::And),
+            Qual::Or(quals) => quals
+                .into_iter()
+                .map(Qual::without_heap_exprs)
+                .collect::<Option<_>>()
+                .map(Qual::Or),
+            Qual::Not(inner) if inner.contains_heap_expr() => None,
+            other => Some(other),
+        }
+    }
+
     /// Check if a Qual contains any HeapExpr (non-indexed predicates)
     pub fn contains_heap_expr(&self) -> bool {
         match self {
@@ -770,7 +807,7 @@ pub enum SecurityPushdown {
     },
 }
 
-/// Classify `ri`, a clause of `rel`'s `baserestrictinfo`, per [`SecurityPushdown`].
+/// Classify `ri`, a clause of `rel`'s `baserestrictinfo` or `joininfo`, per [`SecurityPushdown`].
 pub unsafe fn classify_security_pushdown(
     context: &PlannerContext,
     rel: *mut pg_sys::RelOptInfo,
@@ -791,7 +828,7 @@ pub unsafe fn classify_security_pushdown(
         ri.cast(),
         ri_type,
         indexrel,
-        false,
+        matches!(ri_type, RestrictInfoType::Join),
         &mut probe,
         attempt_pushdown,
     );
@@ -1972,18 +2009,7 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
                     heap_expr_indices.push(i);
                 }
             }
-            Qual::OpExpr { .. }
-            | Qual::PushdownExpr { .. }
-            | Qual::PushdownVarEqTrue { .. }
-            | Qual::PushdownVarEqFalse { .. }
-            | Qual::PushdownVarIsTrue { .. }
-            | Qual::PushdownVarIsFalse { .. }
-            | Qual::PushdownIsNotNull { .. } => {
-                indexed_qual_indices.push(i);
-            }
-            Qual::Or(_) => {
-                indexed_qual_indices.push(i);
-            }
+            _ if qual.is_indexed_conjunct() => indexed_qual_indices.push(i),
             _ => {}
         }
     }

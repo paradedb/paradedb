@@ -842,19 +842,18 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology' AND specialty LIKE 'specialty13%'
 ORDER BY id LIMIT 5;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                               QUERY PLAN                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: id
-         ->  Custom Scan (ParadeDB Base Scan) on providers
-               Filter: (specialty ~~ 'specialty13%'::text)
-               Table: providers
-               Index: providers_paradedb
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"range":{"field":"id","lower_bound":{"included":0},"upper_bound":null}},{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}}
-(10 rows)
+   ->  Custom Scan (ParadeDB Base Scan) on providers
+         Table: providers
+         Index: providers_paradedb
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id asc
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"range":{"field":"id","lower_bound":{"included":0},"upper_bound":null}},{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(specialty ~~ 'specialty13%'::text)"}]}}]}}
+(9 rows)
 
 SELECT count(*) AS rls_like_count FROM (
     SELECT id FROM providers

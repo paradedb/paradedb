@@ -69,9 +69,6 @@ jobs:
           pg_version: ${{ matrix.pg_version }}
           extra_packages: lld libfontconfig1-dev libopenblas-dev
 
-      - name: Initialize pgrx Environment
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-
       - name: Run Rustfmt
         run: cargo fmt --all -- --check
 

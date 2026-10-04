@@ -45,7 +45,7 @@ pub struct BitmapExec {
     /// The published claim table, when shared.
     table: pg_sys::dsa_pointer,
     source: Option<Arc<BitmapCursorSource>>,
-    /// Publish arguments (consumers, segments, passes) cached for rescan republish.
+    /// Publish arguments (consumers, segments, slots) cached for rescan republish.
     publish_args: Option<(u32, Vec<SegmentId>, u32)>,
 }
 
@@ -187,14 +187,14 @@ impl BitmapExec {
         }
     }
 
-    /// Owner only: build in this scan's own DSA area, prepare `passes` iterator
-    /// states per `(consumer, segment)` stream, and return the handle to publish
-    /// for the other participants.
+    /// Owner only: build in this scan's own DSA area, publish the claim table with
+    /// one iteration state per participant slot (`slots` of them, the owner being
+    /// slot 0), and return the handle for the other participants.
     pub unsafe fn shared_source(
         &mut self,
         consumers: u32,
         segments: &[SegmentId],
-        passes: u32,
+        slots: u32,
     ) -> Option<SharedBitmapHandle> {
         unsafe {
             if self.area.is_null() {
@@ -206,9 +206,11 @@ impl BitmapExec {
             if self.tbm.is_null() {
                 return None;
             }
-            self.table = publish_shared_table(self.tbm, self.area, consumers, segments, passes);
-            self.publish_args = Some((consumers, segments.to_vec(), passes));
-            self.source = Some(Arc::new(BitmapCursorSource::shared(self.area, self.table)));
+            self.table = publish_shared_table(self.tbm, self.area, consumers, segments, slots);
+            self.publish_args = Some((consumers, segments.to_vec(), slots));
+            self.source = Some(Arc::new(BitmapCursorSource::shared(
+                self.area, self.table, 0,
+            )));
             Some(SharedBitmapHandle {
                 area: pg_sys::dsa_get_handle(self.area),
                 table: self.table,
@@ -216,11 +218,11 @@ impl BitmapExec {
         }
     }
 
-    /// Republish after a rescan reset, with the same consumers/segments/passes.
+    /// Republish after a rescan reset, with the same consumers/segments/slots.
     pub unsafe fn republish(&mut self) -> Option<SharedBitmapHandle> {
         unsafe {
-            let (consumers, segments, passes) = self.publish_args.clone()?;
-            self.shared_source(consumers, &segments, passes)
+            let (consumers, segments, slots) = self.publish_args.clone()?;
+            self.shared_source(consumers, &segments, slots)
         }
     }
 
@@ -229,17 +231,19 @@ impl BitmapExec {
         self.source.clone()
     }
 
-    /// Worker: attach the owner's published area and claim table.
+    /// Worker: attach the owner's published area and claim table as participant
+    /// `slot`.
     pub(crate) unsafe fn worker_attach_source(
         &mut self,
         handle: SharedBitmapHandle,
+        slot: u32,
     ) -> Arc<BitmapCursorSource> {
         unsafe {
             if self.area.is_null() {
                 self.area = pg_sys::dsa_attach(handle.area);
                 self.owns_area = false;
             }
-            let source = Arc::new(BitmapCursorSource::shared(self.area, handle.table));
+            let source = Arc::new(BitmapCursorSource::shared(self.area, handle.table, slot));
             self.source = Some(source.clone());
             source
         }

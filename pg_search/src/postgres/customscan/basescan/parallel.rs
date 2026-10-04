@@ -24,10 +24,8 @@ use std::ptr::NonNull;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
-use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
-use crate::query::tid_bitmap_stream::MAX_SHARED_PASSES;
 
 use pgrx::pg_sys::{Size, shm_toc};
 
@@ -106,6 +104,7 @@ impl ParallelQueryCapable for BaseScan {
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
+        planned_workers: usize,
         coordinate: *mut c_void,
     ) {
         let args = state.custom_state().parallel_scan_args();
@@ -119,9 +118,9 @@ impl ParallelQueryCapable for BaseScan {
                 .attach_parallel(pscan_state, ParallelRole::Leader);
 
             // The leader owns the bitmap build: build in this scan's own DSA area,
-            // prepare per-(consumer, segment) iterator states, and publish the claim
+            // mint one iteration state per participant slot, and publish the claim
             // table before any worker launches. Workers only wait and attach.
-            leader_publish_bitmap(state, pscan_state);
+            leader_publish_bitmap(state, pscan_state, planned_workers as u32 + 1);
         }
     }
 
@@ -190,6 +189,7 @@ impl ParallelQueryCapable for BaseScan {
 unsafe fn leader_publish_bitmap(
     state: &mut CustomScanStateWrapper<BaseScan>,
     pscan_state: *mut ParallelScanState,
+    slots: u32,
 ) {
     if state.custom_state().bitmap_exec.is_none() {
         return;
@@ -216,20 +216,13 @@ unsafe fn leader_publish_bitmap(
         .iter()
         .map(|r| r.segment_id())
         .collect();
-    // TopK passes over a stream again, with a larger chunk after visibility losses
-    // or for its window aggregate's own search; every other exec method reads each
-    // stream once.
-    let passes = match state.custom_state().exec_method_type {
-        ExecMethodType::TopK { .. } => MAX_SHARED_PASSES,
-        _ => 1,
-    };
     let handle = unsafe {
         state
             .custom_state_mut()
             .bitmap_exec
             .as_mut()
             .unwrap()
-            .shared_source(consumers, &segments, passes)
+            .shared_source(consumers, &segments, slots)
     };
     pscan_state.publish_bitmap_handle(handle);
     if let Some(cell) = state.custom_state().bitmap_cell.clone()

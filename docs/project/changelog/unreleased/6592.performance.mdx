@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Range-partitioned joins (`paradedb.enable_range_partitioned_join`) no longer walk every document of a segment that crosses the first partition's edge to find the rows with a NULL join key. Selective queries on that partition now cost the same as on the others.

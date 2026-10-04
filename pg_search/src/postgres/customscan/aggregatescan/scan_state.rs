@@ -79,6 +79,8 @@ pub struct DataFusionAggState {
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
+    /// The number of grouping columns in DataFusion's output RecordBatch.
+    pub num_group_exprs: usize,
     /// The `pdb.agg()` grouping-set layout, set when the query has any such call.
     pub pdb_plan: Option<PdbAggPlan>,
     /// `HAVING` of a scalar `pdb.agg()` query, judged on the assembled root row.
@@ -143,7 +145,7 @@ pub struct AggregateScanState {
     /// has aggregates inside `FuncExpr` wrappers that need per-row projection.
     pub wrapped_projection: Option<WrappedAggregateProjection>,
 
-    /// Reusable tuple slot for aggregate result rows
+    /// Tantivy-only reusable tuple slot for aggregate result rows.
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,

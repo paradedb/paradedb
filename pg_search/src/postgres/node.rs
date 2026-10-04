@@ -84,19 +84,6 @@ pub(crate) trait NodeExt: Copy {
         });
     }
 
-    unsafe fn find_node<T: TaggedNode>(self) -> Option<*mut T> {
-        let mut found = None;
-        self.any(|node| {
-            if T::TAG == (*node).type_ {
-                found = Some(node.cast());
-                true
-            } else {
-                false
-            }
-        });
-        found
-    }
-
     unsafe fn find_single_node<T: TaggedNode>(self) -> Option<*mut T> {
         let mut found = None;
         let multiple = self.walk(|node| {
@@ -309,8 +296,6 @@ mod tests {
     fn node_walk_includes_root_and_preserves_order_and_duplicates() {
         unsafe {
             let (tree, vars) = expression_tree();
-            assert_eq!(tree.find_node::<pg_sys::BoolExpr>(), Some(tree.cast()));
-            assert_eq!(tree.find_node::<pg_sys::Var>(), Some(vars[0]));
             assert_eq!(
                 tree.collect_nodes::<pg_sys::Var>(),
                 vec![vars[0], vars[1], vars[2], vars[0]]

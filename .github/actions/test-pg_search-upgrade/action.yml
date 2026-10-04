@@ -37,6 +37,7 @@ runs:
           cp -R "$case_dir" "$SQL_DIR/"
         done
         echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"
+        echo "UPGRADE_CI_HELPERS_REF=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
         # Preserve standalone helper SQL too: `git checkout <prior version>` below
         # replaces this action's directory with the prior version's contents,
@@ -262,6 +263,13 @@ runs:
         export DATABASE_URL=postgresql://$(whoami)"@localhost:288${INPUTS_PG_VERSION}/postgres"
         export PG_CONFIG="/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config"
         RUST_BACKTRACE=1 cargo test --jobs $(nproc)
+
+    # An early failure can leave the checkout on an old release without current
+    # diagnostic scripts or local actions needed by post-job cache cleanup.
+    - name: Restore CI Helpers
+      if: always()
+      shell: bash
+      run: git restore --source="$UPGRADE_CI_HELPERS_REF" -- .github
 
     - name: Print the Postgres Logs
       if: always()

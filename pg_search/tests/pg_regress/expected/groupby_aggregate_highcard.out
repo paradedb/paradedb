@@ -79,11 +79,7 @@ LIMIT 5 OFFSET 5;
                Group By: id, rating
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
-<<<<<<< HEAD
                  : AggregateExec: mode=Single, gby=[rating@1 as rating, id@0 as id], aggr=[count(1) as agg_0]
-=======
-                 : AggregateExec: mode=Single, gby=[id@0 as id, rating@1 as rating], aggr=[count(1) as agg_0]
->>>>>>> 5d25d38 (fix: use AggregateScan when PostgreSQL drops a `GROUP BY` key (#6608))
                  :   CooperativeExec
                  :     PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
 (12 rows)

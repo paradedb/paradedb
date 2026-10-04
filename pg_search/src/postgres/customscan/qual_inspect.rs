@@ -26,7 +26,6 @@ use crate::postgres::deparse::deparse_expr;
 use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::strip_relabel;
 use crate::postgres::var::VarContext;
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
@@ -1193,7 +1192,10 @@ unsafe fn opexpr(
     // relabel types are essentially a cast, but for types that are directly compatible without
     // the need for a cast function.  So if the lhs of the input node is a RelabelType, just
     // keep chasing its arg until we get a final node type
-    lhs = strip_relabel(lhs);
+    while (*lhs).type_ == pg_sys::NodeTag::T_RelabelType {
+        let relabel_type = lhs as *mut pg_sys::RelabelType;
+        lhs = (*relabel_type).arg as _;
+    }
 
     match (*lhs).type_ {
         pg_sys::NodeTag::T_Var => node_opexpr(

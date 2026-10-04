@@ -360,7 +360,7 @@ WHERE f.content @@@ 'Section';
                                                                                                     QUERY PLAN                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: mpp_postagg_files_idx (f), mpp_postagg_pages_idx (p)
    Aggregates: COUNT(*)

@@ -2177,14 +2177,12 @@ pub unsafe fn try_extract_equi_key(
     op: *mut pg_sys::OpExpr,
     valid_rtis: &[pg_sys::Index],
 ) -> Option<JoinKeyPair> {
-    let args = PgList::<pg_sys::Node>::from_pg((*op).args);
-    if args.len() != 2 {
+    if !pg_sys::op_mergejoinable((*op).opno, pg_sys::Oid::INVALID) {
         return None;
     }
 
-    // For `array_eq` and `record_eq`, `op_mergejoinable` looks up the type
-    // cache with the input type, so it needs the operand type.
-    if !pg_sys::op_mergejoinable((*op).opno, pg_sys::exprType(args.get_ptr(0)?)) {
+    let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+    if args.len() != 2 {
         return None;
     }
 

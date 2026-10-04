@@ -27,12 +27,24 @@ BEGIN
         WITH (key_field = 'id', target_segment_count = 1,
               mutable_segment_rows = 0, layer_sizes = '1GB', background_layer_sizes = '0');
     -- 0.25.0 initially writes flat vectors and clusters only during a merge.
-    -- Admit the existing segment and insert an equally sized batch so the
+    -- Size the layer for all initial segments and insert an equally sized batch so the
     -- foreground merge exceeds the layer size and the clustering threshold.
     EXECUTE format('ALTER INDEX vector_upgrade_idx SET (layer_sizes = %L)',
-        (SELECT max(byte_size)::bigint || ' bytes' FROM paradedb.index_info('vector_upgrade_idx')));
-    INSERT INTO vector_upgrade_docs
-        SELECT g, ARRAY[(100 + g)::real, 0, 0]::vector FROM generate_series(10001, 20000) g;
+        (SELECT sum(byte_size)::bigint || ' bytes' FROM paradedb.index_info('vector_upgrade_idx')));
+END
+$body$;
+
+-- Commit the initial segments before writing the batch that triggers their merge.
+SELECT 'INSERT INTO vector_upgrade_docs
+        SELECT g, ARRAY[(100 + g)::real, 0, 0]::vector FROM generate_series(10001, 20000) g'
+WHERE (SELECT has_vector_indexes FROM vector_upgrade_state)
+\gexec
+
+DO $body$
+BEGIN
+    IF NOT (SELECT has_vector_indexes FROM vector_upgrade_state) THEN
+        RETURN;
+    END IF;
     IF NOT EXISTS (SELECT FROM paradedb.vector_info('vector_upgrade_idx', 'embedding')
                    WHERE vector_num_centroids > 0) THEN
         RAISE EXCEPTION 'upgrade fixture must contain a clustered vector segment';

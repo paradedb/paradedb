@@ -28,6 +28,15 @@ use std::ffi::CStr;
 use std::sync::Arc;
 use tantivy::index::SegmentId;
 
+/// What a shared publish was shaped by, kept so a rescan can republish the same.
+#[derive(Clone)]
+struct PublishArgs {
+    consumers: u32,
+    segments: Vec<SegmentId>,
+    /// Participant slots: the owner plus the most workers that can attach.
+    slots: u32,
+}
+
 /// Owns the initialized child `BitmapIndexScan`/`BitmapAnd` planned from the
 /// harvested path; builds its TIDBitmap on first execution and hands out the
 /// cursor source the HeapFilter scorers stream from.
@@ -45,8 +54,7 @@ pub struct BitmapExec {
     /// The published claim table, when shared.
     table: pg_sys::dsa_pointer,
     source: Option<Arc<BitmapCursorSource>>,
-    /// Publish arguments (consumers, segments, slots) cached for rescan republish.
-    publish_args: Option<(u32, Vec<SegmentId>, u32)>,
+    publish_args: Option<PublishArgs>,
 }
 
 impl BitmapExec {
@@ -207,7 +215,11 @@ impl BitmapExec {
                 return None;
             }
             self.table = publish_shared_table(self.tbm, self.area, consumers, segments, slots);
-            self.publish_args = Some((consumers, segments.to_vec(), slots));
+            self.publish_args = Some(PublishArgs {
+                consumers,
+                segments: segments.to_vec(),
+                slots,
+            });
             self.source = Some(Arc::new(BitmapCursorSource::shared(
                 self.area, self.table, 0,
             )));
@@ -218,10 +230,14 @@ impl BitmapExec {
         }
     }
 
-    /// Republish after a rescan reset, with the same consumers/segments/slots.
+    /// Republish after a rescan reset, with the same arguments as before.
     pub unsafe fn republish(&mut self) -> Option<SharedBitmapHandle> {
         unsafe {
-            let (consumers, segments, slots) = self.publish_args.clone()?;
+            let PublishArgs {
+                consumers,
+                segments,
+                slots,
+            } = self.publish_args.clone()?;
             self.shared_source(consumers, &segments, slots)
         }
     }

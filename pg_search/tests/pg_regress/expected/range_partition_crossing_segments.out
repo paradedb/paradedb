@@ -1,9 +1,14 @@
 -- =====================================================================
 -- A range co-partitioned join checks a partition's edges in the segments
--- that cross them (`partial`). The check must only select rows: a NULL key
+-- that cross them (`partial`). The check must only select rows. A NULL key
 -- belongs to the first partition only, every value lands in one partition,
 -- and a row scores the same as in a serial scan, on a numeric key and on a
 -- text key.
+--
+-- The property tests compare against Postgres, which has no `pdb.score()`,
+-- so a score that drifts between a whole and a crossing segment never shows
+-- there. They also leave it to chance whether a NULL key sits in a crossing
+-- segment. This test pins both with a serial run as the oracle.
 -- =====================================================================
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_join_custom_scan TO on;

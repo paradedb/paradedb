@@ -720,6 +720,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body releases nothing: it
+// only asserts that `commit()` ran, and it already skips that assertion while unwinding or outside
+// a transaction.
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> Drop for AtomicGuard<'_, T> {
     fn drop(&mut self) {
         if self.original.is_none() {

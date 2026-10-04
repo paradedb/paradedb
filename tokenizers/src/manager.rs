@@ -427,6 +427,12 @@ pub enum SearchTokenizer {
         remove_emojis: bool,
         filters: SearchTokenizerFilters,
     },
+    /// A `RegexTokenizer` under the name older versions gave it, which left out the pattern.
+    /// Only registered so that indexes built by those versions still find their analyzer.
+    RegexTokenizerDeprecated {
+        pattern: String,
+        filters: SearchTokenizerFilters,
+    },
 }
 
 #[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
@@ -603,7 +609,8 @@ impl SearchTokenizer {
             SearchTokenizer::Raw(filters) => {
                 add_filters!(RawTokenizer::default(), filters)
             }
-            SearchTokenizer::RegexTokenizer { pattern, filters } => {
+            SearchTokenizer::RegexTokenizer { pattern, filters }
+            | SearchTokenizer::RegexTokenizerDeprecated { pattern, filters } => {
                 add_filters!(RegexTokenizer::new(pattern.as_str()).unwrap(), filters)
             }
             SearchTokenizer::Ngram {
@@ -777,6 +784,7 @@ impl SearchTokenizer {
             SearchTokenizer::LiteralNormalized(filters) => filters,
             SearchTokenizer::WhiteSpace(filters) => filters,
             SearchTokenizer::RegexTokenizer { filters, .. } => filters,
+            SearchTokenizer::RegexTokenizerDeprecated { filters, .. } => filters,
             SearchTokenizer::ChineseCompatible { filters, .. } => filters,
             SearchTokenizer::SourceCode(filters) => filters,
             SearchTokenizer::Ngram { filters, .. } => filters,
@@ -840,7 +848,13 @@ impl SearchTokenizer {
                 format!("literal_normalized{filters_suffix}")
             }
             SearchTokenizer::WhiteSpace(_filters) => format!("whitespace{filters_suffix}"),
-            SearchTokenizer::RegexTokenizer { .. } => format!("regex{filters_suffix}"),
+            // The pattern is part of the name: fields with different patterns must not share
+            // one registered analyzer.
+            SearchTokenizer::RegexTokenizer {
+                pattern,
+                filters: _,
+            } => format!("regex_pattern:{pattern:?}{filters_suffix}"),
+            SearchTokenizer::RegexTokenizerDeprecated { .. } => format!("regex{filters_suffix}"),
             SearchTokenizer::ChineseCompatible {
                 chinese_convert,
                 filters: _,
@@ -1067,6 +1081,104 @@ mod tests {
         assert_eq!(
             tokenizer,
             SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap()
+        );
+    }
+
+    fn regex(pattern: &str) -> SearchTokenizer {
+        SearchTokenizer::RegexTokenizer {
+            pattern: pattern.to_string(),
+            filters: SearchTokenizerFilters::default(),
+        }
+    }
+
+    fn regex_deprecated(pattern: &str) -> SearchTokenizer {
+        SearchTokenizer::RegexTokenizerDeprecated {
+            pattern: pattern.to_string(),
+            filters: SearchTokenizerFilters::default(),
+        }
+    }
+
+    fn registered_tokens(
+        manager: &tantivy::tokenizer::TokenizerManager,
+        name: &str,
+        text: &str,
+    ) -> Vec<String> {
+        use tantivy::tokenizer::TokenStream;
+
+        let mut analyzer = manager
+            .get(name)
+            .unwrap_or_else(|| panic!("no tokenizer registered as {name}"));
+        let mut stream = analyzer.token_stream(text);
+        let mut out = Vec::new();
+        while stream.advance() {
+            out.push(stream.token().text.clone());
+        }
+        out
+    }
+
+    #[rstest]
+    fn test_regex_tokenizer_name_includes_pattern() {
+        assert_ne!(regex("[0-9]+").name(), regex("[a-z]+").name());
+        assert_eq!(regex("[0-9]+").name(), regex("[0-9]+").name());
+
+        // The old name, which indexes built by earlier versions reference, is unchanged.
+        assert_eq!(regex_deprecated("[0-9]+").name(), "regex");
+        let lowercase = SearchTokenizerFilters {
+            lowercase: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            SearchTokenizer::RegexTokenizerDeprecated {
+                pattern: "[0-9]+".to_string(),
+                filters: lowercase,
+            }
+            .name(),
+            "regex[lowercase=true]"
+        );
+    }
+
+    #[rstest]
+    #[case::digits_first(&["[0-9]+", "[a-z]+"])]
+    #[case::letters_first(&["[a-z]+", "[0-9]+"])]
+    fn test_regex_tokenizers_with_different_patterns_keep_their_own_analyzer(
+        #[case] patterns: &[&str],
+    ) {
+        let manager = crate::create_tokenizer_manager(patterns.iter().map(|&p| regex(p)).collect());
+
+        assert_eq!(
+            registered_tokens(&manager, &regex("[0-9]+").name(), "abc123def"),
+            vec!["123"]
+        );
+        assert_eq!(
+            registered_tokens(&manager, &regex("[a-z]+").name(), "abc123def"),
+            vec!["abc", "def"]
+        );
+    }
+
+    #[rstest]
+    fn test_regex_tokenizer_old_name_still_resolves() {
+        // An index built before the pattern was part of the name looks its analyzer up as `regex`.
+        let manager =
+            crate::create_tokenizer_manager(vec![regex("[0-9]+"), regex_deprecated("[0-9]+")]);
+        assert_eq!(
+            registered_tokens(&manager, "regex", "abc123def"),
+            vec!["123"]
+        );
+
+        // With several regex fields, the last one owns the old name, as it always did.
+        let manager = crate::create_tokenizer_manager(vec![
+            regex("[0-9]+"),
+            regex_deprecated("[0-9]+"),
+            regex("[a-z]+"),
+            regex_deprecated("[a-z]+"),
+        ]);
+        assert_eq!(
+            registered_tokens(&manager, "regex", "abc123def"),
+            vec!["abc", "def"]
+        );
+        assert_eq!(
+            registered_tokens(&manager, &regex("[0-9]+").name(), "abc123def"),
+            vec!["123"]
         );
     }
 

@@ -143,6 +143,26 @@ impl TryFrom<&str> for CtidColumn {
     }
 }
 
+/// DataFusion-facing synthetic score column name helper.
+///
+/// JoinScan and AggregateScan format score column names as `pdb.score({table})`
+/// so that EXPLAIN plans and physical plan columns clearly identify which relation
+/// the score was computed from.
+#[derive(Debug, Clone)]
+pub struct ScoreColumn(String);
+
+impl ScoreColumn {
+    pub fn new(table: impl Into<String>) -> Self {
+        Self(table.into())
+    }
+}
+
+impl fmt::Display for ScoreColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "pdb.score({})", self.0)
+    }
+}
+
 /// DataFusion/planning identity for the PostgreSQL planner root that produced a source.
 ///
 /// We carry this through JoinScan planning so repeated RTIs from different
@@ -595,10 +615,7 @@ impl JoinSource {
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| {
-                if matches!(
-                    f.field,
-                    crate::index::fast_fields_helper::WhichFastField::Score
-                ) {
+                if f.field.is_score() {
                     None
                 } else {
                     Some(f.field.name())
@@ -609,6 +626,10 @@ impl JoinSource {
     /// Recursively collect all base relations in this source.
     pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
         acc.push(self.scan_info.clone());
+    }
+
+    pub fn display_alias(&self) -> String {
+        RelationAlias::new(self.scan_info.alias.as_deref()).display(self.plan_position)
     }
 
     pub fn execution_alias(&self) -> String {
@@ -2135,12 +2156,14 @@ pub unsafe fn try_extract_equi_key(
     op: *mut pg_sys::OpExpr,
     valid_rtis: &[pg_sys::Index],
 ) -> Option<JoinKeyPair> {
-    if !pg_sys::op_mergejoinable((*op).opno, pg_sys::Oid::INVALID) {
+    let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+    if args.len() != 2 {
         return None;
     }
 
-    let args = PgList::<pg_sys::Node>::from_pg((*op).args);
-    if args.len() != 2 {
+    // For `array_eq` and `record_eq`, `op_mergejoinable` looks up the type
+    // cache with the input type, so it needs the operand type.
+    if !pg_sys::op_mergejoinable((*op).opno, pg_sys::exprType(args.get_ptr(0)?)) {
         return None;
     }
 

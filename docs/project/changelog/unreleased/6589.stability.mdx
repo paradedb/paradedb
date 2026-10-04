@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Fixed a backend crash (`signal 11`, or a `tupdesc reference ... is not owned by resource owner Portal` error) in a search query that has `pdb.score()` or `pdb.snippet()` together with a subquery expression, such as `id IN (SELECT ...)`, in its `SELECT` list or `ORDER BY`. The scan initialized the subquery again for each row and left freed state behind (#6582). The same applies to an aggregate with such a subquery expression in the same `SELECT` list entry, as in `count(*) IN (SELECT ...)`.

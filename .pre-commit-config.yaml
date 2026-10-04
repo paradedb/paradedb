@@ -99,6 +99,12 @@ repos:
         pass_filenames: false
         env:
           RUSTDOCFLAGS: "-D warnings"
+      - id: impl-drop
+        name: check impl Drop
+        entry: python3 .github/scripts/check_impl_drop.py
+        language: system
+        types: [rust]
+        pass_filenames: false
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.4

@@ -1,0 +1,1150 @@
+-- A column that the query returns and that PostgreSQL does not group on.
+-- PostgreSQL takes such a column when the keys decide its value: they have the
+-- primary key of its table. It also drops such a column from the keys when the
+-- query has it in the GROUP BY. The Aggregate Scan must return its value.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+CREATE TABLE dependent_col_items (
+    id SERIAL PRIMARY KEY,
+    account_id BIGINT,
+    region INT,
+    kind TEXT,
+    price FLOAT8,
+    created DATE,
+    tags TEXT[],
+    meta JSONB,
+    note TEXT
+);
+INSERT INTO dependent_col_items (account_id, region, kind, price, created, tags, meta, note)
+SELECT
+    CASE WHEN g % 7 = 0 THEN NULL ELSE (g % 3) + 1 END,
+    (g % 5) + 1,
+    CASE WHEN g % 5 = 0 THEN NULL ELSE (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1] END,
+    CASE WHEN g % 6 = 0 THEN NULL ELSE g % 5 END,
+    CASE WHEN g % 4 = 0 THEN NULL ELSE DATE '2024-01-01' + g END,
+    CASE g % 4 WHEN 0 THEN NULL WHEN 1 THEN '{}'::text[] WHEN 2 THEN ARRAY[NULL, 'x'] ELSE ARRAY['x', 'y'] END,
+    jsonb_build_object('n', g),
+    'note ' || g
+FROM generate_series(1, 40) g;
+-- The largest and the smallest value of the type must come back as they are.
+UPDATE dependent_col_items SET account_id = 9223372036854775807 WHERE id = 1;
+UPDATE dependent_col_items SET account_id = -9223372036854775808 WHERE id = 2;
+-- `note` is not in the index.
+CREATE INDEX dependent_col_items_idx ON dependent_col_items
+USING paradedb (id, account_id, region, (kind::pdb.literal), price, created, (tags::pdb.literal), meta);
+SET paradedb.enable_aggregate_custom_scan TO on;
+\echo 'Test 1: two keys, and no key decides the other: each pair of values is a group'
+Test 1: two keys, and no key decides the other: each pair of values is a group
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT price, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY price, kind
+ORDER BY price, kind;
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.dependent_col_items
+   Output: price, kind, pdb.agg_fn('COUNT(*)'::text)
+   Index: dependent_col_items_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: price, kind
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"price","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT price, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY price, kind
+ORDER BY price, kind;
+ price | kind | count 
+-------+------+-------
+     0 |      |     7
+     1 | a    |     1
+     1 | b    |     2
+     1 | c    |     1
+     1 | d    |     2
+     2 | a    |     1
+     2 | b    |     2
+     2 | c    |     2
+     2 | d    |     2
+     3 | a    |     2
+     3 | b    |     2
+     3 | c    |     1
+     3 | d    |     2
+     4 | a    |     1
+     4 | b    |     2
+     4 | c    |     2
+     4 | d    |     2
+       | a    |     3
+       | c    |     2
+       |      |     1
+(20 rows)
+
+-- The WHERE clause pins one key. The other key still decides the groups.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT region, kind, COUNT(*)
+FROM dependent_col_items
+WHERE region = 2 AND id @@@ paradedb.all()
+GROUP BY region, kind
+ORDER BY kind;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: region, kind, (count(*))
+   Sort Key: dependent_col_items.kind
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: region, kind, (count(*))
+         Backend: DataFusion
+         Indexes: dependent_col_items_idx (dependent_col_items)
+         Group By: kind
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(dependent_col_items_0.region) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :   ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, region@2 as region]
+           :     CooperativeExec
+           :       PgSearchScan: table=dependent_col_items, segments=1, eager=[kind], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"region","value":2}}]}}
+(14 rows)
+
+SELECT region, kind, COUNT(*)
+FROM dependent_col_items
+WHERE region = 2 AND id @@@ paradedb.all()
+GROUP BY region, kind
+ORDER BY kind;
+ region | kind | count 
+--------+------+-------
+      2 | a    |     2
+      2 | b    |     2
+      2 | c    |     2
+      2 | d    |     2
+(4 rows)
+
+\echo 'Test 2: the column is in the GROUP BY, and PostgreSQL drops it from the keys'
+Test 2: the column is in the GROUP BY, and PostgreSQL drops it from the keys
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id, kind
+ORDER BY id, kind
+LIMIT 6;
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, kind, (count(*))
+   ->  Sort
+         Output: id, kind, (count(*))
+         Sort Key: dependent_col_items.id, dependent_col_items.kind
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: id, kind, (count(*))
+               Backend: DataFusion
+               Indexes: dependent_col_items_idx (dependent_col_items)
+               Group By: id, kind
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+                 :   TantivyDecodeExec: decode=[kind]
+                 :     AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+                 :       TantivyFetchExec: fetch=[kind]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+(18 rows)
+
+SELECT id, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id, kind
+ORDER BY id, kind
+LIMIT 6;
+ id | kind | count 
+----+------+-------
+  1 | b    |     1
+  2 | c    |     1
+  3 | d    |     1
+  4 | a    |     1
+  5 |      |     1
+  6 | c    |     1
+(6 rows)
+
+\echo 'Test 3: the columns are not in the GROUP BY'
+Test 3: the columns are not in the GROUP BY
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, kind, account_id, price, created, COUNT(*), SUM(price)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 8;
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, kind, account_id, price, created, (count(*)), (sum(price))
+   ->  Sort
+         Output: id, kind, account_id, price, created, (count(*)), (sum(price))
+         Sort Key: dependent_col_items.id
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: id, kind, account_id, price, created, (count(*)), (sum(price))
+               Backend: DataFusion
+               Indexes: dependent_col_items_idx (dependent_col_items)
+               Group By: account_id, created, id, kind, price
+               Aggregates: COUNT(*), SUM(price)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=8), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind, account_id@2 as account_id, price@3 as price, created@4 as created], aggr=[count(1) as agg_0, sum(dependent_col_items_0.price) as agg_1]
+                 :     TantivyDecodeExec: decode=[kind]
+                 :       AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind, account_id@2 as account_id, price@3 as price, created@4 as created], aggr=[count(1) as agg_0, sum(dependent_col_items_0.price) as agg_1]
+                 :         TantivyFetchExec: fetch=[kind]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(19 rows)
+
+SELECT id, kind, account_id, price, created, COUNT(*), SUM(price)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 8;
+ id | kind |      account_id      | price |  created   | count | sum 
+----+------+----------------------+-------+------------+-------+-----
+  1 | b    |  9223372036854775807 |     1 | 01-02-2024 |     1 |   1
+  2 | c    | -9223372036854775808 |     2 | 01-03-2024 |     1 |   2
+  3 | d    |                    1 |     3 | 01-04-2024 |     1 |   3
+  4 | a    |                    2 |     4 |            |     1 |   4
+  5 |      |                    3 |     0 | 01-06-2024 |     1 |   0
+  6 | c    |                    1 |       | 01-07-2024 |     1 |    
+  7 | d    |                      |     2 | 01-08-2024 |     1 |   2
+  8 | a    |                    3 |     3 |            |     1 |   3
+(8 rows)
+
+\echo 'Test 4: a cast of the column next to the column'
+Test 4: a cast of the column next to the column
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, created, created::text AS created_text, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, created, ((created)::text), (count(*))
+   ->  Sort
+         Output: id, created, ((created)::text), (count(*))
+         Sort Key: dependent_col_items.id
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: id, created, (created)::text, (count(*))
+               Backend: DataFusion
+               Indexes: dependent_col_items_idx (dependent_col_items)
+               Group By: created, id
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=4), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[id@0 as id, created@1 as created], aggr=[count(1) as agg_0]
+                 :     CooperativeExec
+                 :       PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(16 rows)
+
+SELECT id, created, created::text AS created_text, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+ id |  created   | created_text | count 
+----+------------+--------------+-------
+  1 | 01-02-2024 | 01-02-2024   |     1
+  2 | 01-03-2024 | 01-03-2024   |     1
+  3 | 01-04-2024 | 01-04-2024   |     1
+  4 |            |              |     1
+(4 rows)
+
+\echo 'Test 5: ORDER BY and HAVING on the column'
+Test 5: ORDER BY and HAVING on the column
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+HAVING kind <> 'a'
+ORDER BY kind DESC, id
+LIMIT 5;
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, kind, (count(*))
+   ->  Sort
+         Output: id, kind, (count(*))
+         Sort Key: dependent_col_items.kind DESC, dependent_col_items.id
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: id, kind, (count(*))
+               Backend: DataFusion
+               Indexes: dependent_col_items_idx (dependent_col_items)
+               Group By: id, kind
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+                 :   TantivyDecodeExec: decode=[kind]
+                 :     AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+                 :       TantivyFetchExec: fetch=[kind]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"a"}}]}}]}}
+(18 rows)
+
+SELECT id, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+HAVING kind <> 'a'
+ORDER BY kind DESC, id
+LIMIT 5;
+ id | kind | count 
+----+------+-------
+  3 | d    |     1
+  7 | d    |     1
+ 11 | d    |     1
+ 19 | d    |     1
+ 23 | d    |     1
+(5 rows)
+
+\echo 'Test 6: LIMIT with no ORDER BY'
+Test 6: LIMIT with no ORDER BY
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+LIMIT 3;
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, kind, (count(*))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: id, kind, (count(*))
+         Backend: DataFusion
+         Indexes: dependent_col_items_idx (dependent_col_items)
+         Group By: id, kind
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+           :   TantivyDecodeExec: decode=[kind]
+           :     AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
+           :       TantivyFetchExec: fetch=[kind]
+           :         CooperativeExec
+           :           PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+(15 rows)
+
+-- The rows of a LIMIT with no ORDER BY are not stable, so this compares each
+-- row with the table.
+SELECT limited.kind IS NOT DISTINCT FROM (
+    SELECT t.kind FROM dependent_col_items t WHERE t.id = limited.id
+) AS same_kind
+FROM (
+    SELECT id, kind, COUNT(*)
+    FROM dependent_col_items
+    WHERE id @@@ paradedb.all()
+    GROUP BY id
+    LIMIT 3
+) AS limited;
+ same_kind 
+-----------
+ t
+ t
+ t
+(3 rows)
+
+\echo 'Test 7: the primary key is pinned to one value'
+Test 7: the primary key is pinned to one value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, kind, account_id, COUNT(*)
+FROM dependent_col_items
+WHERE id = 8 AND id @@@ paradedb.all()
+GROUP BY id;
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: id, kind, account_id, (count(*))
+   Backend: DataFusion
+   Indexes: dependent_col_items_idx (dependent_col_items)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(dependent_col_items_0.id) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as row_0, first_value(dependent_col_items_0.kind) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as row_1, first_value(dependent_col_items_0.account_id) ORDER BY [dependent_col_items_0.ctid_0 ASC NULLS LAST] as row_2], ordering_mode=Sorted
+     :   ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, kind@2 as kind, account_id@3 as account_id]
+     :     CooperativeExec
+     :       PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"id","value":8}}]}}
+(10 rows)
+
+SELECT id, kind, account_id, COUNT(*)
+FROM dependent_col_items
+WHERE id = 8 AND id @@@ paradedb.all()
+GROUP BY id;
+ id | kind | account_id | count 
+----+------+------------+-------
+  8 | a    |          3 |     1
+(1 row)
+
+SELECT id, kind, account_id, COUNT(*)
+FROM dependent_col_items
+WHERE id = 999 AND id @@@ paradedb.all()
+GROUP BY id;
+ id | kind | account_id | count 
+----+------+------------+-------
+(0 rows)
+
+\echo 'Test 8: the column is pinned to one value, and it is not a key'
+Test 8: the column is pinned to one value, and it is not a key
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, account_id, COUNT(*)
+FROM dependent_col_items
+WHERE account_id = 2 AND id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, account_id, (count(*))
+   ->  Sort
+         Output: id, account_id, (count(*))
+         Sort Key: dependent_col_items.id
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: id, account_id, (count(*))
+               Backend: DataFusion
+               Indexes: dependent_col_items_idx (dependent_col_items)
+               Group By: account_id, id
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=4), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[id@0 as id, account_id@1 as account_id], aggr=[count(1) as agg_0]
+                 :     CooperativeExec
+                 :       PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"account_id","value":2}}]}}
+(16 rows)
+
+SELECT id, account_id, COUNT(*)
+FROM dependent_col_items
+WHERE account_id = 2 AND id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+ id | account_id | count 
+----+------------+-------
+  4 |          2 |     1
+ 10 |          2 |     1
+ 13 |          2 |     1
+ 16 |          2 |     1
+(4 rows)
+
+-- A float column: equal values are not always identical, and the value comes
+-- from the row.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, price, COUNT(*)
+FROM dependent_col_items
+WHERE price = 2 AND id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, price, (count(*))
+   ->  Sort
+         Output: id, price, (count(*))
+         Sort Key: dependent_col_items.id
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: id, price, (count(*))
+               Backend: DataFusion
+               Indexes: dependent_col_items_idx (dependent_col_items)
+               Group By: id, price
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=4), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[id@0 as id, price@1 as price], aggr=[count(1) as agg_0]
+                 :     CooperativeExec
+                 :       PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":2.0}}]}}
+(16 rows)
+
+SELECT id, price, COUNT(*)
+FROM dependent_col_items
+WHERE price = 2 AND id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+ id | price | count 
+----+-------+-------
+  2 |     2 |     1
+  7 |     2 |     1
+ 17 |     2 |     1
+ 22 |     2 |     1
+(4 rows)
+
+\echo 'Test 9: pdb.agg() next to the column'
+Test 9: pdb.agg() next to the column
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, kind, pdb.agg('{"value_count": {"field": "price"}}'::jsonb)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 6;
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, kind, (pdb.agg('{"value_count": {"field": "price"}}'::jsonb))
+   ->  Sort
+         Output: id, kind, (pdb.agg('{"value_count": {"field": "price"}}'::jsonb))
+         Sort Key: dependent_col_items.id
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: id, kind, (pdb.agg('{"value_count": {"field": "price"}}'::jsonb))
+               Backend: DataFusion
+               Indexes: dependent_col_items_idx (dependent_col_items)
+               Group By: id, kind
+               Aggregates: pdb.agg({"value_count":{"field":"price"}})
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=6), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(dependent_col_items_0.price) as __pdb_m0]
+                 :     TantivyDecodeExec: decode=[kind]
+                 :       AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(dependent_col_items_0.price) as __pdb_m0]
+                 :         TantivyFetchExec: fetch=[kind]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(19 rows)
+
+SELECT id, kind, pdb.agg('{"value_count": {"field": "price"}}'::jsonb)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 6;
+ id | kind |      agg       
+----+------+----------------
+  1 | b    | {"value": 1.0}
+  2 | c    | {"value": 1.0}
+  3 | d    | {"value": 1.0}
+  4 | a    | {"value": 1.0}
+  5 |      | {"value": 1.0}
+  6 | c    | {"value": 0.0}
+(6 rows)
+
+\echo 'Test 10: a parameter in a plan that PostgreSQL uses again'
+Test 10: a parameter in a plan that PostgreSQL uses again
+SET plan_cache_mode TO force_generic_plan;
+PREPARE dependent_col_by_id(int) AS
+SELECT id, kind, created, COUNT(*)
+FROM dependent_col_items
+WHERE id = $1 AND id @@@ paradedb.all()
+GROUP BY id;
+EXECUTE dependent_col_by_id(3);
+ id | kind |  created   | count 
+----+------+------------+-------
+  3 | d    | 01-04-2024 |     1
+(1 row)
+
+EXECUTE dependent_col_by_id(4);
+ id | kind | created | count 
+----+------+---------+-------
+  4 | a    |         |     1
+(1 row)
+
+EXECUTE dependent_col_by_id(999);
+ id | kind | created | count 
+----+------+---------+-------
+(0 rows)
+
+DEALLOCATE dependent_col_by_id;
+RESET plan_cache_mode;
+\echo 'Test 11: an array column -> declined, because the index does not hold the empty array or a NULL element'
+Test 11: an array column -> declined, because the index does not hold the empty array or a NULL element
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, tags, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column tags is an array, which is not read from the index (table: dependent_col_items)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Limit
+   ->  GroupAggregate
+         Group Key: id
+         ->  Sort
+               Sort Key: id
+               ->  Custom Scan (ParadeDB Base Scan) on dependent_col_items
+                     Table: dependent_col_items
+                     Index: dependent_col_items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(12 rows)
+
+SELECT id, tags, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column tags is an array, which is not read from the index (table: dependent_col_items)
+ id |   tags   | count 
+----+----------+-------
+  1 | {}       |     1
+  2 | {NULL,x} |     1
+  3 | {x,y}    |     1
+  4 |          |     1
+(4 rows)
+
+\echo 'Test 12: a key that is an expression, next to the column -> declined'
+Test 12: a key that is an expression, next to the column -> declined
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id, created::text
+ORDER BY id
+LIMIT 3;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 2 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Limit
+   ->  GroupAggregate
+         Group Key: id, ((created)::text)
+         ->  Sort
+               Sort Key: id, ((created)::text)
+               ->  Custom Scan (ParadeDB Base Scan) on dependent_col_items
+                     Table: dependent_col_items
+                     Index: dependent_col_items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(12 rows)
+
+SELECT id, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id, created::text
+ORDER BY id
+LIMIT 3;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 2 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+ id | kind | count 
+----+------+-------
+  1 | b    |     1
+  2 | c    |     1
+  3 | d    |     1
+(3 rows)
+
+\echo 'Test 13: a key that is a cast, with a window function above it -> declined'
+Test 13: a key that is a cast, with a window function above it -> declined
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT price::text || '!' AS label, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY price::text
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((((price)::text) || '!'::text)), (count(*)), (sum((count(*))) OVER w1), ((price)::text)
+   Sort Key: ((((dependent_col_items.price)::text) || '!'::text))
+   ->  WindowAgg
+         Output: (((price)::text) || '!'::text), (count(*)), sum((count(*))) OVER w1, ((price)::text)
+         Window: w1 AS ()
+         ->  HashAggregate
+               Output: ((price)::text), price, count(*)
+               Group Key: (dependent_col_items.price)::text
+               ->  Custom Scan (ParadeDB Base Scan) on public.dependent_col_items
+                     Output: (price)::text, price
+                     Table: dependent_col_items
+                     Index: dependent_col_items_idx
+                     Worker Selection: Cost model
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(18 rows)
+
+SELECT price::text || '!' AS label, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY price::text
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+ label | n | total 
+-------+---+-------
+ 0!    | 7 |    40
+ 1!    | 6 |    40
+ 2!    | 7 |    40
+ 3!    | 7 |    40
+ 4!    | 7 |    40
+       | 6 |    40
+(6 rows)
+
+\echo 'Test 14: the column is not columnar -> declined'
+Test 14: the column is not columnar -> declined
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, meta, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 3;
+WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column dependent_col_items.meta is not columnar indexed (table: dependent_col_items)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: id
+         ->  HashAggregate
+               Group Key: id
+               ->  Custom Scan (ParadeDB Base Scan) on dependent_col_items
+                     Table: dependent_col_items
+                     Index: dependent_col_items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(12 rows)
+
+SELECT id, meta, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 3;
+WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column dependent_col_items.meta is not columnar indexed (table: dependent_col_items)
+ id |   meta   | count 
+----+----------+-------
+  1 | {"n": 1} |     1
+  2 | {"n": 2} |     1
+  3 | {"n": 3} |     1
+(3 rows)
+
+\echo 'Test 15: the column is not in the index -> declined'
+Test 15: the column is not in the index -> declined
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, note, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 3;
+WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column dependent_col_items.note is not columnar indexed (table: dependent_col_items)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: id
+         ->  HashAggregate
+               Group Key: id
+               ->  Custom Scan (ParadeDB Base Scan) on dependent_col_items
+                     Table: dependent_col_items
+                     Index: dependent_col_items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(12 rows)
+
+SELECT id, note, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 3;
+WARNING:  Aggregate Scan (DataFusion) not used: functionally dependent output column dependent_col_items.note is not columnar indexed (table: dependent_col_items)
+ id |  note  | count 
+----+--------+-------
+  1 | note 1 |     1
+  2 | note 2 |     1
+  3 | note 3 |     1
+(3 rows)
+
+\echo 'Test 16: a window over an expression of a DATE() key reads the timestamp from a row'
+Test 16: a window over an expression of a DATE() key reads the timestamp from a row
+CREATE TABLE dependent_col_days (id INT PRIMARY KEY, ts TIMESTAMP);
+INSERT INTO dependent_col_days
+SELECT g, TIMESTAMP '2024-01-01 00:00' + (g * INTERVAL '7 hours') FROM generate_series(1, 30) g;
+CREATE INDEX dependent_col_days_idx ON dependent_col_days USING paradedb (id, ts);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT date(ts)::text AS d, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
+FROM dependent_col_days
+WHERE id @@@ paradedb.all()
+GROUP BY date(ts)
+ORDER BY 1;
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (((date(ts)))::text), (count(*)), (sum((count(*))) OVER w1), (date(ts))
+   Sort Key: (((date(dependent_col_days.ts)))::text)
+   ->  WindowAgg
+         Output: ((date(ts)))::text, (count(*)), sum((count(*))) OVER w1, (date(ts))
+         Window: w1 AS ()
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: (date(ts)), ts, (count(*))
+               Backend: DataFusion
+               Indexes: dependent_col_days_idx (dependent_col_days)
+               Group By: date(ts)
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(ts@1) as pdb_timestamp_to_date(dependent_col_days_0.ts)], aggr=[count(1) as agg_0, first_value(dependent_col_days_0.ts) ORDER BY [dependent_col_days_0.ctid_0 ASC NULLS LAST] as row_1]
+                 :   ProjectionExec: expr=[ctid@0 as ctid_0, ts@1 as ts]
+                 :     CooperativeExec
+                 :       PgSearchScan: table=dependent_col_days, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+(17 rows)
+
+SELECT date(ts)::text AS d, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
+FROM dependent_col_days
+WHERE id @@@ paradedb.all()
+GROUP BY date(ts)
+ORDER BY 1;
+     d      | n | total 
+------------+---+-------
+ 01-01-2024 | 3 |    30
+ 01-02-2024 | 3 |    30
+ 01-03-2024 | 4 |    30
+ 01-04-2024 | 3 |    30
+ 01-05-2024 | 4 |    30
+ 01-06-2024 | 3 |    30
+ 01-07-2024 | 3 |    30
+ 01-08-2024 | 4 |    30
+ 01-09-2024 | 3 |    30
+(9 rows)
+
+\echo 'Test 17: a key that is a cast, on the DataFusion backend -> declined'
+Test 17: a key that is a cast, on the DataFusion backend -> declined
+SET paradedb.max_term_agg_buckets TO 2;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT account_id::text AS account, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id::text
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ GroupAggregate
+   Group Key: ((account_id)::text)
+   ->  Sort
+         Sort Key: ((account_id)::text)
+         ->  Custom Scan (ParadeDB Base Scan) on dependent_col_items
+               Table: dependent_col_items
+               Index: dependent_col_items_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+SELECT account_id::text AS account, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY account_id::text
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+       account        | count 
+----------------------+-------
+ -9223372036854775808 |     1
+ 1                    |    12
+ 2                    |    11
+ 3                    |    10
+ 9223372036854775807  |     1
+                      |     5
+(6 rows)
+
+RESET paradedb.max_term_agg_buckets;
+\echo 'Test 18: the key is a binary cast of the primary key, and the column is pinned -> grouped on'
+Test 18: the key is a binary cast of the primary key, and the column is pinned -> grouped on
+CREATE TABLE dependent_col_codes (code VARCHAR PRIMARY KEY, title TEXT);
+INSERT INTO dependent_col_codes
+SELECT 'c' || g, CASE WHEN g % 2 = 0 THEN 'x' ELSE 'y' END FROM generate_series(1, 10) g;
+CREATE INDEX dependent_col_codes_idx ON dependent_col_codes
+USING paradedb ((code::pdb.literal), (title::pdb.literal));
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT code::text AS code, title, COUNT(*)
+FROM dependent_col_codes
+WHERE code @@@ paradedb.all() AND title = 'x'
+GROUP BY code::text, title
+ORDER BY 1;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((code)::text), title, (count(*))
+   Sort Key: ((dependent_col_codes.code)::text)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((code)::text), title, (count(*))
+         Backend: DataFusion
+         Indexes: dependent_col_codes_idx (dependent_col_codes)
+         Group By: code, title
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[code@0 as code, title@1 as title], aggr=[count(1) as agg_0]
+           :   CooperativeExec
+           :     PgSearchScan: table=dependent_col_codes, segments=1, eager=[code, title], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"title","value":"x"}}]}}
+(13 rows)
+
+SELECT code::text AS code, title, COUNT(*)
+FROM dependent_col_codes
+WHERE code @@@ paradedb.all() AND title = 'x'
+GROUP BY code::text, title
+ORDER BY 1;
+ code | title | count 
+------+-------+-------
+ c10  | x     |     1
+ c2   | x     |     1
+ c4   | x     |     1
+ c6   | x     |     1
+ c8   | x     |     1
+(5 rows)
+
+\echo 'Same results from PostgreSQL'
+Same results from PostgreSQL
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT price, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY price, kind
+ORDER BY price, kind;
+ price | kind | count 
+-------+------+-------
+     0 |      |     7
+     1 | a    |     1
+     1 | b    |     2
+     1 | c    |     1
+     1 | d    |     2
+     2 | a    |     1
+     2 | b    |     2
+     2 | c    |     2
+     2 | d    |     2
+     3 | a    |     2
+     3 | b    |     2
+     3 | c    |     1
+     3 | d    |     2
+     4 | a    |     1
+     4 | b    |     2
+     4 | c    |     2
+     4 | d    |     2
+       | a    |     3
+       | c    |     2
+       |      |     1
+(20 rows)
+
+SELECT region, kind, COUNT(*)
+FROM dependent_col_items
+WHERE region = 2 AND id @@@ paradedb.all()
+GROUP BY region, kind
+ORDER BY kind;
+ region | kind | count 
+--------+------+-------
+      2 | a    |     2
+      2 | b    |     2
+      2 | c    |     2
+      2 | d    |     2
+(4 rows)
+
+SELECT id, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id, kind
+ORDER BY id, kind
+LIMIT 6;
+ id | kind | count 
+----+------+-------
+  1 | b    |     1
+  2 | c    |     1
+  3 | d    |     1
+  4 | a    |     1
+  5 |      |     1
+  6 | c    |     1
+(6 rows)
+
+SELECT id, kind, account_id, price, created, COUNT(*), SUM(price)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 8;
+ id | kind |      account_id      | price |  created   | count | sum 
+----+------+----------------------+-------+------------+-------+-----
+  1 | b    |  9223372036854775807 |     1 | 01-02-2024 |     1 |   1
+  2 | c    | -9223372036854775808 |     2 | 01-03-2024 |     1 |   2
+  3 | d    |                    1 |     3 | 01-04-2024 |     1 |   3
+  4 | a    |                    2 |     4 |            |     1 |   4
+  5 |      |                    3 |     0 | 01-06-2024 |     1 |   0
+  6 | c    |                    1 |       | 01-07-2024 |     1 |    
+  7 | d    |                      |     2 | 01-08-2024 |     1 |   2
+  8 | a    |                    3 |     3 |            |     1 |   3
+(8 rows)
+
+SELECT id, created, created::text AS created_text, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+ id |  created   | created_text | count 
+----+------------+--------------+-------
+  1 | 01-02-2024 | 01-02-2024   |     1
+  2 | 01-03-2024 | 01-03-2024   |     1
+  3 | 01-04-2024 | 01-04-2024   |     1
+  4 |            |              |     1
+(4 rows)
+
+SELECT id, kind, COUNT(*)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+HAVING kind <> 'a'
+ORDER BY kind DESC, id
+LIMIT 5;
+ id | kind | count 
+----+------+-------
+  3 | d    |     1
+  7 | d    |     1
+ 11 | d    |     1
+ 19 | d    |     1
+ 23 | d    |     1
+(5 rows)
+
+SELECT price::text || '!' AS label, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY price::text
+ORDER BY 1;
+ label | n | total 
+-------+---+-------
+ 0!    | 7 |    40
+ 1!    | 6 |    40
+ 2!    | 7 |    40
+ 3!    | 7 |    40
+ 4!    | 7 |    40
+       | 6 |    40
+(6 rows)
+
+SELECT id, kind, account_id, COUNT(*)
+FROM dependent_col_items
+WHERE id = 8 AND id @@@ paradedb.all()
+GROUP BY id;
+ id | kind | account_id | count 
+----+------+------------+-------
+  8 | a    |          3 |     1
+(1 row)
+
+SELECT id, kind, account_id, COUNT(*)
+FROM dependent_col_items
+WHERE id = 999 AND id @@@ paradedb.all()
+GROUP BY id;
+ id | kind | account_id | count 
+----+------+------------+-------
+(0 rows)
+
+SELECT id, account_id, COUNT(*)
+FROM dependent_col_items
+WHERE account_id = 2 AND id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+ id | account_id | count 
+----+------------+-------
+  4 |          2 |     1
+ 10 |          2 |     1
+ 13 |          2 |     1
+ 16 |          2 |     1
+(4 rows)
+
+SELECT id, price, COUNT(*)
+FROM dependent_col_items
+WHERE price = 2 AND id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 4;
+ id | price | count 
+----+-------+-------
+  2 |     2 |     1
+  7 |     2 |     1
+ 17 |     2 |     1
+ 22 |     2 |     1
+(4 rows)
+
+-- `pdb.agg()` needs the scan, so `COUNT` is its twin.
+SELECT id, kind, COUNT(price)
+FROM dependent_col_items
+WHERE id @@@ paradedb.all()
+GROUP BY id
+ORDER BY id
+LIMIT 6;
+ id | kind | count 
+----+------+-------
+  1 | b    |     1
+  2 | c    |     1
+  3 | d    |     1
+  4 | a    |     1
+  5 |      |     1
+  6 | c    |     0
+(6 rows)
+
+SET plan_cache_mode TO force_generic_plan;
+PREPARE dependent_col_by_id(int) AS
+SELECT id, kind, created, COUNT(*)
+FROM dependent_col_items
+WHERE id = $1 AND id @@@ paradedb.all()
+GROUP BY id;
+EXECUTE dependent_col_by_id(3);
+ id | kind |  created   | count 
+----+------+------------+-------
+  3 | d    | 01-04-2024 |     1
+(1 row)
+
+EXECUTE dependent_col_by_id(4);
+ id | kind | created | count 
+----+------+---------+-------
+  4 | a    |         |     1
+(1 row)
+
+EXECUTE dependent_col_by_id(999);
+ id | kind | created | count 
+----+------+---------+-------
+(0 rows)
+
+DEALLOCATE dependent_col_by_id;
+RESET plan_cache_mode;
+SELECT date(ts)::text AS d, COUNT(*) AS n, SUM(COUNT(*)) OVER () AS total
+FROM dependent_col_days
+WHERE id @@@ paradedb.all()
+GROUP BY date(ts)
+ORDER BY 1;
+     d      | n | total 
+------------+---+-------
+ 01-01-2024 | 3 |    30
+ 01-02-2024 | 3 |    30
+ 01-03-2024 | 4 |    30
+ 01-04-2024 | 3 |    30
+ 01-05-2024 | 4 |    30
+ 01-06-2024 | 3 |    30
+ 01-07-2024 | 3 |    30
+ 01-08-2024 | 4 |    30
+ 01-09-2024 | 3 |    30
+(9 rows)
+
+SELECT code::text AS code, title, COUNT(*)
+FROM dependent_col_codes
+WHERE code @@@ paradedb.all() AND title = 'x'
+GROUP BY code::text, title
+ORDER BY 1;
+ code | title | count 
+------+-------+-------
+ c10  | x     |     1
+ c2   | x     |     1
+ c4   | x     |     1
+ c6   | x     |     1
+ c8   | x     |     1
+(5 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE dependent_col_items;
+DROP TABLE dependent_col_days;
+DROP TABLE dependent_col_codes;

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::OnceCell;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
@@ -62,7 +63,7 @@ use tantivy::collector::sort_key::{
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
@@ -187,6 +188,27 @@ impl TopKSearch {
             aggregation_results,
         )
     }
+}
+
+/// Builds the PostgreSQL error for an unsupported vector storage version.
+pub(crate) fn vector_format_error_report(
+    index_name: &str,
+    error: &tantivy::TantivyError,
+) -> Option<pgrx::pg_sys::panic::ErrorReport> {
+    matches!(
+        error,
+        tantivy::TantivyError::IncompatibleIndex(
+            tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. }
+        )
+    )
+    .then(|| {
+        pgrx::pg_sys::panic::ErrorReport::new(
+            pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+            format!("index {index_name:?} has an unsupported vector storage format: {error}"),
+            pgrx::function_name!(),
+        )
+        .set_hint(format!("Rebuild index {index_name:?} with REINDEX."))
+    })
 }
 
 fn probe_stats_to_segment_info(
@@ -355,6 +377,7 @@ pub struct SearchIndexReader {
     /// [`SegmentView`].
     directory: MVCCDirectory,
 
+    vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
@@ -402,6 +425,7 @@ impl Clone for SearchIndexReader {
             index_created_by_version: self.index_created_by_version,
             scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
+            vector_segments_valid: self.vector_segments_valid.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
@@ -556,6 +580,27 @@ struct IndexComponents {
 }
 
 impl SearchIndexReader {
+    /// Validates this reader's visible vector headers once, including an unsuccessful check.
+    /// An unsupported format raises a PostgreSQL error and does not return; other errors are returned.
+    pub(crate) fn validate_vector_segments(&self) -> Result<()> {
+        let result = self.vector_segments_valid.get_or_init(|| {
+            self.searcher
+                .segment_readers()
+                .iter()
+                .try_for_each(SegmentReader::validate_vector_format)
+        });
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => match vector_format_error_report(self.index_rel.name(), error) {
+                Some(report) => {
+                    report.report(pgrx::PgLogLevel::ERROR);
+                    unreachable!("PostgreSQL ERROR reports do not return")
+                }
+                None => Err(error.clone().into()),
+            },
+        }
+    }
+
     /// Returns the minimum and maximum heap block numbers represented in the segment.
     pub(crate) fn block_bounds(
         segment: &SegmentReader,
@@ -823,6 +868,7 @@ impl SearchIndexReader {
             scan_init_ns: 0,
             directory,
             _cleanup_lock: cleanup_lock,
+            vector_segments_valid: OnceCell::new(),
             pruning_estimate: OnceLock::new(),
         })
     }
@@ -1202,8 +1248,11 @@ impl SearchIndexReader {
             self.need_scores,
             self.searcher.clone(),
         ));
-        let constrained_weight =
-            Arc::new(unconstrained_weight.and_query(self.make_query(partition_bounds, None)));
+        let range_query = Box::new(ConstScoreQuery::new(
+            self.make_query(partition_bounds, None),
+            0.0,
+        ));
+        let constrained_weight = Arc::new(unconstrained_weight.and_query(range_query));
         let mut iterators = Vec::new();
         for (segment_ord, segment_reader) in self.segment_readers_in_segments(included) {
             iterators.push(ScorerIter::new(
@@ -1520,6 +1569,8 @@ impl SearchIndexReader {
                     },
                 ..
             } => {
+                self.validate_vector_segments()
+                    .expect("vector segments must be readable");
                 if orderby_info[1..].iter().any(|o| o.is_score()) {
                     panic!(
                         "pdb.score() cannot tie-break a vector distance ORDER BY: no score is computed when ordering by a vector field"
@@ -2705,19 +2756,22 @@ mod tests {
                 "{query:?}, {bounds:?}"
             );
 
-            let exact = scored_hits(reader.and_query_input(&bounds).search());
+            let make_bounds_query =
+                || Box::new(ConstScoreQuery::new(reader.make_query(&bounds, None), 0.0));
+            let exact = scored_hits(reader.and_query(make_bounds_query()).search());
             let is_all = matches!(query, SearchQueryInput::All);
             if is_all {
                 assert_eq!(exact.len(), expected_all, "{bounds:?}");
             }
-            // Preserve the existing per-group queries, including their exact score
-            // contributions. Applying the range to every segment is not the score oracle.
+            // Partition bounds are wrapped in ConstScoreQuery(..., 0.0) so they do not
+            // alter scores. Applying the range across all segments or per group matches
+            // the per-partition search.
             let per_group = scored_hits(
                 reader
                     .search_segments(segments.included.iter().copied())
                     .chain(
                         reader
-                            .and_query_input(&bounds)
+                            .and_query(make_bounds_query())
                             .search_segments(segments.partially_included.iter().copied()),
                     ),
             );
@@ -2731,16 +2785,14 @@ mod tests {
             assert_eq!(calls.load(Relaxed), 0, "preparation must remain lazy");
             let actual = scored_hits(scan);
             assert_eq!(actual.len(), exact.len(), "{query:?}, {bounds:?}");
-            if is_all && scoring {
-                assert_eq!(actual, exact, "{bounds:?}");
-            }
+            assert_eq!(actual, exact, "{query:?}, scoring={scoring}, {bounds:?}");
             assert_eq!(
                 actual, per_group,
                 "{query:?}, scoring={scoring}, {bounds:?}"
             );
             assert_eq!(
                 calls.load(Relaxed),
-                usize::from(expected_included + expected_partial > 0)
+                usize::from(expected_included > 0) + usize::from(expected_partial > 0)
             );
         };
 
@@ -2816,25 +2868,28 @@ mod tests {
         );
         // Partition 0 owns the NULL rows, so a nullable segment inside its value range is fully
         // included and searches without the partition filter: all three rows belong to it.
-        // Partition 1 does not own NULLs, so the same segment stays partially included and
-        // the filter excludes the NULL row.
+        // With the edge inside the segment, partition 0 keeps the NULL row and drops the value
+        // above the edge. Partition 1 does not own NULLs, so the same segment stays partially
+        // included and the filter excludes the NULL row.
         for (split, partition, expected_all, included, partial) in
-            [(21, 0, 3, 1, 0), (5, 1, 2, 0, 1)]
+            [(21, 0, 3, 1, 0), (15, 0, 2, 0, 1), (5, 1, 2, 0, 1)]
         {
             let partitioning = RangePartitioning {
                 partition_by: FieldName::from("value"),
                 split_points: vec![PdbOwnedValue::I64(split)],
             };
-            check(
-                &index_rel,
-                &SearchQueryInput::All,
-                false,
-                &partitioning,
-                partition,
-                expected_all,
-                included,
-                partial,
-            );
+            for scoring in [false, true] {
+                check(
+                    &index_rel,
+                    &SearchQueryInput::All,
+                    scoring,
+                    &partitioning,
+                    partition,
+                    expected_all,
+                    included,
+                    partial,
+                );
+            }
         }
     }
 
@@ -3549,5 +3604,30 @@ mod tests {
             "execution after the merge must resolve the new segment generation"
         );
         Spi::run("DEALLOCATE merge_freshness_query; RESET plan_cache_mode;").unwrap();
+    }
+}
+
+#[cfg(test)]
+mod vector_probe_stats_tests {
+    use super::{ProbeStats, SegmentId, probe_stats_to_segment_info};
+    use tantivy::vector::VectorIoStats;
+
+    // Rerank I/O is exposed as additive scalar counters in per-segment EXPLAIN data.
+    #[test]
+    fn rerank_io_counters_are_flat_segment_fields() {
+        let id = SegmentId::from_bytes([7; 16]);
+        let stats = ProbeStats {
+            rerank_io: VectorIoStats {
+                reads: 3,
+                bytes_read: 64,
+                storage_blocks: 5,
+            },
+            ..Default::default()
+        };
+        let info = probe_stats_to_segment_info(&[id], &[stats]);
+        assert_eq!(info[&id]["rerank_reads"], 3);
+        assert_eq!(info[&id]["rerank_bytes_read"], 64);
+        assert_eq!(info[&id]["rerank_storage_blocks"], 5);
+        assert!(info[&id].get("rerank_io").is_none());
     }
 }

@@ -353,6 +353,23 @@ impl MetaPage {
         LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
     }
 
+    /// Replaces persisted settings bytes for storage contract tests.
+    #[cfg(any(test, feature = "pg_test"))]
+    pub(crate) fn replace_settings_for_test(indexrel: &PgSearchRelation, bytes: &[u8]) {
+        let header = unsafe { LinkedBytesList::create_without_fsm(indexrel) };
+        let mut writer = LinkedBytesList::open(indexrel, header).writer();
+        unsafe {
+            writer.write(bytes).unwrap();
+        }
+        writer.finalize_and_write().unwrap();
+        let mut bman = BufferManager::new(indexrel);
+        let mut buffer = bman.get_buffer_mut(METAPAGE);
+        buffer
+            .page_mut()
+            .contents_mut::<MetaPageData>()
+            .settings_start = header;
+    }
+
     pub fn settings_bytes(&self) -> LinkedBytesList {
         let blockno = if self.data.settings_start == 0 {
             Self::LEGACY_SETTINGS_START

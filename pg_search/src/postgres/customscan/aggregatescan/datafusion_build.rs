@@ -96,7 +96,7 @@ impl JoinAggSource {
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| match &f.field {
-                WhichFastField::Score | WhichFastField::Junk(_) => None,
+                WhichFastField::Score(_) | WhichFastField::Junk(_) => None,
                 _ => Some(f.field.name()),
             })
     }
@@ -1540,8 +1540,8 @@ impl FilterExpr {
                         .targetlist()
                         .group_columns
                         .iter()
-                        .find(|gc| gc.plan_position == pp && gc.attno == attno)
-                        .map(|gc| Self::GroupRef(gc.field_name.clone())),
+                        .position(|gc| gc.plan_position == pp && gc.attno == attno)
+                        .map(Self::GroupRef),
                 }
             }
             pg_sys::NodeTag::T_Const => {

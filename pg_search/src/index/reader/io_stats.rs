@@ -26,6 +26,17 @@ use std::sync::Arc;
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::vector::current_vector_stage;
 
+#[cfg(any(test, feature = "pg_test"))]
+thread_local! {
+    static VECTOR_BUFFER_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts vector buffer accesses recorded by the component instrumentation in tests.
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) fn vector_buffer_reads() -> usize {
+    VECTOR_BUFFER_READS.get()
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 struct IoCounters {
     blks_hit: u64,
@@ -70,6 +81,9 @@ pub struct Scope {
     before: i64,
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body only reads the
+// `pgBufferUsage` global and updates a Rust side trace behind a `parking_lot` lock, neither of
+// which can raise, and it has to run on a panic too or `depth` never comes back down.
 impl Drop for Scope {
     fn drop(&mut self) {
         let mut data = self.trace.0.lock();
@@ -87,6 +101,8 @@ pub struct External {
     name: &'static str,
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body, like `Scope`'s, only
+// reads `pgBufferUsage` and attributes the difference on the trace.
 impl Drop for External {
     fn drop(&mut self) {
         let mut data = self.trace.0.lock();
@@ -107,6 +123,8 @@ pub struct ScanInitGuard {
     before: (i64, i64),
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body, like `Scope`'s, only
+// reads `pgBufferUsage` and records the scan init stage on the trace.
 impl Drop for ScanInitGuard {
     fn drop(&mut self) {
         let after = snapshot();
@@ -295,6 +313,10 @@ impl Trace {
 
 impl ComponentStats {
     pub fn buffer<R>(&self, read: impl FnOnce() -> R) -> R {
+        #[cfg(any(test, feature = "pg_test"))]
+        if self.component == "vec" {
+            VECTOR_BUFFER_READS.set(VECTOR_BUFFER_READS.get() + 1);
+        }
         let before = snapshot();
         let result = read();
         let after = snapshot();

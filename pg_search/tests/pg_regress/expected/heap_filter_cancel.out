@@ -1,0 +1,73 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- Cancel inside an all-rejected heap filter without relying on query duration.
+CREATE TABLE heap_filter_cancel (id integer, body text, extra integer);
+INSERT INTO heap_filter_cancel SELECT g, 'fox', 0 FROM generate_series(1, 32) g;
+CREATE INDEX heap_filter_cancel_idx ON heap_filter_cancel USING paradedb (id, body)
+WITH (target_segment_count = 1);
+-- Prime the sequence cache so counting candidates does not require disk access.
+CREATE SEQUENCE heap_filter_cancel_calls CACHE 100;
+SELECT nextval('heap_filter_cancel_calls');
+ nextval 
+---------
+       1
+(1 row)
+
+EXPLAIN (COSTS OFF)
+SELECT id FROM heap_filter_cancel
+WHERE body ||| 'fox' AND (
+    pg_cancel_backend(pg_backend_pid() + (id - id)
+        + 0 * nextval('heap_filter_cancel_calls')::integer) IS FALSE
+    OR extra = -1
+)
+LIMIT 1;
+                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on heap_filter_cancel
+         Table: heap_filter_cancel
+         Index: heap_filter_cancel_idx
+         Exec Method: ColumnarExecState
+         Columnar: id
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"body","value":"fox","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(pg_cancel_backend(((pg_backend_pid() + (id - id)) + (0 * (nextval('heap_filter_cancel_calls'::regclass))::integer))) IS FALSE)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(extra = '-1'::integer)"}]}}]}}]}}
+(8 rows)
+
+SELECT id FROM heap_filter_cancel
+WHERE body ||| 'fox' AND (
+    pg_cancel_backend(pg_backend_pid() + (id - id)
+        + 0 * nextval('heap_filter_cancel_calls')::integer) IS FALSE
+    OR extra = -1
+)
+LIMIT 1;
+ERROR:  canceling statement due to user request
+-- The cancel must be processed before evaluating a second candidate.
+SELECT currval('heap_filter_cancel_calls') - 1 AS candidates_evaluated;
+ candidates_evaluated 
+----------------------
+                    1
+(1 row)
+
+SELECT count(*) FROM heap_filter_cancel WHERE body ||| 'fox' AND extra = 0;
+ count 
+-------
+    32
+(1 row)
+
+-- A cancel raised by the last rejected candidate must not be lost at EOF.
+TRUNCATE heap_filter_cancel;
+INSERT INTO heap_filter_cancel VALUES (1, 'fox', 0);
+SELECT id FROM heap_filter_cancel
+WHERE body ||| 'fox' AND (
+    pg_cancel_backend(pg_backend_pid() + (id - id)
+        + 0 * nextval('heap_filter_cancel_calls')::integer) IS FALSE
+    OR extra = -1
+)
+LIMIT 1;
+ERROR:  canceling statement due to user request
+DROP TABLE heap_filter_cancel;
+DROP SEQUENCE heap_filter_cancel_calls;

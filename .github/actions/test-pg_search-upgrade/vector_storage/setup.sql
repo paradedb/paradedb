@@ -26,6 +26,13 @@ BEGIN
         USING paradedb (id, embedding vector_l2_ops)
         WITH (key_field = 'id', target_segment_count = 1,
               mutable_segment_rows = 0, layer_sizes = '1GB', background_layer_sizes = '0');
+    -- 0.25.0 initially writes flat vectors and clusters only during a merge.
+    -- Admit the existing segment and insert an equally sized batch so the
+    -- foreground merge exceeds the layer size and the clustering threshold.
+    EXECUTE format('ALTER INDEX vector_upgrade_idx SET (layer_sizes = %L)',
+        (SELECT max(byte_size)::bigint || ' bytes' FROM paradedb.index_info('vector_upgrade_idx')));
+    INSERT INTO vector_upgrade_docs
+        SELECT g, ARRAY[(100 + g)::real, 0, 0]::vector FROM generate_series(10001, 20000) g;
     IF NOT EXISTS (SELECT FROM paradedb.vector_info('vector_upgrade_idx', 'embedding')
                    WHERE vector_num_centroids > 0) THEN
         RAISE EXCEPTION 'upgrade fixture must contain a clustered vector segment';

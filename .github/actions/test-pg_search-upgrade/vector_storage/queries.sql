@@ -28,13 +28,13 @@ BEGIN
     END;
 
     INSERT INTO vector_upgrade_docs
-        SELECT g, ARRAY[(100 + g)::real, 0, 0]::vector FROM generate_series(10001, 20000) g;
-    UPDATE vector_upgrade_docs SET embedding = '[5000,0,0]' WHERE id = 20000;
+        SELECT g, ARRAY[(100 + g)::real, 0, 0]::vector FROM generate_series(20001, 40000) g;
+    UPDATE vector_upgrade_docs SET embedding = '[5000,0,0]' WHERE id = 40000;
     IF EXISTS (SELECT segno FROM vector_upgrade_segments
                EXCEPT SELECT segno FROM paradedb.index_info('vector_upgrade_idx')) THEN
         RAISE EXCEPTION 'merge removed an unsupported vector segment';
     END IF;
-    IF (SELECT count(*) FROM vector_upgrade_docs) != 20000 THEN
+    IF (SELECT count(*) FROM vector_upgrade_docs) != 40000 THEN
         RAISE EXCEPTION 'writes did not complete with unsupported vector storage';
     END IF;
     BEGIN

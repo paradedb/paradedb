@@ -61,7 +61,7 @@ pub struct SharedBitmapHandle {
 }
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::index::SegmentId;
 
 /// Safe over-approximation of MaxHeapTuplesPerPage (which divides BLCKSZ by >= 28
@@ -351,14 +351,21 @@ impl BitmapCursorSource {
                 claims,
                 counters,
             } => {
-                let mut claims = claims.lock().unwrap();
-                if claims.contains(&(consumer_id, segment)) {
+                // A cursor dropping during an unwind takes this lock too, so a poisoned
+                // lock is still usable, and the error below is raised with the lock
+                // released rather than poisoning it under a live cursor.
+                let mut claims = claims.lock().unwrap_or_else(PoisonError::into_inner);
+                let claimed = claims.contains(&(consumer_id, segment));
+                if !claimed {
+                    claims.push((consumer_id, segment));
+                }
+                drop(claims);
+                if claimed {
                     pgrx::error!(
                         "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed twice",
                         segment.uuid_string()
                     );
                 }
-                claims.push((consumer_id, segment));
                 let cursor = unsafe {
                     BitmapCursor::private(*tbm, counters.as_ref() as *const CursorCounters)
                 };
@@ -392,7 +399,7 @@ impl BitmapCursorSource {
     fn release(&self, claim: StreamClaim) {
         match (self, claim) {
             (Self::Private { claims, .. }, StreamClaim::Private(consumer_id, segment)) => {
-                let mut claims = claims.lock().unwrap();
+                let mut claims = claims.lock().unwrap_or_else(PoisonError::into_inner);
                 claims.retain(|claim| *claim != (consumer_id, segment));
             }
             (Self::Shared { .. }, StreamClaim::Shared(entry)) => unsafe {

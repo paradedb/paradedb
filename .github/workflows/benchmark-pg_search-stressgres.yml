@@ -99,7 +99,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
@@ -206,7 +206,6 @@ jobs:
           cache_on_failure: "true"
           extra_packages: >-
             lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld gdb
-            postgresql-${{ env.pg_version }}-pgvector
 
       - name: Enable Crash Dumps
         run: ./.github/scripts/setup_crashdumps.sh
@@ -267,9 +266,6 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_app_client_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Print Crashdump Stacktrace
         if: always()

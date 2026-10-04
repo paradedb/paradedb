@@ -258,8 +258,13 @@ impl<'a> FilterAnalyzer<'a> {
 
     fn find_field(&self, name: &str) -> Option<&SearchFieldType> {
         self.fields.iter().find_map(|field| {
-            if let WhichFastField::Named(field_name, field_type)
-            | WhichFastField::Array(field_name, field_type) = field
+            // For a list column this is the element type: a pushed-down
+            // filter on a multi-valued field compares per element.
+            if let WhichFastField::Named {
+                name: field_name,
+                field_type,
+                ..
+            } = field
                 && field_name == name
             {
                 return Some(field_type);

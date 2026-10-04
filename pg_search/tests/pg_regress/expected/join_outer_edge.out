@@ -82,10 +82,10 @@ SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id 
    Limit: 8
    Order By: a.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, pdb.score()@2 as col_2, ctid_0@0 as ctid_0]
+     : ProjectionExec: expr=[id@1 as col_1, pdb.score(b)@2 as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=8), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[a]
-     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@2, id@4, pdb.score()@0]
+     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@2, id@4, pdb.score(b)@0]
      :         CooperativeExec
      :           PgSearchScan: table=b, segments=1, visibility=eager, query="all"
      :         CooperativeExec

@@ -1,17 +1,20 @@
 # workflows/publish-paradedb-docker.yml
 #
 # Publish ParadeDB (Docker)
-# Publish ParadeDB as Docker images for all of our supported PostgreSQL versions to Docker Hub after
-# the pg_search .deb has been published to GitHub Releases. Stable releases publish Docker images for
-# all of our supported PostgreSQL versions, while beta releases only publish the default PostgreSQL
-# version we run as default (currently 18). This workflow also publishes the non-runnable
-# extension image for Postgres 18+ deployments that mount Postgres extension images.
-# Once the runnable Docker images are published, notify ORM wrapper repositories via repository_dispatch
-# so they can run compatibility checks against the new version. This is done in
-# `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker image.
+# Publish ParadeDB as Docker images to Docker Hub after the pg_search .deb packages have
+# been published to GitHub Releases. The selected branch or tag provides the Dockerfiles
+# and workflow code. The images use the release packages instead of building pg_search from source.
+# Stable releases default to all supported PostgreSQL versions, while versions containing
+# a dash only build PostgreSQL 18. This workflow also publishes the mountable extension image
+# for PostgreSQL 18, except for beta (-rc.) releases.
 #
-# This workflow is dispatched by `publish-pg_search-debian.yml` (once the Debian binaries are published) via
-# `workflow_dispatch` pinned to the release ref so that it runs on the same commit as the other deploy jobs.
+# Once the runnable Docker images are published, notify ORM wrapper repositories via
+# repository_dispatch so they can run compatibility checks against the new version.
+# Beta releases skip these notifications and the Dockerfile update PRs.
+#
+# This workflow is dispatched by `publish-pg_search-debian.yml` after a release tag build
+# uploads the Debian packages. It runs on the same release tag as the other publishing jobs.
+# It can also be run manually to republish images.
 
 name: Publish ParadeDB (Docker)
 
@@ -19,15 +22,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the ParadeDB release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and tags it with the provided version."
+        description: "The existing GitHub Release version to publish Docker images for, without the v prefix (e.g. 0.25.9). The .deb packages must already be uploaded. Select the matching release tag when running this workflow. This does not build pg_search from source."
         required: true
         default: ""
       pg_version:
-        description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [15] or [15, 16, 17, 18]). Beta (-rc.) releases always resolve to [18] regardless of this value."
+        description: "The PostgreSQL major version(s) to build ParadeDB for, as a JSON array (e.g. [18] or [15, 16, 17, 18]). Versions containing a dash always use [18]. Extension images always use PostgreSQL 18."
         required: false
         default: "[15, 16, 17, 18]"
       images:
-        description: "Which images to publish."
+        description: "Which images to publish. Choose runnable database images, mountable extension images, or both. Beta (-rc.) releases skip extension images."
         required: false
         type: choice
         default: all
@@ -80,10 +83,11 @@ jobs:
       is_latest: ${{ steps.release_latest.outputs.is_latest }}
       branch: ${{ steps.generated_branch.outputs.branch }}
       has_changes: ${{ steps.generated_branch.outputs.has_changes }}
+      artifact: ${{ steps.rc_dockerfiles.outputs.artifact }}
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3.2.0
+        uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -157,11 +161,33 @@ jobs:
           PG_MAJORS=$(echo "${JOB_SET_MATRIX_MATRIX}" | jq -r 'map(tostring) | join(" ")')
           docker/generate-dockerfiles.sh "${STEP_VERSION_VERSION}" "$PG_MAJORS"
 
+      # RC Dockerfiles are needed by downstream jobs, but must not create a repository branch.
+      - name: Upload RC Dockerfiles
+        if: contains(steps.version.outputs.version, '-rc.')
+        uses: actions/upload-artifact@v7
+        with:
+          name: rc-dockerfiles
+          path: docker/Dockerfile.*-18
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Select RC Dockerfiles Artifact
+        id: rc_dockerfiles
+        if: contains(steps.version.outputs.version, '-rc.')
+        run: echo "artifact=rc-dockerfiles" >> "$GITHUB_OUTPUT"
+
       - name: Stage Generated Dockerfiles
         id: generated_branch
         env:
           STEP_VERSION_TAG: ${{ steps.version.outputs.tag }}
+          STEP_VERSION_VERSION: ${{ steps.version.outputs.version }}
         run: |
+          if [[ "$STEP_VERSION_VERSION" == *-rc.* ]]; then
+            echo "Using the release commit and Dockerfiles artifact for this RC release."
+            echo "branch=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git add docker
           if git diff --cached --quiet; then
             echo "No generated Dockerfile changes to commit; building from the release commit."
@@ -196,6 +222,7 @@ jobs:
     uses: ./.github/workflows/test-pg_search-docker.yml
     with:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+      dockerfiles_artifact: ${{ needs.generate-dockerfiles.outputs.artifact }}
       spot: false # Disable Spot for tests in the publish workflow
     secrets: inherit
 
@@ -219,6 +246,13 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+
+      - name: Download RC Dockerfiles
+        if: needs.generate-dockerfiles.outputs.artifact != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.generate-dockerfiles.outputs.artifact }}
+          path: docker
 
       - name: Set Up QEMU
         uses: docker/setup-qemu-action@v4
@@ -262,7 +296,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Scan Image for Vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0 # Upstream does not publish a moving @v0 tag
         with:
           image-ref: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           format: table
@@ -280,7 +314,7 @@ jobs:
           exit-code: "1"
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the image digest. Works without GitHub Enterprise
       - name: Sign Image with Cosign (keyless)
@@ -321,8 +355,10 @@ jobs:
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: docker/scout-action@v1.24.0
+        uses: docker/scout-action@v1
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
@@ -330,8 +366,10 @@ jobs:
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: docker/scout-action@v1.24.0
+        uses: docker/scout-action@v1
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
@@ -483,8 +521,10 @@ jobs:
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: docker/scout-action@v1.24.0
+        uses: docker/scout-action@v1
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
@@ -492,8 +532,10 @@ jobs:
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: docker/scout-action@v1.24.0
+        uses: docker/scout-action@v1
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb

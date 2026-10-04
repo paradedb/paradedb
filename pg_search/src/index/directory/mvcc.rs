@@ -17,14 +17,17 @@
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
+use crate::index::reader::io_stats::Trace;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::buffile::{BufFileReleaseGuard, create_temp_buffile};
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    CTID_MAP_EXT, FileEntry, MVCCEntry, STATS_EXT, SegmentMetaEntry, SegmentMetaEntryContent,
-    SegmentMetaEntryImmutable, SegmentMetaEntryMutable, bm25_max_free_space,
+    CTID_MAP_EXT, FileEntry, MVCCEntry, STATS_EXT, SegmentFileDetails, SegmentMetaEntry,
+    SegmentMetaEntryContent, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+    bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
@@ -48,7 +51,7 @@ use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
     TempFilePtr, WatchCallback, WatchHandle,
 };
-use tantivy::index::{SegmentComponent, SegmentId, SegmentMetaInventory};
+use tantivy::index::{SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 
 /// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
@@ -64,13 +67,17 @@ pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXT
 /// immutable segment-component map.
 struct PgTempFile {
     file: *mut pg_sys::BufFile,
+    release_guard: Arc<BufFileReleaseGuard>,
 }
 
 impl PgTempFile {
     fn create() -> Self {
-        let file = unsafe { pg_sys::BufFileCreateTemp(false) };
-        assert!(!file.is_null(), "BufFileCreateTemp returned null");
-        Self { file }
+        let release_guard = BufFileReleaseGuard::register();
+        let file = unsafe { create_temp_buffile() };
+        Self {
+            file,
+            release_guard,
+        }
     }
 }
 
@@ -118,9 +125,13 @@ impl Seek for PgTempFile {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `may_close` already refuses the
+// close while unwinding, after the owner released the file, and outside a transaction.
 impl Drop for PgTempFile {
     fn drop(&mut self) {
-        unsafe { pg_sys::BufFileClose(self.file) }
+        if self.release_guard.may_close() {
+            unsafe { pg_sys::BufFileClose(self.file) }
+        }
     }
 }
 
@@ -363,6 +374,7 @@ type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
 /// and should back all Tantivy Indexes used in insert and scan operations
 #[derive(Debug, Clone)]
 pub struct MVCCDirectory {
+    pub(crate) io_stats: Option<Trace>,
     //
     // NB:  Directories get cloned, **A LOT**, by tantivy.  As such, it should be cheap, especially
     // in terms of memory usage, to clone this struct.
@@ -396,8 +408,13 @@ impl MVCCDirectory {
         Self::with_mvcc_style(index_relation, MvccSatisfies::ParallelWorker(view))
     }
 
+    pub fn indexrel(&self) -> &PgSearchRelation {
+        &self.indexrel
+    }
+
     pub fn with_mvcc_style(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Self {
         Self {
+            io_stats: None,
             indexrel: Clone::clone(index_relation),
             mvcc_style: Arc::new(mvcc_style),
 
@@ -502,9 +519,10 @@ impl MVCCDirectory {
                     SegmentComponentReader::new(
                         &self.indexrel,
                         file_entry,
-                        path.extension()
-                            .and_then(|ext| ext.to_str())
-                            .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                        self.io_stats.as_ref().and_then(|stats| {
+                            path.component_type()
+                                .map(|component| stats.component(&component))
+                        }),
                     )
                 }))
             }
@@ -636,13 +654,15 @@ impl MVCCDirectory {
 impl Directory for MVCCDirectory {
     /// Returns a segment reader that implements std::io::Read
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        match self.readers.lock().entry(path.to_path_buf()) {
-            Entry::Occupied(reader) => Ok(reader.get().clone()),
-            Entry::Vacant(vacant) => match self.file_entry(path) {
-                Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
-                Err(err) => {
-                    let file_entry =
-                        if let Some((file_entry, total_bytes)) = self.new_files.lock().get(path) {
+        let reader: Result<Arc<dyn FileHandle>, OpenReadError> =
+            match self.readers.lock().entry(path.to_path_buf()) {
+                Entry::Occupied(reader) => Ok(reader.get().clone()),
+                Entry::Vacant(vacant) => match self.file_entry(path) {
+                    Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
+                    Err(err) => {
+                        let file_entry = if let Some((file_entry, total_bytes)) =
+                            self.new_files.lock().get(path)
+                        {
                             FileEntry {
                                 starting_block: file_entry.starting_block,
                                 total_bytes: total_bytes.load(Ordering::Relaxed),
@@ -662,20 +682,22 @@ impl Directory for MVCCDirectory {
                                 filepath: PathBuf::from(path),
                             });
                         };
-                    Ok(vacant
-                        .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new_uncommitted(
-                                &self.indexrel,
-                                file_entry,
-                                path.extension()
-                                    .and_then(|ext| ext.to_str())
-                                    .and_then(|ext| SegmentComponent::try_from(ext).ok()),
-                            )
-                        }))
-                        .clone())
-                }
-            },
-        }
+                        Ok(vacant
+                            .insert(Arc::new(unsafe {
+                                SegmentComponentReader::new_uncommitted(
+                                    &self.indexrel,
+                                    file_entry,
+                                    self.io_stats.as_ref().and_then(|stats| {
+                                        path.component_type()
+                                            .map(|component| stats.component(&component))
+                                    }),
+                                )
+                            }))
+                            .clone())
+                    }
+                },
+            };
+        reader
     }
     /// delete is called by Tantivy's garbage collection
     /// We handle this ourselves in amvacuumcleanup
@@ -738,6 +760,10 @@ impl Directory for MVCCDirectory {
     /// Returns a list of all segment components to Tantivy,
     /// identified by `<uuid>.<ext>` PathBufs
     fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
+        let _io = self
+            .io_stats
+            .as_ref()
+            .map(|stats| stats.external("Metadata"));
         unsafe {
             Ok(MetaPage::open(&self.indexrel)
                 .segment_metas()
@@ -805,6 +831,10 @@ impl Directory for MVCCDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
+        let _io = self
+            .io_stats
+            .as_ref()
+            .map(|stats| stats.external("Metadata"));
         let loaded_metas = self.loaded_metas.get_or_init(|| unsafe {
             match load_metas(
                 &self.indexrel,
@@ -1135,6 +1165,14 @@ mod tests {
     use crate::postgres::storage::block::SegmentMetaEntryContent;
 
     use pgrx::prelude::*;
+
+    #[pg_test]
+    #[should_panic(expected = "temporary file size exceeds")]
+    fn test_temp_file_drop_preserves_write_error() {
+        Spi::run("SET LOCAL temp_file_limit = '1kB'").unwrap();
+        let mut file = PgTempFile::create();
+        file.write_all(&[0u8; pg_sys::BLCKSZ as usize * 2]).unwrap();
+    }
 
     #[pg_test]
     unsafe fn test_list_meta_entries() {

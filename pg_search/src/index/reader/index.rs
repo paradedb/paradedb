@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::OnceCell;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
@@ -62,7 +63,7 @@ use tantivy::collector::sort_key::{
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
@@ -187,6 +188,27 @@ impl TopKSearch {
             aggregation_results,
         )
     }
+}
+
+/// Builds the PostgreSQL error for an unsupported vector storage version.
+pub(crate) fn vector_format_error_report(
+    index_name: &str,
+    error: &tantivy::TantivyError,
+) -> Option<pgrx::pg_sys::panic::ErrorReport> {
+    matches!(
+        error,
+        tantivy::TantivyError::IncompatibleIndex(
+            tantivy::directory::error::Incompatibility::VectorFormatMismatch { .. }
+        )
+    )
+    .then(|| {
+        pgrx::pg_sys::panic::ErrorReport::new(
+            pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+            format!("index {index_name:?} has an unsupported vector storage format: {error}"),
+            pgrx::function_name!(),
+        )
+        .set_hint(format!("Rebuild index {index_name:?} with REINDEX."))
+    })
 }
 
 fn probe_stats_to_segment_info(
@@ -355,6 +377,7 @@ pub struct SearchIndexReader {
     /// [`SegmentView`].
     directory: MVCCDirectory,
 
+    vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
@@ -402,6 +425,7 @@ impl Clone for SearchIndexReader {
             index_created_by_version: self.index_created_by_version,
             scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
+            vector_segments_valid: self.vector_segments_valid.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
@@ -556,6 +580,27 @@ struct IndexComponents {
 }
 
 impl SearchIndexReader {
+    /// Validates this reader's visible vector headers once, including an unsuccessful check.
+    /// An unsupported format raises a PostgreSQL error and does not return; other errors are returned.
+    pub(crate) fn validate_vector_segments(&self) -> Result<()> {
+        let result = self.vector_segments_valid.get_or_init(|| {
+            self.searcher
+                .segment_readers()
+                .iter()
+                .try_for_each(SegmentReader::validate_vector_format)
+        });
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => match vector_format_error_report(self.index_rel.name(), error) {
+                Some(report) => {
+                    report.report(pgrx::PgLogLevel::ERROR);
+                    unreachable!("PostgreSQL ERROR reports do not return")
+                }
+                None => Err(error.clone().into()),
+            },
+        }
+    }
+
     /// Returns the minimum and maximum heap block numbers represented in the segment.
     pub(crate) fn block_bounds(
         segment: &SegmentReader,
@@ -592,12 +637,15 @@ impl SearchIndexReader {
         index_relation: &PgSearchRelation,
         mvcc_style: MvccSatisfies,
         needs_tokenizer_manager: bool,
+        io_stats: Option<io_stats::Trace>,
     ) -> Result<IndexComponents> {
+        let _metadata = io_stats.as_ref().map(|stats| stats.external("Metadata"));
         #[cfg(any(test, feature = "pg_test"))]
         test_support::INDEX_COMPONENT_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
-        let directory = mvcc_style.directory(index_relation);
+        let mut directory = mvcc_style.directory(index_relation);
+        directory.io_stats = io_stats;
         let mut index = crate::index::open_index(directory.clone())?;
         let total_segment_count = directory
             .total_segment_count()
@@ -652,10 +700,12 @@ impl SearchIndexReader {
             None,
             None,
             needs_tokenizer_manager,
+            None,
         )
     }
 
     /// Open a tantivy index with optional expression context for proper postgres expression evaluation
+    #[allow(clippy::too_many_arguments)]
     pub fn open_with_context(
         index_relation: &PgSearchRelation,
         search_query_input: SearchQueryInput,
@@ -664,15 +714,20 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
+        io_stats: Option<io_stats::Trace>,
     ) -> Result<Self> {
         let scan_init_start = Instant::now();
-        let scan_init_io = io_stats::begin_scan_init();
+        let scan_init_io = io_stats.as_ref().map(io_stats::Trace::begin_scan_init);
         // Derive the tokenizer need from the query as well as the caller's flag: a caller
         // passing `false` alongside a query that tokenizes must not silently parse wrong.
         let needs_tokenizer_manager =
             needs_tokenizer_manager || search_query_input.needs_tokenizer();
-        let components =
-            Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
+        let components = Self::open_index_components(
+            index_relation,
+            mvcc_style,
+            needs_tokenizer_manager,
+            io_stats,
+        )?;
         let mut reader = Self::from_components(
             index_relation,
             components,
@@ -701,7 +756,12 @@ impl SearchIndexReader {
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
         let scan_init_start = Instant::now();
-        let scan_init_io = io_stats::begin_scan_init();
+        let scan_init_io = manifest
+            .components()
+            .directory
+            .io_stats
+            .as_ref()
+            .map(io_stats::Trace::begin_scan_init);
         if needs_tokenizer_manager || search_query_input.needs_tokenizer() {
             crate::index::search::register_tokenizers(
                 index_relation,
@@ -742,7 +802,13 @@ impl SearchIndexReader {
             schema,
         } = components;
 
-        let index_created_by_version = index_relation.created_by_version();
+        let index_created_by_version = {
+            let _metadata = directory
+                .io_stats
+                .as_ref()
+                .map(|stats| stats.external("Metadata"));
+            index_relation.created_by_version()
+        };
         let need_scores = need_scores || search_query_input.need_scores();
         let parser = || {
             QueryParser::for_index(
@@ -802,6 +868,7 @@ impl SearchIndexReader {
             scan_init_ns: 0,
             directory,
             _cleanup_lock: cleanup_lock,
+            vector_segments_valid: OnceCell::new(),
             pruning_estimate: OnceLock::new(),
         })
     }
@@ -1181,8 +1248,11 @@ impl SearchIndexReader {
             self.need_scores,
             self.searcher.clone(),
         ));
-        let constrained_weight =
-            Arc::new(unconstrained_weight.and_query(self.make_query(partition_bounds, None)));
+        let range_query = Box::new(ConstScoreQuery::new(
+            self.make_query(partition_bounds, None),
+            0.0,
+        ));
+        let constrained_weight = Arc::new(unconstrained_weight.and_query(range_query));
         let mut iterators = Vec::new();
         for (segment_ord, segment_reader) in self.segment_readers_in_segments(included) {
             iterators.push(ScorerIter::new(
@@ -1499,6 +1569,8 @@ impl SearchIndexReader {
                     },
                 ..
             } => {
+                self.validate_vector_segments()
+                    .expect("vector segments must be readable");
                 if orderby_info[1..].iter().any(|o| o.is_score()) {
                     panic!(
                         "pdb.score() cannot tie-break a vector distance ORDER BY: no score is computed when ordering by a vector field"
@@ -1522,6 +1594,8 @@ impl SearchIndexReader {
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                        router_recall_target: crate::gucs::vector_router_recall_target(),
+                        recall_target: crate::gucs::vector_recall_target(),
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);
@@ -1592,7 +1666,9 @@ impl SearchIndexReader {
                         segment_scan_init.saturating_add(self.scan_init_ns).into(),
                     );
                 }
-                io_stats::attach(&mut segment_info);
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.attach(&mut segment_info);
+                }
                 let scored_results: Vec<(SearchIndexScore, DocAddress)> = fruit
                     .results
                     .into_iter()
@@ -2236,13 +2312,17 @@ impl SearchIndexReader {
         collector: &C,
         weight: &dyn Weight,
     ) -> Vec<<<C as Collector>::Child as SegmentCollector>::Fruit> {
-        io_stats::reset();
+        if let Some(stats) = &self.directory.io_stats {
+            stats.reset();
+        }
         readers
             .map(|(segment_ord, segment_reader)| {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
                     .expect("should be able to collect in segment");
-                io_stats::end_segment(segment_reader.segment_id());
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.end_segment(segment_reader.segment_id());
+                }
                 fruit
             })
             .collect()
@@ -2259,7 +2339,7 @@ impl SearchIndexManifest {
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
         let components =
-            SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
+            SearchIndexReader::open_index_components(index_relation, mvcc_style, false, None)?;
         Ok(Self(Rc::new(SearchIndexManifestInner { components })))
     }
 
@@ -2676,19 +2756,22 @@ mod tests {
                 "{query:?}, {bounds:?}"
             );
 
-            let exact = scored_hits(reader.and_query_input(&bounds).search());
+            let make_bounds_query =
+                || Box::new(ConstScoreQuery::new(reader.make_query(&bounds, None), 0.0));
+            let exact = scored_hits(reader.and_query(make_bounds_query()).search());
             let is_all = matches!(query, SearchQueryInput::All);
             if is_all {
                 assert_eq!(exact.len(), expected_all, "{bounds:?}");
             }
-            // Preserve the existing per-group queries, including their exact score
-            // contributions. Applying the range to every segment is not the score oracle.
+            // Partition bounds are wrapped in ConstScoreQuery(..., 0.0) so they do not
+            // alter scores. Applying the range across all segments or per group matches
+            // the per-partition search.
             let per_group = scored_hits(
                 reader
                     .search_segments(segments.included.iter().copied())
                     .chain(
                         reader
-                            .and_query_input(&bounds)
+                            .and_query(make_bounds_query())
                             .search_segments(segments.partially_included.iter().copied()),
                     ),
             );
@@ -2702,16 +2785,14 @@ mod tests {
             assert_eq!(calls.load(Relaxed), 0, "preparation must remain lazy");
             let actual = scored_hits(scan);
             assert_eq!(actual.len(), exact.len(), "{query:?}, {bounds:?}");
-            if is_all && scoring {
-                assert_eq!(actual, exact, "{bounds:?}");
-            }
+            assert_eq!(actual, exact, "{query:?}, scoring={scoring}, {bounds:?}");
             assert_eq!(
                 actual, per_group,
                 "{query:?}, scoring={scoring}, {bounds:?}"
             );
             assert_eq!(
                 calls.load(Relaxed),
-                usize::from(expected_included + expected_partial > 0)
+                usize::from(expected_included > 0) + usize::from(expected_partial > 0)
             );
         };
 
@@ -2787,25 +2868,28 @@ mod tests {
         );
         // Partition 0 owns the NULL rows, so a nullable segment inside its value range is fully
         // included and searches without the partition filter: all three rows belong to it.
-        // Partition 1 does not own NULLs, so the same segment stays partially included and
-        // the filter excludes the NULL row.
+        // With the edge inside the segment, partition 0 keeps the NULL row and drops the value
+        // above the edge. Partition 1 does not own NULLs, so the same segment stays partially
+        // included and the filter excludes the NULL row.
         for (split, partition, expected_all, included, partial) in
-            [(21, 0, 3, 1, 0), (5, 1, 2, 0, 1)]
+            [(21, 0, 3, 1, 0), (15, 0, 2, 0, 1), (5, 1, 2, 0, 1)]
         {
             let partitioning = RangePartitioning {
                 partition_by: FieldName::from("value"),
                 split_points: vec![PdbOwnedValue::I64(split)],
             };
-            check(
-                &index_rel,
-                &SearchQueryInput::All,
-                false,
-                &partitioning,
-                partition,
-                expected_all,
-                included,
-                partial,
-            );
+            for scoring in [false, true] {
+                check(
+                    &index_rel,
+                    &SearchQueryInput::All,
+                    scoring,
+                    &partitioning,
+                    partition,
+                    expected_all,
+                    included,
+                    partial,
+                );
+            }
         }
     }
 
@@ -3520,5 +3604,30 @@ mod tests {
             "execution after the merge must resolve the new segment generation"
         );
         Spi::run("DEALLOCATE merge_freshness_query; RESET plan_cache_mode;").unwrap();
+    }
+}
+
+#[cfg(test)]
+mod vector_probe_stats_tests {
+    use super::{ProbeStats, SegmentId, probe_stats_to_segment_info};
+    use tantivy::vector::VectorIoStats;
+
+    // Rerank I/O is exposed as additive scalar counters in per-segment EXPLAIN data.
+    #[test]
+    fn rerank_io_counters_are_flat_segment_fields() {
+        let id = SegmentId::from_bytes([7; 16]);
+        let stats = ProbeStats {
+            rerank_io: VectorIoStats {
+                reads: 3,
+                bytes_read: 64,
+                storage_blocks: 5,
+            },
+            ..Default::default()
+        };
+        let info = probe_stats_to_segment_info(&[id], &[stats]);
+        assert_eq!(info[&id]["rerank_reads"], 3);
+        assert_eq!(info[&id]["rerank_bytes_read"], 64);
+        assert_eq!(info[&id]["rerank_storage_blocks"], 5);
+        assert!(info[&id].get("rerank_io").is_none());
     }
 }

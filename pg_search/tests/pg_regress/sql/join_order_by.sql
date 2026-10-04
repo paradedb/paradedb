@@ -327,6 +327,21 @@ ORDER BY t1.val ASC
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 5b: Top K dynamic score filter pushdown
+-- ORDER BY score DESC on the probe side allows Top K to tighten its score
+-- threshold after the first batch and push it into the scanner (dynamic_filter_pushdown_score=1).
+-- =============================================================================
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.id, t2.id, paradedb.score(t2.id)
+FROM dyn_filter_t1 t1
+JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+  AND t2.val ||| 'val'
+ORDER BY paradedb.score(t2.id) DESC, t2.id
+LIMIT 10;
+
+-- =============================================================================
 -- TEST 6: Top K dynamic filter does not prune NULLs
 -- Top K emits "col IS NULL OR col < threshold". Rows with NULL in the ORDER BY
 -- column must survive the pre-filter (nulls_pass=true) and be returned when

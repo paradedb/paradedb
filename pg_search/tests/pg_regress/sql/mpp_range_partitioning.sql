@@ -12,6 +12,9 @@
 -- 4. Asymmetric join where only the larger table is range partitioned (1 shuffle).
 -- 5. Asymmetric join where the smaller table is NOT stamped to avoid shuffling the larger table.
 -- 6. Asymmetric join with split points > workers (down-sampling).
+-- 7. Two-table range co-partitioned SEMI join (IN subquery).
+-- 8. Co-partitioned SEMI, ANTI, outer, FULL and MARK joins run task-locally like inner joins.
+-- 9. A null-aware anti join (NOT IN) keeps its broadcast: one NULL key empties the result.
 --
 -- Note on hash_join_single_partition_threshold[_rows] GUCs:
 -- In production, DataFusion defaults to broadcasting (CollectLeft) tables below
@@ -392,6 +395,163 @@ LIMIT 5;
 
 RESET paradedb.hash_join_single_partition_threshold_rows;
 RESET paradedb.hash_join_single_partition_threshold;
+
+-- =====================================================================
+-- Scenario 7: Two-table range co-partitioned SEMI join (IN subquery)
+--
+-- Both sides (users: 100 rows, posts: 300 rows) share split points on user_id.
+-- An IN subquery pulls up to a SEMI join. We expect either 0-shuffle
+-- task-local co-partitioning (mode=Partitioned), or for only one side to be
+-- range-partitioned if broadcast.
+-- =====================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title
+FROM mpp_rp_posts p
+WHERE p.user_id IN (
+    SELECT u.user_id
+    FROM mpp_rp_users u
+    WHERE u.user_name @@@ 'user'
+)
+AND p.title @@@ 'post'
+ORDER BY p.post_id
+LIMIT 5;
+
+SELECT p.title
+FROM mpp_rp_posts p
+WHERE p.user_id IN (
+    SELECT u.user_id
+    FROM mpp_rp_users u
+    WHERE u.user_name @@@ 'user'
+)
+AND p.title @@@ 'post'
+ORDER BY p.post_id
+LIMIT 5;
+
+-- =====================================================================
+-- Scenario 8: Co-partitioned SEMI, ANTI, outer, FULL and MARK joins
+--
+-- Whether a row matches or has no match is decided within its own user_id
+-- range, so each join type runs mode=Partitioned with no broadcast, and
+-- returns the same rows as a serial run.
+-- =====================================================================
+
+-- SEMI (IN)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.post_id
+FROM mpp_rp_posts p
+WHERE p.user_id IN (SELECT u.user_id FROM mpp_rp_users u WHERE u.id @@@ pdb.all() AND u.user_id < 20)
+AND p.title @@@ 'post'
+ORDER BY p.post_id
+LIMIT 5;
+
+SELECT p.post_id
+FROM mpp_rp_posts p
+WHERE p.user_id IN (SELECT u.user_id FROM mpp_rp_users u WHERE u.id @@@ pdb.all() AND u.user_id < 20)
+AND p.title @@@ 'post'
+ORDER BY p.post_id
+LIMIT 5;
+
+-- ANTI (NOT EXISTS)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.post_id
+FROM mpp_rp_posts p
+WHERE NOT EXISTS (
+    SELECT 1 FROM mpp_rp_users u
+    WHERE u.user_id = p.user_id AND u.id @@@ pdb.all() AND u.user_id < 20
+)
+AND p.title @@@ 'post'
+ORDER BY p.post_id
+LIMIT 5;
+
+SELECT p.post_id
+FROM mpp_rp_posts p
+WHERE NOT EXISTS (
+    SELECT 1 FROM mpp_rp_users u
+    WHERE u.user_id = p.user_id AND u.id @@@ pdb.all() AND u.user_id < 20
+)
+AND p.title @@@ 'post'
+ORDER BY p.post_id
+LIMIT 5;
+
+-- Outer (LEFT JOIN)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.post_id, u.user_id
+FROM mpp_rp_posts p
+LEFT JOIN mpp_rp_users u ON u.user_id = p.user_id AND u.user_id < 20
+WHERE p.title @@@ 'post'
+ORDER BY p.post_id
+LIMIT 5;
+
+SELECT p.post_id, u.user_id
+FROM mpp_rp_posts p
+LEFT JOIN mpp_rp_users u ON u.user_id = p.user_id AND u.user_id < 20
+WHERE p.title @@@ 'post'
+ORDER BY p.post_id
+LIMIT 5;
+
+-- FULL OUTER JOIN (unmatched users sort first)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.post_id, u.user_id
+FROM (SELECT * FROM mpp_rp_posts WHERE title @@@ 'post' AND post_id <= 20) p
+FULL JOIN (SELECT * FROM mpp_rp_users WHERE id @@@ pdb.all() AND user_id < 10) u
+    ON u.user_id = p.user_id
+ORDER BY p.post_id NULLS FIRST, u.user_id
+LIMIT 12;
+
+SELECT p.post_id, u.user_id
+FROM (SELECT * FROM mpp_rp_posts WHERE title @@@ 'post' AND post_id <= 20) p
+FULL JOIN (SELECT * FROM mpp_rp_users WHERE id @@@ pdb.all() AND user_id < 10) u
+    ON u.user_id = p.user_id
+ORDER BY p.post_id NULLS FIRST, u.user_id
+LIMIT 12;
+
+-- MARK (IN under OR)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.post_id
+FROM mpp_rp_posts p
+WHERE p.title ||| 'post'
+AND (p.user_id IS NULL OR p.user_id IN (SELECT u.user_id FROM mpp_rp_users u))
+ORDER BY p.post_id DESC
+LIMIT 5;
+
+SELECT p.post_id
+FROM mpp_rp_posts p
+WHERE p.title ||| 'post'
+AND (p.user_id IS NULL OR p.user_id IN (SELECT u.user_id FROM mpp_rp_users u))
+ORDER BY p.post_id DESC
+LIMIT 5;
+
+-- =====================================================================
+-- Scenario 9: A null-aware anti join (NOT IN) keeps its broadcast
+--
+-- One NULL user_id makes every NOT IN comparison UNKNOWN, so the query
+-- returns no rows. The task holding the NULL is the only one that could
+-- see it, so this join must stay mode=CollectLeft.
+-- =====================================================================
+
+INSERT INTO mpp_rp_users (user_id, user_name) VALUES (NULL, 'nobody');
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) FROM (
+    SELECT p.post_id
+    FROM mpp_rp_posts p
+    WHERE p.post_id IN (SELECT u.user_id FROM mpp_rp_users u)
+    AND p.user_id NOT IN (SELECT u.user_id FROM mpp_rp_users u WHERE u.user_id < 20 OR u.user_id IS NULL)
+    AND p.title ||| 'post'
+    ORDER BY p.post_id
+    LIMIT 1000
+) sub;
+
+SELECT count(*) FROM (
+    SELECT p.post_id
+    FROM mpp_rp_posts p
+    WHERE p.post_id IN (SELECT u.user_id FROM mpp_rp_users u)
+    AND p.user_id NOT IN (SELECT u.user_id FROM mpp_rp_users u WHERE u.user_id < 20 OR u.user_id IS NULL)
+    AND p.title ||| 'post'
+    ORDER BY p.post_id
+    LIMIT 1000
+) sub;
 
 -- =====================================================================
 -- Cleanup

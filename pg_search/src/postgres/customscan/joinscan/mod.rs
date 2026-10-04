@@ -145,7 +145,7 @@ pub mod scan_state;
 pub mod visibility_filter;
 pub mod window_func;
 
-pub use self::build::CtidColumn;
+pub use self::build::{CtidColumn, ScoreColumn};
 use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
@@ -1361,6 +1361,16 @@ impl CustomScan for JoinScan {
         }
 
         if !join_clause.order_by.is_empty() {
+            let score_name = |rti: &pg_sys::Index| {
+                join_clause
+                    .plan
+                    .sources()
+                    .iter()
+                    .find(|s| s.contains_rti(*rti))
+                    .map(|s| ScoreColumn::new(s.display_alias()).to_string())
+                    .unwrap_or_else(|| ScoreColumn::new("?").to_string())
+            };
+
             explainer.add_text(
                 "Order By",
                 join_clause
@@ -1369,6 +1379,13 @@ impl CustomScan for JoinScan {
                     .map(|oi| match &oi.feature {
                         OrderByFeature::Field { name: f, .. } => {
                             format!("{} {}", f, oi.direction.as_ref())
+                        }
+                        OrderByFeature::Score { rti } => {
+                            format!("{} {}", score_name(rti), oi.direction.as_ref())
+                        }
+                        OrderByFeature::ScoreSum { rtis } => {
+                            let scores: Vec<String> = rtis.iter().map(score_name).collect();
+                            format!("{} {}", scores.join(" + "), oi.direction.as_ref())
                         }
                         OrderByFeature::Var { rti, attno, name } => {
                             if let Some(info) = base_relations.iter().find(|i| i.heap_rti == *rti) {
@@ -1750,21 +1767,9 @@ impl CustomScan for JoinScan {
                     .iter()
                     .enumerate()
                     .map(|(out_idx, col_info)| match col_info {
-                        privdat::OutputColumnInfo::Score { plan_position, .. } => {
+                        privdat::OutputColumnInfo::Score { .. } => {
                             let col_alias = format!("col_{}", out_idx + 1);
-                            if let Ok(idx) = schema.index_of(&col_alias) {
-                                Some(idx)
-                            } else if let Some(source) = plan_sources.get(*plan_position) {
-                                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
-                                    .execution(*plan_position);
-                                let score_col = format!("_score_{alias}");
-                                schema
-                                    .index_of(&score_col)
-                                    .ok()
-                                    .or_else(|| schema.index_of(privdat::SCORE_COL_NAME).ok())
-                            } else {
-                                schema.index_of(privdat::SCORE_COL_NAME).ok()
-                            }
+                            schema.index_of(&col_alias).ok()
                         }
                         privdat::OutputColumnInfo::Unnested {
                             source_rti,

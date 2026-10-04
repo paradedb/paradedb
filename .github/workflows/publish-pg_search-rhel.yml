@@ -1,9 +1,7 @@
 # workflows/publish-pg_search-rhel.yml
 #
 # Publish pg_search (Red Hat)
-# Build and publish the pg_search extension as .rpm to GitHub Releases. This
-# workflow is triggered on creation of a GitHub Tag, but beta releases get filtered
-# out by the `if` condition of the job.
+# Build and publish the pg_search extension as signed .rpm packages to GitHub Releases.
 
 name: Publish pg_search (Red Hat)
 
@@ -14,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        description: "The existing GitHub Release version to upload to, without the v prefix (e.g. 0.25.9). Builds the selected branch or tag."
         required: true
         default: ""
 
@@ -39,6 +37,7 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
     container:
       image: ${{ matrix.image }}
     defaults:
@@ -235,7 +234,7 @@ jobs:
           gh --version
 
       - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache: false # Disable cache on publish workflows
           rustflags: "" # Use .cargo/config.toml target-cpu flags
@@ -376,7 +375,7 @@ jobs:
           rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the .rpm. Works without GitHub Enterprise;
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.

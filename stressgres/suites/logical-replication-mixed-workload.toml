@@ -214,6 +214,9 @@ title = "Postgres Index Only Scan Fallback"
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_seqscan = off;
+SET enable_bitmapscan = off;
 """
 sql_plan_contains = "Index Only Scan"
 sql = """

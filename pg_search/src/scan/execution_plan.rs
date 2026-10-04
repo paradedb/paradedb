@@ -59,7 +59,7 @@ use pgrx::pg_sys;
 use tantivy::Score;
 
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::stats::{PartitionSegments, segments_for_partition};
@@ -618,10 +618,11 @@ impl PgSearchScanPlan {
         | ExecutionState::RangePartitioned { scan_state, .. } = &mut *state
         {
             for wff in scan_state.0.scanner_config.which_fast_fields.iter_mut() {
-                if let WhichFastField::Deferred(name, ty) = wff
+                if let WhichFastField::Named { name, delivery, .. } = wff
+                    && matches!(delivery, FieldDelivery::Deferred)
                     && eager.contains(name)
                 {
-                    *wff = WhichFastField::Named(name.clone(), *ty);
+                    *delivery = FieldDelivery::Eager;
                 }
             }
         }
@@ -800,6 +801,7 @@ impl PgSearchScanPlan {
             // https://github.com/paradedb/paradedb/issues/5445.
             None,
             needs_tokenizer,
+            None,
         )
         .map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
@@ -846,7 +848,7 @@ impl PgSearchScanPlan {
             for d in &deferred {
                 if let Some(ref rb) = d.rebuild {
                     which[d.canonical.ff_index] =
-                        WhichFastField::Named(rb.field_name.clone(), rb.field_type);
+                        WhichFastField::eager(rb.field_name.clone(), rb.field_type);
                 }
             }
             Some(Arc::new(FFHelper::with_fields(&reader, &which)))
@@ -1250,9 +1252,10 @@ impl ExecutionPlan for PgSearchScanPlan {
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let plan_metrics = self.metrics.clone();
         let schema = self.properties.eq_properties.schema().clone();
-        let score_column_schema_idx: Option<usize> = schema
-            .column_with_name(&WhichFastField::Score.name())
-            .map(|(idx, _)| idx);
+        let score_column_schema_idx: Option<usize> = scanner_config
+            .which_fast_fields
+            .iter()
+            .position(|wff| wff.is_score());
         let dynamic_filters = self.dynamic_filters.clone();
         let scan_fetched_fields: Vec<String> = self
             .deferred_fields
@@ -1312,7 +1315,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             let need_scores = scanner_config
                 .which_fast_fields
                 .iter()
-                .any(|wff| matches!(wff, WhichFastField::Score));
+                .any(|wff| wff.is_score());
             let mut scanner = Scanner::new(
                 search_results,
                 scanner_config.batch_size_hint,
@@ -1339,6 +1342,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             }
 
             let mut pushdown_metric_recorded = false;
+            let mut score_pushdown_metric_recorded = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let (pre_filters, score_threshold) =
@@ -1379,6 +1383,13 @@ impl ExecutionPlan for PgSearchScanPlan {
                     }
                 }
 
+                if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
+                    MetricBuilder::new(&plan_metrics)
+                        .counter("dynamic_filter_pushdown_score", target_partition)
+                        .add(1);
+                    score_pushdown_metric_recorded = true;
+                }
+
                 match next_batch {
                     Some(batch) => {
                         let record_batch = batch.to_record_batch(&schema);
@@ -1396,6 +1407,11 @@ impl ExecutionPlan for PgSearchScanPlan {
                             };
                             MetricBuilder::new(&plan_metrics)
                                 .counter(metric_name, target_partition)
+                                .add(1);
+                        }
+                        if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
+                            MetricBuilder::new(&plan_metrics)
+                                .counter("dynamic_filter_pushdown_score", target_partition)
                                 .add(1);
                         }
                         // Flush pre-materialization filter stats from Scanner.

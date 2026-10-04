@@ -15,7 +15,8 @@ SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1]
 FROM generate_series(1, 120) g;
 
 CREATE INDEX having_items_idx ON having_items
-USING paradedb (id, account_id, (kind::pdb.literal));
+USING paradedb (id, account_id, (kind::pdb.literal))
+WITH (key_field = 'id');
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 

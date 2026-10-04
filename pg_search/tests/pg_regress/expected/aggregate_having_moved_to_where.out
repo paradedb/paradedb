@@ -16,7 +16,8 @@ INSERT INTO having_items (account_id, kind)
 SELECT (g % 3) + 1, (ARRAY['a', 'b', 'c', 'd'])[(g % 4) + 1]
 FROM generate_series(1, 120) g;
 CREATE INDEX having_items_idx ON having_items
-USING paradedb (id, account_id, (kind::pdb.literal));
+USING paradedb (id, account_id, (kind::pdb.literal))
+WITH (key_field = 'id');
 SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test 1: HAVING on a GROUP BY key'
 Test 1: HAVING on a GROUP BY key
@@ -159,7 +160,7 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
                Table: having_items
                Index: having_items_idx
                Exec Method: ColumnarExecState
-               Columnar: account_id
+               Fast Fields: account_id
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
@@ -203,7 +204,7 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
                Table: having_items
                Index: having_items_idx
                Exec Method: ColumnarExecState
-               Columnar: account_id
+               Fast Fields: account_id
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
@@ -230,13 +231,13 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
 Test 6: a constant true HAVING on an aggregate without GROUP BY
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
-                      QUERY PLAN                       
--------------------------------------------------------
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
    Index: having_items_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"filter":"*"}}
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 SELECT COUNT(*) FROM having_items WHERE id @@@ paradedb.all() HAVING 1 = 1;
@@ -312,7 +313,7 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
                Table: having_items
                Index: having_items_idx
                Exec Method: ColumnarExecState
-               Columnar: account_id
+               Fast Fields: account_id
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}

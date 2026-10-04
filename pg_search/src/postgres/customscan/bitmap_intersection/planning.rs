@@ -26,6 +26,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::planner_warnings::add_planner_warning;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::strip_relabel;
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
 
@@ -746,15 +747,6 @@ impl IndexClause {
 
     fn into_pg(self) -> *mut pg_sys::IndexClause {
         self.0
-    }
-}
-
-unsafe fn strip_relabel(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    unsafe {
-        while (*node).type_ == pg_sys::NodeTag::T_RelabelType {
-            node = (*node.cast::<pg_sys::RelabelType>()).arg.cast();
-        }
-        node
     }
 }
 

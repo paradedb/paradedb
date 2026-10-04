@@ -77,7 +77,7 @@ fn index_sort_by_desc_multi_segment(mut conn: PgConnection) {
 
     // Verify we have multiple segments
     let (plan,): (Value,) = r#"
-        EXPLAIN (ANALYZE, FORMAT JSON)
+        EXPLAIN (FORMAT JSON)
         SELECT id, rank FROM test_sort_desc
         WHERE description ||| 'Document'
         ORDER BY rank DESC
@@ -533,7 +533,7 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
     }
 
     // Verify we actually have multiple segments, so we're testing cross-segment merge ordering.
-    let explain_sql = format!("EXPLAIN (ANALYZE, FORMAT JSON) {query}");
+    let explain_sql = format!("EXPLAIN (FORMAT JSON) {query}");
     let (plan,): (Value,) = explain_sql.fetch_one(&mut conn);
     let segment_count = plan
         .pointer("/0/Plan/Plans/0/Plans/0/Segment Count")
@@ -929,7 +929,7 @@ fn index_sort_by_many_segments(mut conn: PgConnection) {
 
     // Verify we have many segments
     let (plan,): (Value,) = r#"
-        EXPLAIN (ANALYZE, FORMAT JSON)
+        EXPLAIN (FORMAT JSON)
         SELECT id, score FROM test_many_segments
         WHERE content ||| 'Item'
         ORDER BY score DESC

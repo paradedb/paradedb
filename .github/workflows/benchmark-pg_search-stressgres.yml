@@ -206,7 +206,6 @@ jobs:
           cache_on_failure: "true"
           extra_packages: >-
             lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld gdb
-            postgresql-${{ env.pg_version }}-pgvector
 
       - name: Enable Crash Dumps
         run: ./.github/scripts/setup_crashdumps.sh

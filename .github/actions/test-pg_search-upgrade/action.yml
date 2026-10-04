@@ -126,8 +126,11 @@ runs:
       shell: bash
       run: |
         SYNTHETIC_VERSION="999.0.0"
+        # The newest tag in the repository can belong to a later release line, which
+        # would leave this branch's own release without a path to the synthetic version.
+        PREV_VERSION=$(./.github/scripts/latest_release_tag.sh)
         ./scripts/release.sh set-version "$SYNTHETIC_VERSION" --skip-nix
-        ./scripts/release.sh sql "$SYNTHETIC_VERSION" --preserve-fragments
+        ./scripts/release.sh sql "$SYNTHETIC_VERSION" --prev-version "${PREV_VERSION#v}" --preserve-fragments
 
     - name: Compile & install pg_search
       working-directory: pg_search/

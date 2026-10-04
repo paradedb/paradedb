@@ -45,8 +45,7 @@ jobs:
         id: compute
         run: |
           set -euo pipefail
-          TAGS=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
-          LATEST_TAG=$(echo "$TAGS" | tail -n 1)
+          LATEST_TAG=$(./.github/scripts/latest_release_tag.sh)
           if [ -z "$LATEST_TAG" ]; then
             echo "Could not determine latest tag" >&2
             exit 1

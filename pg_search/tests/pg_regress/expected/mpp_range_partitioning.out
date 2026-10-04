@@ -1055,33 +1055,29 @@ LIMIT 5;
      : ┌───── DistributedExec
      : │ ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, topic_id@1 as col_4, post_id@3 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
      : │   SortPreservingMergeExec: [topic_id@1 ASC NULLS LAST, post_id@3 ASC NULLS LAST], fetch=5
-     : │     [Stage 3] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 3 ── tasks=2, partitions=2
+     :   ┌───── Stage 2 ── tasks=3, partitions=3
      :   │ SortExec: TopK(fetch=5), expr=[topic_id@1 ASC NULLS LAST, post_id@3 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[t, p, u]
      :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(user_id@3, user_id@1)], projection=[ctid_0@0, topic_id@1, ctid_1@2, post_id@4, ctid_2@5]
-     :   │       [Stage 2] => NetworkShuffleExec: output_partitions=1, input_tasks=3
+     :   │       [Stage 1] => NetworkShuffleExec: output_partitions=1, input_tasks=2
      :   │       DistributedLeafExec:
      :   │         t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=user_id[-∞..34), dynamic_filters=1, query="all"
-     :   │         t1: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=user_id[34..∞), dynamic_filters=1, query="all"
+     :   │         t1: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=user_id[34..67), dynamic_filters=1, query="all"
+     :   │         t2: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=user_id[67..∞), dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 2 ── tasks=3, partitions=2
-     :     │ RepartitionExec: partitioning=Range([user_id@3 ASC], [(34)], 2), input_partitions=1
+     :     ┌───── Stage 1 ── tasks=2, partitions=3
+     :     │ RepartitionExec: partitioning=Range([user_id@3 ASC], [(34), (67)], 3), input_partitions=1
      :     │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(topic_id@1, topic_id@2)], projection=[ctid_0@0, topic_id@1, ctid_1@2, user_id@3, post_id@5]
      :     │     DistributedLeafExec:
-     :     │       t0: PgSearchScan: table=t, segments={partial=0, included=1, pruned=2}, partition=topic_id[-∞..4), query="all"
-     :     │       t1: PgSearchScan: table=t, segments={partial=0, included=1, pruned=2}, partition=topic_id[4..7), query="all"
-     :     │       t2: PgSearchScan: table=t, segments={partial=0, included=1, pruned=2}, partition=topic_id[7..∞), query="all"
-     :     │     [Stage 1] => NetworkShuffleExec: output_partitions=1, input_tasks=2
+     :     │       t0: PgSearchScan: table=t, segments={partial=1, included=1, pruned=1}, partition=topic_id[-∞..6), query="all"
+     :     │       t1: PgSearchScan: table=t, segments={partial=1, included=1, pruned=1}, partition=topic_id[6..∞), query="all"
+     :     │     DistributedLeafExec:
+     :     │       t0: PgSearchScan: table=p, segments={partial=1, included=1, pruned=1}, partition=topic_id[-∞..6), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
+     :     │       t1: PgSearchScan: table=p, segments={partial=1, included=1, pruned=1}, partition=topic_id[6..∞), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
-     :       ┌───── Stage 1 ── tasks=2, partitions=3
-     :       │ RepartitionExec: partitioning=Range([topic_id@2 ASC], [(4), (7)], 3), input_partitions=1
-     :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=p, segments={partial=0, included=1, pruned=2}, partition=user_id[-∞..34), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
-     :       │     t1: PgSearchScan: table=p, segments={partial=0, included=2, pruned=1}, partition=user_id[34..∞), dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
-     :       └──────────────────────────────────────────────────
-(36 rows)
+(32 rows)
 
 SELECT t.topic_name, p.title, u.user_name
 FROM mpp_rp_topics t
@@ -1158,9 +1154,9 @@ LIMIT 5;
      :     ┌───── Stage 1 ── tasks=3, partitions=6
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=t, segments={partial=0, included=1, pruned=2}, partition=topic_id[-∞..4), query="all"
-     :     │     t1: PgSearchScan: table=t, segments={partial=0, included=1, pruned=2}, partition=topic_id[4..7), query="all"
-     :     │     t2: PgSearchScan: table=t, segments={partial=0, included=1, pruned=2}, partition=topic_id[7..∞), query="all"
+     :     │     t0: PgSearchScan: table=t, segments=3, query="all"
+     :     │     t1: PgSearchScan: table=t, segments=3, query="all"
+     :     │     t2: PgSearchScan: table=t, segments=3, query="all"
      :     └──────────────────────────────────────────────────
 (33 rows)
 

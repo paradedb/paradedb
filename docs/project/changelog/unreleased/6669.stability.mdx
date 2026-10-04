@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed range-partitioned joins across three or more tables failing to co-partition base tables. Direct leaf joins are now prioritized bottom-up, avoiding unnecessary cross-worker shuffles.

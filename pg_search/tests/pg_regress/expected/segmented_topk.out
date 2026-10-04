@@ -157,7 +157,7 @@ LIMIT 3;
      :   TantivyDecodeExec: decode=[title], metrics=[output_rows=3, output_bytes=128.0 B, output_batches=1]
      :     TantivyFetchExec: fetch=[title], metrics=[output_rows=3, output_bytes=48.0 B, output_batches=1]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_seen=1]
-     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=50, output_bytes=64.4 KB, output_batches=1]
+     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=50, output_bytes=64.4 KB, output_batches=1, ctids_fetched=50, ctids_lazy=0]
      :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], metrics=[output_rows=50, output_bytes=128.0 KB, output_batches=1, build_mem_used=304.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=50, avg_fanout=100% (50/50), probe_hit_rate=100% (50/50)]
      :             CooperativeExec
      :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=112.0 B, output_batches=1]
@@ -700,7 +700,7 @@ LIMIT 5;
      :   TantivyDecodeExec: decode=[title], metrics=[output_rows=5, output_bytes=248.0 B, output_batches=1]
      :     TantivyFetchExec: fetch=[title], metrics=[output_rows=5, output_bytes=80.0 B, output_batches=1]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=5, metrics=[rows_input=14.42 K, rows_output=5, segments_seen=2]
-     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=14.42 K, output_bytes=240.6 KB, output_batches=2]
+     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=14.42 K, output_bytes=240.6 KB, output_batches=2, ctids_fetched=14.42 K, ctids_lazy=0]
      :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], metrics=[output_rows=14.42 K, output_bytes=256.0 KB, output_batches=2, build_mem_used=204.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=14.42 K, avg_fanout=100% (14.42 K/14.42 K), probe_hit_rate=55.81% (14.42 K/25.83 K)]
      :             CooperativeExec
      :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=80.0 B, output_batches=1]

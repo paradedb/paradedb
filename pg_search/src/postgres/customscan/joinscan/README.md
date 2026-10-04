@@ -54,6 +54,8 @@ String columns are emitted as a [packed `UInt64`](../../../scan/deferred_encode.
 
 The lookup has two halves with different access patterns, so they are separate nodes. [`TantivyFetchExec`][fetch-exec] reads the columnar field (doc_address → term_ordinal); it wants doc order, which a join above the scan no longer keeps. [`TantivyDecodeExec`][decode-exec] reads the segment dictionary (term_ordinal → string); it is random access either way, and ordinals are much narrower than strings, so it can move above joins and shuffles at the same cost per row. The planner places the two next to each other and [`DeferredPlacementRule`](../../../scan/deferred_placement_rule.rs) then moves either half into the scan when the path above would run it out of doc order or on multiplied rows. `paradedb.defer_column_fetch` and `paradedb.defer_string_decode` pin each half instead.
 
+CTID columns are also deferred to eliminate redundant fast-field decompression and reads. Under [`VisibilityFilterExec`](visibility_filter.rs), for all-visible blocks confirmed via PostgreSQL's visibility map and `.ctid_map`, CTID fetching is deferred: the node emits a tagged `DocAddress` ([`DeferredCtid`](../../../scan/deferred_encode.rs), with bit 63 set) rather than reading the `ctid` fast field. Real CTIDs are only fetched for dirty blocks where checking heap MVCC visibility is strictly required. [`VisibilityFilterExec`](visibility_filter.rs) tracks execution metrics (`ctids_fetched` and `ctids_lazy`) to report how many CTIDs were decompressed/read from fast fields versus how many remained deferred. For queries where limits or joins discard candidate rows, these decompressed fast-field CTIDs are never read. When surviving rows reach `JoinScanState`, `resolve_batch_ctids` resolves any remaining `DocAddress` values in batch using `FFHelper` right before tuple construction.
+
 ### 5. Pruning Path
 
 There are two primary pruning mechanisms for dynamic filters that are pushed down to the scan:
@@ -64,7 +66,7 @@ There are two primary pruning mechanisms for dynamic filters that are pushed dow
 
 ### 6. Execution Result
 
-After all input is consumed, `SegmentedTopKExec` materializes sort column values, performs the final sort, and emits exactly K rows. The lookup above it fetches and decodes deferred strings for those K rows only. JoinScanState extracts CTIDs and fetches heap tuples — the only point where the PostgreSQL heap is accessed.
+After all input is consumed, `SegmentedTopKExec` materializes sort column values, performs the final sort, and emits exactly K rows. The lookup above it fetches and decodes deferred strings for those K rows only. As each surviving `RecordBatch` is received, `JoinScanState` resolves any deferred CTIDs (unresolved `DocAddress`es from all-visible blocks) in batch via `FFHelper`. It then fetches heap tuples — the only point where the PostgreSQL heap is accessed.
 
 ### 7. MPP Execution and Parallelism
 

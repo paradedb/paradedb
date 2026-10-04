@@ -654,7 +654,10 @@ impl Scanner {
                 // ordinals were already read, by a pre-filter or because the column is
                 // fetched in the scan, in which case it leaves as packed ordinals (State 1).
                 WhichFastField::DeferredCtid(_) => Some(Arc::new(
-                    crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
+                    crate::scan::deferred_encode::pack_deferred_ctid_doc_addresses(
+                        segment_ord,
+                        &ids,
+                    ),
                 ) as ArrayRef),
                 WhichFastField::Named {
                     delivery: FieldDelivery::Deferred,

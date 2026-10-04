@@ -26,12 +26,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install PostgreSQL ${{ inputs.pg_version }} and Build Dependencies
-      uses: ./.github/actions/setup-postgres
-      with:
-        pg_version: ${{ inputs.pg_version }}
-        extra_packages: ${{ inputs.extra_packages }}
-
     - name: Set Up pg_search Toolchain
       uses: ./.github/actions/setup-pg-search-toolchain
       with:
@@ -40,8 +34,9 @@ runs:
         cache_save: ${{ inputs.cache_save }}
         cache_on_failure: ${{ inputs.cache_on_failure }}
 
-    - name: Initialize pgrx Environment
-      shell: bash
-      env:
-        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
-      run: cargo pgrx init "--pg${INPUTS_PG_VERSION}=/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config"
+    - name: Install PostgreSQL ${{ inputs.pg_version }} and Build Dependencies
+      id: postgres
+      uses: ./.github/actions/setup-postgres
+      with:
+        pg_version: ${{ inputs.pg_version }}
+        extra_packages: ${{ inputs.extra_packages }}

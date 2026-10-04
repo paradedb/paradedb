@@ -29,7 +29,7 @@ runs:
         cache_prefix_key: "v2-benchmarks-rust-cache"
         cache_save: "true"
         cache_on_failure: "true"
-        extra_packages: lld libopenblas-dev postgresql-${{ inputs.pg_version }}-pgvector gdb
+        extra_packages: lld libopenblas-dev gdb
 
     - name: Enable Crash Dumps
       shell: bash

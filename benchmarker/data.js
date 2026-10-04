@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791056200185,
+  "lastUpdate": 1791099911787,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7562,6 +7562,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 727.857,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6c5c3e58738f385dbc2e358046eb6b2123fb52b",
+          "message": "perf: keep the first range partition's NULLs with an exclusion, not a union (#6592)\n\n## Ticket(s) Closed\n\n- Closes #6591\n\n## What\n\nThis PR writes the first range partition's bounds as `all AND NOT (key\n>= upper)` instead of `range OR (all AND NOT exists)`, and adds a\nregress test that compares range co-partitioned joins over crossing\nsegments with their serial runs.\n\n## Why\n\nThe first partition also takes the rows with a NULL key. In a segment\nthat crosses its edge, the old union walked every document however few\nrows the base query matched, so that task lagged the others.\n\n## How\n\nThe rows of the first partition are the ones not at or above its upper\nedge. The NULLs stay in, and the base query drives the scan as it does\nfor the other partitions. The other shapes (a NULL split point, a single\npartition) are unchanged.\n\n## Tests\n\n- `range_partition_crossing_segments` regress test\n- `pg_partition_filter_is_omitted_only_when_redundant`\n- `pg_test_range_partitioning_points_identical_values`\n\n## Benchmark\n\n20M, range variants, ms, `main` at `63152b584` against this PR. The\nother joins are within 4%.\n\n| Query | `main` | this PR |\n| --- | ---: | ---: |\n| `join_semi_filter` | 87 | 68 |\n| `join_top_k_score_desc_low_selectivity` | 102 | 80 |\n| `join_permissioned_search` | 104 | 84 |\n| `join_conjunctive_score_sort` | 115 | 131 |\n\nThe loss is one task, where the first partition's posts scan, goes from\n7 to 23 ms. Posts are partitioned on `id` and stored in `id` order, so\nthe excluded docs of a crossing segment form one tail, and `Exclude` has\nno `seek_danger` of its own, so a probe into the tail walks to the end\nof the segment. A `seek_danger` for `Exclude` in Tantivy removes that\nwalk. That goes in https://github.com/paradedb/paradedb/pull/6658.",
+          "timestamp": "2026-10-03T23:36:05-07:00",
+          "tree_id": "a7d5409fd5cc6a02379c4f0446946ddec61f8a08",
+          "url": "https://github.com/paradedb/paradedb/commit/e6c5c3e58738f385dbc2e358046eb6b2123fb52b"
+        },
+        "date": 1791099909366,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 17.066,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 151.642,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 53.645,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 239.259,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 17.998,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 171.309,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.62,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 212.221,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.865,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 732.096,
             "unit": "ms"
           }
         ]

@@ -1292,30 +1292,23 @@ pub mod mvcc_collector {
                 VisibilityMask::Some(mask) => {
                     // In-place compaction of visible docs.
                     let mut write_idx = 0;
-                    if self.requires_scoring {
-                        for (read_idx, &is_vis) in mask.iter().enumerate() {
-                            if is_vis {
-                                self.doc_buffer[write_idx] = self.doc_buffer[read_idx];
+                    for (read_idx, &is_vis) in mask.iter().enumerate() {
+                        if is_vis {
+                            self.doc_buffer[write_idx] = self.doc_buffer[read_idx];
+                            if self.requires_scoring {
                                 self.score_buffer[write_idx] = self.score_buffer[read_idx];
-                                write_idx += 1;
                             }
+                            write_idx += 1;
                         }
-                        self.doc_buffer.truncate(write_idx);
+                    }
+                    self.doc_buffer.truncate(write_idx);
+                    if self.requires_scoring {
                         self.score_buffer.truncate(write_idx);
                         for (&doc, &score) in self.doc_buffer.iter().zip(self.score_buffer.iter()) {
                             self.inner.collect(doc, score);
                         }
-                    } else {
-                        for (read_idx, &is_vis) in mask.iter().enumerate() {
-                            if is_vis {
-                                self.doc_buffer[write_idx] = self.doc_buffer[read_idx];
-                                write_idx += 1;
-                            }
-                        }
-                        self.doc_buffer.truncate(write_idx);
-                        if !self.doc_buffer.is_empty() {
-                            self.inner.collect_block(&self.doc_buffer);
-                        }
+                    } else if !self.doc_buffer.is_empty() {
+                        self.inner.collect_block(&self.doc_buffer);
                     }
                 }
             }

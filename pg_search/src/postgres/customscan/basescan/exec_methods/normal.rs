@@ -15,11 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
-
 use tantivy::{DocAddress, DocId, SegmentOrdinal};
 
-use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
@@ -42,7 +39,7 @@ pub struct NormalScanExecState {
     limit_offset: Option<LimitOffset>,
     limit: Option<usize>,
     emitted: usize,
-    last_emitted: usize,
+    last_emitted: Option<usize>,
     batch_scale: usize,
 
     can_use_visibility_map: bool,
@@ -67,7 +64,7 @@ impl NormalScanExecState {
             limit_offset,
             limit: None,
             emitted: 0,
-            last_emitted: 0,
+            last_emitted: None,
             batch_scale: 1,
             can_use_visibility_map: false,
             slot: std::ptr::null_mut(),
@@ -87,11 +84,18 @@ impl NormalScanExecState {
         self.batch_idx = 0;
 
         loop {
-            if self.emitted == self.last_emitted {
-                self.batch_scale = (self.batch_scale * 2).min(BATCH_SIZE);
-            } else {
-                self.batch_scale = 1;
-                self.last_emitted = self.emitted;
+            match self.last_emitted {
+                None => {
+                    self.batch_scale = 1;
+                    self.last_emitted = Some(self.emitted);
+                }
+                Some(last) if self.emitted == last => {
+                    self.batch_scale = (self.batch_scale * 2).min(BATCH_SIZE);
+                }
+                Some(_) => {
+                    self.batch_scale = 1;
+                    self.last_emitted = Some(self.emitted);
+                }
             }
 
             let needed = match self.limit {
@@ -161,11 +165,6 @@ impl NormalScanExecState {
             return;
         }
 
-        if state.visibility_checker().ffhelper().is_none() {
-            let ffhelper = Arc::new(FFHelper::for_ctid(state.search_reader.as_ref().unwrap()));
-            state.visibility_checker().set_ffhelper(ffhelper);
-        }
-
         if self.can_use_visibility_map {
             let mask = state.visibility_checker().check_segment_docs_mask(
                 seg_ord,
@@ -183,16 +182,15 @@ impl NormalScanExecState {
                 .as_u64s(&self.batch_doc_ids, &mut self.batch_ctids);
 
             for (i, maybe_ctid) in self.batch_ctids.iter().enumerate() {
-                if let Some(ctid) = *maybe_ctid {
-                    self.prepared_batch.push(PreparedItem::FromHeap {
-                        ctid,
-                        score: self.batch_scores[i],
-                        doc_address: DocAddress {
-                            segment_ord: seg_ord,
-                            doc_id: self.batch_doc_ids[i],
-                        },
-                    });
-                }
+                let ctid = maybe_ctid.expect("doc in search index must have a ctid");
+                self.prepared_batch.push(PreparedItem::FromHeap {
+                    ctid,
+                    score: self.batch_scores[i],
+                    doc_address: DocAddress {
+                        segment_ord: seg_ord,
+                        doc_id: self.batch_doc_ids[i],
+                    },
+                });
             }
         }
     }
@@ -287,7 +285,7 @@ impl ExecMethod for NormalScanExecState {
         self.prepared_batch.clear();
         self.batch_idx = 0;
         self.emitted = 0;
-        self.last_emitted = 0;
+        self.last_emitted = None;
         self.batch_scale = 1;
     }
 }

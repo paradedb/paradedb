@@ -2262,7 +2262,7 @@ impl SearchIndexReader {
         (first_orderby_info, erased_features)
     }
 
-    pub(crate) fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
+    fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
         self.segment_stats_snapshot.segment_ordinal(*segment_id)
     }
 

@@ -33,13 +33,13 @@
 
 ## Installation
 
-To install ParadeDB locally in a fresh Docker container and drop straight into a `psql` session:
+To run ParadeDB locally with Docker and open a `psql` session:
 
 ```bash
 curl -fsSL https://paradedb.com/install.sh | sh
 ```
 
-When you're ready to deploy, check out our [hosting options](https://www.paradedb.com/docs/operate/deploy/overview).
+When you're ready to deploy, get started on [ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud) for a fully managed experience, or explore our [self-hosted deployment options](https://www.paradedb.com/docs/operate/deploy/overview).
 
 ## What is ParadeDB?
 
@@ -90,13 +90,13 @@ ParadeDB integrates with the tools you already use, with more on the way.
 - [MCP Integration](https://www.paradedb.com/docs/start/ai-agents)
 - [Cursor Plugin](https://cursor.com/marketplace/parade-db)
 
-### PaaS & Cloud Platforms
+### PaaS Providers
 
 - [Railway](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/railway)
 - [Render](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/render)
 - [Fly.io](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/fly)
-- [DigitalOcean](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/digitalocean)
 - [Dokku](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/dokku)
+- [DigitalOcean](https://www.paradedb.com/docs/operate/deploy/cloud-platforms/digitalocean)
 
 ## Community & Support
 
@@ -111,4 +111,6 @@ We welcome contributions of all sizes! Check out our [good first issues](https:/
 
 ## License
 
-ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE). For [ParadeDB Enterprise](https://www.paradedb.com/docs/operate/deploy/enterprise) licensing, contact [sales@paradedb.com](mailto:sales@paradedb.com).
+ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+[ParadeDB Enterprise](https://www.paradedb.com/docs/operate/deploy/enterprise) is commercially licensed and included with [ParadeDB Cloud](https://www.paradedb.com/docs/operate/deploy/cloud). To self-host ParadeDB Enterprise, [contact sales](mailto:sales@paradedb.com).

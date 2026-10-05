@@ -50,10 +50,10 @@ use super::window_func::{
     SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
-use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
+use crate::index::fast_fields_helper::{FFHelper, FieldCardinality, WhichFastField};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
-    self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
+    self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias, ScoreColumn,
 };
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
@@ -66,9 +66,7 @@ use crate::postgres::customscan::datafusion::translator::{
     apply_relnode_unnest, build_join_df_with_filter, make_col, make_source_col,
     make_source_score_col, make_source_unnested_col, translate_pg_node_string,
 };
-use crate::postgres::customscan::joinscan::privdat::{
-    OutputColumnInfo, PrivateData, SCORE_COL_NAME,
-};
+use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, PrivateData};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -294,6 +292,8 @@ pub struct RelationState {
     pub fetch_slot: *mut pg_sys::TupleTableSlot,
     /// Index of the CTID column for this relation in the result RecordBatch.
     pub ctid_col_idx: Option<usize>,
+    /// Fast-field helper for resolving deferred CTIDs in batch at the top of the plan.
+    pub ffhelper: Option<Arc<FFHelper>>,
 }
 
 crate::impl_safe_drop!(RelationState, |self| {
@@ -1476,13 +1476,7 @@ fn build_projection_expr(
     match proj {
         ChildProjection::Score { rti } => {
             for source in plan_sources.iter() {
-                if let Some(attno) = source.map_var(*rti, 0) {
-                    if let Some(name) = source.column_name(attno) {
-                        return make_source_col(source, &name);
-                    } else {
-                        return make_source_score_col(source);
-                    }
-                } else if source.contains_rti(*rti) {
+                if source.contains_rti(*rti) {
                     return make_source_score_col(source);
                 }
             }
@@ -1675,6 +1669,10 @@ fn build_source_df<'a>(
             }
         }
 
+        let display_alias =
+            RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
+
+        provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
         provider.configure_deferred_outputs(
             &required_early,
             VisibilityMode::Deferred { plan_position },
@@ -1692,7 +1690,6 @@ fn build_source_df<'a>(
                 Some(WhichFastField::Ctid) => {
                     make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
                 }
-                Some(WhichFastField::Score) => make_col(alias.as_str(), SCORE_COL_NAME),
                 _ => make_col(alias.as_str(), name),
             };
 

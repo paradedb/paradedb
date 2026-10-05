@@ -1136,3 +1136,17 @@ mod tests {
         assert_eq!(decoded(&bytes[..bytes.len() - 5]), first);
     }
 }
+
+#[cfg(test)]
+mod vector_alignment_tests {
+    use super::*;
+
+    // Every storage page preserves the alignment required by vector element decoders.
+    #[test]
+    fn page_data_and_capacity_preserve_vector_element_alignment() {
+        let data_start = unsafe { pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp)) };
+        let alignment = tantivy::vector::ENTRY_ALIGN;
+        assert_eq!(data_start % alignment, 0);
+        assert_eq!(bm25_max_free_space() % alignment, 0);
+    }
+}

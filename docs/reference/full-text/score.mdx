@@ -4,6 +4,13 @@ description: BM25 scores sort the result set by relevance
 canonical: https://www.paradedb.com/docs/reference/full-text/score
 ---
 
+<Note>
+  For optimal performance on top K queries ordered by BM25 score, consider
+  setting `pnorms=true` when creating your index. See [Faster BM25
+  Queries](/reference/indexing/faster-bm25-queries) for setup and tradeoffs.
+  Available in versions `0.26.0` and above.
+</Note>
+
 BM25 scores measure how relevant a document is for a given query. Higher scores indicate higher relevance.
 
 To adjust term frequency saturation and length normalization per field, see [BM25 Parameters](/reference/indexing/create-index#bm25-parameters).

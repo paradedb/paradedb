@@ -239,12 +239,12 @@ ORDER BY paradedb.score(p.id) DESC, p.name
    Join Cond: p.supplier_id = s.id
    Limit: 10
    Distinct: true
-   Order By: pdb.score() desc, p.name asc
+   Order By: pdb.score(p) desc, p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 DESC, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[name@2 as col_1, pdb.score()@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
+     :   AggregateExec: mode=Single, gby=[name@2 as col_1, pdb.score(p)@0 as col_2], aggr=[min(p_0.ctid_0) as ctid_0]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@2)], projection=[pdb.score()@2, ctid_0@3, name@5, ctid_1@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@2)], projection=[pdb.score(p)@2, ctid_0@3, name@5, ctid_1@1]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query="all"
      :         CooperativeExec
@@ -691,12 +691,12 @@ LIMIT 10;
    Join Predicate: (p:{"with_index":{"query":{"match":{"field":"name","value":"Wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR s:{"with_index":{"query":{"match":{"field":"name","value":"Wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 10
    Distinct: true
-   Order By: pdb.score() desc, p.id asc, p.name asc
+   Order By: pdb.score(p) desc, p.id asc, p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[id@2 as col_1, name@3 as col_2, pdb.score()@0 as col_3], aggr=[min(p_0.ctid_0) as ctid_0]
+     :   AggregateExec: mode=Single, gby=[id@2 as col_1, name@3 as col_2, pdb.score(p)@0 as col_3], aggr=[min(p_0.ctid_0) as ctid_0]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@2)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[pdb.score()@3, ctid_0@4, id@6, name@7, ctid_1@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@2)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[pdb.score(p)@3, ctid_0@4, id@6, name@7, ctid_1@2]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"country","value":"USA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"name","value":"Wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec

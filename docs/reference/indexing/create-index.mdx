@@ -6,7 +6,7 @@ canonical: https://www.paradedb.com/docs/reference/indexing/create-index
 
 Before a table can be queried by ParadeDB, it must be indexed. ParadeDB uses a
 custom index type called the [ParadeDB
-index](/concepts/how-the-paradedb-index-works).
+index](/concepts/architecture#custom-index).
 The following code block creates a ParadeDB index over several columns in the `mock_items` table.
 
 <CodeGroup>
@@ -94,8 +94,8 @@ modelBuilder.Entity<MockItem>()
 </Note>
 
 <Note>
-  See the [Getting Started guide](/start/connect-your-app) for more detail on
-  how to set up your ORM to run index creation commands.
+  See the [Getting Started guide](/start/configure-your-environment) for more
+  detail on how to set up your ORM to run index creation commands.
 </Note>
 
 <Note>
@@ -336,7 +336,7 @@ separate indexing pages cover cases that need extra configuration, such as
 JSON, arrays, composite fields, expressions, vectors, and text fields that need
 columnar storage.
 
-## Track Create Index Progress
+## Tracking Create Index Progress
 
 To monitor the progress of a long-running `CREATE INDEX`, open a separate Postgres connection and query `pg_stat_progress_create_index`:
 
@@ -358,6 +358,21 @@ The `key_field` must:
 1. Have a `UNIQUE` constraint. Usually this means the table's `PRIMARY KEY`.
 2. Be the first column in the column list.
 3. Be untokenized, if it is a text field.
+
+## Index Partitioning (Beta)
+
+To speed up filtered queries by skipping non-matching segments or accelerate parallel joins between tables, you can configure the `partition_by` option:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category, tenant_id)
+WITH (
+  partition_by = 'tenant_id',
+  target_segment_count = 16
+);
+```
+
+See the [Partitioning Guide](/reference/indexing/partition-by) for column selection guidance, data type requirements, and join setup.
 
 ## Token Filters
 

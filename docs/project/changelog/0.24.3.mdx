@@ -4,6 +4,8 @@ description: "ParadeDB release notes for 0.24.3"
 noindex: true
 ---
 
+See GitHub release: [v0.24.3](https://github.com/paradedb/paradedb/releases/tag/v0.24.3)
+
 ## Stability Improvements 💪
 
 - Eagerly abort an index build when it will not fit on disk, failing fast instead of exhausting disk space.
@@ -11,5 +13,3 @@ noindex: true
 - Bound sequential scan memory usage by spilling to a `BufFile`.
 - Use the correct cardinality estimate when routing `GROUP BY` between Tantivy and DataFusion.
 - Return an error instead of silently returning incomplete results when Tantivy truncates results.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.24.3).

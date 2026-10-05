@@ -37,7 +37,7 @@ AS $$
 DECLARE
     plan jsonb;
 BEGIN
-    EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF, FORMAT JSON) '
+    EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, BUFFERS ON, SUMMARY OFF, FORMAT JSON) '
         || query_text
         INTO plan;
     RETURN plan;
@@ -79,10 +79,10 @@ INSERT INTO q_cal_unquantized
 SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
 VACUUM q_cal_unquantized;
 SELECT
-    bool_and(NOT configured_quantized) AS unquantized_false,
-    bool_and(configured_layers IS NULL) AS unquantized_layers_null,
-    bool_and(configured_bytes_per_row IS NULL) AS unquantized_bytes_null,
-    bool_and(configured_format IS NULL) AS unquantized_format_null
+    bool_and(NOT quantized) AS unquantized_false,
+    bool_and(layers IS NULL) AS unquantized_layers_null,
+    bool_and(bytes_per_row IS NULL) AS unquantized_bytes_null,
+    bool_and(quantizer_kinds IS NULL) AS unquantized_format_null
 FROM paradedb.vector_info('q_cal_unquantized_idx', 'vec');
 SELECT * FROM paradedb.vector_estimator_info(
     'q_cal_unquantized_idx',
@@ -150,10 +150,10 @@ VACUUM q_estimator;
 
 SELECT
     bool_or(vector_format = 'ivf') AS cosine_has_ivf,
-    bool_and(configured_quantized) AS cosine_quantized,
-    bool_and(configured_layers = ARRAY[1, 1]) AS cosine_layers,
-    bool_and(configured_bytes_per_row = 212) AS cosine_bytes_per_row,
-    bool_and(configured_format = 3) AS cosine_format
+    bool_and(quantized) AS cosine_quantized,
+    bool_and(layers = ARRAY[1, 1]) AS cosine_layers,
+    bool_and(bytes_per_row = 212) AS cosine_bytes_per_row,
+    bool_and(quantizer_kinds = ARRAY['sign','sign']) AS cosine_kinds
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
 
 CREATE TEMP TABLE q_estimator_held_out AS
@@ -228,6 +228,24 @@ SELECT
         AS diagnostics_absent_skips_ivf_exact
 FROM segment_info;
 SET paradedb.vector_cluster_max_probe = 1.0;
+
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT count(*) > 0 AND bool_and(COALESCE(
+    jsonb_typeof(segment.value -> required.key) = 'number'
+        AND (segment.value ->> required.key)::numeric >= 0, false)) AS vector_io_counters_nonnegative
+FROM segment_info, jsonb_each(segment_info.value) AS segment,
+     unnest(ARRAY['layer0_reads', 'layer0_bytes_read', 'layer0_storage_blocks',
+                  'layer0_sign_word_fallbacks', 'layer1_reads', 'layer1_bytes_read',
+                  'layer1_storage_blocks', 'layer1_sign_word_fallbacks',
+                  'rerank_reads', 'rerank_bytes_read', 'rerank_storage_blocks']) AS required(key);
 
 SELECT * FROM paradedb.vector_estimator_info(NULL, 'vec');
 SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', NULL);

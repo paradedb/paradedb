@@ -13,8 +13,8 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 DROP TABLE IF EXISTS sorted_t1 CASCADE;
 DROP TABLE IF EXISTS sorted_t2 CASCADE;
-CREATE TABLE sorted_t1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE sorted_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 INSERT INTO sorted_t1 SELECT i, 'val ' || i FROM generate_series(1, 1000) i;
 INSERT INTO sorted_t2 SELECT i, (i % 1000) + 1, 'val ' || i FROM generate_series(1, 1000) i;
 -- Indexes sorted by join key
@@ -371,8 +371,8 @@ WARNING:  JoinScan not used: target list expression contains a volatile function
 -- =============================================================================
 DROP TABLE IF EXISTS multi_seg_1 CASCADE;
 DROP TABLE IF EXISTS multi_seg_2 CASCADE;
-CREATE TABLE multi_seg_1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE multi_seg_2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE multi_seg_1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE multi_seg_2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 -- Force multiple segments using small mutable_segment_rows
 CREATE INDEX multi_seg_1_idx ON multi_seg_1 USING paradedb (id, (val::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'id ASC NULLS FIRST', mutable_segment_rows = 10);
 CREATE INDEX multi_seg_2_idx ON multi_seg_2 USING paradedb (id, t1_id, val) WITH (sort_by = 't1_id ASC NULLS FIRST', mutable_segment_rows = 10);
@@ -435,9 +435,9 @@ LIMIT 10;
 DROP TABLE IF EXISTS recursive_smj_1 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_2 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_3 CASCADE;
-CREATE TABLE recursive_smj_1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE recursive_smj_2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
-CREATE TABLE recursive_smj_3 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE recursive_smj_1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE recursive_smj_2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE recursive_smj_3 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 INSERT INTO recursive_smj_1 SELECT i, 'val ' || i FROM generate_series(1, 100) i;
 INSERT INTO recursive_smj_2 SELECT i, i, 'val ' || i FROM generate_series(1, 100) i;
 INSERT INTO recursive_smj_3 SELECT i, i, 'val ' || i FROM generate_series(1, 100) i;
@@ -513,8 +513,8 @@ LIMIT 10;
 -- =============================================================================
 DROP TABLE IF EXISTS dyn_filter_t1 CASCADE;
 DROP TABLE IF EXISTS dyn_filter_t2 CASCADE;
-CREATE TABLE dyn_filter_t1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE dyn_filter_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE dyn_filter_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE dyn_filter_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 -- Create indexes BEFORE inserting data so inserts go through the mutable
 -- segment pathway, producing multiple segments (index-build on existing data
 -- merges everything into one segment).
@@ -573,7 +573,7 @@ LIMIT 10;
      : ProjectionExec: expr=[val@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
      :   TantivyDecodeExec: decode=[val], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
      :     SegmentedTopKExec: expr=[val@1 ASC NULLS LAST], k=10, metrics=[rows_input=20.00 K, rows_output=10, segments_seen=2]
-     :       VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=20.00 K, output_bytes=504.5 KB, output_batches=3]
+     :       VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=20.00 K, output_bytes=504.5 KB, output_batches=3, ctids_fetched=40.00 K, ctids_lazy=0]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, val@2, ctid_1@3], metrics=[output_rows=20.00 K, output_bytes=576.0 KB, output_batches=3, build_mem_used=546.9 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=468.8 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
@@ -603,6 +603,37 @@ LIMIT 10;
 (10 rows)
 
 -- =============================================================================
+-- TEST 5b: Top K dynamic score filter pushdown
+-- ORDER BY score DESC on the probe side allows Top K to tighten its score
+-- threshold after the first batch and push it into the scanner (dynamic_filter_pushdown_score=1).
+-- =============================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.id, t2.id, paradedb.score(t2.id)
+FROM dyn_filter_t1 t1
+JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+  AND t2.val ||| 'val'
+ORDER BY paradedb.score(t2.id) DESC, t2.id
+LIMIT 10;
+                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+   Relation Tree: t1 INNER t2
+   Join Cond: t1.id = t2.t1_id
+   Limit: 10
+   Order By: pdb.score(t2) desc, t2.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, pdb.score(t2)@2 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=10, output_bytes=360.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[pdb.score(t2)@2 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false], filter=[pdb.score(t2)@2 IS NULL OR pdb.score(t2)@2 > 0.000025033638 OR pdb.score(t2)@2 = 0.000025033638 AND id@4 < 10], metrics=[output_rows=10, output_bytes=360.0 B, output_batches=1, row_replacements=10]
+     :     VisibilityFilterExec: tables=[t1, t2], metrics=[output_rows=8.19 K, output_bytes=288.0 KB, output_batches=1, ctids_fetched=16.38 K, ctids_lazy=0]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@2)], projection=[ctid_0@0, id@1, pdb.score(t2)@2, ctid_1@3, id@5], metrics=[output_rows=8.19 K, output_bytes=288.0 KB, output_batches=1, build_mem_used=390.6 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.19 K, avg_fanout=100% (8.19 K/8.19 K), probe_hit_rate=100% (8.19 K/8.19 K)]
+     :         CooperativeExec
+     :           PgSearchScan: table=t1, segments=2, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
+     :         CooperativeExec
+     :           PgSearchScan: table=t2, segments=2, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=8.19 K, output_bytes=224.0 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, dynamic_filter_pushdown_score=1, rows_pruned=11.81 K, rows_scanned=20.00 K]
+(14 rows)
+
+-- =============================================================================
 -- TEST 6: Top K dynamic filter does not prune NULLs
 -- Top K emits "col IS NULL OR col < threshold". Rows with NULL in the ORDER BY
 -- column must survive the pre-filter (nulls_pass=true) and be returned when
@@ -616,8 +647,8 @@ LIMIT 10;
 -- =============================================================================
 DROP TABLE IF EXISTS null_val_t1 CASCADE;
 DROP TABLE IF EXISTS null_val_t2 CASCADE;
-CREATE TABLE null_val_t1 (id INTEGER PRIMARY KEY, val TEXT);
-CREATE TABLE null_val_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE TABLE null_val_t1 (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
+CREATE TABLE null_val_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 CREATE INDEX null_val_t1_idx ON null_val_t1 USING paradedb (id, (val::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'id ASC NULLS FIRST', mutable_segment_rows = 10000);
 CREATE INDEX null_val_t2_idx ON null_val_t2 USING paradedb (id, t1_id, val) WITH (sort_by = 't1_id ASC NULLS FIRST', mutable_segment_rows = 10000);
 -- 20K rows. Most have non-NULL val, but the last 10 (ids 19991-20000) are NULL.
@@ -682,7 +713,7 @@ LIMIT 25;
      : ProjectionExec: expr=[id@1 as col_1, val@2 as col_2, ctid_0@0 as ctid_0], metrics=[output_rows=25, output_bytes=808.0 B, output_batches=1]
      :   TantivyDecodeExec: decode=[val], metrics=[output_rows=25, output_bytes=808.0 B, output_batches=1]
      :     SegmentedTopKExec: expr=[val@2 DESC, id@1 ASC NULLS LAST], k=25, metrics=[rows_input=20.00 K, rows_output=25, segments_seen=2]
-     :       VisibilityFilterExec: tables=[t1, t2], pruned=[t2], metrics=[output_rows=20.00 K, output_bytes=541.2 KB, output_batches=3]
+     :       VisibilityFilterExec: tables=[t1, t2], pruned=[t2], metrics=[output_rows=20.00 K, output_bytes=541.2 KB, output_batches=3, ctids_fetched=20.00 K, ctids_lazy=0]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, val@2, ctid_1@4], metrics=[output_rows=20.00 K, output_bytes=769.0 KB, output_batches=3, build_mem_used=547.1 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
      :           CooperativeExec
      :             PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=20.00 K, output_bytes=469.0 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]

@@ -791,10 +791,10 @@ unsafe fn replace_windowfuncs_in_query(
 
 // Helper function to recursively replace WindowFunc nodes in an expression
 //
-// Note: This follows a similar recursive pattern to replace_window_agg_with_const() in mod.rs,
+// Note: This follows a similar recursive pattern to replace_window_agg_with_placeholder() in mod.rs,
 // but operates at a different stage:
 // - This function: Planning stage - replaces WindowFunc → window_agg() placeholder
-// - That function: Execution stage - replaces window_agg() → Const placeholder for value injection
+// - That function: Execution stage - replaces window_agg() → Var placeholder for value injection
 //
 // TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
 // See https://github.com/paradedb/paradedb/issues/3455

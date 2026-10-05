@@ -220,7 +220,7 @@ jobs:
         run: gh --version
 
       - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache: false # Disable cache on publish workflows
           rustflags: "" # Use .cargo/config.toml target-cpu flags
@@ -263,6 +263,7 @@ jobs:
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
+          initialize_pgrx: "false"
           extra_packages: debhelper devscripts dput gnupg libopenblas-dev
 
       - name: Extract pgrx Version
@@ -355,7 +356,7 @@ jobs:
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the .deb. Works without GitHub Enterprise;
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.

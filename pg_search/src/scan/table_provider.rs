@@ -367,6 +367,20 @@ impl PgSearchTableProvider {
         }
     }
 
+    pub fn set_score_alias(&mut self, alias: &str) {
+        let mut modified = false;
+        for wff in self.fields.iter_mut() {
+            if let WhichFastField::Score(score_alias) = wff {
+                *score_alias = Some(alias.to_string());
+                modified = true;
+            }
+        }
+        if modified {
+            self.schema = OnceLock::new();
+            self.late_materialization_schema = OnceLock::new();
+        }
+    }
+
     /// Returns the JoinScan source identity configured for deferred visibility,
     /// regardless of whether deferred visibility is currently active.
     pub(crate) fn configured_deferred_ctid_plan_position(&self) -> Option<usize> {
@@ -778,6 +792,7 @@ impl PgSearchTableProvider {
                 expr_ctx,
                 None,
                 needs_tokenizer,
+                None,
             ),
         }
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;

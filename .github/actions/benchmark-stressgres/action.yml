@@ -18,15 +18,6 @@ inputs:
   github_app_private_key:
     description: "GitHub App private key to authenticate with"
     required: true
-  slack_oauth_token:
-    description: "Slack OAuth token to authenticate with"
-    required: true
-  slack_channel:
-    description: "Slack channel to post results to"
-    required: true
-  pr_label:
-    description: "The human readable version of the commit being tested"
-    required: true
 
 runs:
   using: "composite"
@@ -112,7 +103,7 @@ runs:
 
     - name: Generate GitHub App Token
       id: app-token
-      uses: actions/create-github-app-token@v3.2.0
+      uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
       with:
         client-id: ${{ inputs.github_app_client_id }}
         private-key: ${{ inputs.github_app_private_key }}
@@ -153,7 +144,7 @@ runs:
         auto-push: ${{ github.event_name != 'pull_request' }}
         benchmark-data-dir-path: stressgres
         alert-threshold: "115%"
-        comment-on-alert: true # We comment and alert rather than failing, as we have both GitHub and Slack messages to notify us
+        comment-on-alert: true # We comment and alert rather than failing, so regressions are reported on GitHub
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}
 
@@ -178,27 +169,6 @@ runs:
         comment-on-alert: true
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}
-
-    - name: Create Stressgres Graph
-      shell: bash
-      env:
-        STEP_SANITIZE_INPUTS_JOBNAME: ${{ steps.sanitize-inputs.outputs.jobname }}
-        STEP_RESOLVE_REF_SHA: ${{ steps.resolve_ref.outputs.sha }}
-      run: stressgres graph "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-${STEP_RESOLVE_REF_SHA}.log" "stressgres-${STEP_SANITIZE_INPUTS_JOBNAME}-${STEP_RESOLVE_REF_SHA}.png"
-
-    - name: Upload Stressgres Results to Slack (push only)
-      if: github.event_name != 'pull_request'
-      uses: slackapi/slack-github-action@v4
-      with:
-        method: files.uploadV2
-        token: ${{ inputs.slack_oauth_token }}
-        payload: |
-          channel_id: ${{ inputs.slack_channel }}
-          initial_comment: |
-            ${{ github.repository }} Stressgres Results: `${{ inputs.test_file }}`
-            <${{ github.server_url }}/${{ github.repository }}/commit/${{ steps.resolve_ref.outputs.sha }}|${{ inputs.pr_label }}> @ <https://paradedb.github.io/${{ github.event.repository.name }}/stressgres/>
-          file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
-          filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
 
     - name: Print Postgres Logs
       if: always()

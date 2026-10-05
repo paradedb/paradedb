@@ -40,7 +40,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # Fetch the entire history (required to read tags)
+          fetch-depth: 1
+
+      - name: Fetch Release Tags
+        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
 
       - name: Compute prior versions
         id: compute
@@ -59,10 +62,10 @@ jobs:
           fi
           echo "Resolved latest tag=$LATEST_TAG pgrx=$LATEST_PGRX"
 
-          # v0.22.0 uses pgrx 0.17.0 with bindgen 0.72.1 for newer Clang compatibility.
-          # Dedup in case the latest tag happens to also be v0.22.0.
+          # v0.25.0 is the first stable release with vector indexes and also
+          # preserves legacy tokenizer coverage. Dedup if it is the latest tag.
           MATRIX=$(jq -nc --arg p "$LATEST_TAG" --arg pgrx "$LATEST_PGRX" '[
-            { "pg_search_version": "v0.22.0", "pgrx_version": "0.17.0" },
+            { "pg_search_version": "v0.25.0", "pgrx_version": "0.19.0" },
             { "pg_search_version": $p, "pgrx_version": $pgrx }
           ] | unique_by(.pg_search_version)')
           echo "prior_matrix=$MATRIX" >> $GITHUB_OUTPUT
@@ -91,7 +94,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # Fetch the entire history (required to checkout tags)
+          fetch-depth: 1
+
+      - name: Fetch Release Tags
+        run: git fetch --depth=1 --no-tags origin "+refs/tags/v*:refs/tags/v*"
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
@@ -118,14 +124,7 @@ jobs:
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
-
-      # Needed for hybrid search unit tests
-      - name: Install pgvector
-        run: |
-          git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
-          cd pgvector/
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
+          initialize_pgrx: "false"
 
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview

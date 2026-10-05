@@ -184,7 +184,7 @@ impl FFHelper {
                 }
                 WhichFastField::Ctid
                 | WhichFastField::TableOid
-                | WhichFastField::Score
+                | WhichFastField::Score(_)
                 | WhichFastField::Junk(_)
                 | WhichFastField::DeferredCtid(_)
                 | WhichFastField::MatchTag(_) => FFType::Junk,
@@ -574,7 +574,7 @@ pub enum WhichFastField {
     Junk(String),
     Ctid,
     TableOid,
-    Score,
+    Score(Option<String>),
     Named {
         name: String,
         field_type: SearchFieldType,
@@ -594,7 +594,7 @@ impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
         match name {
             CTID_FIELD_NAME => WhichFastField::Ctid,
             "tableoid" => WhichFastField::TableOid,
-            "pdb.score()" => WhichFastField::Score,
+            "pdb.score()" => WhichFastField::Score(None),
             other => {
                 if other.starts_with("junk(") && other.ends_with(")") {
                     WhichFastField::Junk(String::from(
@@ -609,12 +609,24 @@ impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
 }
 
 impl WhichFastField {
+    pub fn score() -> Self {
+        Self::Score(None)
+    }
+
+    pub fn score_with_alias(alias: impl Into<String>) -> Self {
+        Self::Score(Some(alias.into()))
+    }
+
+    pub fn is_score(&self) -> bool {
+        matches!(self, Self::Score(_))
+    }
+
     pub fn name(&self) -> String {
         match self {
             WhichFastField::Junk(s) => format!("junk({s})"),
             WhichFastField::Ctid => CTID_FIELD_NAME.into(),
             WhichFastField::TableOid => "tableoid".into(),
-            WhichFastField::Score => "pdb.score()".into(),
+            WhichFastField::Score(alias) => alias.as_deref().unwrap_or("pdb.score()").into(),
             WhichFastField::Named { name, .. } => name.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
@@ -636,7 +648,7 @@ impl WhichFastField {
         match self {
             WhichFastField::Ctid => DataType::UInt64,
             WhichFastField::TableOid => DataType::UInt32,
-            WhichFastField::Score => DataType::Float32,
+            WhichFastField::Score(_) => DataType::Float32,
             WhichFastField::Named {
                 delivery: FieldDelivery::Eager,
                 field_type,
@@ -831,11 +843,17 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
 
     let mut buffer = Vec::new();
     let mut bytes = Vec::new();
-    let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_block_addr = str_ff
+        .dictionary()
+        .sstable_index
+        .get_block_with_ord(0)
+        .map_err(|e| {
+            DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+        })?;
     let mut current_sstable_delta_reader = str_ff
         .dictionary()
         .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
+        .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
     let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
     for (row_idx, ord) in term_ords {
@@ -862,7 +880,13 @@ pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -
         // This is a new term ordinal: decode it and append it to the builder.
         assert!(ord >= current_ordinal);
         // check if block changed for new term_ord
-        let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        let new_block_addr = str_ff
+            .dictionary()
+            .sstable_index
+            .get_block_with_ord(ord)
+            .map_err(|e| {
+                DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+            })?;
         if new_block_addr != current_block_addr {
             current_block_addr = new_block_addr;
             current_ordinal = current_block_addr.first_ordinal;
@@ -953,11 +977,17 @@ pub(crate) fn ords_to_bytes_array(
 
     let mut buffer = Vec::new();
     let mut bytes = Vec::new();
-    let mut current_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_block_addr = bytes_ff
+        .dictionary()
+        .sstable_index
+        .get_block_with_ord(0)
+        .map_err(|e| {
+            DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+        })?;
     let mut current_sstable_delta_reader = bytes_ff
         .dictionary()
         .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
+        .map_err(|e| DataFusionError::Execution(format!("Failed to open term dictionary: {e}")))?;
     let mut current_ordinal = 0;
     let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
     for (row_idx, ord) in term_ords {
@@ -984,7 +1014,13 @@ pub(crate) fn ords_to_bytes_array(
         // This is a new term ordinal: decode it and append it to the builder.
         assert!(ord >= current_ordinal);
         // check if block changed for new term_ord
-        let new_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        let new_block_addr = bytes_ff
+            .dictionary()
+            .sstable_index
+            .get_block_with_ord(ord)
+            .map_err(|e| {
+                DataFusionError::Execution(format!("Failed to read dictionary block address: {e}"))
+            })?;
         if new_block_addr != current_block_addr {
             current_block_addr = new_block_addr;
             current_ordinal = current_block_addr.first_ordinal;
@@ -1055,6 +1091,7 @@ mod tests {
     use crate::index::mvcc::MvccSatisfies;
     use pgrx::prelude::*;
 
+    #[cfg(test)]
     fn text_field(cardinality: FieldCardinality, delivery: FieldDelivery) -> WhichFastField {
         WhichFastField::named(
             "f",

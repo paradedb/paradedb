@@ -4,6 +4,8 @@ description: "ParadeDB release notes for 0.25.1"
 noindex: true
 ---
 
+See GitHub release: [v0.25.1](https://github.com/paradedb/paradedb/releases/tag/v0.25.1)
+
 <Warning>
   **Breaking change:** `0.25.1` replaces the vector search engine's epsilon
   recall knob with a proof-based bounds gate. The
@@ -11,7 +13,7 @@ noindex: true
   indexes built with `0.25.0` must be rebuilt with `REINDEX` after upgrading.
 </Warning>
 
-## New Features 🎉
+## New Features ✨
 
 ### Faster Vector Search, One Less Knob
 
@@ -73,5 +75,3 @@ ParadeDB index.
 - Dynamic filters now survive across MPP fragments.
 - The extension Docker image now ships `pg_search`'s non-base shared libraries.
 - Multi-valued fields are now disallowed in `partition_by` and `sort_by`.
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.25.1).

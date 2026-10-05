@@ -80,6 +80,11 @@ impl SegmentStatsSnapshot {
         self.ordinal_by_id.get(&id).copied()
     }
 
+    /// The searcher [`SegmentOrdinal`] of `id`, or `None` when the segment is not in this snapshot.
+    pub(crate) fn segment_ordinal(&self, id: SegmentId) -> Option<SegmentOrdinal> {
+        self.segment_index(id).map(|ord| ord as SegmentOrdinal)
+    }
+
     /// Decode one field for one execution segment. Missing components or entries return None;
     /// read and conversion errors abort the query. Decoded entries are not cached.
     pub(crate) fn empirical(&self, ord: usize, field: &SearchField) -> Option<EmpiricalStats> {
@@ -294,6 +299,8 @@ pub(crate) mod test_support {
         }
     }
 
+    // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the entry has to go even
+    // when the test that registered it fails, and the body is Rust only.
     impl Drop for InjectedStatsFailureGuard {
         fn drop(&mut self) {
             // Runs during a failing test's unwind; a panic here would abort the backend.

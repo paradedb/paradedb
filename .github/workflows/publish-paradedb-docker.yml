@@ -83,10 +83,11 @@ jobs:
       is_latest: ${{ steps.release_latest.outputs.is_latest }}
       branch: ${{ steps.generated_branch.outputs.branch }}
       has_changes: ${{ steps.generated_branch.outputs.has_changes }}
+      artifact: ${{ steps.rc_dockerfiles.outputs.artifact }}
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v3.2.0
+        uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -160,11 +161,33 @@ jobs:
           PG_MAJORS=$(echo "${JOB_SET_MATRIX_MATRIX}" | jq -r 'map(tostring) | join(" ")')
           docker/generate-dockerfiles.sh "${STEP_VERSION_VERSION}" "$PG_MAJORS"
 
+      # RC Dockerfiles are needed by downstream jobs, but must not create a repository branch.
+      - name: Upload RC Dockerfiles
+        if: contains(steps.version.outputs.version, '-rc.')
+        uses: actions/upload-artifact@v7
+        with:
+          name: rc-dockerfiles
+          path: docker/Dockerfile.*-18
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Select RC Dockerfiles Artifact
+        id: rc_dockerfiles
+        if: contains(steps.version.outputs.version, '-rc.')
+        run: echo "artifact=rc-dockerfiles" >> "$GITHUB_OUTPUT"
+
       - name: Stage Generated Dockerfiles
         id: generated_branch
         env:
           STEP_VERSION_TAG: ${{ steps.version.outputs.tag }}
+          STEP_VERSION_VERSION: ${{ steps.version.outputs.version }}
         run: |
+          if [[ "$STEP_VERSION_VERSION" == *-rc.* ]]; then
+            echo "Using the release commit and Dockerfiles artifact for this RC release."
+            echo "branch=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git add docker
           if git diff --cached --quiet; then
             echo "No generated Dockerfile changes to commit; building from the release commit."
@@ -199,6 +222,7 @@ jobs:
     uses: ./.github/workflows/test-pg_search-docker.yml
     with:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+      dockerfiles_artifact: ${{ needs.generate-dockerfiles.outputs.artifact }}
       spot: false # Disable Spot for tests in the publish workflow
     secrets: inherit
 
@@ -222,6 +246,13 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+
+      - name: Download RC Dockerfiles
+        if: needs.generate-dockerfiles.outputs.artifact != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.generate-dockerfiles.outputs.artifact }}
+          path: docker
 
       - name: Set Up QEMU
         uses: docker/setup-qemu-action@v4
@@ -265,7 +296,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Scan Image for Vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0 # Upstream does not publish a moving @v0 tag
         with:
           image-ref: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           format: table
@@ -283,7 +314,7 @@ jobs:
           exit-code: "1"
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the image digest. Works without GitHub Enterprise
       - name: Sign Image with Cosign (keyless)
@@ -324,8 +355,10 @@ jobs:
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: docker/scout-action@v1.24.0
+        uses: docker/scout-action@v1
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
@@ -333,8 +366,10 @@ jobs:
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: docker/scout-action@v1.24.0
+        uses: docker/scout-action@v1
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
@@ -486,8 +521,10 @@ jobs:
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: docker/scout-action@v1.24.0
+        uses: docker/scout-action@v1
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb
@@ -495,8 +532,10 @@ jobs:
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: docker/scout-action@v1.24.0
+        uses: docker/scout-action@v1
         with:
+          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
           command: policy
           image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
           organization: paradedb

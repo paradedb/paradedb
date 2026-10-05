@@ -4,7 +4,7 @@
 Unified release artifact assembler for ParadeDB:
 - Assembles unreleased SQL migration fragments into pg_search--<prev>--<target>.sql
 - Assembles unreleased changelog fragments into docs/project/changelog/<version>.mdx
-- Registers new versions in docs/docs.json and docs/snippets/version.mdx
+- Registers new versions in docs navigation, snippets, and installation examples
 """
 
 # pylint: disable=too-many-lines,fixme
@@ -332,18 +332,21 @@ def load_headers_map(json_path):
 
 
 def parse_frontmatter(content):
-    """Parse YAML frontmatter header key and return (header, body)."""
+    """Parse YAML frontmatter header and title keys and return (header, title, body)."""
     match = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", content, re.DOTALL)
     if not match:
-        return None, content.strip()
+        return None, None, content.strip()
 
     frontmatter, body = match.group(1), match.group(2).strip()
+    header = None
+    title = None
     for line in frontmatter.splitlines():
         line = line.strip()
         if line.startswith("header:"):
-            val = line.split(":", 1)[1].strip().strip("\"'")
-            return val, body
-    return None, body
+            header = line.split(":", 1)[1].strip().strip("\"'")
+        elif line.startswith("title:"):
+            title = line.split(":", 1)[1].strip().strip("\"'")
+    return header, title, body
 
 
 def collect_changelog_fragments(unreleased_dir, headers_map):
@@ -361,16 +364,23 @@ def collect_changelog_fragments(unreleased_dir, headers_map):
 
     for fpath in files:
         with open(fpath, "r", encoding="utf-8") as f:
-            header, body = parse_frontmatter(f.read())
+            header, title, body = parse_frontmatter(f.read())
+        item = {"title": title, "body": body}
         if header and header in grouped:
-            grouped[header].append(body)
+            grouped[header].append(item)
         elif header:
-            extras.append((f"## {header.title()}", body))
+            extras.append((f"## {header.title()}", item))
         else:
             fallback_key = next(iter(headers_map))
-            grouped[fallback_key].append(body)
+            grouped[fallback_key].append(item)
 
     return files, grouped, extras
+
+
+def _normalize_changelog_item(item):
+    if isinstance(item, str):
+        return {"title": None, "body": item}
+    return item
 
 
 def render_changelog(version, headers_map, grouped, extras):
@@ -380,6 +390,7 @@ def render_changelog(version, headers_map, grouped, extras):
         "---",
         f'title: "{version}"',
         f'description: "ParadeDB release notes for {version}"',
+        "noindex: true",
         "---",
         "",
         f"See GitHub release: [v{version}]({release_url})",
@@ -388,20 +399,53 @@ def render_changelog(version, headers_map, grouped, extras):
 
     has_content = False
     for key, header_title in headers_map.items():
-        items = grouped.get(key, [])
-        if items:
+        raw_items = grouped.get(key, [])
+        if raw_items:
             has_content = True
             lines.append(header_title)
             lines.append("")
-            for item in items:
-                lines.append(format_changelog_item(item))
+
+            items = [_normalize_changelog_item(it) for it in raw_items]
+            sections = [
+                it for it in items if it.get("title") or it["body"].startswith("### ")
+            ]
+            bullets = [
+                it
+                for it in items
+                if not (it.get("title") or it["body"].startswith("### "))
+            ]
+
+            for sec in sections:
+                if sec.get("title") and not sec["body"].startswith("### "):
+                    lines.append(f"### {sec['title']}")
+                    lines.append("")
+                lines.append(sec["body"])
                 lines.append("")
 
-    for title, body in extras:
+            if sections and bullets:
+                other_title = (
+                    "### Minor Changes" if key == "other" else "### Other Changes"
+                )
+                lines.append(other_title)
+                lines.append("")
+
+            for b in bullets:
+                lines.append(format_changelog_item(b["body"]))
+                lines.append("")
+
+    for title, raw_item in extras:
         has_content = True
         lines.append(title)
         lines.append("")
-        lines.append(format_changelog_item(body))
+        item = _normalize_changelog_item(raw_item)
+        if item.get("title") and not item["body"].startswith("### "):
+            lines.append(f"### {item['title']}")
+            lines.append("")
+            lines.append(item["body"])
+        elif item["body"].startswith("### "):
+            lines.append(item["body"])
+        else:
+            lines.append(format_changelog_item(item["body"]))
         lines.append("")
 
     if not has_content:
@@ -481,7 +525,7 @@ def _promote_new_active_group(changelog_pages, older_pages, target_group, target
             new_group = {
                 "group": target_group,
                 "pages": [target_page],
-                "expanded": True,
+                "expanded": False,
             }
             changelog_pages.insert(idx, new_group)
             return True
@@ -517,7 +561,7 @@ def _insert_into_tabs(versions, target_page):
     new_group = {
         "group": target_group,
         "pages": [target_page],
-        "expanded": True,
+        "expanded": False,
     }
     changelog_pages.append(new_group)
     return True
@@ -598,13 +642,87 @@ def update_docs_json(docs_json_path, new_version, is_latest=True, repo_root=None
 
 
 def update_version_snippet(repo_root, clean_ver):
-    """Update exported version variable in docs/snippets/version.mdx."""
+    """Update the shared version snippet and current installation examples."""
     snippet_file = repo_root / "docs" / "snippets" / "version.mdx"
     snippet_file.parent.mkdir(parents=True, exist_ok=True)
     content = f'export const version = "{clean_ver}";\n'
     with open(snippet_file, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"✅ Updated {snippet_file} with version '{clean_ver}'")
+    update_installation_version(repo_root, clean_ver)
+    update_kubernetes_version(repo_root, clean_ver)
+    update_digitalocean_version(repo_root, clean_ver)
+    update_upgrading_version(repo_root, clean_ver)
+
+
+def update_upgrading_version(repo_root, clean_ver):
+    """Update literal versions in upgrade prose and executable examples."""
+    upgrading_file = repo_root / "docs/operate/deploy/upgrading.mdx"
+    if not upgrading_file.exists():
+        return
+
+    semver = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
+    patterns = [
+        rf"(The latest version of `pg_search` is `){semver}(?=`)",
+        rf"(docker pull paradedb/paradedb:){semver}",
+        rf"(ALTER EXTENSION pg_search UPDATE TO '){semver}(?=';)",
+    ]
+    content = upgrading_file.read_text(encoding="utf-8")
+    for pattern in patterns:
+        content = re.sub(pattern, lambda match: match[1] + clean_ver, content)
+    upgrading_file.write_text(content, encoding="utf-8")
+
+
+def update_installation_version(repo_root, clean_ver):
+    """Keep release tags and package versions aligned in installation URLs."""
+    install_file = repo_root / "docs/operate/deploy/self-hosted/extension.mdx"
+    if not install_file.exists():
+        return
+
+    def replace_version(match):
+        return match.group(0).replace(match.group(1), clean_ver)
+
+    content = install_file.read_text(encoding="utf-8")
+    content = re.sub(
+        r"https://github\.com/paradedb/paradedb/releases/download/v"
+        r'(\d+\.\d+\.\d+(?:-rc\.\d+)?)/[^\s"<>]+',
+        replace_version,
+        content,
+    )
+    install_file.write_text(content, encoding="utf-8")
+
+
+def update_kubernetes_version(repo_root, clean_ver):
+    """Update ParadeDB extension image examples without changing pgvector."""
+    kubernetes_file = repo_root / "docs/operate/deploy/self-hosted/kubernetes.mdx"
+    if not kubernetes_file.exists():
+        return
+
+    semver = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
+    patterns = [
+        rf"(paradedb/paradedb(?:-enterprise)?-extension:){semver}",
+        rf'(- name: pg_search\s+version: "){semver}',
+    ]
+    content = kubernetes_file.read_text(encoding="utf-8")
+    for pattern in patterns:
+        content = re.sub(pattern, lambda match: match[1] + clean_ver, content)
+    kubernetes_file.write_text(content, encoding="utf-8")
+
+
+def update_digitalocean_version(repo_root, clean_ver):
+    """Keep the DigitalOcean installer tag aligned with the latest release."""
+    install_file = repo_root / "docs/operate/deploy/cloud-platforms/digitalocean.mdx"
+    if not install_file.exists():
+        return
+
+    content = install_file.read_text(encoding="utf-8")
+    content = re.sub(
+        r"(https://paradedb\.com/install\.sh\?tag=)"
+        r"\d+\.\d+\.\d+(?:-rc\.\d+)?(?=-pg\d+)",
+        lambda match: match[1] + clean_ver,
+        content,
+    )
+    install_file.write_text(content, encoding="utf-8")
 
 
 def assemble_changelog_files(
@@ -690,13 +808,13 @@ def get_rendered_changelog_body(repo_root, clean_ver):
     changelog_file = changelog_dir / f"{clean_ver}.mdx"
     if changelog_file.exists():
         with open(changelog_file, "r", encoding="utf-8") as f:
-            _, body = parse_frontmatter(f.read())
+            *_, body = parse_frontmatter(f.read())
         return body
 
     headers_map = load_headers_map(repo_root / ".changelog_headers.json")
     _, grouped, extras = collect_changelog_fragments(unreleased_dir, headers_map)
     rendered = render_changelog(clean_ver, headers_map, grouped, extras)
-    _, body = parse_frontmatter(rendered)
+    *_, body = parse_frontmatter(rendered)
     return body
 
 
@@ -1197,14 +1315,106 @@ def lint_release_branch_fragments(repo_root, base_ref):
     return errors
 
 
+def lint_changelog_fragments(repo_root):
+    """Validate that unreleased changelog fragments are properly formatted.
+
+    Ensures that:
+    - Every fragment has a valid 'header:' declared in .changelog_headers.json.
+    - Every fragment is either formatted as a single bullet point, or defines a
+      'title:' in frontmatter (or starts with '### ').
+    """
+    headers_map = load_headers_map(repo_root / ".changelog_headers.json")
+    _, unreleased_cl_dir, _ = get_changelog_dirs(repo_root)
+
+    if not unreleased_cl_dir.exists():
+        return 0
+
+    files = [
+        f
+        for f in unreleased_cl_dir.glob("*.mdx")
+        if f.is_file() and f.name != ".gitkeep"
+    ]
+    files.sort(key=lambda f: (parse_pr_number(f.name), f.name))
+
+    errors = 0
+    for fpath in files:
+        rel_path = fpath.relative_to(repo_root)
+        try:
+            content = fpath.read_text(encoding="utf-8")
+        except OSError as e:
+            print(f"❌ {rel_path}: Failed to read file: {e}", file=sys.stderr)
+            errors += 1
+            continue
+
+        header, title, body = parse_frontmatter(content)
+
+        if not header:
+            print(
+                f"::error file={rel_path}::Missing 'header:' frontmatter.",
+                file=sys.stderr,
+            )
+            print(f"❌ {rel_path}: Missing 'header:' frontmatter.", file=sys.stderr)
+            errors += 1
+        elif header not in headers_map:
+            valid_headers = ", ".join(repr(h) for h in headers_map)
+            print(
+                f"::error file={rel_path}::"
+                f"Invalid header '{header}'. Must be one of: {valid_headers}.",
+                file=sys.stderr,
+            )
+            print(
+                f"❌ {rel_path}: Invalid header '{header}'."
+                f" Must be one of: {valid_headers}.",
+                file=sys.stderr,
+            )
+            errors += 1
+
+        has_title = bool(title or body.startswith("### "))
+        if not has_title:
+            paragraphs = [p for p in re.split(r"\n\s*\n", body.strip()) if p.strip()]
+            bullet_markers = [
+                line for line in body.splitlines() if re.match(r"^\s*[-*]\s+", line)
+            ]
+            has_code_block = "```" in body
+
+            is_single_bullet = (
+                len(paragraphs) <= 1 and len(bullet_markers) <= 1 and not has_code_block
+            )
+
+            if not is_single_bullet:
+                print(
+                    f"::error file={rel_path}::"
+                    "Fragment must either be formatted as a single bullet point, "
+                    "or specify 'title: ...' in its frontmatter to render as a subsection.",
+                    file=sys.stderr,
+                )
+                print(
+                    f"❌ {rel_path}: Fragment must either be formatted as a single bullet point,\n"
+                    "  or specify 'title: <Feature Title>' in frontmatter to render as a"
+                    " subsection.",
+                    file=sys.stderr,
+                )
+                errors += 1
+
+    return errors
+
+
 def handle_lint_fragments_command(args, repo_root):
     """Handle lint-fragments subcommand."""
+    changelog_only = getattr(args, "changelog_only", False)
+    sql_only = getattr(args, "sql_only", False)
+
     print(f"Linting fragments with base_ref='{args.base_ref}' at {repo_root}")
 
-    if is_release_branch(args.base_ref):
-        errors = lint_release_branch_fragments(repo_root, args.base_ref)
-    else:
-        errors = lint_main_branch_fragments(repo_root, args.base_sha)
+    errors = 0
+    if not changelog_only:
+        if is_release_branch(args.base_ref):
+            errors += lint_release_branch_fragments(repo_root, args.base_ref)
+        else:
+            errors += lint_main_branch_fragments(repo_root, args.base_sha)
+
+    if not sql_only:
+        errors += lint_changelog_fragments(repo_root)
 
     if errors > 0:
         print(f"\n❌ Fragment lint failed with {errors} error(s).", file=sys.stderr)
@@ -1258,7 +1468,7 @@ def build_parser():
     cl_parser.add_argument(
         "--register-only",
         action="store_true",
-        help="Only update docs.json and version.mdx",
+        help="Only update docs navigation, version snippet, and installation examples",
     )
     cl_parser.add_argument(
         "--is-latest",
@@ -1337,7 +1547,7 @@ def build_parser():
     )
 
     lint_parser = subparsers.add_parser(
-        "lint-fragments", help="Lint unreleased migration fragments"
+        "lint-fragments", help="Lint unreleased migration and changelog fragments"
     )
     lint_parser.add_argument(
         "--base-ref",
@@ -1348,6 +1558,16 @@ def build_parser():
         "--base-sha",
         default=None,
         help="Base commit SHA of the PR",
+    )
+    lint_parser.add_argument(
+        "--changelog-only",
+        action="store_true",
+        help="Only lint unreleased changelog fragments",
+    )
+    lint_parser.add_argument(
+        "--sql-only",
+        action="store_true",
+        help="Only lint unreleased SQL migration fragments",
     )
 
     return parser

@@ -807,6 +807,10 @@ pub struct BufferManager {
 }
 
 impl BufferManager {
+    pub fn set_io_stats(&mut self, stats: Option<crate::index::reader::io_stats::ComponentStats>) {
+        self.rbufacc.io_stats = stats;
+    }
+
     pub fn new(rel: &PgSearchRelation) -> Self {
         Self {
             rbufacc: RelationBufferAccess::open(rel),
@@ -1062,6 +1066,8 @@ impl BufferManager {
             active: bool,
         }
 
+        // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the guard exists to run
+        // while an ERROR unwinds, and its body is only tracker bookkeeping.
         impl Drop for InFlightCleanupGuard {
             fn drop(&mut self) {
                 if self.active {

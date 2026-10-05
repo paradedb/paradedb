@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Terminating a backend while it runs a search (for example with `pg_terminate_backend`) no longer crashes the server, or leaves pinned buffers held until the server restarts and table locks that block `ALTER TABLE`, `DROP` and `VACUUM FULL`. The backend, and the workers of a cancelled parallel search, no longer log `Oh no! We never placed the Core back` or `invalid Once state`.

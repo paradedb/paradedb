@@ -975,7 +975,8 @@ struct TopKAggSelectedExpressions<'a> {
     ctid_positions: Vec<usize>,
     sort_exprs: Vec<SortExpr>,
     extra_sort_cols: Vec<Expr>,
-    pdb_aggs: Vec<(String, Expr)>,
+    /// Expressions (and their output names) to be computed alongside the top-k
+    additional_aggs: Vec<(String, Expr)>,
 }
 impl<'a> TopKAggSelectedExpressions<'a> {
     fn new(join_clause: &'a JoinCSClause) -> Self {
@@ -987,7 +988,7 @@ impl<'a> TopKAggSelectedExpressions<'a> {
             ctid_positions: Vec::new(),
             sort_exprs: Vec::new(),
             extra_sort_cols: Vec::new(),
-            pdb_aggs: Vec::new(),
+            additional_aggs: Vec::new(),
         }
     }
 
@@ -1089,10 +1090,9 @@ impl<'a> TopKAggSelectedExpressions<'a> {
         self
     }
 
-    /// Take the `pdb.agg()` aggregates that run beside the Top-K, each with its
-    /// `window_agg_N` name.
-    fn with_pdb_aggs(mut self, pdb_aggs: Vec<(String, Expr)>) -> Self {
-        self.pdb_aggs = pdb_aggs;
+    /// Take the (column name, expr) pair of each additional aggregate to compute alongside the topk
+    fn with_additional_aggs(mut self, additional: Vec<(String, Expr)>) -> Self {
+        self.additional_aggs = additional;
         self
     }
 
@@ -1173,16 +1173,17 @@ impl<'a> TopKAggSelectedExpressions<'a> {
             .collect();
         select_list.extend(self.ctid_names.iter().map(|n| n.as_col_expr()));
         select_list.extend(self.extra_sort_cols);
-        // The `pdb.agg()` aggregates read the join's own columns, so those ride along
+
+        // The additional aggregates read the join's own columns, so those ride along
         // beside the payload unless it already selects them under their own name.
-        let mut pdb_agg_inputs: Vec<&Column> = self
-            .pdb_aggs
+        let mut additional_agg_inputs: Vec<&Column> = self
+            .additional_aggs
             .iter()
             .flat_map(|(_, agg)| agg.column_refs())
             .collect();
-        pdb_agg_inputs.sort();
-        pdb_agg_inputs.dedup();
-        for column in pdb_agg_inputs {
+        additional_agg_inputs.sort();
+        additional_agg_inputs.dedup();
+        for column in additional_agg_inputs {
             let name = QualifiedName(column.relation.clone(), column.name.clone());
             if self
                 .payload_names
@@ -1194,9 +1195,15 @@ impl<'a> TopKAggSelectedExpressions<'a> {
             }
         }
 
-        let mut payload_list: Vec<Expr> =
+        let additional_agg_list: Vec<Expr> = self
+            .additional_aggs
+            .iter()
+            .map(|(name, expr)| expr.clone().alias(name))
+            .collect();
+
+        let mut topk_payload_list: Vec<Expr> =
             self.payload_names.iter().map(|n| n.as_col_expr()).collect();
-        payload_list.extend(self.ctid_names.iter().map(|n| n.as_col_expr()));
+        topk_payload_list.extend(self.ctid_names.iter().map(|n| n.as_col_expr()));
 
         let mut name_restoration_list: Vec<Expr> = self
             .payload_names
@@ -1212,19 +1219,19 @@ impl<'a> TopKAggSelectedExpressions<'a> {
             get_field(col(TOPK_AGG_ROWS_COL_NAME), format!("c{}", n + i))
                 .alias_qualified(name.0.clone(), &name.1)
         }));
-        name_restoration_list.extend(self.pdb_aggs.iter().map(|(name, _)| col(name.as_str())));
+        name_restoration_list.extend(
+            self.additional_aggs
+                .iter()
+                .map(|(name, _)| col(name.as_str())),
+        );
 
         Ok(FinalizedTopKAgg {
             select_list,
-            payload_list,
+            topk_payload_list,
             name_restoration_list,
             rebased_sort_exprs: self.sort_exprs,
             ctid_positions: self.ctid_positions,
-            pdb_aggs: self
-                .pdb_aggs
-                .into_iter()
-                .map(|(name, agg)| agg.alias(name))
-                .collect(),
+            additional_agg_list,
         })
     }
 }
@@ -1233,7 +1240,7 @@ struct FinalizedTopKAgg {
     /// The columns we select before doing the aggregation
     select_list: Vec<Expr>,
     /// The payload to the topk udaf
-    payload_list: Vec<Expr>,
+    topk_payload_list: Vec<Expr>,
     /// The set of expressions to restore the column names after unnest.
     name_restoration_list: Vec<Expr>,
     /// The sort expressions to provide to the aggregate, rebased on the selected columns from
@@ -1241,9 +1248,7 @@ struct FinalizedTopKAgg {
     rebased_sort_exprs: Vec<SortExpr>,
     /// The positions of the ctid columns in `payload_list`
     ctid_positions: Vec<usize>,
-    /// The `pdb.agg()` aggregates that run beside the Top-K, aliased to their
-    /// `window_agg_N` names
-    pdb_aggs: Vec<Expr>,
+    additional_agg_list: Vec<Expr>,
 }
 
 /// The Top-K (and the DISTINCT, when there is one) as a single aggregate over the
@@ -1285,21 +1290,21 @@ fn apply_topk_as_agg(
         .with_payload_exprs(distinct_key_exprs)?
         .with_ctids(ctid_names, df.schema())?
         .with_sort_exprs(sort_exprs)
-        .with_pdb_aggs(pdb_agg_exprs(join_clause)?)
+        .with_additional_aggs(pdb_agg_exprs(join_clause)?)
         .finalize()?;
 
     // The actual projected columns we'll need for the aggregate.
     let df = df.select(finalized.select_list)?;
 
     let topk_agg = topk_as_agg(
-        &finalized.payload_list,
+        &finalized.topk_payload_list,
         finalized.rebased_sort_exprs,
         fetch,
         &finalized.ctid_positions,
         join_clause.has_distinct,
     );
     let mut aggregates = vec![topk_agg.alias(TOPK_AGG_ROWS_COL_NAME)];
-    aggregates.extend(finalized.pdb_aggs);
+    aggregates.extend(finalized.additional_agg_list);
     let df = df.aggregate(vec![], aggregates)?;
     let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
 

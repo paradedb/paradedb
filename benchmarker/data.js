@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791103153366,
+  "lastUpdate": 1791177111820,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7710,6 +7710,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 749.849,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "020d374356136522258d031dbc62ad49b5464972",
+          "message": "perf: Visibility checking cleanups (#6526)\n\n## What\n\nCleans up `VisibilityChecker` APIs, returns structured `VisibilityMask`\nand `VisibilityCtids` batch results, and batches visibility checking in\nnormal scans.\n\n## Why\n\nTo avoid redundant filtering, compaction, and allocations when rows are\nall-visible under a snapshot, and simplify caller-side visibility\nchecking.\n\n## How\n\n- Returns `VisibilityMask` and `VisibilityCtids` from segment check\nmethods, allowing callers to bypass compaction and filtering passes when\nall candidate rows are visible.\n- Batches visibility checks and `ctid` resolution in\n`NormalScanExecState`.\n- Compacts `doc_buffer` and `score_buffer` in-place in\n`MVCCFilterSegmentCollector`, eliminating intermediate buffer\nallocations.\n- Tightens the `VisibilityChecker` API: replaces `check_one` with\n`check_doc`, removes `for_segment`, exposes `is_segment_all_visible`,\nand makes block-level check helpers private.\n- Uses `check_segment_docs_mask` in joinscan visibility filtering when\n`ctid` columns are pruned to avoid materializing `ctid`s.",
+          "timestamp": "2026-10-04T21:02:11-07:00",
+          "tree_id": "1515c7362a3abeda8f3a0724964a976e2a2b72b8",
+          "url": "https://github.com/paradedb/paradedb/commit/020d374356136522258d031dbc62ad49b5464972"
+        },
+        "date": 1791177109498,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.861,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 149.422,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.504,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 244.092,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.274,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 169.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 25.003,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 215.527,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 40.538,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 727.066,
             "unit": "ms"
           }
         ]

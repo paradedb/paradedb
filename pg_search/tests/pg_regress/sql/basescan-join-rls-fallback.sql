@@ -1,0 +1,82 @@
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+
+CREATE TABLE docs (id int PRIMARY KEY, org_id int NOT NULL, body text NOT NULL);
+INSERT INTO docs VALUES
+    (1, 2, 'sheriff incident summary'),
+    (2, 2, 'sheriff dispatch record'),
+    (3, 1, 'sheriff department report'),
+    (4, 1, 'sheriff patrol log');
+CREATE INDEX docs_bm25 ON docs USING paradedb (id, body, org_id);
+
+CREATE TABLE tags (id int PRIMARY KEY, doc_id int NOT NULL, label text NOT NULL);
+INSERT INTO tags SELECT i, ((i - 1) % 4) + 1, 'sheriff tag' FROM generate_series(1, 8) i;
+CREATE INDEX tags_bm25 ON tags USING paradedb (id, doc_id, label);
+
+--------------------------------------------------------------------------------
+-- Part 1: wrong results, no RLS involved.
+-- `COALESCE(d.org_id = 1, false)` restricts docs to org 1, so only docs 3 and 4
+-- may appear. Expected: (3,3),(3,7),(4,4),(4,8).
+--------------------------------------------------------------------------------
+EXPLAIN (COSTS OFF)
+SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
+FROM docs d JOIN tags t ON t.doc_id = d.id
+WHERE (d.body @@@ 'sheriff' OR t.label @@@ 'tag')
+  AND COALESCE(d.org_id = 1, false)
+ORDER BY d.id, t.id;
+
+SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
+FROM docs d JOIN tags t ON t.doc_id = d.id
+WHERE (d.body @@@ 'sheriff' OR t.label @@@ 'tag')
+  AND COALESCE(d.org_id = 1, false)
+ORDER BY d.id, t.id;
+
+-- Control: the same query without pdb.score() returns the correct 4 rows.
+SELECT d.id, t.id
+FROM docs d JOIN tags t ON t.doc_id = d.id
+WHERE (d.body @@@ 'sheriff' OR t.label @@@ 'tag')
+  AND COALESCE(d.org_id = 1, false)
+ORDER BY d.id, t.id;
+
+--------------------------------------------------------------------------------
+-- Part 1b: the table's own `@@@` clause is dropped too.
+-- Only doc 1 matches 'incident' and it is org 2, so the correct answer is 0 rows.
+--------------------------------------------------------------------------------
+SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
+FROM docs d JOIN tags t ON t.doc_id = d.id AND t.id >= d.id
+WHERE d.body @@@ 'incident' AND COALESCE(d.org_id = 1, false)
+ORDER BY d.id, t.id;
+
+--------------------------------------------------------------------------------
+-- Part 2: the dropped clause is a row-level security policy.
+-- The role may only see org 1. Expected: (3,3),(3,7),(4,4),(4,8).
+--------------------------------------------------------------------------------
+CREATE ROLE rls_drop_user NOLOGIN;
+GRANT SELECT ON docs, tags TO rls_drop_user;
+ALTER TABLE docs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY org_only ON docs FOR SELECT
+    USING (org_id IS NOT DISTINCT FROM NULLIF(current_setting('app.org_id', true), '')::int);
+
+BEGIN;
+SET LOCAL app.org_id = '1';
+SET LOCAL ROLE rls_drop_user;
+
+-- Sanity: the policy works for a plain query. Returns 3, 4.
+SELECT id FROM docs ORDER BY id;
+
+EXPLAIN (COSTS OFF)
+SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
+FROM docs d JOIN tags t ON t.doc_id = d.id
+WHERE d.body @@@ 'sheriff' OR t.label @@@ 'tag'
+ORDER BY d.id, t.id;
+
+SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
+FROM docs d JOIN tags t ON t.doc_id = d.id
+WHERE d.body @@@ 'sheriff' OR t.label @@@ 'tag'
+ORDER BY d.id, t.id;
+
+-- Control: the same query without pdb.score() returns the correct 4 rows.
+SELECT d.id, t.id
+FROM docs d JOIN tags t ON t.doc_id = d.id
+WHERE d.body @@@ 'sheriff' OR t.label @@@ 'tag'
+ORDER BY d.id, t.id;
+COMMIT;

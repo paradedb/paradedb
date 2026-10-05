@@ -714,6 +714,7 @@ ORDER BY id LIMIT 5;
 SELECT count(*) AS rls_like_count FROM (
     SELECT id FROM providers
     WHERE description === 'cardiology' AND specialty LIKE 'specialty13%') q;
+WARNING:  Aggregate Scan not used: WHERE clause has a predicate that must be evaluated after row-level security policies. To disable this warning: SET paradedb.planner_warnings = 'off' (table: providers)
  rls_like_count 
 ----------------
             200

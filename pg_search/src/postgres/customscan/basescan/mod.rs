@@ -25,6 +25,7 @@ mod scan_state;
 pub(crate) mod telemetry;
 
 use crate::postgres::customscan::node::CustomScanNodeExt;
+use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use cost::{
     costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
@@ -74,8 +75,13 @@ use crate::postgres::customscan::parallel::{
 };
 use crate::postgres::customscan::projections::{inject_placeholders, pullout_funcexprs};
 use crate::postgres::customscan::qual_inspect::{
+<<<<<<< HEAD
     extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
     PlannerContext, Qual, QualExtractState,
+=======
+    PlannerContext, Qual, QualExtractState, SecurityPushdown, classify_security_pushdown,
+    extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
+>>>>>>> 8e719a3 (fix: respect RLS leaky-qual ordering in filter pushdown (#6614))
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -254,16 +260,10 @@ impl BaseScan {
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_planner(root);
 
-        // Filter out predicates that are implied by the partial index predicate.
-        // If a partial index has predicate P (e.g., "deleted_at IS NULL"), and the query
-        // also has predicate P, we don't need to create a heap filter for P since the
-        // partial index already guarantees it.
-        let filtered_restrict_info = filter_implied_predicates(indexrel.rd_indpred, &restrict_info);
-
         let mut quals = extract_quals(
             &context,
             rti,
-            filtered_restrict_info.as_ptr().cast(),
+            restrict_info.as_ptr().cast(),
             ri_type,
             indexrel,
             false, // Base relation quals should not convert external to all
@@ -284,7 +284,7 @@ impl BaseScan {
             let mut partial_quals = Vec::new();
             let mut partial_state = QualExtractState::default();
             let mut all_skipped_are_subplans = true;
-            for ri in filtered_restrict_info.iter_ptr() {
+            for ri in restrict_info.iter_ptr() {
                 if let Some(qual) = extract_quals(
                     &context,
                     rti,
@@ -321,16 +321,43 @@ impl BaseScan {
         let quals = if quals.is_none() {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
-            let mut quals = extract_quals(
-                &context,
-                rti,
-                joinri.as_ptr().cast(),
-                RestrictInfoType::Join,
-                indexrel,
-                true, // Join quals should convert external to all
-                &mut state,
-                attempt_pushdown,
-            );
+            let mut join_quals = Vec::new();
+            for ri in joinri.iter_ptr() {
+                let qual = extract_quals(
+                    &context,
+                    rti,
+                    ri.cast(),
+                    RestrictInfoType::Join,
+                    indexrel,
+                    true, // Join quals should convert external to all
+                    &mut state,
+                    attempt_pushdown,
+                )?;
+                // SECURITY: the join above re-evaluates every join clause after RLS, so a leaky
+                // one only needs a superset here and must not run its heap filters early.
+                let is_leaky = matches!(
+                    classify_security_pushdown(
+                        &context,
+                        builder.args().rel,
+                        rti,
+                        ri,
+                        RestrictInfoType::Join,
+                        indexrel,
+                        attempt_pushdown,
+                    ),
+                    SecurityPushdown::LeakyHeapFilter { .. }
+                );
+                join_quals.push(if is_leaky {
+                    qual.without_heap_exprs()?
+                } else {
+                    qual
+                });
+            }
+            let mut quals = match join_quals.len() {
+                0 => None,
+                1 => join_quals.pop(),
+                _ => Some(Qual::And(join_quals)),
+            };
 
             let quals =
                 Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator);
@@ -547,7 +574,15 @@ impl BaseScanDeclineReason {
 unsafe fn has_non_pushable_predicates(
     rel: *mut pg_sys::RelOptInfo,
     quals_pushed: &Option<Qual>,
+    has_deferred_quals: bool,
 ) -> Result<(), BaseScanDeclineReason> {
+    // Deferred clauses run in `plan.qual`, after the scan has produced (and counted) its rows.
+    if has_deferred_quals {
+        return Err(BaseScanDeclineReason::new(
+            "WHERE clause contains predicates that must be evaluated after row-level security policies",
+        ));
+    }
+
     let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
 
     for ri in restrict_list.iter_ptr() {
@@ -578,6 +613,105 @@ unsafe fn has_non_pushable_predicates(
     Ok(())
 }
 
+/// Split `restrict_info` into the clauses that may be pushed into the scan and the
+/// `nodeToString` form of the leaky ones (see [`SecurityPushdown`]), which `plan_custom_path`
+/// evaluates in `plan.qual` so they never see rows an RLS policy rejects.
+///
+/// A leaky clause is still pushed down when [`runs_after_lower_security_quals`] holds.
+///
+/// Returns `None` if a leaky clause also uses `@@@` (e.g. `body @@@ 'x' OR secret::int > 0`):
+/// it can be neither pushed down nor deferred, so the scan must decline.
+unsafe fn split_leaky_quals(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+    rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
+    ri_type: RestrictInfoType,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+    attempt_pushdown: bool,
+) -> Option<(PgList<pg_sys::RestrictInfo>, Vec<String>)> {
+    let mut pushable = PgList::<pg_sys::RestrictInfo>::new();
+    let mut deferred = Vec::new();
+    let context = PlannerContext::from_planner(root);
+
+    for ri in restrict_info.iter_ptr() {
+        match classify_security_pushdown(
+            &context,
+            rel,
+            rti,
+            ri,
+            ri_type,
+            indexrel,
+            attempt_pushdown,
+        ) {
+            SecurityPushdown::Safe => pushable.push(ri),
+            SecurityPushdown::LeakyHeapFilter {
+                uses_our_operator: true,
+            } => return None,
+            SecurityPushdown::LeakyHeapFilter {
+                uses_our_operator: false,
+            } if matches!(ri_type, RestrictInfoType::BaseRelation)
+                && runs_after_lower_security_quals(
+                    &context,
+                    rti,
+                    indexrel,
+                    ri,
+                    restrict_info,
+                    attempt_pushdown,
+                ) =>
+            {
+                pushable.push(ri)
+            }
+            SecurityPushdown::LeakyHeapFilter {
+                uses_our_operator: false,
+            } => deferred.push(node_to_string_owned((*ri).clause.cast())),
+        }
+    }
+
+    Some((pushable, deferred))
+}
+
+/// True if the leaky base clause `ri` becomes a top-level heap filter and every clause of a
+/// lower `security_level` (e.g. an RLS policy) becomes an indexed conjunct. The heap filter
+/// then only evaluates `ri` on documents its `indexed_query`, which includes those clauses,
+/// already matched, so `ri` never sees a row they reject.
+unsafe fn runs_after_lower_security_quals(
+    context: &PlannerContext,
+    rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
+    ri: *mut pg_sys::RestrictInfo,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+    attempt_pushdown: bool,
+) -> bool {
+    let extract = |clause: *mut pg_sys::RestrictInfo| {
+        extract_quals(
+            context,
+            rti,
+            clause.cast(),
+            RestrictInfoType::BaseRelation,
+            indexrel,
+            false,
+            &mut QualExtractState::default(),
+            attempt_pushdown,
+        )
+    };
+
+    let is_top_level_heap_filter = matches!(
+        extract(ri),
+        Some(Qual::HeapExpr { search_query_input, .. })
+            if matches!(*search_query_input, SearchQueryInput::All)
+    );
+
+    is_top_level_heap_filter
+        && restrict_info
+            .iter_ptr()
+            .filter(|&other| (*other).security_level < (*ri).security_level)
+            .all(|lower| {
+                extract(lower)
+                    .is_some_and(|qual| qual.is_indexed_conjunct() && !qual.contains_heap_expr())
+            })
+}
+
 /// Returns true if the query's LIMIT can safely be pushed into this scan node.
 ///
 /// Three conditions must hold:
@@ -595,6 +729,7 @@ unsafe fn is_limit_pushdown_safe(
     baserels: *mut pg_sys::Bitmapset,
     rti: pg_sys::Index,
     quals: &Option<Qual>,
+    has_deferred_quals: bool,
 ) -> bool {
     let rel_is_single_or_partitioned = pg_sys::bms_equal((*rel).relids, baserels)
         || range_table::is_partitioned_table_setup(root, (*rel).relids, baserels);
@@ -602,7 +737,7 @@ unsafe fn is_limit_pushdown_safe(
         is_left_join_lateral(root, rel) && where_clause_only_references_left(root, rti);
 
     (rel_is_single_or_partitioned || is_left_driven_lateral)
-        && has_non_pushable_predicates(rel, quals).is_ok()
+        && has_non_pushable_predicates(rel, quals, has_deferred_quals).is_ok()
         && !classify_target_list_srf(root).is_unsafe()
 }
 
@@ -690,11 +825,29 @@ impl CustomScan for BaseScan {
             //
             let is_select =
                 (*(*builder.args().root).parse).commandType == pg_sys::CmdType::CMD_SELECT;
+
+            // Predicates implied by the partial index predicate are never evaluated, so they
+            // can't leak.
+            let filtered_restrict_info =
+                filter_implied_predicates(bm25_index.rd_indpred, &restrict_info);
+
+            // SECURITY: keep leaky clauses out of the scan; they run in `plan.qual` instead.
+            let (pushable_restrict_info, deferred_plan_quals) = split_leaky_quals(
+                root,
+                rel,
+                rti,
+                &bm25_index,
+                ri_type,
+                &filtered_restrict_info,
+                is_select,
+            )?;
+            let has_deferred_quals = !deferred_plan_quals.is_empty();
+
             let quals = Self::extract_all_possible_quals(
                 &mut builder,
                 root,
                 rti,
-                PgList::from_pg(restrict_info.as_ptr()),
+                pushable_restrict_info,
                 ri_type,
                 &bm25_index,
                 maybe_needs_const_projections,
@@ -704,10 +857,17 @@ impl CustomScan for BaseScan {
             // If window aggregates are present, validate that the WHERE clause contains no
             // non-pushable predicates (e.g. subqueries, volatile functions, or unpushable
             // filters when filter pushdown is disabled) that would cause silent data loss or incorrect results.
+<<<<<<< HEAD
             if has_window_aggs {
                 if let Err(reason) = has_non_pushable_predicates(rel, &quals) {
                     pgrx::error!("Cannot execute window aggregate: {}", reason.message);
                 }
+=======
+            if has_window_aggs
+                && let Err(reason) = has_non_pushable_predicates(rel, &quals, has_deferred_quals)
+            {
+                pgrx::error!("Cannot execute window aggregate: {}", reason.message);
+>>>>>>> 8e719a3 (fix: respect RLS leaky-qual ordering in filter pushdown (#6614))
             }
 
             // Resolve quals for the custom scan path:
@@ -794,6 +954,7 @@ impl CustomScan for BaseScan {
                         baserels,
                         rti,
                         &Some(quals.clone()),
+                        has_deferred_quals,
                     )
             });
 
@@ -864,6 +1025,7 @@ impl CustomScan for BaseScan {
             custom_private.set_query(query.clone());
             custom_private.set_limit_offset(limit_offset.clone());
             custom_private.set_segment_count(segment_count);
+            custom_private.set_deferred_plan_quals(deferred_plan_quals);
 
             // Determine whether we might be able to sort.
             if is_maybe_topk && topk_pathkey_info.pathkeys().is_some() {
@@ -1226,19 +1388,39 @@ impl CustomScan for BaseScan {
             // Collect subplans that our Custom Scan doesn't handle internally and set them as plan.qual.
             // PostgreSQL's ExecInitCustomScan will call ExecInitQual on plan.qual,
             // which properly initializes SubPlans. We then evaluate these in exec_custom_scan.
+            // Clauses deferred by `split_leaky_quals` go there too. `clauses` is already sorted
+            // by `security_level`, so RLS quals stay ahead of the leaky clauses.
             let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
+            let deferred = builder.custom_private().deferred_plan_quals().to_vec();
+            let mut deferred_found = vec![false; deferred.len()];
             let mut subplan_quals = PgList::<pg_sys::Node>::new();
             for clause in clauses.iter_ptr() {
-                if is_subplan(clause, builder.args().root) {
-                    // strip RestrictInfo wrapper, plan.qual needs bare expressions
-                    let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
-                        let ri = clause as *mut pg_sys::RestrictInfo;
-                        (*ri).clause.cast()
-                    } else {
-                        clause
-                    };
+                // strip RestrictInfo wrapper, plan.qual needs bare expressions
+                let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
+                    let ri = clause as *mut pg_sys::RestrictInfo;
+                    (*ri).clause.cast()
+                } else {
+                    clause
+                };
+                // Check deferred clauses first, as one may itself contain a SubPlan.
+                let deferred_idx = (!deferred.is_empty())
+                    .then(|| node_to_string_owned(bare_clause))
+                    .and_then(|s| {
+                        (0..deferred.len()).find(|&i| !deferred_found[i] && deferred[i] == s)
+                    });
+                if let Some(i) = deferred_idx {
+                    deferred_found[i] = true;
+                    subplan_quals.push(bare_clause);
+                } else if is_subplan(clause, builder.args().root) {
                     subplan_quals.push(bare_clause);
                 }
+            }
+
+            // Fail closed: never silently drop a deferred clause.
+            if deferred_found.contains(&false) {
+                pgrx::error!(
+                    "ParadeDB Base Scan: a deferred row-level security predicate was not found in the scan clauses"
+                );
             }
 
             // SubPlan quals require per-tuple heap access for ExecQual, which would

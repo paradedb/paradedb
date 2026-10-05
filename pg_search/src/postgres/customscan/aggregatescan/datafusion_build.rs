@@ -44,7 +44,12 @@ use crate::postgres::customscan::pullup::{
     ResolvedIndexField,
 };
 use crate::postgres::customscan::qual_inspect::{
+<<<<<<< HEAD
     collect_implicit_and_conjuncts, extract_quals, PlannerContext, QualExtractState,
+=======
+    PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
+    has_leaky_heap_filter,
+>>>>>>> 8e719a3 (fix: respect RLS leaky-qual ordering in filter pushdown (#6614))
 };
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::node::NodeExt;
@@ -560,6 +565,19 @@ unsafe fn build_scan_node(
                 return Err("query does not imply the partial index predicate".into());
             }
             classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
+
+            // SECURITY: nothing runs above this scan, so a leaky filter would run before RLS.
+            if has_leaky_heap_filter(root, rel, rti, bm25_index, &classified.search_ri) {
+                pgrx::debug1!(
+                    "agg-on-join: declining RTI {} ({}); a WHERE predicate must be \
+                     evaluated after row-level security policies",
+                    rti,
+                    source.alias.as_deref().unwrap_or("unknown"),
+                );
+                return Err(
+                    "a WHERE predicate must be evaluated after row-level security policies".into(),
+                );
+            }
         }
     }
 

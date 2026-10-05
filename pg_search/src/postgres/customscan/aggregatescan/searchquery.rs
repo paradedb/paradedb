@@ -19,9 +19,16 @@ use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+<<<<<<< HEAD
 use crate::postgres::customscan::builders::custom_path::{restrict_info, RestrictInfoType};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::CustomScan;
+=======
+use crate::postgres::customscan::builders::custom_path::{RestrictInfoType, restrict_info};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+};
+>>>>>>> 8e719a3 (fix: respect RLS leaky-qual ordering in filter pushdown (#6614))
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::{filter_implied_predicates, missing_partial_index_predicate};
 use crate::postgres::PgSearchRelation;
@@ -111,6 +118,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         let filtered_restrict_info =
             unsafe { filter_implied_predicates(index.rd_indpred, &restrict_info) };
 
+<<<<<<< HEAD
         let quals = match unsafe {
             extract_quals(
                 &PlannerContext::from_planner(args.root),
@@ -123,6 +131,35 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
                 true,
             )
         } {
+=======
+        // SECURITY: nothing runs above this scan, so a leaky filter would run before RLS.
+        let has_leaky_filter = unsafe {
+            has_leaky_heap_filter(
+                args.root,
+                args.input_rel,
+                heap_rti,
+                index,
+                &filtered_restrict_info,
+            )
+        };
+        if has_leaky_filter {
+            return Err(
+                "WHERE clause has a predicate that must be evaluated after row-level security policies"
+                    .into(),
+            );
+        }
+
+        let quals = match extract_quals(
+            &PlannerContext::from_planner(args.root),
+            heap_rti,
+            filtered_restrict_info.as_ptr().cast(),
+            ri_type,
+            index,
+            false,
+            &mut where_qual_state,
+            true,
+        ) {
+>>>>>>> 8e719a3 (fix: respect RLS leaky-qual ordering in filter pushdown (#6614))
             Some(q) => q,
             None => return Err("could not extract search query from quals".into()),
         };

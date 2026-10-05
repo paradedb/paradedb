@@ -61,6 +61,9 @@ pub struct PrivateData {
     // Which decision branch produced this path's serial/parallel choice, surfaced in EXPLAIN
     // VERBOSE. `None` only on plans serialized before this field existed.
     worker_selection_reason: Option<WorkerDecisionReason>,
+    // `nodeToString` of the leaky WHERE clauses evaluated in `plan.qual` instead of the scan.
+    #[serde(default)]
+    deferred_plan_quals: Vec<String>,
 }
 
 mod var_attname_lookup_serializer {
@@ -233,6 +236,14 @@ impl PrivateData {
 
     pub fn set_join_predicates(&mut self, predicates: Option<SearchQueryInput>) {
         self.join_predicates = predicates;
+    }
+
+    pub fn set_deferred_plan_quals(&mut self, quals: Vec<String>) {
+        self.deferred_plan_quals = quals;
+    }
+
+    pub fn deferred_plan_quals(&self) -> &[String] {
+        &self.deferred_plan_quals
     }
 
     pub fn set_window_aggregates(&mut self, window_aggregates: Vec<WindowAggregateInfo>) {

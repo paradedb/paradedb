@@ -104,6 +104,8 @@ pub mod window_aggregates {
     pub const JOIN_SUPPORT: bool = false;
 
     /// Enable support for `FILTER` clause in window functions.
+    ///
+    /// SECURITY: before enabling, gate the FILTER on `expr_is_securely_promotable`.
     pub const WINDOW_AGG_FILTER_CLAUSE: bool = false;
 }
 

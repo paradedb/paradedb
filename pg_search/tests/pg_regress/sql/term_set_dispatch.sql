@@ -53,19 +53,19 @@ DROP TABLE IF EXISTS ts_unique CASCADE;
 DROP TABLE IF EXISTS ts_multi CASCADE;
 DROP TABLE IF EXISTS ts_sorted CASCADE;
 
-CREATE TABLE ts_outer (id INTEGER PRIMARY KEY, val TEXT);
+CREATE TABLE ts_outer (id INTEGER PRIMARY KEY, val TEXT) WITH (autovacuum_enabled = false);
 INSERT INTO ts_outer SELECT i, 'doc' FROM generate_series(1, 100) i;
 CREATE INDEX ts_outer_idx ON ts_outer USING paradedb (id, (val::pdb.unicode_words('columnar=true')));
 
-CREATE TABLE ts_unique (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
+CREATE TABLE ts_unique (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 INSERT INTO ts_unique SELECT i, i, 'doc' FROM generate_series(1, 10000) i;
 CREATE INDEX ts_unique_idx ON ts_unique USING paradedb (id, fk, val);
 
-CREATE TABLE ts_multi (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
+CREATE TABLE ts_multi (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 INSERT INTO ts_multi SELECT i, ((i - 1) % 100) + 1, 'doc' FROM generate_series(1, 10000) i;
 CREATE INDEX ts_multi_idx ON ts_multi USING paradedb (id, fk, val);
 
-CREATE TABLE ts_sorted (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
+CREATE TABLE ts_sorted (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT) WITH (autovacuum_enabled = false);
 INSERT INTO ts_sorted SELECT i, i, 'doc' FROM generate_series(1, 10000) i;
 CREATE INDEX ts_sorted_idx ON ts_sorted USING paradedb (id, fk, val) WITH (sort_by = 'fk ASC NULLS FIRST');
 

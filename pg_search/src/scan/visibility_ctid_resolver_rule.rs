@@ -90,7 +90,7 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
 
 /// Search the subtree for a PgSearchScanPlan whose deferred ctid metadata matches
 /// the given plan position. Returns its index relid and FFHelper if found.
-fn find_ffhelper_for_plan_position(
+pub(crate) fn find_ffhelper_for_plan_position(
     plan: &dyn ExecutionPlan,
     plan_position: usize,
 ) -> Option<CtidResolver> {

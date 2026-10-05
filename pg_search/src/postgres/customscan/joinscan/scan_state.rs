@@ -880,8 +880,10 @@ fn build_clause_df<'a>(
         // aggregate node does both and returns its (offset + k) rows already in
         // ORDER BY order, so there is no sort step: the limit below applies to the
         // unnest's output positionally, and the output projection resolves through
-        // `distinct_col_map` as before. Otherwise DISTINCT is a GROUP BY and the
-        // sort is its own step.
+        // `distinct_col_map` as before. In non-DISTINCT, the output projection
+        // resolves the original names
+        //
+        // Otherwise DISTINCT is a GROUP BY and the sort is its own step.
         let (df, distinct_col_map, expressions_evaluated) = if gucs::joinscan_force_topk_as_agg()
             && let Some(fetch) = join_clause
                 .limit_offset

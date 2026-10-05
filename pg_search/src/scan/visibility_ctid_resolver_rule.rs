@@ -32,16 +32,8 @@ use datafusion::common::{DataFusionError, Result};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 
-use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
-use crate::scan::execution_plan::PgSearchScanPlan;
-
-/// The index relation OID and [`FFHelper`] needed to resolve deferred packed `DocAddress` values
-/// into real CTIDs for a specific table in a multi-table or deferred scan.
-///
-/// Wired by [`VisibilityCtidResolverRule`] from the source [`PgSearchScanPlan`] into the physical
-/// execution node performing visibility checking ([`VisibilityFilterExec`]).
-pub type CtidResolver = (u32, Arc<FFHelper>);
+use crate::scan::execution_plan::find_ctid_resolver_for_plan_position;
 
 #[derive(Debug)]
 pub struct VisibilityCtidResolverRule;
@@ -72,14 +64,14 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
     // VisibilityFilterExec owns ctid resolution for its plan positions.
     if let Some(vf) = plan.downcast_ref::<VisibilityFilterExec>() {
         for &(plan_pos, _) in vf.plan_pos_oids() {
-            let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
-                .ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "VisibilityCtidResolverRule: no PgSearchScanPlan found \
+            let resolver =
+                find_ctid_resolver_for_plan_position(plan, plan_pos).ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "VisibilityCtidResolverRule: no PgSearchScanPlan found \
                      for VisibilityFilterExec deferred ctid plan_position {plan_pos}"
-                ))
-            })?;
-            vf.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+                    ))
+                })?;
+            vf.set_ctid_resolver(plan_pos, resolver);
         }
     }
     for child in plan.children() {
@@ -88,6 +80,7 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
     Ok(())
 }
 
+<<<<<<< HEAD
 /// Search the subtree for a PgSearchScanPlan whose deferred ctid metadata matches
 /// the given plan position. Returns its index relid and FFHelper if found.
 fn find_ffhelper_for_plan_position(
@@ -109,45 +102,22 @@ fn find_ffhelper_for_plan_position(
     None
 }
 
+=======
+>>>>>>> ace9bec (fix: Ensure column access is injected in all plan shapes (#6675))
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::{VisibilityCtidResolverRule, find_ffhelper_for_plan_position};
+    use super::VisibilityCtidResolverRule;
     use std::sync::Arc;
 
     use arrow_schema::{Schema, SchemaRef};
     use pgrx::prelude::*;
 
     use crate::index::fast_fields_helper::FFHelper;
+    use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
     use crate::query::SearchQueryInput;
     use crate::scan::execution_plan::PgSearchScanPlan;
 
-    fn empty_schema() -> SchemaRef {
-        Arc::new(Schema::empty())
-    }
-
-    #[pg_test]
-    fn matches_scan_by_deferred_ctid_plan_position() {
-        let ffhelper = Arc::new(FFHelper::empty());
-        let scan = PgSearchScanPlan::new(
-            None,
-            empty_schema(),
-            SearchQueryInput::All,
-            None,
-            Vec::new(),
-            Some(ffhelper.clone()),
-            0,
-            Some(7),
-            1,
-            None,
-            None,
-        );
-
-        let (_, found) = find_ffhelper_for_plan_position(&scan, 7)
-            .expect("matching plan_position should find ffhelper");
-        assert!(Arc::ptr_eq(&found, &ffhelper));
-        assert!(find_ffhelper_for_plan_position(&scan, 6).is_none());
-    }
     fn sort_schema() -> SchemaRef {
         use arrow_schema::{DataType, Field};
         Arc::new(Schema::new(vec![Field::new(
@@ -159,7 +129,6 @@ mod tests {
 
     #[pg_test]
     fn wires_ctid_resolver_to_visibility_filter_exec() {
-        use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
         use datafusion::physical_optimizer::PhysicalOptimizerRule;
         use pgrx::pg_sys;
 

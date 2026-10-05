@@ -82,7 +82,7 @@ use datafusion::physical_plan::{
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
-use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
+use crate::index::fast_fields_helper::for_each_segment;
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
@@ -1125,7 +1125,7 @@ impl VisibilityFilterExec {
 
     /// Sets the ctid resolver (FFHelper and its index relation OID) for
     /// the given plan_position. Called by `VisibilityCtidResolverRule`.
-    pub fn set_ctid_resolver(&self, plan_pos: usize, indexrelid: u32, ffhelper: Arc<FFHelper>) {
+    pub fn set_ctid_resolver(&self, plan_pos: usize, resolver: CtidResolver) {
         let mut resolvers = self
             .ctid_resolvers
             .lock()
@@ -1133,7 +1133,7 @@ impl VisibilityFilterExec {
         if plan_pos >= resolvers.len() {
             resolvers.resize(plan_pos + 1, None);
         }
-        resolvers[plan_pos] = Some((indexrelid, ffhelper));
+        resolvers[plan_pos] = Some(resolver);
     }
 
     /// Serialize for leader dispatch. The `ctid_resolvers` are live and don't travel; the worker
@@ -1145,7 +1145,7 @@ impl VisibilityFilterExec {
             .expect("VisibilityFilterExec ctid_resolvers lock poisoned")
             .iter()
             .enumerate()
-            .filter_map(|(pos, r)| r.as_ref().map(|(relid, _)| (pos, *relid)))
+            .filter_map(|(pos, r)| r.as_ref().map(|res| (pos, res.indexrelid)))
             .collect();
         let payload: VisibilityDispatchPayload = (
             self.plan_pos_oids.clone(),
@@ -1162,7 +1162,7 @@ impl VisibilityFilterExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
+        ctid_resolvers: Vec<(usize, CtidResolver)>,
         index_segment_views: &[SegmentView],
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (plan_pos_oids, table_names, projection, resolver_indexes): VisibilityDispatchPayload =
@@ -1172,11 +1172,18 @@ impl VisibilityFilterExec {
                 ))
             })?;
         let exec = VisibilityFilterExec::try_new(input, plan_pos_oids, table_names, projection)?;
-        for (plan_pos, indexrelid, ffhelper) in &ctid_resolvers {
-            exec.set_ctid_resolver(*plan_pos, *indexrelid, Arc::clone(ffhelper));
+        for (plan_pos, resolver) in ctid_resolvers {
+            exec.set_ctid_resolver(plan_pos, resolver);
         }
         for (plan_pos, indexrelid) in resolver_indexes {
-            if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
+            if exec
+                .ctid_resolvers
+                .lock()
+                .expect("VisibilityFilterExec ctid_resolvers lock poisoned")
+                .get(plan_pos)
+                .and_then(|r| r.as_ref())
+                .is_some()
+            {
                 continue;
             }
             let view = index_segment_views.get(plan_pos).cloned().ok_or_else(|| {
@@ -1186,7 +1193,7 @@ impl VisibilityFilterExec {
             })?;
             let ffhelper =
                 open_rebuilt_ffhelper(indexrelid, &[], MvccSatisfies::ParallelWorker(view))?;
-            exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+            exec.set_ctid_resolver(plan_pos, CtidResolver::new(indexrelid, ffhelper));
         }
         Ok(Arc::new(exec))
     }
@@ -1394,7 +1401,7 @@ impl ExecutionPlan for VisibilityFilterExec {
             let heaprel = PgSearchRelation::open(heap_oid);
             let resolver = resolvers
                 .get(plan_pos)
-                .and_then(|r| r.as_ref().map(|(_, ff)| Arc::clone(ff)))
+                .and_then(|r| r.as_ref().map(|res| Arc::clone(&res.ffhelper)))
                 .ok_or_else(|| {
                     DataFusionError::Execution(format!(
                         "VisibilityFilterExec: no ctid resolver wired for \

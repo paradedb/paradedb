@@ -1722,6 +1722,20 @@ impl CustomScan for JoinScan {
                     (plan_ctx, plan)
                 };
 
+<<<<<<< HEAD
+=======
+                for (plan_position, rel_state) in state.custom_state_mut().relations.iter_mut() {
+                    if let Some(resolver) =
+                        crate::scan::execution_plan::find_ctid_resolver_for_plan_position(
+                            &plan,
+                            *plan_position,
+                        )
+                    {
+                        rel_state.ffhelper = Some(resolver.ffhelper);
+                    }
+                }
+
+>>>>>>> ace9bec (fix: Ensure column access is injected in all plan shapes (#6675))
                 let task_ctx = build_task_context(
                     &ctx,
                     &plan,
@@ -1758,6 +1772,23 @@ impl CustomScan for JoinScan {
                             rel_state.ctid_col_idx = Some(i);
                         }
                     }
+                }
+
+                #[cfg(debug_assertions)]
+                {
+                    crate::scan::execution_plan::visit_scan_nodes(&plan, &mut |scan| {
+                        if let Some(pos) = scan.deferred_ctid_plan_position() {
+                            debug_assert!(
+                                state
+                                    .custom_state()
+                                    .relations
+                                    .get(&pos)
+                                    .and_then(|r| r.ffhelper.as_ref())
+                                    .is_some(),
+                                "JoinScan: relation at plan_position {pos} has deferred CTIDs but missing FFHelper on RelationState"
+                            );
+                        }
+                    });
                 }
 
                 let plan_sources = state.custom_state().join_clause.plan.sources();

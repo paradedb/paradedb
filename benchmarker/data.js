@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791229623088,
+  "lastUpdate": 1791242627612,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -8154,6 +8154,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 726.86,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ce9e4581f339c2e72881724fac1a9381ea10b5a",
+          "message": "fix: Basescan was dropping quals under certain conditions (#6682)\n\n## What\n\nFixes a correctness bug in which the Base Scan dropped a table's own\nWHERE clauses when 1) qual extraction over them produced nothing usable,\nand 2) the scan was built from the join quals instead (the fallback used\nfor `pdb.score`/snippets when a join clause has `@@@`).\n\n## How\n\n- When the join-qual fallback is taken, defer the base `RestrictInfo`s\nto `plan.qual`, where they run as a filter on the scan. SubPlans are\nskipped, as they already go there. If a clause to defer uses `@@@`, the\nscan declines.\n- Extract join quals into their own `QualExtractState`, so a `@@@` in a\nbase clause that failed extraction no longer enables the fallback for\njoin clauses that have none.\n- Compute `has_deferred_quals` after extraction, so LIMIT pushdown and\nwindow aggregates account for the new deferrals.\n\n## Tests\n- new regression test `basescan_join_qual_fallback`",
+          "timestamp": "2026-10-05T16:11:36-06:00",
+          "tree_id": "f020b603ec0be866eb3ecb16cb97bda952ad9f92",
+          "url": "https://github.com/paradedb/paradedb/commit/2ce9e4581f339c2e72881724fac1a9381ea10b5a"
+        },
+        "date": 1791242624950,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.031,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 151.986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.879,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 241.857,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.444,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 173.831,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.802,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 211.475,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.4,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 733.936,
             "unit": "ms"
           }
         ]

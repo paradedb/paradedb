@@ -736,19 +736,19 @@ impl PdbAggPlan {
 
     fn key_col(&self, key_idx: usize) -> usize {
         self.column_of(PdbAggColumn::Key(key_idx))
-            .unwrap_or_else(|| panic!("BUG: the plan has no key {key_idx}"))
+            .unwrap_or_else(|| pgrx::error!("BUG: the plan has no key {key_idx}"))
     }
 
     fn metric_col(&self, metric_idx: usize) -> usize {
         self.column_of(PdbAggColumn::Metric(metric_idx))
-            .unwrap_or_else(|| panic!("BUG: the plan has no metric {metric_idx}"))
+            .unwrap_or_else(|| pgrx::error!("BUG: the plan has no metric {metric_idx}"))
     }
 
     /// The metric an output column holds.
     fn metric_at(&self, col: usize) -> usize {
         match self.columns().nth(col) {
             Some(PdbAggColumn::Metric(metric_idx)) => metric_idx,
-            other => panic!("BUG: output column {col} holds {other:?}, not a metric"),
+            other => pgrx::error!("BUG: output column {col} holds {other:?}, not a metric"),
         }
     }
 

@@ -359,7 +359,7 @@ impl PdbAggAccumulator {
                 PdbAggColumn::Key(key) => nullable(&self.key_fields[*key]),
                 PdbAggColumn::Metric(metric) => nullable(&self.metrics[*metric].expr.field()),
                 PdbAggColumn::GroupKey(_) | PdbAggColumn::StdAgg(_) => {
-                    unreachable!("{NO_ROOT_COLUMNS}")
+                    pgrx::error!("BUG: {NO_ROOT_COLUMNS}")
                 }
             })
             .collect();
@@ -395,7 +395,7 @@ impl PdbAggAccumulator {
                         PdbAggColumn::Key(key) => keys[*key].take(),
                         PdbAggColumn::Metric(metric) => metrics[*metric].take(),
                         PdbAggColumn::GroupKey(_) | PdbAggColumn::StdAgg(_) => {
-                            unreachable!("{NO_ROOT_COLUMNS}")
+                            pgrx::error!("BUG: {NO_ROOT_COLUMNS}")
                         }
                     };
                 column.push(match values {

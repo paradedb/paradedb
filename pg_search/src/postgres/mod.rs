@@ -918,16 +918,6 @@ impl ParallelScanState {
         }
     }
 
-    /// Set this worker's query count in DSM (used when flushing local scan
-    /// telemetry at teardown). Acquires the parallel mutex.
-    pub fn set_query_count(&mut self, count: usize) {
-        let _mutex = self.acquire_mutex();
-        let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-        if let Some(query_count) = self.query_count(parallel_worker_number) {
-            *query_count = count.min(u16::MAX as usize) as u16;
-        }
-    }
-
     /// Append intermediate aggregation results, including the number of segments that they
     /// represent.
     pub fn aggregation_append(

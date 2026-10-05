@@ -413,7 +413,7 @@ impl ExecMethod for TopKScanExecState {
                     maybe_parallel_state,
                 );
             // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
-            // DSM once at EndCustomScan; the leader merges at Shutdown.
+            // DSM once at ShutdownCustomScan; the leader merges at its own Shutdown.
             if !top_k_search.segment_info.is_empty() {
                 state.accumulate_segment_info(std::mem::take(&mut top_k_search.segment_info));
             }

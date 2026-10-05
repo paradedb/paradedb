@@ -1881,13 +1881,9 @@ impl CustomScan for BaseScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Both roles exchange telemetry here. `take()` makes this one-shot, so a second
-        // shutdown is a no-op (#6374).
-        //
-        // Workers must publish here rather than in `end_custom_scan`: a worker's
-        // `ExecutorRun` calls `ExecShutdownNode` before `ExecutorEnd`, so the handle is
-        // already gone by then (#6404). This also runs before the worker detaches its tuple
-        // queue, so a leader that has read every row sees the counts at its own shutdown.
+        // Postgres calls this hook at the end of `ExecutePlan`. In a worker, that is before it
+        // detaches its tuple queue, so a leader that read every row finds the worker's data in
+        // the DSM. `take()` makes a second call a no-op: by then the DSM can be gone.
         let scan_state = state.custom_state_mut();
         if let Some(parallel) = scan_state.parallel.take() {
             if parallel.is_leader() {
@@ -1901,8 +1897,6 @@ impl CustomScan for BaseScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Parallel telemetry was already exchanged in `shutdown_custom_scan`.
-
         // get some things dropped now. Order matters: scorers hold bitmap
         // cursors into the TIDBitmap/DSA, so everything that can hold a scorer
         // drops before the bitmap machinery is torn down.

@@ -61,7 +61,9 @@ use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FieldCardinality, WhichFastField};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::pdb_agg;
-use crate::postgres::customscan::datafusion::topk_agg::{TOPK_AGG_ROWS_COL_NAME, topk_as_agg};
+use crate::postgres::customscan::datafusion::topk_agg::{
+    TOPK_AGG_ROWS_COL_NAME, TOPK_DISTINCT_EMPTY_PAYLOAD_COL_NAME, topk_as_agg,
+};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias, ScoreColumn,
 };
@@ -1064,8 +1066,10 @@ impl<'a> TopKAggSelectedExpressions<'a> {
         // is then one group, which a constant key expresses.
         if self.join_clause.has_distinct && self.payload_cols.is_empty() {
             self.payload_cols.push(datafusion::logical_expr::lit(true));
-            self.payload_names
-                .push(QualifiedName(None, "__distinct_key".to_string()));
+            self.payload_names.push(QualifiedName(
+                None,
+                TOPK_DISTINCT_EMPTY_PAYLOAD_COL_NAME.to_string(),
+            ));
         }
 
         Ok(self)

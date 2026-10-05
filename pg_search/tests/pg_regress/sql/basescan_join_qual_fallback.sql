@@ -12,17 +12,30 @@ CREATE TABLE tags (id int PRIMARY KEY, doc_id int NOT NULL, label text NOT NULL)
 INSERT INTO tags SELECT i, ((i - 1) % 4) + 1, 'sheriff tag' FROM generate_series(1, 8) i;
 CREATE INDEX tags_bm25 ON tags USING paradedb (id, doc_id, label);
 
+-- The heap-filter call in the plan embeds the index OID, which changes on
+-- every database creation; mask it so the plan is stable.
+CREATE FUNCTION explain_rls_fallback(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, TIMING OFF) ' || query LOOP
+        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
+    END LOOP;
+END;
+$$;
+
 --------------------------------------------------------------------------------
 -- Part 1: wrong results, no RLS involved.
 -- `COALESCE(d.org_id = 1, false)` restricts docs to org 1, so only docs 3 and 4
 -- may appear. Expected: (3,3),(3,7),(4,4),(4,8).
 --------------------------------------------------------------------------------
-EXPLAIN (COSTS OFF)
+SELECT explain_rls_fallback($$
 SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
 FROM docs d JOIN tags t ON t.doc_id = d.id
 WHERE (d.body @@@ 'sheriff' OR t.label @@@ 'tag')
   AND COALESCE(d.org_id = 1, false)
-ORDER BY d.id, t.id;
+ORDER BY d.id, t.id
+$$);
 
 SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
 FROM docs d JOIN tags t ON t.doc_id = d.id
@@ -63,20 +76,70 @@ SET LOCAL ROLE rls_drop_user;
 -- Sanity: the policy works for a plain query. Returns 3, 4.
 SELECT id FROM docs ORDER BY id;
 
-EXPLAIN (COSTS OFF)
+
+SELECT explain_rls_fallback($$
 SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
 FROM docs d JOIN tags t ON t.doc_id = d.id
 WHERE d.body @@@ 'sheriff' OR t.label @@@ 'tag'
-ORDER BY d.id, t.id;
+ORDER BY d.id, t.id
+$$);
 
 SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
 FROM docs d JOIN tags t ON t.doc_id = d.id
 WHERE d.body @@@ 'sheriff' OR t.label @@@ 'tag'
 ORDER BY d.id, t.id;
+
+ROLLBACK;
 
 -- Control: the same query without pdb.score() returns the correct 4 rows.
+BEGIN;
+SET LOCAL app.org_id = '1';
+SET LOCAL ROLE rls_drop_user;
+
+SELECT explain_rls_fallback($$
+SELECT d.id, t.id
+FROM docs d JOIN tags t ON t.doc_id = d.id
+WHERE d.body @@@ 'sheriff' OR t.label @@@ 'tag'
+ORDER BY d.id, t.id
+$$);
+
+
 SELECT d.id, t.id
 FROM docs d JOIN tags t ON t.doc_id = d.id
 WHERE d.body @@@ 'sheriff' OR t.label @@@ 'tag'
 ORDER BY d.id, t.id;
+
+
 COMMIT;
+
+--------------------------------------------------------------------------------
+-- Part 3: an extractable base clause next to a SubPlan policy.
+-- The policy lets both orgs through, so `d.org_id = 1` is what restricts the
+-- result. Expected: (3,3),(3,7),(4,4),(4,8).
+--------------------------------------------------------------------------------
+CREATE TABLE visible_orgs (org_id int PRIMARY KEY);
+INSERT INTO visible_orgs VALUES (1), (2);
+GRANT SELECT ON visible_orgs TO rls_drop_user;
+DROP POLICY org_only ON docs;
+CREATE POLICY org_visible ON docs FOR SELECT
+    USING (EXISTS (SELECT 1 FROM visible_orgs v WHERE v.org_id = docs.org_id));
+
+BEGIN;
+SET LOCAL ROLE rls_drop_user;
+
+SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
+FROM docs d JOIN tags t ON t.doc_id = d.id
+WHERE (d.body @@@ 'sheriff' OR t.label @@@ 'tag') AND d.org_id = 1
+ORDER BY d.id, t.id;
+
+COMMIT;
+
+------------
+-- Cleanup
+------------
+
+DROP TABLE docs CASCADE;
+DROP TABLE tags CASCADE;
+DROP TABLE visible_orgs;
+DROP ROLE rls_drop_user;
+DROP FUNCTION explain_rls_fallback(text);

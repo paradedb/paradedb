@@ -39,7 +39,9 @@ use std::ptr::addr_of_mut;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use crate::api::operator::{estimate_query_cost, estimate_selectivity_and_cost};
+use crate::api::operator::{
+    estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
+};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
@@ -265,6 +267,7 @@ impl BaseScan {
         indexrel: &PgSearchRelation,
         uses_score_or_snippet: bool,
         attempt_pushdown: bool,
+        deferred_plan_quals: &mut Vec<String>,
     ) -> Option<Qual> {
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_planner(root);
@@ -327,7 +330,8 @@ impl BaseScan {
 
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
-        let quals = if quals.is_none() {
+        if quals.is_none() {
+            let mut join_qual_state = QualExtractState::default();
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
             let mut join_quals = Vec::new();
@@ -339,7 +343,7 @@ impl BaseScan {
                     RestrictInfoType::Join,
                     indexrel,
                     true, // Join quals should convert external to all
-                    &mut state,
+                    &mut join_qual_state,
                     attempt_pushdown,
                 )?;
                 // SECURITY: the join above re-evaluates every join clause after RLS, so a leaky
@@ -368,8 +372,11 @@ impl BaseScan {
                 _ => Some(Qual::And(join_quals)),
             };
 
-            let quals =
-                Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator);
+            let quals = Self::handle_heap_expr_optimization(
+                &join_qual_state,
+                &mut quals,
+                allow_without_operator,
+            );
 
             // If we have found something to push down in the join, then we can use the join quals
             // Note: these Join quals won't help in filtering down the data (as they contain
@@ -381,14 +388,31 @@ impl BaseScan {
             // that match partially the Join quals will be scored and snippets generated. That is
             // why it only makes sense to use the Join quals if we have used our operator and
             // also used pdb.score or pdb.snippet functions in the query.
-            if state.uses_our_operator && uses_score_or_snippet {
-                quals
-            } else {
-                None
+            if !join_qual_state.uses_our_operator || !uses_score_or_snippet {
+                return None;
             }
-        } else {
-            Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator)
-        };
+
+            // The scan is built from the join quals alone, so none of the base relation's own
+            // clauses were pushed down. `plan_custom_path` already moves SubPlans to `plan.qual`;
+            // defer the rest there too, as nothing else would evaluate them.
+            if matches!(ri_type, RestrictInfoType::BaseRelation) {
+                let mut unpushed = Vec::new();
+                for ri in restrict_info.iter_ptr() {
+                    if is_subplan(ri.cast(), root) {
+                        continue;
+                    }
+                    // As in `split_leaky_quals`, a clause that uses `@@@` can't be deferred.
+                    if expr_contains_search_predicate((*ri).clause.cast()) {
+                        return None;
+                    }
+                    unpushed.push(node_to_string_owned((*ri).clause.cast()));
+                }
+                deferred_plan_quals.extend(unpushed);
+            }
+            return quals;
+        }
+
+        let quals = Self::handle_heap_expr_optimization(&state, &mut quals, allow_without_operator);
 
         // Finally, decide whether we can actually use the extracted quals.
         // We allow custom scan if:
@@ -592,7 +616,7 @@ unsafe fn has_non_pushable_predicates(
     // Deferred clauses run in `plan.qual`, after the scan has produced (and counted) its rows.
     if has_deferred_quals {
         return Err(BaseScanDeclineReason::new(
-            "WHERE clause contains predicates that must be evaluated after row-level security policies",
+            "WHERE clause contains predicates that must be evaluated after the scan, for example to respect row-level security policies",
         ));
     }
 
@@ -863,7 +887,7 @@ impl CustomScan for BaseScan {
                 filter_implied_predicates(bm25_index.rd_indpred, &restrict_info);
 
             // SECURITY: keep leaky clauses out of the scan; they run in `plan.qual` instead.
-            let (pushable_restrict_info, deferred_plan_quals) = split_leaky_quals(
+            let (pushable_restrict_info, mut deferred_plan_quals) = split_leaky_quals(
                 root,
                 rel,
                 rti,
@@ -872,7 +896,6 @@ impl CustomScan for BaseScan {
                 &filtered_restrict_info,
                 is_select,
             )?;
-            let has_deferred_quals = !deferred_plan_quals.is_empty();
 
             let quals = Self::extract_all_possible_quals(
                 &mut builder,
@@ -883,7 +906,10 @@ impl CustomScan for BaseScan {
                 &bm25_index,
                 maybe_needs_const_projections,
                 is_select,
+                &mut deferred_plan_quals,
             );
+            // Computed after extraction, which may defer clauses of its own.
+            let has_deferred_quals = !deferred_plan_quals.is_empty();
 
             // If window aggregates are present, validate that the WHERE clause contains no
             // non-pushable predicates (e.g. subqueries, volatile functions, or unpushable

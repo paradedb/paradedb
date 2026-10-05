@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791225823375,
+  "lastUpdate": 1791229623088,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -8080,6 +8080,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 731.28,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e851f46cd902de4bcaa667c8c353252de38a4ab",
+          "message": "feat: Add ability to compute topk in joinscan as an aggregate (#6494)\n\nThis is PR 1 of 3:\n1) #6494 <----- You are here\n2) Convert existing sql window functions to be computed in the same\naggregate step\n3) Add \"window\" support for `pdb.agg()`\n\n- Advances #6359 \n\n## What\nAdd's a UDAF and an `Accumulator` implementation that computes TopK\n(optionally with support for `DISTINCT`) as an aggregate function.\n\n## Why\nOur target design for #6359 is to be able to compute TopK and window\nfunctions from a single source (so that any joins/scans/etc. are only\nexecuted once), and also allow our supported window functions to have an\naggregate-style partial/final split so the computation is not limited to\na single task.\n\nThis requires that we can do the window functions, the topk, and the\ndistinct all in call to `df.aggregate()`.\n\nSQL semantics require that we produce results as if the execution order\nwas:\n1. window functions\n2. DISTINCT\n3. topk (ORDER BY + LIMIT)\n\nWe can safely do this as a single aggregation node though given the\nfollowing:\n- We require window functions to be \"bare\" (of the form `fn() OVER ()`)\nso they only produce a single value for the entire dataset, having no\neffect on DISTINCT or topk, meaning we can just add this value to the\nrows later.\n- If we compose distinct then top-k as a single aggregation, then we can\nfeed that the same input rows that the window functions take.\n\n## How\nThis PR adds the \"fused\" distinct+topk aggregation. The `Accumulator`\nimplementation for it maintains a sorted `RecordBatch` of size (offset +\nk) with an optional distinctness requirement for entry. It orders by the\naggregate's `order_by` argument.\n\nIn `DISTINCT` mode, the sort keys are extended to include every payload\ncolumn. Colliding keys keep the entry with the lowest \"ctid tuple\",\nmatching the existing DISTINCT behavior.\n\nThis path is intended only for use when we need to compute window\nfunctions, so at the moment it's always off. (Adding the sql window\nfunctions to this aggregation instead of a window node will come next\nPR). This PR includes a GUC to force its use for testing purposes.\n\n## Tests\n- New unit tests\n- New integration tests asserting the results of joinscan are equivalent\nwhen taking the topk-as-agg route vs the regular path.\n\n## Notes\n- This, with its current construction, does add a requirement for\njoinscan paths that use the topk-as-agg route, that the LIMIT be a\nconstant known at planning time.\n- Also fixes #6601",
+          "timestamp": "2026-10-05T12:36:44-06:00",
+          "tree_id": "4ca0fe08bc036536c5677d2efd79db967d90778b",
+          "url": "https://github.com/paradedb/paradedb/commit/7e851f46cd902de4bcaa667c8c353252de38a4ab"
+        },
+        "date": 1791229619587,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 18.787,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 149.904,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 53.734,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 240.395,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 17.866,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 168.117,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.4,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 211.021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 37.788,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 726.86,
             "unit": "ms"
           }
         ]

@@ -61,7 +61,8 @@ pub struct PrivateData {
     // Which decision branch produced this path's serial/parallel choice, surfaced in EXPLAIN
     // VERBOSE. `None` only on plans serialized before this field existed.
     worker_selection_reason: Option<WorkerDecisionReason>,
-    // `nodeToString` of the leaky WHERE clauses evaluated in `plan.qual` instead of the scan.
+    // `nodeToString` of the WHERE clauses evaluated in `plan.qual` instead of the scan: the leaky
+    // ones, and the base clauses the join qual fallback could not push down.
     #[serde(default)]
     deferred_plan_quals: Vec<String>,
 }

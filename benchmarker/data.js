@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791177111820,
+  "lastUpdate": 1791180471866,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7784,6 +7784,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 727.066,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6d1c61c1565bdb9c8f0d3a208423c2debd0b8315",
+          "message": "perf: Defer fetching ctids to the top of join plans (#6665)\n\n## What\n\nDefers row `ctid` resolution from Tantivy fast fields in join scans\nuntil the top of the plan or when required by tuple-level visibility\nchecks.\n\n## Why\n\nJoin scans previously fetched fast-field `ctid`s eagerly before sort and\nfilter nodes (such as `TopK`). For large result sets, this read millions\nof fast-field entries from buffers even when only a small fraction of\nrows were projected, or when heap pages were already confirmed\nall-visible by PostgreSQL's visibility map. Deferring resolution reduces\nbuffer reads significantly on queries that filter or sort before\nprojection.\n\n## How\n\n- Introduced `DeferredCtid` to pack either an already-resolved\n`ItemPointerData` or a Tantivy `DocAddress` into a single `u64`.\n- Updated `VisibilityFilterExec` to check page-level visibility first.\nRows on all-visible blocks keep their lazy `DocAddress`, skipping\nfast-field lookups entirely. Only rows on non-all-visible pages have\ntheir `ctid` fetched via `TantivyFastFieldCtidResolver`.\n- Added `resolve_batch_ctids` at the root of the plan to resolve any\nremaining lazy `ctid`s on batches actually returned to Postgres.\n- Added `ctids_fetched` and `ctids_lazy` metrics to\n`VisibilityFilterExec`.\n\n## Tests\n\n`join_disjunctive` benchmarks run 20% faster, fetching 70% fewer\nbuffers.",
+          "timestamp": "2026-10-04T21:58:31-07:00",
+          "tree_id": "8da6d96238c1ab4e38841187ece34222ef398715",
+          "url": "https://github.com/paradedb/paradedb/commit/6d1c61c1565bdb9c8f0d3a208423c2debd0b8315"
+        },
+        "date": 1791180469693,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.995,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 147.742,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 239.698,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.461,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 166.663,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.395,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 209.396,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 39.042,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 732.452,
             "unit": "ms"
           }
         ]

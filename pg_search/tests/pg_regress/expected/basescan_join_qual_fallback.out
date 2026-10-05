@@ -105,7 +105,6 @@ WARNING:  JoinScan not used: a WHERE predicate cannot be pushed into the scan (t
 -- The role may only see org 1. Expected: (3,3),(3,7),(4,4),(4,8).
 --------------------------------------------------------------------------------
 CREATE ROLE rls_drop_user NOLOGIN;
-ERROR:  role "rls_drop_user" already exists
 GRANT SELECT ON docs, tags TO rls_drop_user;
 ALTER TABLE docs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY org_only ON docs FOR SELECT
@@ -247,5 +246,4 @@ DROP TABLE docs CASCADE;
 DROP TABLE tags CASCADE;
 DROP TABLE visible_orgs;
 DROP ROLE rls_drop_user;
-ERROR:  role "rls_drop_user" cannot be dropped because some objects depend on it
 DROP FUNCTION explain_rls_fallback(text);

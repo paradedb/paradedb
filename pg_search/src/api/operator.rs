@@ -697,11 +697,14 @@ fn selectivity_clause(
             | SearchQueryInput::ConstScore { query, .. } => *query,
             SearchQueryInput::FieldedQuery {
                 field,
-                query: pdb::Query::ScoreAdjusted { query, .. },
-            } => SearchQueryInput::FieldedQuery {
-                field,
-                query: *query,
-            },
+                query: pdb::Query::ScoreAdjusted { query, score },
+            } => {
+                score.expect("score adjustment value should have been set");
+                SearchQueryInput::FieldedQuery {
+                    field,
+                    query: *query,
+                }
+            }
             SearchQueryInput::HeapFilter {
                 indexed_query,
                 always_filters,

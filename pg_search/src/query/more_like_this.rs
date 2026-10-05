@@ -54,17 +54,19 @@ pub struct MoreLikeThisQuery {
     index_created_by_version: Option<Version>,
 }
 
+type DocumentFields = Vec<(Field, Vec<PdbOwnedValue>)>;
+
 /// Keeps supplied fields or a deferred lookup, so estimating MLT never fetches a document.
 /// Lookups run once, when `weight()` first needs the document.
 #[derive(Debug, Clone)]
 enum DocumentSource {
-    Fields(Vec<(Field, Vec<PdbOwnedValue>)>),
+    Fields(DocumentFields),
     Lookup {
         field: crate::api::FieldName,
         value: PdbOwnedValue,
         fields: Option<Vec<String>>,
         index_oid: pgrx::pg_sys::Oid,
-        cached: OnceLock<Option<Vec<(Field, Vec<PdbOwnedValue>)>>>,
+        cached: OnceLock<Option<DocumentFields>>,
     },
 }
 

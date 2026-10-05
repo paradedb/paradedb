@@ -184,7 +184,9 @@ use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
-use arrow_array::Array;
+use crate::scan::deferred_encode::DeferredCtid;
+use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
+use arrow_buffer::ScalarBuffer;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::ParallelScanArgs;
@@ -1572,6 +1574,7 @@ impl CustomScan for JoinScan {
                             visibility_checker,
                             fetch_slot,
                             ctid_col_idx: None,
+                            ffhelper: None,
                         },
                     );
                 }
@@ -1722,6 +1725,17 @@ impl CustomScan for JoinScan {
                     (plan_ctx, plan)
                 };
 
+                for (plan_position, rel_state) in state.custom_state_mut().relations.iter_mut() {
+                    if let Some(resolver) =
+                        crate::scan::execution_plan::find_ctid_resolver_for_plan_position(
+                            &plan,
+                            *plan_position,
+                        )
+                    {
+                        rel_state.ffhelper = Some(resolver.ffhelper);
+                    }
+                }
+
                 let task_ctx = build_task_context(
                     &ctx,
                     &plan,
@@ -1758,6 +1772,23 @@ impl CustomScan for JoinScan {
                             rel_state.ctid_col_idx = Some(i);
                         }
                     }
+                }
+
+                #[cfg(debug_assertions)]
+                {
+                    crate::scan::execution_plan::visit_scan_nodes(&plan, &mut |scan| {
+                        if let Some(pos) = scan.deferred_ctid_plan_position() {
+                            debug_assert!(
+                                state
+                                    .custom_state()
+                                    .relations
+                                    .get(&pos)
+                                    .and_then(|r| r.ffhelper.as_ref())
+                                    .is_some(),
+                                "JoinScan: relation at plan_position {pos} has deferred CTIDs but missing FFHelper on RelationState"
+                            );
+                        }
+                    });
                 }
 
                 let plan_sources = state.custom_state().join_clause.plan.sources();
@@ -1829,7 +1860,7 @@ impl CustomScan for JoinScan {
                 };
 
                 match next_batch {
-                    Some(Ok(batch)) => {
+                    Some(Ok(mut batch)) => {
                         // First distributed batch out: fold the worker decode, first scan, and
                         // network hop into the launch timing.
                         if let Some(built) = state.custom_state().stream_built_at {
@@ -1840,6 +1871,7 @@ impl CustomScan for JoinScan {
                             }
                             state.custom_state_mut().stream_built_at = None;
                         }
+                        Self::resolve_batch_ctids(&mut batch, &state.custom_state().relations);
                         state.custom_state_mut().current_batch = Some(batch);
                         state.custom_state_mut().batch_index = 0;
                     }
@@ -2388,6 +2420,92 @@ impl JoinScan {
         })
     }
 
+    /// Resolves any deferred CTIDs (which are stored as packed DocAddresses) in `batch` into real
+    /// PostgreSQL CTIDs.
+    ///
+    /// For each active `ctid_{plan_position}` column in the batch:
+    /// - If all values are already resolved CTIDs (or NULLs), does nothing.
+    /// - Otherwise, groups unresolved DocAddresses by segment ordinal, performs batch lookups via
+    ///   the relation's `FFHelper`, and replaces the column with fully resolved CTIDs.
+    fn resolve_batch_ctids(
+        batch: &mut RecordBatch,
+        relations: &crate::api::HashMap<usize, scan_state::RelationState>,
+    ) {
+        if batch.num_rows() == 0 {
+            return;
+        }
+
+        let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
+        let mut modified = false;
+
+        for (plan_position, rel_state) in relations {
+            let Some(col_idx) = rel_state.ctid_col_idx else {
+                continue;
+            };
+            let Some(ctid_array) = columns[col_idx].as_any().downcast_ref::<UInt64Array>() else {
+                continue;
+            };
+
+            let tagged_rows: Vec<(usize, tantivy::DocAddress)> = (0..ctid_array.len())
+                .filter_map(|row_idx| {
+                    if !ctid_array.is_null(row_idx)
+                        && let Some(doc_addr) =
+                            DeferredCtid(ctid_array.value(row_idx)).doc_address()
+                    {
+                        Some((row_idx, doc_addr))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if tagged_rows.is_empty() {
+                continue;
+            }
+
+            let ffhelper = rel_state.ffhelper.as_ref().unwrap_or_else(|| {
+                panic!(
+                    "FFHelper must be present on RelationState for plan_position {plan_position} \
+                     to resolve deferred CTIDs"
+                )
+            });
+
+            let mut new_values = ctid_array.values().to_vec();
+
+            crate::index::fast_fields_helper::for_each_segment(
+                ffhelper.num_segments(),
+                tagged_rows.into_iter(),
+                |seg_ord, rows| {
+                    let doc_ids: Vec<tantivy::DocId> =
+                        rows.iter().map(|(_, doc_id)| *doc_id).collect();
+                    let mut fetched_ctids = vec![None; doc_ids.len()];
+                    ffhelper.ctid(seg_ord).as_u64s(&doc_ids, &mut fetched_ctids);
+
+                    for ((row_idx, _), maybe_ctid) in rows.into_iter().zip(fetched_ctids) {
+                        let ctid = maybe_ctid.unwrap_or_else(|| {
+                            panic!(
+                                "CTID fast field missing for visible doc in segment {seg_ord}, plan_position {plan_position}"
+                            )
+                        });
+                        new_values[row_idx] = ctid;
+                    }
+                    Ok(())
+                },
+            )
+            .expect("for_each_segment failed during CTID resolution");
+
+            let new_array =
+                UInt64Array::new(ScalarBuffer::from(new_values), ctid_array.nulls().cloned());
+            columns[col_idx] = Arc::new(new_array) as ArrayRef;
+            modified = true;
+        }
+
+        if modified {
+            *batch = RecordBatch::try_new(batch.schema(), columns)
+                .expect("Failed to rebuild RecordBatch after resolving deferred CTIDs");
+        }
+    }
+
     /// Build a result tuple from the current joined row.
     ///
     /// # Arguments
@@ -2446,6 +2564,10 @@ impl JoinScan {
                 // which the index fetch rejects at chain start. On an all-visible page it stays
                 // the root the index holds, and a pruned root is a redirect the direct fetch
                 // cannot follow.
+                debug_assert!(
+                    DeferredCtid(ctid).is_ctid(),
+                    "JoinScan: unresolved deferred ctid ({ctid}) reached build_result_tuple for source {plan_position}"
+                );
                 let fetched = rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)

@@ -30,6 +30,7 @@ use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
 use crate::postgres::utils;
+use crate::scan::deferred_encode::DeferredCtid;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use parking_lot::Mutex;
 use pgrx::pg_sys::{self, BlockNumber};
@@ -129,7 +130,7 @@ impl VisibilityStats {
 /// the old tuple is marked dead and a new tuple is created at a new ctid, but the
 /// index still has the old ctid until VACUUM runs.
 ///
-/// The visibility checker supports three operational modes for batches and one for point lookups:
+/// The visibility checker supports four operational modes for batches and one for point lookups:
 /// 1. Mask-only visibility checking ([`VisibilityChecker::check_segment_docs_mask`]):
 ///    Checks the PostgreSQL visibility map first and returns a [`VisibilityMask`].
 /// 2. Fast-path visibility confirmation ([`VisibilityChecker::check_segment_docs`]):
@@ -137,15 +138,20 @@ impl VisibilityStats {
 ///    blocks, visibility is guaranteed for all active snapshots, so heap page access is bypassed
 ///    entirely. The returned CTID is the raw index CTID, which may be an index root pointing to
 ///    a HOT redirect (`LP_REDIRECT`). This is safe and optimal for execution plan nodes
-///    like `VisibilityFilterExec` and `BatchScanner` whose downstream tuple fetcher
-///    (e.g. `JoinScanState::build_result_tuple` or `BaseScan`) uses `table_index_fetch_tuple`
-///    to resolve the HOT redirect to the physical tuple at final output time.
-/// 3. Full physical HOT resolution ([`VisibilityChecker::resolve_segment_docs`]):
+///    like `BatchScanner` whose downstream tuple fetcher (e.g. `BaseScan`) uses
+///    `table_index_fetch_tuple` to resolve the HOT redirect to the physical tuple at final output time.
+/// 3. Lazy deferred CTID checking ([`VisibilityChecker::check_segment_docs_lazy`]):
+///    Defers fast-field CTID lookups for all-visible blocks, emitting [`DeferredCtid::from_doc_address`]
+///    without reading the `ctid` fast field. For dirty blocks, reads the fast-field CTID and checks
+///    heap MVCC visibility, emitting the raw CTID for visible rows. Used by
+///    `VisibilityFilterExec` in `JoinScan`, where remaining doc-addresses are resolved in batch at the
+///    top of the plan.
+/// 4. Full physical HOT resolution ([`VisibilityChecker::resolve_segment_docs`]):
 ///    Forces a heap check for every tuple, bypassing the visibility map all-visible check,
 ///    and resolves the CTID to the exact current physical heap location of the tuple visible
 ///    under this snapshot, returning [`VisibilityCtids`]. This is required only when the caller
 ///    cannot resolve HOT chains later (e.g. in `collect_ctidset` for bitmap index scans).
-/// 4. Point document visibility checking ([`VisibilityChecker::check_doc`]):
+/// 5. Point document visibility checking ([`VisibilityChecker::check_doc`]):
 ///    Checks visibility for a single document, consulting segment proof ranges and
 ///    resolving the CTID only when necessary (e.g. in cardinality aggregations).
 pub struct VisibilityChecker {
@@ -798,6 +804,41 @@ impl VisibilityChecker {
     /// `doc_ids` must be sorted in ascending order:
     /// `doc_ids.windows(2).all(|w| w[0] <= w[1])`.
     ///
+    /// Walks sorted `doc_ids` against dirty `ranges`, invoking `f(start, end)` for each
+    /// non-empty chunk of `doc_ids[start..end]` that intersects a dirty range.
+    fn for_each_dirty_doc_range<F>(ranges: &[Range<DocId>], doc_ids: &[DocId], mut f: F)
+    where
+        F: FnMut(usize, usize),
+    {
+        if ranges.is_empty() || doc_ids.is_empty() {
+            return;
+        }
+        let mut start = 0;
+        let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
+        let mut remaining_ranges = &ranges[first_range..];
+        while let Some((range, rest)) = remaining_ranges.split_first() {
+            remaining_ranges = rest;
+            start += doc_ids[start..].partition_point(|&doc| doc < range.start);
+            if start == doc_ids.len() {
+                break;
+            }
+            let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
+            if start == end {
+                // Jump over ranges that end before the next query match.
+                let skip = remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
+                remaining_ranges = &remaining_ranges[skip..];
+                continue;
+            }
+            f(start, end);
+            start = end;
+        }
+    }
+
+    /// Checks if a slice of `DocId`s within a segment are visible and sets bits in `mask`.
+    ///
+    /// `doc_ids` must be sorted in ascending order:
+    /// `doc_ids.windows(2).all(|w| w[0] <= w[1])`.
+    ///
     /// For all-visible blocks, visibility is confirmed via the visibility map fast-path without
     /// reading heap buffers.
     pub(crate) fn check_segment_docs_mask<'a>(
@@ -835,9 +876,6 @@ impl VisibilityChecker {
         let mut all_visible = true;
         {
             let mut check = |start: usize, end: usize| {
-                if start == end {
-                    return;
-                }
                 raw_ctids.resize(end - start, None);
                 ctids.resize(end - start, None);
                 ffhelper
@@ -853,26 +891,7 @@ impl VisibilityChecker {
                 }
             };
             if let Some(ranges) = ranges {
-                let mut start = 0;
-                let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
-                let mut remaining_ranges = &ranges[first_range..];
-                while let Some((range, rest)) = remaining_ranges.split_first() {
-                    remaining_ranges = rest;
-                    start += doc_ids[start..].partition_point(|&doc| doc < range.start);
-                    if start == doc_ids.len() {
-                        break;
-                    }
-                    let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
-                    if start == end {
-                        // Jump over ranges that end before the next query match.
-                        let skip =
-                            remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
-                        remaining_ranges = &remaining_ranges[skip..];
-                        continue;
-                    }
-                    check(start, end);
-                    start = end;
-                }
+                Self::for_each_dirty_doc_range(&ranges, doc_ids, check);
             } else {
                 check(0, doc_ids.len());
             }
@@ -910,6 +929,96 @@ impl VisibilityChecker {
         results: &'a mut Vec<Option<u64>>,
     ) -> VisibilityCtids<'a> {
         self.check_segment_docs_impl(segment_ord, doc_ids, results, false)
+    }
+
+    /// Checks visibility of documents within a segment, deferring fast-field CTID lookups for
+    /// all-visible blocks.
+    ///
+    /// For all-visible blocks (determined via the visibility map and `.ctid_map`), emits
+    /// [`DeferredCtid::from_doc_address`] without reading the `ctid` fast field.
+    ///
+    /// For dirty blocks, reads the fast-field CTID and checks heap MVCC visibility via
+    /// [`Self::check_raw_ctids_impl`], emitting the raw CTID for visible rows
+    /// and `None` for invisible rows.
+    ///
+    /// If all documents in the batch are confirmed visible, returns [`VisibilityCtids::All`].
+    /// Otherwise, populates `results` and returns [`VisibilityCtids::Some`].
+    pub fn check_segment_docs_lazy<'a>(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+        doc_ids: &[DocId],
+        results: &'a mut Vec<Option<u64>>,
+    ) -> VisibilityCtids<'a> {
+        results.clear();
+        results.resize(doc_ids.len(), None);
+
+        if doc_ids.is_empty() {
+            return VisibilityCtids::All(results.as_slice());
+        }
+
+        assert!(
+            doc_ids.is_sorted(),
+            "visibility batches must be in doc ID order"
+        );
+
+        if !self.check_visibility {
+            for (i, &doc_id) in doc_ids.iter().enumerate() {
+                results[i] = Some(DeferredCtid::from_doc_address(segment_ord, doc_id).as_u64());
+            }
+            return VisibilityCtids::All(results.as_slice());
+        }
+
+        let ranges = self.doc_id_ranges_needing_visibility_checks(segment_ord);
+
+        // Fast path: if all blocks in the segment are confirmed all-visible under MVCC snapshot,
+        // all documents are deferred without fast-field reads.
+        if ranges.as_ref().is_some_and(|r| r.is_empty()) {
+            for (i, &doc_id) in doc_ids.iter().enumerate() {
+                results[i] = Some(DeferredCtid::from_doc_address(segment_ord, doc_id).as_u64());
+            }
+            return VisibilityCtids::All(results.as_slice());
+        }
+
+        let ffhelper = self
+            .ffhelper
+            .clone()
+            .expect("FFHelper must be configured to check segment doc visibility");
+
+        let mut raw_ctids = std::mem::take(&mut self.raw_ctids_scratch);
+        let mut all_visible = true;
+
+        if let Some(ranges) = ranges {
+            for (i, &doc_id) in doc_ids.iter().enumerate() {
+                results[i] = Some(DeferredCtid::from_doc_address(segment_ord, doc_id).as_u64());
+            }
+
+            Self::for_each_dirty_doc_range(&ranges, doc_ids, |start, end| {
+                let chunk_len = end - start;
+                raw_ctids.clear();
+                raw_ctids.resize(chunk_len, None);
+                ffhelper
+                    .ctid(segment_ord)
+                    .as_u64s(&doc_ids[start..end], &mut raw_ctids);
+                if !self.check_raw_ctids_impl(&raw_ctids, &mut results[start..end], false) {
+                    all_visible = false;
+                }
+            });
+        } else {
+            raw_ctids.clear();
+            raw_ctids.resize(doc_ids.len(), None);
+            ffhelper.ctid(segment_ord).as_u64s(doc_ids, &mut raw_ctids);
+            if !self.check_raw_ctids_impl(&raw_ctids, results, false) {
+                all_visible = false;
+            }
+        }
+
+        self.raw_ctids_scratch = raw_ctids;
+        debug_assert_eq!(all_visible, results.iter().all(|r| r.is_some()));
+        if all_visible {
+            VisibilityCtids::All(results.as_slice())
+        } else {
+            VisibilityCtids::Some(results.as_slice())
+        }
     }
 
     /// Checks if a slice of `DocId`s within a segment are visible and resolves each CTID to the
@@ -990,23 +1099,7 @@ impl VisibilityChecker {
         {
             results.copy_from_slice(&raw_ctids);
             let mut all_vis = results.iter().all(|r| r.is_some());
-            let mut start = 0;
-            let first_range = ranges.partition_point(|range| range.end <= doc_ids[0]);
-            let mut remaining_ranges = &ranges[first_range..];
-            while let Some((range, rest)) = remaining_ranges.split_first() {
-                remaining_ranges = rest;
-                start += doc_ids[start..].partition_point(|&doc| doc < range.start);
-                if start == doc_ids.len() {
-                    break;
-                }
-                let end = start + doc_ids[start..].partition_point(|&doc| doc < range.end);
-                if start == end {
-                    // Jump over ranges that end before the next query match.
-                    let skip =
-                        remaining_ranges.partition_point(|range| range.end <= doc_ids[start]);
-                    remaining_ranges = &remaining_ranges[skip..];
-                    continue;
-                }
+            Self::for_each_dirty_doc_range(ranges, doc_ids, |start, end| {
                 if !self.check_raw_ctids_impl(
                     &raw_ctids[start..end],
                     &mut results[start..end],
@@ -1014,8 +1107,7 @@ impl VisibilityChecker {
                 ) {
                     all_vis = false;
                 }
-                start = end;
-            }
+            });
             all_vis
         } else {
             self.check_raw_ctids_impl(&raw_ctids, results, resolve_hot)

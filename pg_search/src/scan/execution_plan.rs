@@ -1675,7 +1675,10 @@ pub(crate) fn stamp_parallel_state(plan: &Arc<dyn ExecutionPlan>, ps: *mut Paral
 /// `ParallelScanState`.
 ///
 /// [`DistributedLeafExec`]: datafusion_distributed::DistributedLeafExec
-fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSearchScanPlan)) {
+pub(crate) fn visit_scan_nodes(
+    plan: &Arc<dyn ExecutionPlan>,
+    visit: &mut impl FnMut(&PgSearchScanPlan),
+) {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         visit(scan);
     }
@@ -1698,6 +1701,53 @@ fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSea
     for child in plan.children() {
         visit_scan_nodes(child, visit);
     }
+}
+
+/// The index relation OID and [`FFHelper`] needed to resolve deferred packed `DocAddress` values
+/// into real CTIDs for a specific table in a multi-table or deferred scan.
+///
+/// Wired by `VisibilityCtidResolverRule` from the source [`PgSearchScanPlan`] into the physical
+/// execution node performing visibility checking (`VisibilityFilterExec`), and into `JoinScanState`
+/// to resolve deferred CTIDs returned to PostgreSQL.
+#[derive(Clone)]
+pub struct CtidResolver {
+    pub indexrelid: u32,
+    pub ffhelper: Arc<FFHelper>,
+}
+
+impl std::fmt::Debug for CtidResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CtidResolver")
+            .field("indexrelid", &self.indexrelid)
+            .finish_non_exhaustive()
+    }
+}
+
+impl CtidResolver {
+    pub fn new(indexrelid: u32, ffhelper: Arc<FFHelper>) -> Self {
+        Self {
+            indexrelid,
+            ffhelper,
+        }
+    }
+}
+
+/// Search the subtree for a [`PgSearchScanPlan`] whose deferred ctid metadata matches
+/// the given plan position. Returns its index relid and [`FFHelper`] if found.
+pub(crate) fn find_ctid_resolver_for_plan_position(
+    plan: &Arc<dyn ExecutionPlan>,
+    plan_position: usize,
+) -> Option<CtidResolver> {
+    let mut found = None;
+    visit_scan_nodes(plan, &mut |scan| {
+        if found.is_none()
+            && scan.deferred_ctid_plan_position() == Some(plan_position)
+            && let Some(ffhelper) = scan.ffhelper()
+        {
+            found = Some(CtidResolver::new(scan.indexrelid, ffhelper));
+        }
+    });
+    found
 }
 
 #[cfg(any(test, feature = "pg_test"))]

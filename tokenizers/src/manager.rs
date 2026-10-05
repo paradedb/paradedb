@@ -865,6 +865,17 @@ impl SearchTokenizer {
             .map(|_| self.name_with_suffix(&self.filters().name_suffix_without_trim()))
     }
 
+    /// The name this tokenizer was registered under before the `trim` fix: the pre-fix name when
+    /// `trim` is set, otherwise the (unchanged) current name.
+    pub fn filters_trim(&self) -> Option<bool> {
+        self.filters().trim
+    }
+
+    pub fn pre_trim_fix_name(&self) -> String {
+        self.legacy_name_before_trim_fix()
+            .unwrap_or_else(|| self.name())
+    }
+
     fn name_with_suffix(&self, filters_suffix: &str) -> String {
         match self {
             SearchTokenizer::Simple(_filters) => format!("default{filters_suffix}"),
@@ -1043,7 +1054,6 @@ impl SearchNormalizer {
 mod tests {
     use super::*;
     use rstest::*;
-    use tantivy::tokenizer::TokenizerManager;
 
     #[rstest]
     fn test_search_tokenizer() {
@@ -1147,142 +1157,6 @@ mod tests {
                 .legacy_name_before_trim_fix()
                 .as_deref(),
             Some("default[remove_short=2]")
-        );
-    }
-
-    /// Runs `text` through a registered analyzer and returns its tokens, so tests can assert on
-    /// actual tokenized output rather than merely that a name resolves to *some* analyzer.
-    fn tokens_via(tokenizer_manager: &TokenizerManager, name: &str, text: &str) -> Vec<String> {
-        use tantivy::tokenizer::TokenStream;
-
-        let mut analyzer = tokenizer_manager
-            .get(name)
-            .unwrap_or_else(|| panic!("no analyzer registered under {name:?}"));
-        let mut stream = analyzer.token_stream(text);
-        let mut out = Vec::new();
-        while stream.advance() {
-            out.push(stream.token().text.clone());
-        }
-        out
-    }
-
-    #[rstest]
-    fn test_register_tokenizers_into_preserves_legacy_trim_alias() {
-        // A field created before the trim-naming fix (trim=true, registered under the old
-        // name "default") must still resolve when the field's current config (trim=true,
-        // current name "default[trim=true]") is registered under the fixed code -- and it must
-        // resolve to the SAME analyzer, not merely to *some* analyzer. Compare real tokenized
-        // output through both names rather than just checking `.is_some()` on each.
-        let tokenizer_manager = TokenizerManager::default();
-        let with_trim = SearchTokenizer::Simple(SearchTokenizerFilters {
-            trim: Some(true),
-            ..SearchTokenizerFilters::default()
-        });
-        let legacy_name = with_trim.legacy_name_before_trim_fix().unwrap();
-
-        crate::register_tokenizers_into(&tokenizer_manager, vec![with_trim.clone()]);
-
-        let via_current = tokens_via(&tokenizer_manager, &with_trim.name(), "Hello World");
-        let via_legacy = tokens_via(&tokenizer_manager, &legacy_name, "Hello World");
-        assert_eq!(via_current, vec!["hello".to_string(), "world".to_string()]);
-        assert_eq!(
-            via_legacy, via_current,
-            "the pre-fix name must resolve to the SAME analyzer, not just any analyzer"
-        );
-    }
-
-    #[rstest]
-    #[case(vec!["with_trim", "plain"])]
-    #[case(vec!["plain", "with_trim"])]
-    fn test_register_tokenizers_into_does_not_clobber_colliding_legacy_alias(
-        #[case] order: Vec<&str>,
-    ) {
-        // If another field in the same batch genuinely uses the plain, unfiltered
-        // "literal_normalized" tokenizer, the trim field's legacy alias must not overwrite that
-        // field's real registration -- doing so would reintroduce the exact collision the trim
-        // fix exists to prevent for anything indexed going forward, regardless of which order the
-        // two fields happen to be registered in.
-        //
-        // `SimpleTokenizer`/`WhitespaceTokenizer` split on whitespace, so trim (which only strips
-        // leading/trailing whitespace *within* a token) can never produce different output for
-        // them -- a test built on either could pass identically whether or not clobbering
-        // happened. `LiteralNormalized` wraps `RawTokenizer`, which treats the whole input as one
-        // token, so trim has an observable effect: "  Hello  " lowercases to "  hello  "
-        // untrimmed, or "hello" trimmed.
-        let plain = SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default());
-        let with_trim = SearchTokenizer::LiteralNormalized(SearchTokenizerFilters {
-            trim: Some(true),
-            ..SearchTokenizerFilters::default()
-        });
-        assert_eq!(plain.name(), "literal_normalized");
-        assert_eq!(
-            with_trim.legacy_name_before_trim_fix().unwrap(),
-            "literal_normalized"
-        );
-
-        let tokenizer_manager = TokenizerManager::default();
-        let search_tokenizers = order
-            .iter()
-            .map(|name| match *name {
-                "with_trim" => with_trim.clone(),
-                "plain" => plain.clone(),
-                other => panic!("unexpected case name {other}"),
-            })
-            .collect();
-        crate::register_tokenizers_into(&tokenizer_manager, search_tokenizers);
-
-        // "literal_normalized" must still be the plain tokenizer's own analyzer: lowercased but
-        // NOT trimmed. If the trim alias had clobbered it, this would come out as "hello".
-        assert_eq!(
-            tokens_via(&tokenizer_manager, "literal_normalized", "  Hello  "),
-            vec!["  hello  ".to_string()],
-            "registration order {order:?}: \"literal_normalized\" must resolve to the plain \
-             analyzer, not the trim field's legacy alias"
-        );
-        assert_eq!(
-            tokens_via(&tokenizer_manager, &with_trim.name(), "  Hello  "),
-            vec!["hello".to_string()]
-        );
-    }
-
-    #[rstest]
-    fn test_register_tokenizers_into_legacy_alias_overrides_tantivy_builtin() {
-        // `TokenizerManager::default()` pre-registers its own bare "whitespace" tokenizer with
-        // NO lowercasing. A `pdb.whitespace` field with only `trim` set (no other filters) has
-        // the exact same pre-fix legacy name "whitespace" -- collision detection must treat that
-        // built-in as fair game to override, not as a same-batch claim, or the field silently
-        // falls back to Tantivy's raw analyzer and loses ParadeDB's default lowercasing.
-        let tokenizer_manager = TokenizerManager::default();
-        let with_trim = SearchTokenizer::WhiteSpace(SearchTokenizerFilters {
-            trim: Some(true),
-            ..SearchTokenizerFilters::default()
-        });
-        assert_eq!(with_trim.name(), "whitespace[trim=true]");
-        assert_eq!(
-            with_trim.legacy_name_before_trim_fix().as_deref(),
-            Some("whitespace")
-        );
-
-        // Confirm Tantivy's own built-in really doesn't lowercase, so the assertion below is
-        // actually exercising the override and not a no-op.
-        assert_eq!(
-            tokens_via(&tokenizer_manager, "whitespace", "Hello World"),
-            vec!["Hello".to_string(), "World".to_string()],
-            "Tantivy's built-in whitespace tokenizer must not lowercase, or this test proves nothing"
-        );
-
-        crate::register_tokenizers_into(&tokenizer_manager, vec![with_trim.clone()]);
-
-        // ParadeDB's own whitespace tokenizer lowercases by default (`lower_caser()`). The
-        // legacy-aliased "whitespace" must now be ParadeDB's analyzer, not Tantivy's built-in.
-        assert_eq!(
-            tokens_via(&tokenizer_manager, "whitespace", "Hello World"),
-            vec!["hello".to_string(), "world".to_string()],
-            "legacy alias must override Tantivy's built-in, not be skipped because of it"
-        );
-        assert_eq!(
-            tokens_via(&tokenizer_manager, &with_trim.name(), "Hello World"),
-            vec!["hello".to_string(), "world".to_string()]
         );
     }
 

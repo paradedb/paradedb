@@ -17,7 +17,9 @@
 
 use crate::query::proximity::weight::ProximityWeight;
 use crate::query::proximity::{ProximityClause, ProximityDistance, WhichTerms};
-use tantivy::query::{Bm25Weight, EnableScoring, Query, Weight};
+use tantivy::query::{
+    Bm25Weight, EnableScoring, Query, QueryEstimate, RegexQuery, TermQuery, Weight,
+};
 use tantivy::schema::{Field, IndexRecordOption};
 use tantivy::{SegmentReader, TantivyError, Term};
 
@@ -73,13 +75,65 @@ impl ProximityQuery {
     }
 }
 
-impl tantivy::query::QueryEstimate for ProximityQuery {
+impl QueryEstimate for ProximityQuery {
+    /// Use the rarer side's document count, ignoring distance and order. Read only term metadata.
+    fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<(u32, u64)>> {
+        self.left
+            .estimate_proximity(&self.right, self.field, reader)
+    }
+}
+
+impl ProximityClause {
+    fn estimate_proximity(
+        &self,
+        right: &Self,
+        field: Field,
+        reader: &SegmentReader,
+    ) -> tantivy::Result<Option<(u32, u64)>> {
+        let left = self.estimate_docs(field, reader)?;
+        let right = right.estimate_docs(field, reader)?;
+        Ok(left
+            .zip(right)
+            .map(|((left, left_cost), (right, right_cost))| {
+                let count = left.min(right);
+                (
+                    count,
+                    left_cost
+                        .saturating_add(right_cost)
+                        .saturating_add(u64::from(count)),
+                )
+            }))
+    }
+
+    /// Add alternative counts, capped at the segment size; nested proximity uses its rarer side.
     fn estimate_docs(
         &self,
-        _reader: &tantivy::SegmentReader,
+        field: Field,
+        reader: &SegmentReader,
     ) -> tantivy::Result<Option<(u32, u64)>> {
-        // Custom proximity queries do not yet have a metadata estimator.
-        Ok(None)
+        match self {
+            Self::Uninitialized => Ok(Some((0, 0))),
+            Self::Term(term) => {
+                TermQuery::new(Term::from_field_text(field, term), IndexRecordOption::Basic)
+                    .estimate_docs(reader)
+            }
+            Self::Regex { pattern, .. } => {
+                RegexQuery::from_pattern(pattern.as_str(), field)?.estimate_docs(reader)
+            }
+            Self::Clauses(clauses) => {
+                let (mut count, mut cost) = (0u32, 0u64);
+                for clause in clauses {
+                    let Some((child_count, child_cost)) = clause.estimate_docs(field, reader)?
+                    else {
+                        return Ok(None);
+                    };
+                    count = count.saturating_add(child_count).min(reader.max_doc());
+                    cost = cost.saturating_add(child_cost);
+                }
+                Ok(Some((count, cost)))
+            }
+            Self::Proximity { left, right, .. } => left.estimate_proximity(right, field, reader),
+        }
     }
 }
 

@@ -897,13 +897,19 @@ fn selectivity_clause(
                     | pdb::Query::Regex { .. }
                     | pdb::Query::RegexPhrase { .. }
                     | pdb::Query::FuzzyTerm { .. }
-                    | pdb::Query::Parse { .. }
-                    | pdb::Query::ParseWithField { .. }
+                    | pdb::Query::Proximity { .. }
                     | pdb::Query::MoreLikeThis { .. },
                 ..
             }
-            | SearchQueryInput::Parse { .. }
             | SearchQueryInput::MoreLikeThis { .. }) => break query,
+            SearchQueryInput::Parse { .. }
+            | SearchQueryInput::FieldedQuery {
+                query: pdb::Query::Parse { .. } | pdb::Query::ParseWithField { .. },
+                ..
+            } => {
+                // TODO: Route parsed text and non-text leaves through their respective estimators.
+                return fallback();
+            }
             SearchQueryInput::FieldedQuery {
                 field,
                 query:
@@ -923,10 +929,7 @@ fn selectivity_clause(
                     .unwrap_or_else(fallback);
             }
             SearchQueryInput::FieldedQuery {
-                query:
-                    pdb::Query::Proximity { .. }
-                    | pdb::Query::UnclassifiedString { .. }
-                    | pdb::Query::UnclassifiedArray { .. },
+                query: pdb::Query::UnclassifiedString { .. } | pdb::Query::UnclassifiedArray { .. },
                 ..
             }
             | SearchQueryInput::Uninitialized => return fallback(),

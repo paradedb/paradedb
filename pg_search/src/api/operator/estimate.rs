@@ -219,15 +219,15 @@ pub(super) unsafe fn non_text_clause(
         | pdb::Query::PhrasePrefix { .. }
         | pdb::Query::TokenizedPhrase { .. }
         | pdb::Query::Regex { .. }
-        | pdb::Query::RegexPhrase { .. } => unreachable!("text queries use Tantivy's statistics"),
+        | pdb::Query::RegexPhrase { .. }
+        | pdb::Query::Proximity { .. } => unreachable!("text queries use Tantivy's statistics"),
         pdb::Query::Parse { .. } | pdb::Query::ParseWithField { .. } => {
-            todo!("decompose parsed queries to estimate their non-text leaves")
+            unreachable!("the caller uses the default selectivity for parsed queries")
         }
         pdb::Query::TermSet { .. } => unreachable!("the caller expands term sets"),
         pdb::Query::FastFieldRangeWeight { .. } => {
             unreachable!("the caller converts fast-field bounds to a range")
         }
-        pdb::Query::Proximity { .. } => todo!("implement a text estimator for proximity"),
         pdb::Query::UnclassifiedString { .. } | pdb::Query::UnclassifiedArray { .. } => {
             unreachable!("operator support functions must classify queries before estimation")
         }

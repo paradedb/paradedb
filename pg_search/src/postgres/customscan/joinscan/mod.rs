@@ -1726,13 +1726,13 @@ impl CustomScan for JoinScan {
                 };
 
                 for (plan_position, rel_state) in state.custom_state_mut().relations.iter_mut() {
-                    if let Some((_, ffhelper)) =
-                        crate::scan::visibility_ctid_resolver_rule::find_ffhelper_for_plan_position(
-                            plan.as_ref(),
+                    if let Some(resolver) =
+                        crate::scan::execution_plan::find_ctid_resolver_for_plan_position(
+                            &plan,
                             *plan_position,
                         )
                     {
-                        rel_state.ffhelper = Some(ffhelper);
+                        rel_state.ffhelper = Some(resolver.ffhelper);
                     }
                 }
 
@@ -1772,6 +1772,23 @@ impl CustomScan for JoinScan {
                             rel_state.ctid_col_idx = Some(i);
                         }
                     }
+                }
+
+                #[cfg(debug_assertions)]
+                {
+                    crate::scan::execution_plan::visit_scan_nodes(&plan, &mut |scan| {
+                        if let Some(pos) = scan.deferred_ctid_plan_position() {
+                            debug_assert!(
+                                state
+                                    .custom_state()
+                                    .relations
+                                    .get(&pos)
+                                    .and_then(|r| r.ffhelper.as_ref())
+                                    .is_some(),
+                                "JoinScan: relation at plan_position {pos} has deferred CTIDs but missing FFHelper on RelationState"
+                            );
+                        }
+                    });
                 }
 
                 let plan_sources = state.custom_state().join_clause.plan.sources();

@@ -276,6 +276,19 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description @@@ pdb.proximity_in_order('running', 3, 'shoes');
 
+-- Nested proximity keeps the rarer required side; alternatives and regex use term counts.
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT * FROM recursive_test.estimate_items
+WHERE description @@@ pdb.proximity(
+    pdb.prox_clause('running', 0, 'shoes'), 4,
+    pdb.prox_array('athletic', pdb.prox_regex('walk.*'))
+);
+
+-- An absent required word has no matches.
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT * FROM recursive_test.estimate_items
+WHERE description @@@ pdb.proximity('nonexistentword', 2, 'shoes');
+
 -- Test 5.21: Range query on date field
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items

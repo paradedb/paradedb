@@ -4,6 +4,8 @@
 -- Tests aggregate functions (COUNT, SUM, AVG, MIN, MAX, GROUP BY, HAVING) on
 -- non-equi and mixed equi/non-equi JOIN queries executed via DataFusion.
 CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Join order can change the last bits of floating-point sums.
+SET extra_float_digits = 0;
 SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =============================================================================
@@ -175,11 +177,11 @@ ORDER BY pr.promo_code;
          Aggregates: COUNT(*), SUM(price)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[promo_code@1 as promo_code], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
-           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2, projection=[price@3, promo_code@0]
-           :     CooperativeExec
-           :       PgSearchScan: table=pr, segments=1, eager=[promo_code], visibility=eager, query="all"
+           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2, projection=[price@0, promo_code@1]
            :     CooperativeExec
            :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+           :     CooperativeExec
+           :       PgSearchScan: table=pr, segments=1, eager=[promo_code], visibility=eager, query="all"
 (15 rows)
 
 SELECT pr.promo_code, COUNT(*), SUM(p.price)
@@ -188,11 +190,11 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'keyboard')
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
- promo_code  | count |        sum         
--------------+-------+--------------------
- all         |     2 |             169.98
- electronics |     5 |            2489.95
- sports      |     3 | 289.96999999999997
+ promo_code  | count |   sum   
+-------------+-------+---------
+ all         |     2 |  169.98
+ electronics |     5 | 2489.95
+ sports      |     3 |  289.97
 (3 rows)
 
 -- Test 2.2: GROUP BY category with HAVING filter
@@ -231,11 +233,11 @@ WHERE (p.description ||| 'laptop' OR p.description ||| 'jacket' OR p.description
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-  category   | count |        avg        
--------------+-------+-------------------
- clothing    |     7 | 104.2757142857143
- electronics |     2 |           1099.99
- sports      |     7 | 97.13285714285713
+  category   | count |       avg        
+-------------+-------+------------------
+ clothing    |     7 | 104.275714285714
+ electronics |     2 |          1099.99
+ sports      |     7 | 97.1328571428571
 (3 rows)
 
 -- =============================================================================
@@ -256,11 +258,11 @@ WHERE (p.description ||| 'laptop' OR p.description ||| 'jacket' OR p.description
    Aggregates: COUNT(*), COUNT(id), SUM(price)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, count(pr_1.id) as agg_1, sum(p_0.price) as agg_2]
-     :   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(promo_code@1, category@1)], filter=price@0 > max_price@1, projection=[price@3, id@0]
-     :     CooperativeExec
-     :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
+     :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@1, promo_code@1)], filter=price@0 > max_price@1, projection=[price@0, id@2]
      :     CooperativeExec
      :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :     CooperativeExec
+     :       PgSearchScan: table=pr, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 SELECT COUNT(*), COUNT(pr.id), SUM(p.price)
@@ -369,9 +371,9 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket');
- count |        sum         |        avg         
--------+--------------------+--------------------
-    12 | 3189.8799999999983 | 3.4166666666666667
+ count |   sum   |        avg         
+-------+---------+--------------------
+    12 | 3189.88 | 3.4166666666666667
 (1 row)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -392,11 +394,11 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'keyboard')
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
- promo_code  | count |        sum         
--------------+-------+--------------------
- all         |     2 |             169.98
- electronics |     5 |            2489.95
- sports      |     3 | 289.96999999999997
+ promo_code  | count |   sum   
+-------------+-------+---------
+ all         |     2 |  169.98
+ electronics |     5 | 2489.95
+ sports      |     3 |  289.97
 (3 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -406,11 +408,11 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'keyboard')
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
- promo_code  | count |        sum         
--------------+-------+--------------------
- all         |     2 |             169.98
- electronics |     5 |            2489.95
- sports      |     3 | 289.96999999999997
+ promo_code  | count |   sum   
+-------------+-------+---------
+ all         |     2 |  169.98
+ electronics |     5 | 2489.95
+ sports      |     3 |  289.97
 (3 rows)
 
 -- =============================================================================

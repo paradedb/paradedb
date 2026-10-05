@@ -60,6 +60,9 @@ INSERT INTO reviews (id, item_id, body, rating) VALUES
 CREATE INDEX items_idx ON items USING paradedb (id, name, description, tag_id);
 CREATE INDEX tags_idx ON tags USING paradedb (id, label, category);
 CREATE INDEX reviews_idx ON reviews USING paradedb (id, item_id, body, rating);
+ANALYZE items;
+ANALYZE tags;
+ANALYZE reviews;
 -- =============================================================================
 -- TEST 1: Basic INNER JOIN — verify VisibilityFilterExec appears in plan
 -- =============================================================================
@@ -259,11 +262,11 @@ LIMIT 5;
      :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(item_id@0, id@1)]
      :         CooperativeExec
      :           PgSearchScan: table=r, segments=1, visibility=eager, query={"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4}}}
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@2, id@0)], projection=[ctid_0@0, id@1, ctid_1@4]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, tag_id@2)], projection=[ctid_0@2, id@3, ctid_1@1]
      :           CooperativeExec
-     :             PgSearchScan: table=i, segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :             PgSearchScan: table=t, segments=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+     :             PgSearchScan: table=i, segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (18 rows)
 
 SELECT i.id, i.name

@@ -26,6 +26,7 @@ ANALYZE large_agg_test;
 -- otherwise serialize this small (50K-row) scan.
 SET parallel_setup_cost = 0;
 SET parallel_tuple_cost = 0;
+SET parallel_leader_participation = on;
 -- Test as window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "data", "size": 50000}}'::jsonb) OVER ()
@@ -58,9 +59,10 @@ FROM large_agg_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 1;
-ERROR:  Aggregate result is too large: 1800010 vs 1048576. Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC.
+ERROR:  Initial aggregate result is too large: 1800010 vs 1048576. Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC.
 RESET parallel_setup_cost;
 RESET parallel_tuple_cost;
+RESET parallel_leader_participation;
 DROP TABLE large_agg_test;
 -- =====================================================================
 -- SECTION 2: Aggregation After Deletion

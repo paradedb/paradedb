@@ -34,6 +34,7 @@ ANALYZE large_agg_test;
 -- otherwise serialize this small (50K-row) scan.
 SET parallel_setup_cost = 0;
 SET parallel_tuple_cost = 0;
+SET parallel_leader_participation = on;
 
 -- Test as window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -51,6 +52,7 @@ LIMIT 1;
 
 RESET parallel_setup_cost;
 RESET parallel_tuple_cost;
+RESET parallel_leader_participation;
 
 DROP TABLE large_agg_test;
 

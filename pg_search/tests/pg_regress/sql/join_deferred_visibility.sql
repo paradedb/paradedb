@@ -74,6 +74,10 @@ CREATE INDEX tags_idx ON tags USING paradedb (id, label, category);
 
 CREATE INDEX reviews_idx ON reviews USING paradedb (id, item_id, body, rating);
 
+ANALYZE items;
+ANALYZE tags;
+ANALYZE reviews;
+
 -- =============================================================================
 -- TEST 1: Basic INNER JOIN — verify VisibilityFilterExec appears in plan
 -- =============================================================================

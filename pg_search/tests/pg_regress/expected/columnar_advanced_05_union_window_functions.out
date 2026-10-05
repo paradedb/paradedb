@@ -231,29 +231,28 @@ SELECT title, author, rating, price
 FROM union_test_b
 WHERE title ||| 'Book B' AND rating > 3
 ORDER BY rating DESC, title;
-                                                                                                                                                         QUERY PLAN                                                                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: union_test_a.rating DESC, union_test_a.title
-   ->  Unique
-         ->  Sort
-               Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
-               ->  Append
-                     ->  Custom Scan (ParadeDB Base Scan) on union_test_a
-                           Table: union_test_a
-                           Index: union_test_a_idx
-                           Exec Method: ColumnarExecState
-                           Columnar: author, price, rating, title
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"Book A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null}}]}}
-                     ->  Custom Scan (ParadeDB Base Scan) on union_test_b
-                           Table: union_test_b
-                           Index: union_test_b_idx
-                           Exec Method: ColumnarExecState
-                           Columnar: author, price, rating, title
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"Book B","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null}}]}}
-(20 rows)
+   ->  HashAggregate
+         Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
+         ->  Append
+               ->  Custom Scan (ParadeDB Base Scan) on union_test_a
+                     Table: union_test_a
+                     Index: union_test_a_idx
+                     Exec Method: ColumnarExecState
+                     Columnar: author, price, rating, title
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"Book A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null}}]}}
+               ->  Custom Scan (ParadeDB Base Scan) on union_test_b
+                     Table: union_test_b
+                     Index: union_test_b_idx
+                     Exec Method: ColumnarExecState
+                     Columnar: author, price, rating, title
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"Book B","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null}}]}}
+(19 rows)
 
 SELECT title, author, rating, price
 FROM union_test_a
@@ -538,8 +537,8 @@ SELECT title, author, rating, source,
        RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
 FROM combined_books
 ORDER BY title, author, author_rank;
-                                                                                                                                                                  QUERY PLAN                                                                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                               QUERY PLAN                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: combined_books.title, combined_books.author, (rank() OVER w1)
    ->  WindowAgg
@@ -547,23 +546,22 @@ ORDER BY title, author, author_rank;
          ->  Sort
                Sort Key: combined_books.author, combined_books.rating DESC
                ->  Subquery Scan on combined_books
-                     ->  Unique
-                           ->  Sort
-                                 Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating, ('A'::text)
-                                 ->  Append
-                                       ->  Custom Scan (ParadeDB Base Scan) on union_test_a
-                                             Table: union_test_a
-                                             Index: union_test_a_idx
-                                             Exec Method: NormalScanExecState
-                                             Scores: false
-                                             Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.5},"upper_bound":null}},{"with_index":{"query":{"match":{"field":"title","value":"Book A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-                                       ->  Custom Scan (ParadeDB Base Scan) on union_test_b
-                                             Table: union_test_b
-                                             Index: union_test_b_idx
-                                             Exec Method: NormalScanExecState
-                                             Scores: false
-                                             Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":2.5},"upper_bound":null}},{"with_index":{"query":{"match":{"field":"title","value":"Book A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-(23 rows)
+                     ->  HashAggregate
+                           Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, ('A'::text)
+                           ->  Append
+                                 ->  Custom Scan (ParadeDB Base Scan) on union_test_a
+                                       Table: union_test_a
+                                       Index: union_test_a_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.5},"upper_bound":null}},{"with_index":{"query":{"match":{"field":"title","value":"Book A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+                                 ->  Custom Scan (ParadeDB Base Scan) on union_test_b
+                                       Table: union_test_b
+                                       Index: union_test_b_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":2.5},"upper_bound":null}},{"with_index":{"query":{"match":{"field":"title","value":"Book A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(22 rows)
 
 WITH combined_books AS (
     SELECT title, author, rating, 'A' as source
@@ -656,32 +654,28 @@ SELECT title, author, is_published
 FROM union_test_b
 WHERE is_published = true AND author ||| 'Author 1'
 ORDER BY author, title;
-                                                                                                                                          QUERY PLAN                                                                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: union_test_a.author, union_test_a.title
-   ->  Unique
-         ->  Merge Append
-               Sort Key: union_test_a.title, union_test_a.author, union_test_a.is_published
-               ->  Sort
-                     Sort Key: union_test_a.title, union_test_a.author, union_test_a.is_published
-                     ->  Custom Scan (ParadeDB Base Scan) on union_test_a
-                           Table: union_test_a
-                           Index: union_test_a_idx
-                           Exec Method: ColumnarExecState
-                           Columnar: author, is_published, title
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true}},{"with_index":{"query":{"match":{"field":"author","value":"Author 1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-               ->  Sort
-                     Sort Key: union_test_b.title, union_test_b.author, union_test_b.is_published
-                     ->  Custom Scan (ParadeDB Base Scan) on union_test_b
-                           Table: union_test_b
-                           Index: union_test_b_idx
-                           Exec Method: ColumnarExecState
-                           Columnar: author, is_published, title
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true}},{"with_index":{"query":{"match":{"field":"author","value":"Author 1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-(23 rows)
+   ->  HashAggregate
+         Group Key: union_test_a.title, union_test_a.author, union_test_a.is_published
+         ->  Append
+               ->  Custom Scan (ParadeDB Base Scan) on union_test_a
+                     Table: union_test_a
+                     Index: union_test_a_idx
+                     Exec Method: ColumnarExecState
+                     Columnar: author, is_published, title
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true}},{"with_index":{"query":{"match":{"field":"author","value":"Author 1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+               ->  Custom Scan (ParadeDB Base Scan) on union_test_b
+                     Table: union_test_b
+                     Index: union_test_b_idx
+                     Exec Method: ColumnarExecState
+                     Columnar: author, is_published, title
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true}},{"with_index":{"query":{"match":{"field":"author","value":"Author 1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(19 rows)
 
 SELECT title, author, is_published
 FROM union_test_a
@@ -829,18 +823,9 @@ INTERSECT
 ORDER BY author;
                                                                                                                                                    QUERY PLAN                                                                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- SetOp Intersect
-   ->  Sort
-         Sort Key: union_test_a.author
-         ->  Custom Scan (ParadeDB Base Scan) on union_test_a
-               Table: union_test_a
-               Index: union_test_a_idx
-               Exec Method: ColumnarExecState
-               Columnar: author
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null}},{"with_index":{"query":{"match":{"field":"title","value":"Book A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-   ->  Sort
-         Sort Key: union_test_b.author
+ Sort
+   Sort Key: union_test_b.author
+   ->  HashSetOp Intersect
          ->  Custom Scan (ParadeDB Base Scan) on union_test_b
                Table: union_test_b
                Index: union_test_b_idx
@@ -848,7 +833,14 @@ ORDER BY author;
                Columnar: author
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null}},{"with_index":{"query":{"match":{"field":"title","value":"Book A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-(19 rows)
+         ->  Custom Scan (ParadeDB Base Scan) on union_test_a
+               Table: union_test_a
+               Index: union_test_a_idx
+               Exec Method: ColumnarExecState
+               Columnar: author
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null}},{"with_index":{"query":{"match":{"field":"title","value":"Book A","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(17 rows)
 
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title ||| 'Book A')
 INTERSECT

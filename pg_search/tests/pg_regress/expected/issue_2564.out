@@ -151,8 +151,8 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
-                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                        QUERY PLAN                                                                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: d.id
    ->  Custom Scan (ParadeDB Base Scan) on documents d
@@ -166,15 +166,12 @@ ORDER BY d.id;
                  ->  Custom Scan (ParadeDB Base Scan) on files f
                        Table: files
                        Index: files_search
-                       Bitmap Intersection: files_pkey
                        Exec Method: TopKScanExecState
                        Scores: true
                           TopK Order By: pdb.score() desc
                           TopK Limit: 1
-                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"Invoice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(documentid = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
-                       ->  Bitmap Index Scan on files_pkey
-                             Index Cond: (documentid = d.id)
-(21 rows)
+                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"Invoice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
+(18 rows)
 
 SELECT d.id, d.title, d.parents,
        (

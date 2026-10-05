@@ -473,39 +473,40 @@ WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
 WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: reviews)
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, pc)
-                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: pr.avg_rating DESC, (pdb.score(tp.id)), tp.price DESC
+   Sort Key: (avg(r.rating)) DESC, (pdb.score(tp.id)), tp.price DESC
    ->  Hash Join
-         Hash Cond: (pr.product_id = tp.id)
-         ->  Hash Join
-               Hash Cond: (pc.category_id = c.id)
+         Hash Cond: (pc.category_id = c.id)
+         ->  Nested Loop
+               Join Filter: (pc.product_id = tp.id)
                ->  Hash Join
-                     Hash Cond: (pc.product_id = pr.product_id)
-                     ->  Seq Scan on product_categories pc
+                     Hash Cond: (r.product_id = tp.id)
+                     ->  HashAggregate
+                           Group Key: r.product_id
+                           Filter: (count(*) >= 2)
+                           ->  Seq Scan on reviews r
+                                 Filter: (rating >= 3)
                      ->  Hash
-                           ->  Subquery Scan on pr
-                                 ->  HashAggregate
-                                       Group Key: r.product_id
-                                       Filter: (count(*) >= 2)
-                                       ->  Seq Scan on reviews r
-                                             Filter: (rating >= 3)
-               ->  Hash
-                     ->  Seq Scan on categories c
-                           Filter: is_active
+                           ->  Subquery Scan on tp
+                                 ->  Limit
+                                       ->  Custom Scan (ParadeDB Base Scan) on products p
+                                             Table: products
+                                             Index: products_idx
+                                             Exec Method: TopKScanExecState
+                                             Scores: false
+                                                TopK Order By: price desc
+                                                TopK Limit: 50
+                                             Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0}}},{"term":{"field":"is_available","value":true}},{"with_index":{"query":{"match":{"field":"name","value":"Product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+               ->  Bitmap Heap Scan on product_categories pc
+                     Recheck Cond: (product_id = r.product_id)
+                     ->  Bitmap Index Scan on product_categories_pkey
+                           Index Cond: (product_id = r.product_id)
          ->  Hash
-               ->  Subquery Scan on tp
-                     ->  Limit
-                           ->  Custom Scan (ParadeDB Base Scan) on products p
-                                 Table: products
-                                 Index: products_idx
-                                 Exec Method: TopKScanExecState
-                                 Scores: false
-                                    TopK Order By: price desc
-                                    TopK Limit: 50
-                                 Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0}}},{"term":{"field":"is_available","value":true}},{"with_index":{"query":{"match":{"field":"name","value":"Product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-(30 rows)
+               ->  Seq Scan on categories c
+                     Filter: is_active
+(31 rows)
 
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count

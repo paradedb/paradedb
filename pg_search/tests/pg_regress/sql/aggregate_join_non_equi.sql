@@ -6,6 +6,8 @@
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
+-- Join order can change the last bits of floating-point sums.
+SET extra_float_digits = 0;
 SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_aggregate_custom_scan TO on;
 

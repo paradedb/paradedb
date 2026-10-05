@@ -60,7 +60,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null},"estimated_docs":1}},"estimated_docs":1}
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null},"estimated_docs":0}},"estimated_docs":0}
 (8 rows)
 
 -- ============================================================================
@@ -92,7 +92,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 2.3: AND with array (multiple terms)
@@ -342,7 +342,7 @@ WHERE id @@@ paradedb.range(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":4}},"estimated_docs":4}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":1}},"estimated_docs":1}
 (8 rows)
 
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
@@ -478,7 +478,7 @@ WHERE description @@@ paradedb.disjunction_max(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"tie_breaker":0.30000001192092896},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"tie_breaker":0.30000001192092896},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 5.11: Parse query (query string syntax)
@@ -514,7 +514,7 @@ WHERE description @@@ paradedb.phrase(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"phrase":{"field":"description","phrases":["running","shoes"],"slop":2},"estimated_docs":1}},"estimated_docs":1}
+   Tantivy Query: {"with_index":{"query":{"phrase":{"field":"description","phrases":["running","shoes"],"slop":2},"estimated_docs":0}},"estimated_docs":0}
 (8 rows)
 
 -- Test 5.13: PhrasePrefix query (autocomplete scenarios)
@@ -552,15 +552,15 @@ WHERE description @@@ paradedb.regex_phrase(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"regex_phrase":{"field":"description","regexes":["run.*","shoe.*"],"slop":null,"max_expansions":null},"estimated_docs":1}},"estimated_docs":1}
+   Tantivy Query: {"with_index":{"query":{"regex_phrase":{"field":"description","regexes":["run.*","shoe.*"],"slop":null,"max_expansions":null},"estimated_docs":0}},"estimated_docs":0}
 (8 rows)
 
 -- Test 5.15: MoreLikeThis query (document similarity) - using key_value
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE id @@@ pdb.more_like_this(1);
-                                                                                                                                                              QUERY PLAN                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                             QUERY PLAN                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -568,7 +568,7 @@ WHERE id @@@ pdb.more_like_this(1);
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: true
-   Tantivy Query: {"with_index":{"query":{"more_like_this":{"field":"id","key_value":1,"fields":null,"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null},"estimated_docs":19}},"estimated_docs":19}
+   Tantivy Query: {"with_index":{"query":{"more_like_this":{"field":"id","key_value":1,"fields":null,"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null},"estimated_docs":1}},"estimated_docs":1}
 (8 rows)
 
 -- Test 5.16: Match query with explicit tokenizer
@@ -587,7 +587,7 @@ WHERE description @@@ paradedb.match(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 5.17: Match conjunction (all terms must match)
@@ -660,15 +660,15 @@ WHERE description @@@ pdb.proximity_in_order('running', 3, 'shoes');
    Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"running"},"distance":{"in_order":3},"right":{"term":"shoes"}},"estimated_docs":1}},"estimated_docs":1}
 (8 rows)
 
--- Test 5.21: Range query on date field
+-- Nested proximity keeps the rarer required side; alternatives and regex use term counts.
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
-WHERE id @@@ paradedb.range(
-    field => 'created_at',
-    range => tsrange('2023-01-01', '2023-12-31')
+WHERE description @@@ pdb.proximity(
+    pdb.prox_clause('running', 0, 'shoes'), 4,
+    pdb.prox_array('athletic', pdb.prox_regex('walk.*'))
 );
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -676,7 +676,42 @@ WHERE id @@@ paradedb.range(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":{"$__pdb_date__":"2023-01-01T00:00:00Z"}},"upper_bound":{"excluded":{"$__pdb_date__":"2023-12-31T00:00:00Z"}}},"estimated_docs":41}},"estimated_docs":41}
+   Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"proximity":{"left":{"term":"running"},"distance":{"any_order":0},"right":{"term":"shoes"}}},"distance":{"any_order":4},"right":{"clauses":[{"term":"athletic"},{"regex":{"pattern":"walk.*","max_expansions":50}}]}},"estimated_docs":0}},"estimated_docs":0}
+(8 rows)
+
+-- An absent required word has no matches.
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT * FROM recursive_test.estimate_items
+WHERE description @@@ pdb.proximity('nonexistentword', 2, 'shoes');
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: estimate_items
+   Index: idx_recursive_estimates
+   Worker Selection: Cost model
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"nonexistentword"},"distance":{"any_order":2},"right":{"term":"shoes"}},"estimated_docs":0}},"estimated_docs":0}
+(8 rows)
+
+-- Test 5.21: Range query on date field
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT * FROM recursive_test.estimate_items
+WHERE id @@@ paradedb.range(
+    field => 'created_at',
+    range => tsrange('2023-01-01', '2023-12-31')
+);
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: estimate_items
+   Index: idx_recursive_estimates
+   Worker Selection: Cost model
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":{"$__pdb_date__":"2023-01-01T00:00:00Z"}},"upper_bound":{"excluded":{"$__pdb_date__":"2023-12-31T00:00:00Z"}}},"estimated_docs":1}},"estimated_docs":1}
 (8 rows)
 
 -- Test 5.22: TermSet with paradedb.term_set function
@@ -1226,7 +1261,7 @@ WHERE rating @@@ paradedb.range(
        "Worker Selection": "Cost model",                                                                                                                                                             +
        "Exec Method": "NormalScanExecState",                                                                                                                                                         +
        "Scores": false,                                                                                                                                                                              +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":4}},\"estimated_docs\":4}"+
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":1}},\"estimated_docs\":1}"+
      }                                                                                                                                                                                               +
    }                                                                                                                                                                                                 +
  ]

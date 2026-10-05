@@ -43,6 +43,7 @@ USING paradedb (
     id, account_id, region, (kind::pdb.literal), (code::pdb.literal),
     (label::pdb.literal), price, amount, created, updated, metadata
 );
+ANALYZE pinned_key_items;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -529,6 +530,7 @@ INSERT INTO pinned_key_dst (ts, amount, kind) VALUES
     ('2024-03-10 03:30', 2.5, 'a'),
     ('2024-03-10 04:30', 4, 'b');
 CREATE INDEX pinned_key_dst_idx ON pinned_key_dst USING paradedb (id, ts, amount, (kind::pdb.literal));
+ANALYZE pinned_key_dst;
 SET timezone = 'America/New_York';
 
 EXPLAIN (COSTS OFF, TIMING OFF)
@@ -957,6 +959,7 @@ INSERT INTO pinned_key_arrays (tags, k) SELECT ARRAY[1], 'a' FROM generate_serie
 INSERT INTO pinned_key_arrays (tags, k) SELECT ARRAY[2, 3], 'b' FROM generate_series(1, 4);
 CREATE INDEX pinned_key_arrays_idx ON pinned_key_arrays
 USING paradedb (id, tags, (k::pdb.literal));
+ANALYZE pinned_key_arrays;
 
 \echo 'Test 9.1: the only key is pinned to an array -> declined'
 EXPLAIN (COSTS OFF, TIMING OFF)
@@ -1018,6 +1021,7 @@ INSERT INTO pinned_key_names (row_1, k)
 SELECT g % 3, (ARRAY['a', 'b'])[(g % 2) + 1] FROM generate_series(1, 600) g;
 CREATE INDEX pinned_key_names_idx ON pinned_key_names
 USING paradedb (id, row_1, (k::pdb.literal));
+ANALYZE pinned_key_names;
 
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT row_1, k, COUNT(*)
@@ -1076,6 +1080,7 @@ INSERT INTO pinned_key_internal (agg_0, __one_group, k)
 SELECT g % 3, g % 2, (ARRAY['a', 'b'])[(g % 2) + 1] FROM generate_series(1, 30) g;
 CREATE INDEX pinned_key_internal_idx ON pinned_key_internal
 USING paradedb (id, agg_0, __one_group, (k::pdb.literal));
+ANALYZE pinned_key_internal;
 
 \echo 'Test 12.1: a pinned column named like an aggregate output'
 EXPLAIN (COSTS OFF, TIMING OFF)

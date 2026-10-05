@@ -94,10 +94,10 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Sort Key: (max((paradedb.score(id)))) DESC, profile_id
          ->  GroupAggregate
                Group Key: profile_id
-               ->  Sort
-                     Sort Key: profile_id
-                     ->  Gather
-                           Workers Planned: 1
+               ->  Gather Merge
+                     Workers Planned: 1
+                     ->  Sort
+                           Sort Key: profile_id
                            ->  Parallel Custom Scan (ParadeDB Base Scan) on nhfs_big
                                  Table: nhfs_big
                                  Index: nhfs_big_bm25_idx

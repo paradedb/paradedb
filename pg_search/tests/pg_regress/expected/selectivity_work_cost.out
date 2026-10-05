@@ -1,0 +1,140 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET max_parallel_workers_per_gather = 2;
+SET paradedb.global_mutable_segment_rows = 0;
+CREATE TABLE cost_items (id int, description text, category text, rating int);
+CREATE INDEX cost_items_idx ON cost_items USING paradedb (id, description, category, rating)
+WHERE category = 'Electronics';
+INSERT INTO cost_items SELECT i, 'product ' || i, 'Electronics', 2 + i % 4 FROM generate_series(1, 10) i;
+INSERT INTO cost_items SELECT i, 'product ' || i, 'Electronics', 2 + i % 4 FROM generate_series(11, 20) i;
+INSERT INTO cost_items SELECT i, 'product ' || i, 'Electronics', 2 + i % 4 FROM generate_series(21, 30) i;
+ANALYZE cost_items;
+-- Cheap sorted scans stay serial even with several segments and a parsed query.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT id, rating FROM cost_items
+WHERE category = 'Electronics' AND cost_items @@@ pdb.parse('rating:>1')
+ORDER BY rating, id LIMIT 5;
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, rating
+   ->  Custom Scan (ParadeDB Base Scan) on public.cost_items
+         Output: id, rating
+         Table: cost_items
+         Index: cost_items_idx
+         Worker Selection: Cost model
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: rating asc, id asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
+-- A non-text child must not discard the text child's work estimate.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT id, rating FROM cost_items
+WHERE category = 'Electronics' AND description ||| 'product' AND rating >= 3
+ORDER BY rating, id LIMIT 5;
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, rating
+   ->  Custom Scan (ParadeDB Base Scan) on public.cost_items
+         Output: id, rating
+         Table: cost_items
+         Index: cost_items_idx
+         Worker Selection: Cost model (LIMIT)
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: rating asc, id asc
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"rating","lower_bound":{"included":3},"upper_bound":null}}]}}
+(12 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT id, rating FROM cost_items
+WHERE category = 'Electronics' AND rating @@@ pdb.term_set(ARRAY[2, 3])
+ORDER BY rating, id LIMIT 5;
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Limit
+   Output: id, rating
+   ->  Custom Scan (ParadeDB Base Scan) on public.cost_items
+         Output: id, rating
+         Table: cost_items
+         Index: cost_items_idx
+         Worker Selection: Cost model (LIMIT)
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: rating asc, id asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"term_set":{"field":"rating","terms":[2,3]}}}}
+(12 rows)
+
+SELECT id, rating FROM cost_items
+WHERE category = 'Electronics' AND rating @@@ pdb.term_set(ARRAY[2, 3])
+ORDER BY rating, id LIMIT 5;
+ id | rating 
+----+--------
+  4 |      2
+  8 |      2
+ 12 |      2
+ 16 |      2
+ 20 |      2
+(5 rows)
+
+-- An intersection can use the rare term; a union must traverse the common one too.
+SET parallel_setup_cost = 0.04;
+SET parallel_tuple_cost = 0;
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT id FROM cost_items
+WHERE category = 'Electronics' AND description ||| 'product' AND id @@@ pdb.term(1)
+ORDER BY rating LIMIT 1;
+                                                                                                                                         QUERY PLAN                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, rating
+   ->  Custom Scan (ParadeDB Base Scan) on public.cost_items
+         Output: id, rating
+         Table: cost_items
+         Index: cost_items_idx
+         Worker Selection: Cost model
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: rating asc
+            TopK Limit: 1
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"term":{"field":"id","value":1}}}}]}}
+(12 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT id FROM cost_items
+WHERE category = 'Electronics' AND (description ||| 'product' OR id @@@ pdb.term(1))
+ORDER BY rating LIMIT 1;
+                                                                                                                                             QUERY PLAN                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, rating
+   ->  Gather Merge
+         Output: id, rating
+         Workers Planned: 2
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.cost_items
+               Output: id, rating
+               Table: cost_items
+               Index: cost_items_idx
+               Worker Selection: Cost model (LIMIT)
+               Exec Method: TopKScanExecState
+               Scores: false
+                  TopK Order By: rating asc
+                  TopK Limit: 1
+               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"term":{"field":"id","value":1}}}}]}}
+(15 rows)
+
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+DROP TABLE cost_items;
+RESET paradedb.global_mutable_segment_rows;
+RESET max_parallel_workers_per_gather;

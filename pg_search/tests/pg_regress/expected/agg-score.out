@@ -22,24 +22,22 @@ SET min_parallel_table_scan_size = 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Finalize Aggregate
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
    Output: max((paradedb.score(id)))
    ->  Gather
-         Output: (PARTIAL max((paradedb.score(id))))
+         Output: (paradedb.score(id))
          Workers Planned: 1
-         ->  Partial Aggregate
-               Output: PARTIAL max((paradedb.score(id)))
-               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
-                     Output: paradedb.score(id), paradedb.score(id)
-                     Table: mock_items
-                     Index: search_idx
-                     Worker Selection: Row-capped
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(15 rows)
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
+               Output: paradedb.score(id), paradedb.score(id)
+               Table: mock_items
+               Index: search_idx
+               Worker Selection: Row-capped
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(13 rows)
 
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
@@ -52,24 +50,22 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT min(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Finalize Aggregate
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
    Output: min((paradedb.score(id)))
    ->  Gather
-         Output: (PARTIAL min((paradedb.score(id))))
+         Output: (paradedb.score(id))
          Workers Planned: 1
-         ->  Partial Aggregate
-               Output: PARTIAL min((paradedb.score(id)))
-               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
-                     Output: paradedb.score(id), paradedb.score(id)
-                     Table: mock_items
-                     Index: search_idx
-                     Worker Selection: Row-capped
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(15 rows)
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
+               Output: paradedb.score(id), paradedb.score(id)
+               Table: mock_items
+               Index: search_idx
+               Worker Selection: Row-capped
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(13 rows)
 
 SELECT min(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
@@ -82,24 +78,22 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT avg(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Finalize Aggregate
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
    Output: avg((paradedb.score(id)))
    ->  Gather
-         Output: (PARTIAL avg((paradedb.score(id))))
+         Output: (paradedb.score(id))
          Workers Planned: 1
-         ->  Partial Aggregate
-               Output: PARTIAL avg((paradedb.score(id)))
-               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
-                     Output: paradedb.score(id), paradedb.score(id)
-                     Table: mock_items
-                     Index: search_idx
-                     Worker Selection: Row-capped
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(15 rows)
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
+               Output: paradedb.score(id), paradedb.score(id)
+               Table: mock_items
+               Index: search_idx
+               Worker Selection: Row-capped
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(13 rows)
 
 SELECT avg(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
@@ -132,24 +126,22 @@ SELECT count(*) FROM mock_items WHERE description ||| 'keyboard' AND paradedb.sc
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT sum(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Finalize Aggregate
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
    Output: sum((paradedb.score(id)))
    ->  Gather
-         Output: (PARTIAL sum((paradedb.score(id))))
+         Output: (paradedb.score(id))
          Workers Planned: 1
-         ->  Partial Aggregate
-               Output: PARTIAL sum((paradedb.score(id)))
-               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
-                     Output: paradedb.score(id), paradedb.score(id)
-                     Table: mock_items
-                     Index: search_idx
-                     Worker Selection: Row-capped
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(15 rows)
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
+               Output: paradedb.score(id), paradedb.score(id)
+               Table: mock_items
+               Index: search_idx
+               Worker Selection: Row-capped
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(13 rows)
 
 SELECT sum(paradedb.score(id)) FROM mock_items WHERE description ||| 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)

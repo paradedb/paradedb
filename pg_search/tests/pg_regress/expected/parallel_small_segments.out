@@ -52,16 +52,11 @@ SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 SET paradedb.min_rows_per_worker = 2000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 FROM items);
-                                                                                                                                                               QUERY PLAN                                                                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on public.items
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather
    Output: items.id, items.name
-   Table: items
-   Index: items_bm25_idx
-   Worker Selection: Row-capped
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
+   Workers Planned: 2
    InitPlan 2
      ->  Result
            Output: ((InitPlan 1).col1 + 1)
@@ -70,7 +65,15 @@ SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 F
                    Output: items_1.id
                    ->  Index Only Scan Backward using items_pkey on public.items items_1
                          Output: items_1.id
-(16 rows)
+   ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
+         Output: items.id, items.name
+         Table: items
+         Index: items_bm25_idx
+         Worker Selection: Row-capped
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
+(19 rows)
 
 -- Test 2: min_rows_per_worker=500 -> 1000/500 = 2 workers -> parallel
 SET paradedb.min_rows_per_worker = 500;

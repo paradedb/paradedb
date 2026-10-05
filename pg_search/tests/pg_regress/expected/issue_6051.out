@@ -405,7 +405,7 @@ ORDER BY id;
 -- A term that can't be parsed as a number is an error, not an empty match.
 SELECT id FROM amounts
 WHERE discarded_at IS NULL AND amt_78 @@@ pdb.term_set(ARRAY['not-a-number']::text[]);
-ERROR:  Failed to parse numeric 'not-a-number': InvalidFormat("Invalid character: n")
+ERROR:  invalid input syntax for type numeric: "not-a-number"
 -- Rows written after the index build take the same byte layout as the build.
 INSERT INTO amounts (direction, amt_18, amt_78, amt_any, amt_scaled)
 VALUES ('debit', -49995, -49995, -49995, -0.49995);

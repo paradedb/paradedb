@@ -43,6 +43,7 @@ USING paradedb (
     id, account_id, region, (kind::pdb.literal), (code::pdb.literal),
     (label::pdb.literal), price, amount, created, updated, metadata
 );
+ANALYZE pinned_key_items;
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
 -- SECTION 1: Every key is pinned
@@ -364,8 +365,8 @@ FROM pinned_key_items
 WHERE region = 1 AND account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: (count(*)), account_id, kind
    Sort Key: pinned_key_items.kind
@@ -376,14 +377,11 @@ ORDER BY kind;
          Group By: kind
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
-           :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
-           :       TantivyFetchExec: fetch=[kind]
-           :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
-           :           CooperativeExec
-           :             PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"region","value":1}},{"term":{"field":"account_id","value":1}}]}}
-(17 rows)
+           : AggregateExec: mode=Single, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :   ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
+           :     CooperativeExec
+           :       PgSearchScan: table=pinned_key_items, segments=1, eager=[kind], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"region","value":1}},{"term":{"field":"account_id","value":1}}]}}
+(14 rows)
 
 SELECT COUNT(*) AS count_all, account_id, kind
 FROM pinned_key_items
@@ -738,14 +736,14 @@ ORDER BY kind;
 WARNING:  Aggregate Scan (DataFusion) not used: output column pinned_key_items.metadata is not columnar indexed (table: pinned_key_items)
                                                                                                           QUERY PLAN                                                                                                           
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: ((metadata ->> 'color'::text)), kind, (count(*))
-   Sort Key: pinned_key_items.kind
-   ->  HashAggregate
-         Output: (metadata ->> 'color'::text), kind, count(*)
-         Group Key: pinned_key_items.kind
+ GroupAggregate
+   Output: (metadata ->> 'color'::text), kind, count(*)
+   Group Key: pinned_key_items.kind
+   ->  Sort
+         Output: kind, metadata
+         Sort Key: pinned_key_items.kind
          ->  Custom Scan (ParadeDB Base Scan) on public.pinned_key_items
-               Output: metadata, kind
+               Output: kind, metadata
                Table: pinned_key_items
                Index: pinned_key_items_idx
                Worker Selection: Row-capped
@@ -1175,6 +1173,7 @@ INSERT INTO pinned_key_dst (ts, amount, kind) VALUES
     ('2024-03-10 03:30', 2.5, 'a'),
     ('2024-03-10 04:30', 4, 'b');
 CREATE INDEX pinned_key_dst_idx ON pinned_key_dst USING paradedb (id, ts, amount, (kind::pdb.literal));
+ANALYZE pinned_key_dst;
 SET timezone = 'America/New_York';
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT ts, SUM(amount)
@@ -2023,6 +2022,7 @@ INSERT INTO pinned_key_arrays (tags, k) SELECT ARRAY[1], 'a' FROM generate_serie
 INSERT INTO pinned_key_arrays (tags, k) SELECT ARRAY[2, 3], 'b' FROM generate_series(1, 4);
 CREATE INDEX pinned_key_arrays_idx ON pinned_key_arrays
 USING paradedb (id, tags, (k::pdb.literal));
+ANALYZE pinned_key_arrays;
 \echo 'Test 9.1: the only key is pinned to an array -> declined'
 Test 9.1: the only key is pinned to an array -> declined
 EXPLAIN (COSTS OFF, TIMING OFF)
@@ -2061,20 +2061,18 @@ FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 GROUP BY k, tags;
 WARNING:  Aggregate Scan (DataFusion) not used: output column tags is an array, which is not read from the index (table: pinned_key_arrays)
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate
    Group Key: k
-   ->  Sort
-         Sort Key: k
-         ->  Custom Scan (ParadeDB Base Scan) on pinned_key_arrays
-               Table: pinned_key_arrays
-               Index: pinned_key_arrays_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Full Index Scan: true
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(tags = '{1}'::integer[])"}]}}]}}
-(11 rows)
+   ->  Custom Scan (ParadeDB Base Scan) on pinned_key_arrays
+         Table: pinned_key_arrays
+         Index: pinned_key_arrays_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(tags = '{1}'::integer[])"}]}}]}}
+(9 rows)
 
 SELECT k, tags, COUNT(*)
 FROM pinned_key_arrays
@@ -2155,6 +2153,7 @@ INSERT INTO pinned_key_names (row_1, k)
 SELECT g % 3, (ARRAY['a', 'b'])[(g % 2) + 1] FROM generate_series(1, 600) g;
 CREATE INDEX pinned_key_names_idx ON pinned_key_names
 USING paradedb (id, row_1, (k::pdb.literal));
+ANALYZE pinned_key_names;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT row_1, k, COUNT(*)
 FROM pinned_key_names
@@ -2250,6 +2249,7 @@ INSERT INTO pinned_key_internal (agg_0, __one_group, k)
 SELECT g % 3, g % 2, (ARRAY['a', 'b'])[(g % 2) + 1] FROM generate_series(1, 30) g;
 CREATE INDEX pinned_key_internal_idx ON pinned_key_internal
 USING paradedb (id, agg_0, __one_group, (k::pdb.literal));
+ANALYZE pinned_key_internal;
 \echo 'Test 12.1: a pinned column named like an aggregate output'
 Test 12.1: a pinned column named like an aggregate output
 EXPLAIN (COSTS OFF, TIMING OFF)

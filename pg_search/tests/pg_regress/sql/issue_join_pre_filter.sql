@@ -40,7 +40,7 @@ WHERE
     AND u.id @@@ pdb.all()
     AND u.reputation > 100
 ORDER BY
-    relevance DESC
+    relevance DESC, p.id
 LIMIT 10;
 
 -- Reproduce the bug
@@ -55,7 +55,7 @@ WHERE
     AND u.id @@@ pdb.all()
     AND u.reputation > 100
 ORDER BY
-    relevance DESC
+    relevance DESC, p.id
 LIMIT 10;
 
 -- Teardown

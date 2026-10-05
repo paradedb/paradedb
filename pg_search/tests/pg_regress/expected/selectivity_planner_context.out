@@ -1,0 +1,222 @@
+-- Join and aggregate estimates must use PostgreSQL statistics for non-text filters.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET max_parallel_workers_per_gather = 0;
+CREATE TABLE estimate_products AS
+SELECT i AS id, (i % 20) + 1 AS customer_id, 'widget'::text AS description,
+       'category ' || (i % 4) AS category,
+       CASE WHEN i % 10 = 0 THEN 0 ELSE 100 END AS price,
+       1::numeric(8, 2) AS amount
+FROM generate_series(1, 200) i;
+CREATE TABLE estimate_customers AS SELECT i AS id FROM generate_series(1, 20) i;
+CREATE INDEX estimate_products_idx ON estimate_products USING paradedb
+(id, customer_id, description, (category::pdb.unicode_words('columnar=true')), price, amount);
+CREATE INDEX estimate_customers_idx ON estimate_customers USING paradedb (id);
+ANALYZE estimate_products;
+ANALYZE estimate_customers;
+-- Parsed text uses term statistics; an unsupported range falls back only for that leaf.
+DO $$
+DECLARE
+    test record;
+    plan json;
+BEGIN
+    FOR test IN SELECT * FROM (VALUES
+        ('description @@@ ''widget''', 200),
+        ('id @@@ pdb.parse(''description:widget'')', 200),
+        ('description @@@ ''(widget OR missing)^2''', 200),
+        ('id @@@ pdb.parse(''description:widget OR price:[100 TO 200]'')', 200),
+        ('id @@@ pdb.parse(''description:widget AND price:[100 TO 200]'')', 1),
+        ('id @@@ pdb.parse(''price:[100 TO 200]'')', 1)
+    ) AS cases(predicate, expected_rows)
+    LOOP
+        EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM estimate_products WHERE ' || test.predicate
+            INTO plan;
+        IF (plan->0->'Plan'->>'Plan Rows')::int IS DISTINCT FROM test.expected_rows THEN
+            RAISE EXCEPTION 'Wrong estimate for %: %', test.predicate, plan;
+        END IF;
+    END LOOP;
+END
+$$;
+-- Enough rows match to group on ordinals before decoding the category strings.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, SUM(amount) FROM estimate_products
+WHERE id @@@ pdb.all() AND price >= 100
+GROUP BY category ORDER BY category;
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (sum(amount))
+   Sort Key: estimate_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, (sum(amount))
+         Backend: DataFusion
+         Indexes: estimate_products_idx (estimate_products)
+         Group By: category
+         Aggregates: SUM(amount)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[numeric64_sum(estimate_products_0.amount, 2) as agg_0]
+           :   TantivyDecodeExec: decode=[category]
+           :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[numeric64_sum(estimate_products_0.amount, 2) as agg_0]
+           :       TantivyFetchExec: fetch=[category]
+           :         CooperativeExec
+           :           PgSearchScan: table=estimate_products, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"price","lower_bound":{"included":100},"upper_bound":null}}]}}
+(16 rows)
+
+SELECT category, SUM(amount) FROM estimate_products
+WHERE id @@@ pdb.all() AND price >= 100
+GROUP BY category ORDER BY category;
+  category  |  sum  
+------------+-------
+ category 0 | 40.00
+ category 1 | 50.00
+ category 2 | 40.00
+ category 3 | 50.00
+(4 rows)
+
+-- The customers are smaller than the matching products, so build the hash table on them.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, c.id FROM estimate_products p JOIN estimate_customers c ON p.customer_id = c.id
+WHERE p.description ||| 'widget' AND p.price >= 100
+ORDER BY p.id LIMIT 3;
+                                                                                                                                                                             QUERY PLAN                                                                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, c.id
+   Relation Tree: p INNER c
+   Join Cond: p.customer_id = c.id
+   Limit: 3
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=3), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, c]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, customer_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"price","lower_bound":{"included":100},"upper_bound":null}}]}}
+(15 rows)
+
+SELECT p.id, c.id FROM estimate_products p JOIN estimate_customers c ON p.customer_id = c.id
+WHERE p.description ||| 'widget' AND p.price >= 100
+ORDER BY p.id LIMIT 3;
+ id | id 
+----+----
+  1 |  2
+  2 |  3
+  3 |  4
+(3 rows)
+
+-- Parsing the same common term must also build the hash table on the smaller customers.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, c.id FROM estimate_products p JOIN estimate_customers c ON p.customer_id = c.id
+WHERE p.description @@@ 'widget' AND p.price >= 100
+ORDER BY p.id LIMIT 3;
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, c.id
+   Relation Tree: p INNER c
+   Join Cond: p.customer_id = c.id
+   Limit: 3
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=3), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, c]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, customer_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"included":100},"upper_bound":null}}]}}
+(15 rows)
+
+DROP TABLE estimate_products, estimate_customers;
+-- Both reconstructed filters and heap filters must use extended statistics.
+CREATE TABLE estimate_correlated AS
+SELECT i AS id, i % 3 AS a, i % 3 AS b, i % 3 AS heap_value,
+       'kind ' || (i % 4) AS kind, 1::numeric(8, 2) AS amount,
+       CASE WHEN i % 2 = 0 THEN 'widget' ELSE 'gadget' END AS description
+FROM generate_series(1, 120) i;
+CREATE INDEX estimate_correlated_idx ON estimate_correlated USING paradedb
+(id, a, b, (kind::pdb.literal), description, amount);
+CREATE STATISTICS estimate_dependencies (dependencies) ON a, b FROM estimate_correlated;
+ANALYZE estimate_correlated;
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE $query$EXPLAIN (FORMAT JSON) SELECT id FROM estimate_correlated
+        WHERE id @@@ paradedb.boolean(must => ARRAY[
+            paradedb.term('a', 1), paradedb.term('b', 1)])$query$ INTO plan;
+    IF (plan->0->'Plan'->>'Plan Rows')::int IS DISTINCT FROM 40 THEN
+        RAISE EXCEPTION 'Functional dependencies were ignored: %', plan;
+    END IF;
+END
+$$;
+DROP STATISTICS estimate_dependencies;
+CREATE STATISTICS estimate_mcv (mcv) ON a, b, heap_value FROM estimate_correlated;
+ANALYZE estimate_correlated;
+DO $$
+DECLARE
+    test record;
+    plan json;
+BEGIN
+    FOR test IN SELECT * FROM (VALUES
+        ('id @@@ paradedb.boolean(must => ARRAY[paradedb.term(''a'', 1), paradedb.term(''b'', 1)])', 40),
+        ('id @@@ paradedb.boolean(should => ARRAY[paradedb.term(''a'', 1), paradedb.term(''b'', 1)])', 40),
+        ('id @@@ paradedb.boolean(must => ARRAY[paradedb.term(''a'', 1), paradedb.term(''b'', 1), paradedb.term(''description'', ''widget'')])', 20),
+        ('id @@@ paradedb.boolean(should => ARRAY[paradedb.term(''a'', 1), paradedb.term(''b'', 1), paradedb.term(''description'', ''widget'')])', 80),
+        ('id @@@ pdb.all() AND a = 1 AND heap_value = 1', 40),
+        ('id @@@ paradedb.term(''description'', ''widget'') AND a = 1 AND heap_value = 1', 20)
+    ) AS cases(predicate, expected_rows)
+    LOOP
+        EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM estimate_correlated WHERE ' || test.predicate
+            INTO plan;
+        IF (plan->0->'Plan'->>'Plan Rows')::int IS DISTINCT FROM test.expected_rows THEN
+            RAISE EXCEPTION 'Wrong extended-statistics estimate for %: %', test.predicate, plan;
+        END IF;
+    END LOOP;
+END
+$$;
+-- Aggregate planning estimates the combined indexed and heap-filter query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT kind, SUM(amount) FROM estimate_correlated
+WHERE id @@@ paradedb.term('a', 1) AND heap_value = 1
+GROUP BY kind ORDER BY kind;
+                                                                                                                                    QUERY PLAN                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: kind, (sum(amount))
+   Sort Key: estimate_correlated.kind
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: kind, (sum(amount))
+         Backend: DataFusion
+         Indexes: estimate_correlated_idx (estimate_correlated)
+         Group By: kind
+         Aggregates: SUM(amount)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[numeric64_sum(estimate_correlated_0.amount, 2) as agg_0]
+           :   TantivyDecodeExec: decode=[kind]
+           :     AggregateExec: mode=Partial, gby=[kind@0 as kind], aggr=[numeric64_sum(estimate_correlated_0.amount, 2) as agg_0]
+           :       TantivyFetchExec: fetch=[kind]
+           :         CooperativeExec
+           :           PgSearchScan: table=estimate_correlated, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"term":{"field":"a","value":1}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(heap_value = 1)"}]}}]}}
+(16 rows)
+
+SELECT kind, SUM(amount) FROM estimate_correlated
+WHERE id @@@ paradedb.term('a', 1) AND heap_value = 1
+GROUP BY kind ORDER BY kind;
+  kind  |  sum  
+--------+-------
+ kind 0 | 10.00
+ kind 1 | 10.00
+ kind 2 | 10.00
+ kind 3 | 10.00
+(4 rows)
+
+DROP TABLE estimate_correlated;

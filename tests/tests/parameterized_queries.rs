@@ -107,15 +107,21 @@ fn parallel_with_subselect(mut conn: PgConnection) {
         let (plan,) = "EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE foo('contains');"
             .fetch_one::<(Value,)>(&mut conn);
         eprintln!("{plan:#?}");
-        let plan = plan
-            .pointer("/0/Plan/Plans/1/Plans/0")
-            .unwrap()
-            .as_object()
-            .unwrap();
-        pretty_assertions::assert_eq!(
-            plan.get("Custom Plan Provider"),
-            Some(&Value::String(String::from("ParadeDB Base Scan")))
-        );
+        assert!(plan_has_parallel_workers(&plan), "{plan:#?}");
+        let mut nodes = vec![plan.pointer("/0/Plan").unwrap()];
+        let mut has_base_scan = false;
+        while let Some(node) = nodes.pop() {
+            if node.get("Custom Plan Provider").and_then(Value::as_str)
+                == Some("ParadeDB Base Scan")
+            {
+                has_base_scan = true;
+                break;
+            }
+            if let Some(children) = node.get("Plans").and_then(Value::as_array) {
+                nodes.extend(children);
+            }
+        }
+        assert!(has_base_scan, "{plan:#?}");
     }
 }
 

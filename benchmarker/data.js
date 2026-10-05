@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791224290363,
+  "lastUpdate": 1791225823375,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -8006,6 +8006,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 732.015,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8e719a36ca4ce8d9513f7d8a19113d156f5d8795",
+          "message": "fix: respect RLS leaky-qual ordering in filter pushdown (#6614)\n\n# Ticket(s) Closed\n\n- N/A: reported privately per SECURITY.md; maintainers approved opening\nthis PR.\n\n## What\n\nFilter pushdown in the Base Scan, Aggregate Scan and Join Scan ignored\nPostgreSQL's\nrow-level security ordering. A non-leakproof predicate such as\n`secret::int > 0` was\nlowered into a Tantivy heap filter and could run on rows an RLS policy\nrejects,\ndisclosing their values through its error message. Default settings;\n`SELECT` only.\n\n## Why\n\nPostgreSQL never evaluates a non-leakproof clause on a row before that\nrow passes the\nrelation's lower-`security_level` quals\n(`restriction_is_securely_promotable`). The custom\nscans lowered clauses without that check:\n\n- **Base Scan:** a subquery policy stays above the scan as `plan.qual`\nwhile the caller's\n  predicate ran below it.\n- **Aggregate / Join Scan:** no filter step above the scan, so the\npredicate and the policy\n  ended up side by side in one Tantivy query.\n\n## How\n\nA shared check in `qual_inspect.rs` (`classify_security_pushdown`,\n`has_leaky_heap_filter`,\n`expr_is_securely_promotable`) applies\n`restriction_is_securely_promotable` to every clause\nthat would become a heap filter, the same gate `bitmap_intersection`\nuses (#6088).\n\n- **Base Scan:** such clauses are kept out of the Tantivy query and\nevaluated in\n`plan.qual`, in the `security_level` order `order_qual_clauses` gives\n`clauses` (the\n#4354 mechanism). A clause that also contains `@@@` can't be deferred,\nso the scan\ndeclines. LIMIT pushdown and window aggregates are disabled when a\nclause is deferred;\n  otherwise TopK counts rows `plan.qual` later rejects.\n- **Aggregate Scan (single-table + DataFusion) and Join Scan:** decline,\nleaving the query\nto the Base Scan. The same applies to an aggregate `FILTER (WHERE ...)`\nthat is not\n  securely promotable.\n- **Join Scan:** `wrap_with_mark_filter` now declines when an OR-nested\nSubPlan can't be\n  lowered, instead of skipping it, which dropped the predicate.\n\nRLS with a plain `@@@` search is unaffected and keeps using the custom\nscans.\n\n## Tests\n\n- New `rls_leaky_qual_ordering`: error-message leak, division-by-zero\noracle, `@@@`-in-OR,\n  LIMIT correctness, `count(*)`, aggregate FILTER, joins, an\n`is_public OR org_id IN (...)` policy, and stacked\nrestrictive/permissive policies\n(asserts `plan.qual` order), plus pushdown-off and stock-PostgreSQL\ncontrols.\n- `rls_multiple_policies`, `bitmap_intersection`: same rows; plans now\nshow the predicate\n  in the scan's Filter and no TopK / Aggregate Scan for the RLS cases.\n- Full pg_regress suite passes on PG18. On PG 15–17 the results match\n`main` apart from\n  the intended plan changes.\n- Integration tests (`--package tests --package tokenizers`, as in CI)\npass on PG18:\n  764 passed, 0 failed.",
+          "timestamp": "2026-10-05T11:32:23-06:00",
+          "tree_id": "84a7d8be8ae564609a6ca6a6a704dec4cc459c29",
+          "url": "https://github.com/paradedb/paradedb/commit/8e719a36ca4ce8d9513f7d8a19113d156f5d8795"
+        },
+        "date": 1791225820388,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.045,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 152.244,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 53.025,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 244.82,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.016,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 171.566,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 24.474,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 211.042,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.758,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 731.28,
             "unit": "ms"
           }
         ]

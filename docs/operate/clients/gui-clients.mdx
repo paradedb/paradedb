@@ -1,0 +1,27 @@
+---
+title: GUI Clients
+description: Connect to ParadeDB from a graphical SQL client
+canonical: https://www.paradedb.com/docs/operate/clients/gui-clients
+---
+
+ParadeDB runs inside Postgres, so any client that connects to PostgreSQL also connects to ParadeDB. Use the same
+host, port, database, user, and password that you would pass to `psql`. If you started ParadeDB with the
+[Docker command](/start/install), these are `localhost`, `5432`, `paradedb`, `postgres`, and the password you set
+in `POSTGRES_PASSWORD`.
+
+## Clients
+
+To add a client to this list, open a pull request.
+
+| Client                                                      | Description                                               |
+| ----------------------------------------------------------- | --------------------------------------------------------- |
+| [LibreDB Studio](https://github.com/libredb/libredb-studio) | Open source, self-hosted SQL IDE that runs in the browser |
+
+## ParadeDB Objects in a Client
+
+- ParadeDB queries are plain SQL, so the SQL examples in these docs can be run from a client's SQL editor.
+- ParadeDB indexes are created with `CREATE INDEX ... USING paradedb` and are stored in the Postgres catalog like any
+  other index. Clients that list a table's indexes show them next to the table's other indexes.
+- ParadeDB's functions and types live in the `paradedb` and `pdb` schemas.
+- The extensions bundled in the ParadeDB Docker image, such as PostGIS and `pg_ivm`, add the `spatial_ref_sys` table
+  to `public` and the `tiger`, `topology`, and `pgivm` schemas.

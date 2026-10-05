@@ -307,6 +307,12 @@
                 ]
               },
               {
+                "group": "Clients",
+                "pages": [
+                  "operate/clients/gui-clients"
+                ]
+              },
+              {
                 "group": "Continuous Integration",
                 "pages": [
                   "operate/deploy/ci/github-actions",

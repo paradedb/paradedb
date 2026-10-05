@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791222584431,
+  "lastUpdate": 1791224290363,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -7932,6 +7932,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 727.306,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "608f27b0481b48b89a7bcacd6bf4503f72d1daa7",
+          "message": "fix: honor interrupts while advancing heap filters (#6670)\n\n## What\n\nHonor PostgreSQL interrupts while advancing past rejected heap-filter\ncandidates.\n\n## Why\n\n`HeapFilterScorer::advance()` can scan an entire segment without\nreturning to the outer scan's interrupt checks. This delays statement\ntimeouts, query cancellation, and backend termination. An empty scan can\neven finish successfully without reporting a pending cancel.",
+          "timestamp": "2026-10-05T10:08:15-07:00",
+          "tree_id": "af620ca795c46861c30ab4ff0c7bfa825723a42d",
+          "url": "https://github.com/paradedb/paradedb/commit/608f27b0481b48b89a7bcacd6bf4503f72d1daa7"
+        },
+        "date": 1791224287732,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 19.461,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 155.955,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 53.455,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 243.873,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.231,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 175.503,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 28.828,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 222.374,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.647,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 732.015,
             "unit": "ms"
           }
         ]

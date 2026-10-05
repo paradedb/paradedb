@@ -18,7 +18,7 @@ CREATE TABLE suppliers (
     id INTEGER PRIMARY KEY,
     name TEXT,
     region TEXT
-);
+) WITH (autovacuum_enabled = false);
 -- 5 suppliers. Only some will match search predicates in individual tests.
 INSERT INTO suppliers (id, name, region) VALUES
 (1, 'AlphaSupply', 'north america domestic shipping'),
@@ -32,7 +32,7 @@ CREATE TABLE products (
     description TEXT,
     supplier_id INTEGER,
     price NUMERIC(10,2)
-);
+) WITH (autovacuum_enabled = false);
 -- 30 products: all mention "premium" so they all match the search predicate.
 -- supplier_id cycles 1-5, so each supplier has 6 products.
 -- Prices spread from ~20 to ~300.
@@ -358,22 +358,22 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
  Sort
    Output: p.id, p.name, s.name
    Sort Key: p.id
-   ->  Hash Join
+   ->  Nested Loop
          Output: p.id, p.name, s.name
          Inner Unique: true
-         Hash Cond: (p.supplier_id = s.id)
          ->  Custom Scan (ParadeDB Base Scan) on public.products p
                Output: p.id, p.name, p.supplier_id
                Table: products
                Index: products_bm25_idx
-               Worker Selection: Cost model
+               Worker Selection: Row-capped
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"premium","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-         ->  Hash
-               Output: s.name, s.id
-               ->  Seq Scan on public.suppliers s
-                     Output: s.name, s.id
+         ->  Bitmap Heap Scan on public.suppliers s
+               Output: s.id, s.name, s.region
+               Recheck Cond: (p.supplier_id = s.id)
+               ->  Bitmap Index Scan on suppliers_pkey
+                     Index Cond: (s.id = p.supplier_id)
 (19 rows)
 
 -- =============================================================================
@@ -400,7 +400,7 @@ CREATE TABLE bench_documents (
     id TEXT PRIMARY KEY,
     category TEXT,
     title TEXT
-);
+) WITH (autovacuum_enabled = false);
 -- 20 documents: IDs are 'doc-01' .. 'doc-20'.
 -- "category" assigns roughly half to 'PROJECT_ALPHA' and the rest to other groups.
 -- The ALPHA documents are scattered: doc-01, doc-04, doc-07, doc-10, doc-13, doc-16, doc-19.
@@ -430,7 +430,7 @@ CREATE TABLE bench_files (
     document_id TEXT,
     title TEXT,
     content TEXT
-);
+) WITH (autovacuum_enabled = false);
 -- 200 files, each randomly referencing a document.
 -- document_id cycles: file 1 → doc-01, file 2 → doc-02, ..., file 20 → doc-20, file 21 → doc-01, etc.
 -- Titles are 'File Title NNN' so they sort nicely and Top K can tighten thresholds.

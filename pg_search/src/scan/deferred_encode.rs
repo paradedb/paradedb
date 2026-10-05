@@ -27,7 +27,10 @@
 //! A deferred CTID column is also a `UInt64` column represented by [`DeferredCtid`].
 //! A row is either a resolved PostgreSQL tuple ID (bit 63 is 0) or an unresolved Tantivy
 //! doc address (bit 63 is 1) for all-visible blocks whose fast-field read was deferred until
-//! the top of the plan.
+//! the top of the plan. This tag convention is intentionally inverted relative to deferred strings:
+//! a PostgreSQL CTID uses at most 48 bits, so bit 63 is naturally 0 on a resolved tuple ID,
+//! allowing downstream tuple fetching (`build_result_tuple`) to read the CTID directly without
+//! a decode or unmasking step.
 
 use arrow_array::{Array, ArrayRef, UInt64Array};
 use arrow_buffer::{NullBuffer, ScalarBuffer};
@@ -92,10 +95,7 @@ pub fn pack_doc_addresses(segment_ord: SegmentOrdinal, doc_ids: &[DocId]) -> UIn
     )
 }
 
-/// Unpacks a doc address.
-///
-/// A packed ctid column is always State 0, so it unpacks here instead of going through
-/// [`DeferredColumn`].
+/// Unpacks a packed doc address (State 0).
 pub fn unpack_doc_address(packed: u64) -> DocAddress {
     debug_assert_eq!(packed & TERM_ORDINAL_BIT, 0, "not a doc address");
     DocAddress::new(
@@ -110,7 +110,12 @@ pub fn unpack_doc_address(packed: u64) -> DocAddress {
 /// - A resolved PostgreSQL heap `ctid` (bit 63 is 0), or
 /// - A packed Tantivy `DocAddress` (bit 63 is 1), indicating an all-visible block
 ///   whose fast-field CTID fetch was deferred until the top of the plan.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// This tag convention is inverted relative to deferred string/bytes encoding (where
+/// bit 63 indicates a resolved term ordinal): a PostgreSQL CTID uses at most 48 bits,
+/// so bit 63 is naturally 0 on a resolved tuple ID, allowing downstream tuple fetching
+/// (`build_result_tuple`) to read the CTID directly as a plain word without masking or decoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct DeferredCtid(pub u64);
 
@@ -125,16 +130,6 @@ impl DeferredCtid {
             "segment ordinal {segment_ord} does not fit deferred ctid encoding"
         );
         Self(Self::DOC_ADDRESS_TAG | ((segment_ord as u64) << 32) | (doc_id as u64))
-    }
-
-    #[inline(always)]
-    pub fn from_ctid(ctid: u64) -> Self {
-        debug_assert_eq!(
-            ctid & Self::DOC_ADDRESS_TAG,
-            0,
-            "ctid exceeds 48-bit address space"
-        );
-        Self(ctid)
     }
 
     #[inline(always)]
@@ -160,37 +155,8 @@ impl DeferredCtid {
     }
 
     #[inline(always)]
-    pub fn ctid(self) -> Option<u64> {
-        if self.is_ctid() { Some(self.0) } else { None }
-    }
-
-    #[inline(always)]
     pub fn as_u64(self) -> u64 {
         self.0
-    }
-}
-
-impl From<u64> for DeferredCtid {
-    #[inline(always)]
-    fn from(val: u64) -> Self {
-        Self(val)
-    }
-}
-
-impl From<DeferredCtid> for u64 {
-    #[inline(always)]
-    fn from(val: DeferredCtid) -> Self {
-        val.0
-    }
-}
-
-impl std::fmt::Debug for DeferredCtid {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(doc_addr) = self.doc_address() {
-            write!(f, "DeferredCtid(DocAddress({:?}))", doc_addr)
-        } else {
-            write!(f, "DeferredCtid(Ctid({:#x}))", self.0)
-        }
     }
 }
 
@@ -431,16 +397,14 @@ mod tests {
         assert!(deferred.is_doc_address());
         assert!(!deferred.is_ctid());
         assert_eq!(deferred.doc_address(), Some(DocAddress::new(5, 42)));
-        assert_eq!(deferred.ctid(), None);
     }
 
     #[test]
     fn deferred_ctid_real_ctid_roundtrip() {
         let ctid_val = ((1234_u64) << 16) | 56_u64;
-        let deferred = DeferredCtid::from_ctid(ctid_val);
+        let deferred = DeferredCtid(ctid_val);
         assert!(deferred.is_ctid());
         assert!(!deferred.is_doc_address());
-        assert_eq!(deferred.ctid(), Some(ctid_val));
         assert_eq!(deferred.doc_address(), None);
         assert_eq!(deferred.as_u64(), ctid_val);
     }
@@ -462,12 +426,13 @@ mod tests {
 
         // Max 48-bit ctid (block = u32::MAX, offset = u16::MAX)
         let max_ctid = ((u32::MAX as u64) << 16) | (u16::MAX as u64);
-        let deferred_max_ctid = DeferredCtid::from_ctid(max_ctid);
-        assert_eq!(deferred_max_ctid.ctid(), Some(max_ctid));
+        let deferred_max_ctid = DeferredCtid(max_ctid);
+        assert!(deferred_max_ctid.is_ctid());
+        assert_eq!(deferred_max_ctid.as_u64(), max_ctid);
 
         // Zero values
         let zero_doc = DeferredCtid::from_doc_address(0, 0);
-        let zero_ctid = DeferredCtid::from_ctid(0);
+        let zero_ctid = DeferredCtid(0);
         assert_ne!(zero_doc, zero_ctid);
         assert!(zero_doc.is_doc_address());
         assert!(zero_ctid.is_ctid());

@@ -88,7 +88,7 @@ use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::CtidResolver;
-use crate::scan::deferred_encode::{DeferredCtid, unpack_doc_address};
+use crate::scan::deferred_encode::DeferredCtid;
 use crate::scan::deferred_lookup::open_rebuilt_ffhelper;
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::late_materialization::is_reduction_node;
@@ -1502,13 +1502,9 @@ pub(crate) fn materialize_and_check_deferred_ctid(
         .filter(|&i| !doc_addr_array.is_null(i))
         .map(|i| {
             let val = doc_addr_array.value(i);
-            let doc_addr = if (val & (1 << 63)) != 0 {
-                DeferredCtid(val)
-                    .doc_address()
-                    .expect("expected doc address in deferred ctid column")
-            } else {
-                unpack_doc_address(val)
-            };
+            let doc_addr = DeferredCtid(val)
+                .doc_address()
+                .expect("expected tagged doc address in deferred ctid column");
             (i, doc_addr)
         });
 

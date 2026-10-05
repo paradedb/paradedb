@@ -61,7 +61,7 @@ CREATE TABLE t1 (
     fk_a  BIGINT,
     fk_b  BIGINT,
     fk_c  BIGINT
-);
+) WITH (autovacuum_enabled = false);
 INSERT INTO t1
 SELECT
     i,
@@ -84,15 +84,15 @@ FROM generate_series(1, 30000) AS i;
 -- engage if either side isn't BM25-indexed; without it the planner falls
 -- back to vanilla Hash Join which doesn't run the dynamic-filter
 -- pushdown machinery.)
-CREATE TABLE t2_a (id INTEGER PRIMARY KEY, fk BIGINT, body TEXT);
+CREATE TABLE t2_a (id INTEGER PRIMARY KEY, fk BIGINT, body TEXT) WITH (autovacuum_enabled = false);
 INSERT INTO t2_a
 SELECT i, (i * 7919 % 100000)::bigint, 'doc ' || i::text
 FROM generate_series(1, 1100) AS i;
-CREATE TABLE t2_b (id INTEGER PRIMARY KEY, fk BIGINT, body TEXT);
+CREATE TABLE t2_b (id INTEGER PRIMARY KEY, fk BIGINT, body TEXT) WITH (autovacuum_enabled = false);
 INSERT INTO t2_b
 SELECT i, (i * 6151 % 100000)::bigint, 'doc ' || i::text
 FROM generate_series(500, 1599) AS i;
-CREATE TABLE t2_c (id INTEGER PRIMARY KEY, fk BIGINT, body TEXT);
+CREATE TABLE t2_c (id INTEGER PRIMARY KEY, fk BIGINT, body TEXT) WITH (autovacuum_enabled = false);
 INSERT INTO t2_c
 SELECT i, (i * 4099 % 100000)::bigint, 'doc ' || i::text
 FROM generate_series(800, 1899) AS i;

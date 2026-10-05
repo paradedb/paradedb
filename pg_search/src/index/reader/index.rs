@@ -1076,15 +1076,8 @@ impl SearchIndexReader {
                     continue;
                 }
 
-                resolved.clear();
-                resolved.resize(doc_ids.len(), None);
-                visibility.resolve_segment_docs(seg_ord, &doc_ids, &mut resolved);
-                visible_ctids = resolved
-                    .iter()
-                    .copied()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .into_iter();
+                let ctids = visibility.resolve_segment_docs(seg_ord, &doc_ids, &mut resolved);
+                visible_ctids = ctids.iter_visible().collect::<Vec<_>>().into_iter();
             }
         }))
     }
@@ -1131,7 +1124,7 @@ impl SearchIndexReader {
         })
     }
 
-    pub(crate) fn segment_stats_snapshot(&self) -> &SegmentStatsSnapshot {
+    pub(crate) fn segment_stats_snapshot(&self) -> &Arc<SegmentStatsSnapshot> {
         &self.segment_stats_snapshot
     }
 
@@ -2270,9 +2263,7 @@ impl SearchIndexReader {
     }
 
     fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
-        self.segment_stats_snapshot
-            .segment_index(*segment_id)
-            .map(|ord| ord as SegmentOrdinal)
+        self.segment_stats_snapshot.segment_ordinal(*segment_id)
     }
 
     fn candidates(

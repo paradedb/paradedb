@@ -53,6 +53,7 @@ use arrow_select::filter::filter_record_batch;
 use arrow_select::interleave::interleave_record_batch;
 use arrow_select::take::take;
 use datafusion::arrow::compute::SortColumn;
+use datafusion::common::utils::memory::RecordBatchMemoryCounter;
 use datafusion::common::utils::{SingleRowListArrayBuilder, normalize_float_zero};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::expr::AggregateFunction;
@@ -322,6 +323,7 @@ fn row_schema(acc_args: &AccumulatorArgs) -> Result<SchemaRef> {
 /// A row is the payload followed by the ordering columns (see `row_schema`).
 struct FusedTopK {
     schema: SchemaRef,
+    key_schema: SchemaRef,
     k: usize,
     /// Row positions with their sort options: the ordering columns, one per
     /// ORDER BY key with its direction, followed in distinct mode by every
@@ -334,6 +336,9 @@ struct FusedTopK {
     /// At most K rows in `sort` order, so the last row is the worst; in arrival
     /// order when `sort` is empty.
     entries: RecordBatch,
+    /// A key-only subset of the record batch in which the keys have been normalized to facitlitate
+    /// comparisons according to PostgreSQL semantics. Sorted in the same order.
+    normalized_keys: RecordBatch,
     /// Where the payload ends and the ordering columns begin: `update_batch`
     /// cuts the trailing literals out of its input at this point, and `evaluate`
     /// projects the state down to it.
@@ -361,8 +366,13 @@ impl FusedTopK {
         distinct: bool,
         num_payload_fields: usize,
     ) -> Result<Self> {
+        let sort_pos: Vec<_> = sort.iter().map(|(i, _)| *i).collect();
+        let key_schema = Arc::new(schema.project(&sort_pos)?);
+
         Ok(Self {
             entries: RecordBatch::new_empty(Arc::clone(&schema)),
+            normalized_keys: RecordBatch::new_empty(Arc::clone(&key_schema)),
+            key_schema,
             sort,
             schema,
             ctid_positions,
@@ -375,14 +385,15 @@ impl FusedTopK {
     /// The `sort` columns of the worst row, one single-row array each, once the
     /// state is full. `None` while it is not, so that nothing is filtered.
     fn worst_key(&self) -> Option<Vec<ArrayRef>> {
-        if self.entries.num_rows() < self.k {
+        if self.normalized_keys.num_rows() < self.k {
             None
         } else {
-            let last = self.entries.num_rows() - 1;
+            let last = self.normalized_keys.num_rows() - 1;
             let worst = self
-                .sort
+                .normalized_keys
+                .columns()
                 .iter()
-                .map(|(p, _)| self.entries.column(*p).slice(last, 1))
+                .map(|c| c.slice(last, 1))
                 .collect();
             Some(worst)
         }
@@ -396,28 +407,29 @@ impl FusedTopK {
     /// Ties on every column pass. In distinct mode a tie is a duplicate of the
     /// worst row, which may still win on ctid; otherwise it is merely
     /// conservative, and the sort decides.
-    fn could_enter(&self, batch: &RecordBatch) -> Result<BooleanArray> {
+    fn could_enter(&self, key_batch: &RecordBatch) -> Result<BooleanArray> {
         use datafusion::arrow::compute::kernels::cmp::not_distinct;
         use datafusion::arrow::compute::{and, or};
 
         let Some(worst) = self.worst_key() else {
-            return Ok(BooleanArray::from(vec![true; batch.num_rows()]));
+            return Ok(BooleanArray::from(vec![true; key_batch.num_rows()]));
         };
 
-        let mut survivors = BooleanArray::from(vec![false; batch.num_rows()]);
+        let mut survivors = BooleanArray::from(vec![false; key_batch.num_rows()]);
         // rows still tied with the worst row on every column seen so far
-        let mut ties = BooleanArray::from(vec![true; batch.num_rows()]);
+        let mut ties = BooleanArray::from(vec![true; key_batch.num_rows()]);
 
-        for ((idx, opts), wcol) in self.sort.iter().zip(worst.iter()) {
-            let col = batch.column(*idx);
+        for (((_, opts), wcol), key_col) in
+            self.sort.iter().zip(worst.iter()).zip(key_batch.columns())
+        {
             // find all that sort before for this column
             let opts = (*opts).unwrap_or(SortOptions::default());
-            let before = sorts_before(col, wcol, &opts)?;
+            let before = sorts_before(key_col, wcol, &opts)?;
             // a row that was tied so far and sorts before on this column is decided:
             // OR it into the survivors
             survivors = or(&survivors, &and(&ties, &before)?)?;
             // ties now becomes all points where the comparison is equal (not_distinct = same value or both null)
-            ties = and(&ties, &not_distinct(col, &Scalar::new(wcol))?)?;
+            ties = and(&ties, &not_distinct(key_col, &Scalar::new(wcol))?)?;
             if ties.true_count() == 0 {
                 // nothing left to decide
                 break;
@@ -429,20 +441,25 @@ impl FusedTopK {
         Ok(survivors)
     }
 
-    /// The `sort` columns over state ++ `batch`, in that order, so that an index
+    /// The normalized `sort` columns over state ++ `batch`, in that order, so that an index
     /// below `entries.num_rows()` names a state row and anything else a row of
     /// `batch` (see `pick_indices_from_sorted_concat`).
-    fn concatenated_sort_columns(&self, batch: &RecordBatch) -> Result<Vec<SortColumn>> {
+    fn concatenated_sort_columns(&self, batch_keys: &RecordBatch) -> Result<Vec<SortColumn>> {
         use datafusion::arrow::compute::concat;
 
-        let sort_keys = self.sort.iter().map(|(idx, opts)| {
-            let values = concat(&[self.entries.column(*idx), batch.column(*idx)])?;
-            Ok(SortColumn {
-                values,
-                options: *opts,
-            })
-        });
-        sort_keys.collect()
+        let sort_columns = self
+            .normalized_keys
+            .columns()
+            .iter()
+            .zip(batch_keys.columns().iter())
+            .zip(self.sort.iter().map(|(_, opt)| opt))
+            .map(|((state_keys, incoming_keys), sort_opts)| {
+                Ok(SortColumn {
+                    values: concat(&[state_keys, incoming_keys])?,
+                    options: *sort_opts,
+                })
+            });
+        sort_columns.collect()
     }
 
     fn pick_indices_from_sorted_concat(&self, i: u32) -> (usize, usize) {
@@ -451,22 +468,24 @@ impl FusedTopK {
         if i < n { (0, i) } else { (1, i - n) }
     }
 
-    /// `batch` must be the same RecordBatch that was provided to `concatenated_sort_columns`
-    fn new_batch_from_sorted(
+    /// Returns (entries batch, keys batch)
+    fn new_batches_from_sorted(
         &self,
         order: &UInt32Array,
-        batch: &RecordBatch,
-    ) -> Result<RecordBatch> {
+        incoming_full: &RecordBatch,
+        incoming_keys: &RecordBatch,
+    ) -> Result<(RecordBatch, RecordBatch)> {
         let picks: Vec<_> = order
             .values()
             .iter()
             .map(|i| self.pick_indices_from_sorted_concat(*i))
             .collect();
-        let new_batch = interleave_record_batch(&[&self.entries, batch], &picks)?;
-        Ok(new_batch)
+        let entries_batch = interleave_record_batch(&[&self.entries, incoming_full], &picks)?;
+        let keys_batch = interleave_record_batch(&[&self.normalized_keys, incoming_keys], &picks)?;
+        Ok((entries_batch, keys_batch))
     }
 
-    /// Rebuild `entries` through a `BatchCoalescer`. The kernels in `absorb`
+    /// Rebuild `entries`  and `normalized_keys` through a `BatchCoalescer`. The kernels in `absorb`
     /// share `Utf8View`/`BinaryView` data buffers instead of copying them, so
     /// without this the K-row state would pin whole input batches (and `size`
     /// would report them). The coalescer copies sparse view buffers into a
@@ -475,13 +494,26 @@ impl FusedTopK {
         if self.entries.num_rows() == 0 {
             return Ok(());
         }
-        let batch = self.drain();
-        let mut coalescer = BatchCoalescer::new(Arc::clone(&self.schema), batch.num_rows());
-        coalescer.push_batch(batch)?;
-        coalescer.finish_buffered_batch()?;
-        self.entries = coalescer
+        let (entries_batch, keys_batch) = self.drain();
+
+        // entries
+        let mut entries_coalescer =
+            BatchCoalescer::new(Arc::clone(&self.schema), entries_batch.num_rows());
+        entries_coalescer.push_batch(entries_batch)?;
+        entries_coalescer.finish_buffered_batch()?;
+        self.entries = entries_coalescer
             .next_completed_batch()
             .expect("one pushed batch should always yield one finished batch");
+
+        // keys
+        let mut keys_coalescer =
+            BatchCoalescer::new(Arc::clone(&self.key_schema), keys_batch.num_rows());
+        keys_coalescer.push_batch(keys_batch)?;
+        keys_coalescer.finish_buffered_batch()?;
+        self.normalized_keys = keys_coalescer
+            .next_completed_batch()
+            .expect("one pushed batch should always yield one finished batch");
+
         Ok(())
     }
 
@@ -502,8 +534,12 @@ impl FusedTopK {
             return Ok(false);
         }
 
+        let normalized_key_batch = self.normalized_key_batch(batch)?;
+        let survivors_pred = self.could_enter(&normalized_key_batch)?;
+
         // 1) kernel-based prefilter against the worst row
-        let survivors = filter_record_batch(batch, &self.could_enter(batch)?)?;
+        let survivors = filter_record_batch(batch, &survivors_pred)?;
+        let survivor_keys = filter_record_batch(&normalized_key_batch, &survivors_pred)?;
         if survivors.num_rows() == 0 {
             // nothing can enter
             return Ok(false);
@@ -514,11 +550,16 @@ impl FusedTopK {
             let sk = (self.k - self.entries.num_rows()).min(survivors.num_rows());
             let enough_survivors = survivors.slice(0, sk);
             self.entries = concat_batches(&self.schema, [&self.entries, &enough_survivors])?;
+            let enough_survivor_keys = survivor_keys.slice(0, sk);
+            self.normalized_keys = concat_batches(
+                &self.key_schema,
+                [&self.normalized_keys, &enough_survivor_keys],
+            )?;
             return Ok(true);
         }
 
         // 2) Sort (state ++ survivors)
-        let sort_columns = self.concatenated_sort_columns(&survivors)?;
+        let sort_columns = self.concatenated_sort_columns(&survivor_keys)?;
         // DISTINCT collapses duplicates after the sort, so every survivor must be
         // placed; non-DISTINCT is purely sort order, so only the top k are needed.
         let sort_limit = if self.distinct { None } else { Some(self.k) };
@@ -580,21 +621,43 @@ impl FusedTopK {
                 );
             }
 
-            // 5) Construct the new record batch accordingly
+            // 5) Construct the new record batch and keys accordingly
             self.entries = interleave_record_batch(&[&self.entries, &survivors], &picks)?;
+            self.normalized_keys =
+                interleave_record_batch(&[&self.normalized_keys, &survivor_keys], &picks)?;
             Ok(true)
         } else {
             // 3) Interleave the record batches based on sort order
-            self.entries = self.new_batch_from_sorted(&order, &survivors)?;
+            let (new_entries, new_keys) =
+                self.new_batches_from_sorted(&order, &survivors, &survivor_keys)?;
+            self.entries = new_entries;
+            self.normalized_keys = new_keys;
             Ok(true)
         }
     }
 
-    /// Return the existing record batch, and replace it with an empty one.
-    fn drain(&mut self) -> RecordBatch {
-        let mut res = RecordBatch::new_empty(Arc::clone(&self.schema));
-        std::mem::swap(&mut self.entries, &mut res);
-        res
+    /// Return the existing record batch and normalized key batch, and replace them with empty ones.
+    fn drain(&mut self) -> (RecordBatch, RecordBatch) {
+        let mut entries_res = RecordBatch::new_empty(Arc::clone(&self.schema));
+        std::mem::swap(&mut self.entries, &mut entries_res);
+        let mut keys_res = RecordBatch::new_empty(Arc::clone(&self.key_schema));
+        std::mem::swap(&mut self.normalized_keys, &mut keys_res);
+        (entries_res, keys_res)
+    }
+
+    fn normalized_key_batch(&self, batch: &RecordBatch) -> Result<RecordBatch> {
+        let batch_cols = batch.columns();
+        //  select and normalize, in order, sort columns
+        let columns: Vec<_> = self
+            .sort
+            .iter()
+            .map(|(i, _)| normalize_float_zero(&batch_cols[*i]))
+            .collect();
+
+        let options = RecordBatchOptions::new().with_row_count(Some(batch.num_rows()));
+        let normalized =
+            RecordBatch::try_new_with_options(Arc::clone(&self.key_schema), columns, &options)?;
+        Ok(normalized)
     }
 }
 
@@ -649,9 +712,8 @@ impl Accumulator for FusedTopK {
         let n = self.num_payload_fields;
         let columns = values[..n]
             .iter()
-            .chain(&values[n + NUM_TRAILING_ARG_LITERALS..])
-            // incoming batches need their +/- zeroes normalized for sql equality semantics.
-            .map(normalize_float_zero)
+            .chain(values[n + NUM_TRAILING_ARG_LITERALS..].iter())
+            .cloned()
             .collect();
 
         // we must specify a row count to cover for the case where there are no payload columns
@@ -694,22 +756,27 @@ impl Accumulator for FusedTopK {
     /// The result is the payload alone, so the ordering columns are projected
     /// away; `state` keeps them.
     fn evaluate(&mut self) -> Result<ScalarValue> {
-        let batch = self.drain();
+        let (batch, _) = self.drain();
         let payload_indices: Vec<_> = (0..self.num_payload_fields).collect();
         let batch = batch.project(&payload_indices)?;
         Ok(SingleRowListArrayBuilder::new(Arc::new(StructArray::from(batch))).build_list_scalar())
     }
 
     fn state(&mut self) -> Result<Vec<ScalarValue>> {
-        let batch = self.drain();
+        let (batch, _) = self.drain();
         Ok(vec![
             SingleRowListArrayBuilder::new(Arc::new(StructArray::from(batch))).build_list_scalar(),
         ])
     }
 
     fn size(&self) -> usize {
+        let mut counter = RecordBatchMemoryCounter::new();
+        counter.count_batch(&self.entries);
+        counter.count_batch(&self.normalized_keys);
+        let record_batches_usage = counter.memory_usage();
+
         size_of_val(self)
-            + self.entries.get_array_memory_size()
+            + record_batches_usage
             + self.sort.capacity() * size_of::<(usize, Option<SortOptions>)>()
             + self.ctid_positions.capacity() * size_of::<usize>()
     }

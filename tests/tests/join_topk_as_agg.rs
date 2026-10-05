@@ -198,10 +198,18 @@ where
 #[case::serial(Mode::Serial)]
 #[case::mpp(Mode::Mpp)]
 fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
-    match mode {
-        Mode::Serial => SERIAL_SETUP.execute(&mut conn),
-        Mode::Mpp => MPP_SETUP.execute(&mut conn),
-    }
+    // Every t2 row joins exactly one t1 row and every t1 row matches `val`, so the
+    // join has one row per t2 row.
+    let join_rows: i64 = match mode {
+        Mode::Serial => {
+            SERIAL_SETUP.execute(&mut conn);
+            600
+        }
+        Mode::Mpp => {
+            MPP_SETUP.execute(&mut conn);
+            6000
+        }
+    };
 
     // ASC on one side with OFFSET, so the aggregate keeps offset + limit rows.
     assert_paths_agree::<(i32, i32, String, String)>(
@@ -385,6 +393,58 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
         "#,
         8,
     );
+
+    // A window aggregate as the whole select list, with no ORDER BY: the aggregate
+    // has no sort key, and nothing to carry but the window's own column. Every
+    // row holds the same count, so it does not matter which five come back.
+    assert_paths_agree::<(i64,)>(
+        &mut conn,
+        r#"
+        SELECT count(*) OVER ()
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        LIMIT 5
+        "#,
+        5,
+    );
+
+    // An expression as the whole select list, with no ORDER BY: no column is
+    // selected and no heap tuple is fetched, so the evaluated expression is all
+    // the aggregate carries. Without an ORDER BY any three rows may come back,
+    // so the predicate keeps to rows that agree: ids 1 to 6 all have a rating.
+    assert_paths_agree::<(bool,)>(
+        &mut conn,
+        r#"
+        SELECT t1.rating IS NULL
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val' AND t1.id < 7
+        LIMIT 3
+        "#,
+        3,
+    );
+
+    // https://github.com/paradedb/paradedb/issues/6601: DISTINCT over a select
+    // list that is only a window aggregate, on the default path. The output
+    // projection took an empty column map to mean "no DISTINCT" and looked for
+    // the pre-GROUP BY column name, failing at plan build. One row comes back:
+    // the count of the whole join.
+    "SET paradedb.joinscan_force_topk_as_agg = off".execute(&mut conn);
+    let distinct_window = r#"
+        SELECT DISTINCT count(*) OVER ()
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        LIMIT 5
+        "#;
+    let plan = explain(&mut conn, distinct_window);
+    assert!(
+        plan.contains("ParadeDB Join Scan"),
+        "JoinScan must plan the query, or the check below is vacuous.\nplan:\n{plan}"
+    );
+    let rows: Vec<(i64,)> = distinct_window.fetch(&mut conn);
+    assert_eq!(rows, vec![(join_rows,)], "{distinct_window}");
 
     // Float keys. The three values that separate float comparison rules: `0`
     // and `-0`, which Postgres and a GROUP BY treat as equal while a total order

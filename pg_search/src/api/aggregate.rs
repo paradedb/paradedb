@@ -561,7 +561,7 @@ impl MvccVisibility {
                     if query.has_heap_filters() || query.has_postgres_expressions() {
                         return true;
                     }
-                    match estimate_matching_rows(indexrel, query.clone()) {
+                    match estimate_matching_rows(indexrel, query.clone(), None) {
                         Some(rows) => largest = largest.max(rows),
                         None => return true,
                     }

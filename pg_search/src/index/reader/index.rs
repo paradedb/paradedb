@@ -1942,7 +1942,7 @@ impl SearchIndexReader {
                 query => query,
             };
             node.estimated_docs =
-                crate::api::operator::estimate_matching_rows(&self.index_rel, query.clone())
+                crate::api::operator::estimate_matching_rows(&self.index_rel, query.clone(), None)
                     .map(|rows| rows as usize);
         });
         Ok(query_tree)

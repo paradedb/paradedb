@@ -968,8 +968,9 @@ pub(crate) fn estimate_selectivity(
 pub(crate) fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<u64> {
-    let selectivity = estimate_selectivity(indexrel, search_query_input, None)?;
+    let selectivity = estimate_selectivity(indexrel, search_query_input, planner)?;
     let heaprel = indexrel.heap_relation()?;
     let (mut pages, mut rows, mut all_visible_fraction) = (0, 0.0, 0.0);
     // Using the whole heap can overestimate matches for partial indexes.

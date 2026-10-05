@@ -470,7 +470,7 @@ impl JoinSourceCandidate {
     }
 
     /// Calculate and store the estimated number of rows matching the query.
-    pub fn estimate_rows(&mut self) {
+    pub fn estimate_rows(&mut self, root: *mut pg_sys::PlannerInfo) {
         if !self.has_bm25_index() {
             return;
         }
@@ -482,9 +482,13 @@ impl JoinSourceCandidate {
         crate::index::open_index(directory).expect("Failed to open index metadata");
         self.segment_count = Some(segment_count.load(std::sync::atomic::Ordering::Relaxed));
         self.estimate = Some(
-            crate::api::operator::estimate_matching_rows(&index_rel, query)
-                .map(RowEstimate::Known)
-                .unwrap_or_default(),
+            crate::api::operator::estimate_matching_rows(
+                &index_rel,
+                query,
+                Some((root, self.heap_rti)),
+            )
+            .map(RowEstimate::Known)
+            .unwrap_or_default(),
         );
         self.estimate_from_total_docs = false;
     }

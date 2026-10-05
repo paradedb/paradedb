@@ -81,6 +81,8 @@ pub struct DataFusionAggState {
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
+    /// The number of grouping columns in DataFusion's output RecordBatch.
+    pub num_group_exprs: usize,
     /// The `pdb.agg()` grouping-set layout, set when the query has any such call.
     pub pdb_plan: Option<PdbAggPlan>,
     /// `HAVING` of a scalar `pdb.agg()` query, judged on the assembled root row.

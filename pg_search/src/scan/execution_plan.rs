@@ -1252,9 +1252,10 @@ impl ExecutionPlan for PgSearchScanPlan {
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let plan_metrics = self.metrics.clone();
         let schema = self.properties.eq_properties.schema().clone();
-        let score_column_schema_idx: Option<usize> = schema
-            .column_with_name(&WhichFastField::Score.name())
-            .map(|(idx, _)| idx);
+        let score_column_schema_idx: Option<usize> = scanner_config
+            .which_fast_fields
+            .iter()
+            .position(|wff| wff.is_score());
         let dynamic_filters = self.dynamic_filters.clone();
         let scan_fetched_fields: Vec<String> = self
             .deferred_fields
@@ -1314,7 +1315,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             let need_scores = scanner_config
                 .which_fast_fields
                 .iter()
-                .any(|wff| matches!(wff, WhichFastField::Score));
+                .any(|wff| wff.is_score());
             let mut scanner = Scanner::new(
                 search_results,
                 scanner_config.batch_size_hint,
@@ -1341,6 +1342,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             }
 
             let mut pushdown_metric_recorded = false;
+            let mut score_pushdown_metric_recorded = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let (pre_filters, score_threshold) =
@@ -1381,6 +1383,13 @@ impl ExecutionPlan for PgSearchScanPlan {
                     }
                 }
 
+                if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
+                    MetricBuilder::new(&plan_metrics)
+                        .counter("dynamic_filter_pushdown_score", target_partition)
+                        .add(1);
+                    score_pushdown_metric_recorded = true;
+                }
+
                 match next_batch {
                     Some(batch) => {
                         let record_batch = batch.to_record_batch(&schema);
@@ -1398,6 +1407,11 @@ impl ExecutionPlan for PgSearchScanPlan {
                             };
                             MetricBuilder::new(&plan_metrics)
                                 .counter(metric_name, target_partition)
+                                .add(1);
+                        }
+                        if scanner.score_threshold_pushed && !score_pushdown_metric_recorded {
+                            MetricBuilder::new(&plan_metrics)
+                                .counter("dynamic_filter_pushdown_score", target_partition)
                                 .add(1);
                         }
                         // Flush pre-materialization filter stats from Scanner.
@@ -1661,7 +1675,10 @@ pub(crate) fn stamp_parallel_state(plan: &Arc<dyn ExecutionPlan>, ps: *mut Paral
 /// `ParallelScanState`.
 ///
 /// [`DistributedLeafExec`]: datafusion_distributed::DistributedLeafExec
-fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSearchScanPlan)) {
+pub(crate) fn visit_scan_nodes(
+    plan: &Arc<dyn ExecutionPlan>,
+    visit: &mut impl FnMut(&PgSearchScanPlan),
+) {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         visit(scan);
     }
@@ -1684,6 +1701,53 @@ fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSea
     for child in plan.children() {
         visit_scan_nodes(child, visit);
     }
+}
+
+/// The index relation OID and [`FFHelper`] needed to resolve deferred packed `DocAddress` values
+/// into real CTIDs for a specific table in a multi-table or deferred scan.
+///
+/// Wired by `VisibilityCtidResolverRule` from the source [`PgSearchScanPlan`] into the physical
+/// execution node performing visibility checking (`VisibilityFilterExec`), and into `JoinScanState`
+/// to resolve deferred CTIDs returned to PostgreSQL.
+#[derive(Clone)]
+pub struct CtidResolver {
+    pub indexrelid: u32,
+    pub ffhelper: Arc<FFHelper>,
+}
+
+impl std::fmt::Debug for CtidResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CtidResolver")
+            .field("indexrelid", &self.indexrelid)
+            .finish_non_exhaustive()
+    }
+}
+
+impl CtidResolver {
+    pub fn new(indexrelid: u32, ffhelper: Arc<FFHelper>) -> Self {
+        Self {
+            indexrelid,
+            ffhelper,
+        }
+    }
+}
+
+/// Search the subtree for a [`PgSearchScanPlan`] whose deferred ctid metadata matches
+/// the given plan position. Returns its index relid and [`FFHelper`] if found.
+pub(crate) fn find_ctid_resolver_for_plan_position(
+    plan: &Arc<dyn ExecutionPlan>,
+    plan_position: usize,
+) -> Option<CtidResolver> {
+    let mut found = None;
+    visit_scan_nodes(plan, &mut |scan| {
+        if found.is_none()
+            && scan.deferred_ctid_plan_position() == Some(plan_position)
+            && let Some(ffhelper) = scan.ffhelper()
+        {
+            found = Some(CtidResolver::new(scan.indexrelid, ffhelper));
+        }
+    });
+    found
 }
 
 #[cfg(any(test, feature = "pg_test"))]

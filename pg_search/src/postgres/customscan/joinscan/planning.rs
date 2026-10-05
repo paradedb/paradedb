@@ -2581,7 +2581,7 @@ pub(crate) fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sys::Inde
 /// Returns the RTI of the ordering base relation if found.
 pub(super) fn ensure_score_bubbling(source: &mut JoinSource) -> Option<pg_sys::Index> {
     source.scan_info.score_needed = true;
-    source.scan_info.add_field(0, WhichFastField::Score);
+    source.scan_info.add_field(0, WhichFastField::score());
     Some(source.scan_info.heap_rti)
 }
 

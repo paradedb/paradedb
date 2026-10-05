@@ -103,7 +103,7 @@ runs:
 
     - name: Generate GitHub App Token
       id: app-token
-      uses: actions/create-github-app-token@v3.2.0
+      uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
       with:
         client-id: ${{ inputs.github_app_client_id }}
         private-key: ${{ inputs.github_app_private_key }}

@@ -688,7 +688,9 @@ mod tests {
         use crate::api::FieldName;
         use crate::postgres::pdb_owned_value::PdbOwnedValue;
         use crate::query::SearchQueryInput;
+        use crate::query::pdb_query::pdb::Query;
         use crate::scan::range_partitioning::RangeSplitPoints;
+        use std::ops::Bound;
 
         let split_points = RangeSplitPoints {
             partition_by: FieldName::from("id"),
@@ -705,9 +707,30 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::I64(10));
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is 10 -> Range OR Boolean(All AND NOT Exists)
+        // partition 0: upper is 10 -> All AND NOT Range(at or above 10), which keeps the NULLs
+        // without a union.
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        let SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+            ..
+        } = p0
+        else {
+            panic!("expected a Boolean, got {p0:?}");
+        };
+        assert!(matches!(must.as_slice(), [SearchQueryInput::All]));
+        assert!(should.is_empty());
+        assert!(matches!(
+            must_not.as_slice(),
+            [SearchQueryInput::FieldedQuery {
+                field,
+                query: Query::Range {
+                    lower_bound: Bound::Included(PdbOwnedValue::I64(10)),
+                    upper_bound: Bound::Unbounded,
+                },
+            }] if field.as_ref() == "id"
+        ));
 
         // partition 1: lower is 10, upper is 10 -> Range
         let p1 = build.partition_bounds(1);

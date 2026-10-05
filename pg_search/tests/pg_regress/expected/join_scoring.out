@@ -68,12 +68,12 @@ LIMIT 5;
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
    Limit: 5
-   Order By: pdb.score() desc, p.id asc
+   Order By: pdb.score(p) desc, p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score()@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=5), expr=[pdb.score()@0 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score(p)@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[pdb.score(p)@0 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, id@3, ctid_1@4]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score(p)@0, ctid_0@1, id@3, ctid_1@4]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -117,10 +117,10 @@ LIMIT 5;
    Limit: 5
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score()@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score(p)@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
      :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, id@3, ctid_1@4]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score(p)@0, ctid_0@1, id@3, ctid_1@4]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -167,10 +167,10 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, pdb.score()@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, pdb.score(s)@2 as col_4, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score()@0, ctid_1@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score(s)@0, ctid_1@1]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -217,10 +217,10 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score()@0 as col_4, pdb.score()@3 as col_5, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score(p)@0 as col_4, pdb.score(s)@3 as col_5, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[pdb.score()@3, ctid_0@4, id@6, pdb.score()@0, ctid_1@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[pdb.score(p)@3, ctid_0@4, id@6, pdb.score(s)@0, ctid_1@1]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -269,12 +269,12 @@ LIMIT 10;
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
    Limit: 10
-   Order By: pdb.score() desc
+   Order By: pdb.score(p) desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, pdb.score()@0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[pdb.score()@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, pdb.score(p)@0 as col_3, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[pdb.score(p)@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s], pruned=[s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@2)], projection=[pdb.score()@2, ctid_0@3, ctid_1@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@2)], projection=[pdb.score(p)@2, ctid_0@3, ctid_1@1]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -321,10 +321,10 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score()@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, pdb.score(p)@0 as col_4, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, id@3, ctid_1@4]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score(p)@0, ctid_0@1, id@3, ctid_1@4]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
      :         CooperativeExec
@@ -370,12 +370,12 @@ LIMIT 10;
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
    Limit: 10
-   Order By: pdb.score() desc, p.id asc
+   Order By: pdb.score(s) desc, p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@4 as col_3, NULL as col_4, pdb.score()@2 as col_5, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[pdb.score()@2 DESC, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@4 as col_3, NULL as col_4, pdb.score(s)@2 as col_5, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[pdb.score(s)@2 DESC, id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score()@0, ctid_1@1, id@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score(s)@0, ctid_1@1, id@2]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query={"score_filter":{"bounds":[[{"Excluded":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
      :         CooperativeExec

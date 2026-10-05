@@ -63,7 +63,7 @@ use tantivy::collector::sort_key::{
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
@@ -1076,15 +1076,8 @@ impl SearchIndexReader {
                     continue;
                 }
 
-                resolved.clear();
-                resolved.resize(doc_ids.len(), None);
-                visibility.resolve_segment_docs(seg_ord, &doc_ids, &mut resolved);
-                visible_ctids = resolved
-                    .iter()
-                    .copied()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .into_iter();
+                let ctids = visibility.resolve_segment_docs(seg_ord, &doc_ids, &mut resolved);
+                visible_ctids = ctids.iter_visible().collect::<Vec<_>>().into_iter();
             }
         }))
     }
@@ -1131,7 +1124,7 @@ impl SearchIndexReader {
         })
     }
 
-    pub(crate) fn segment_stats_snapshot(&self) -> &SegmentStatsSnapshot {
+    pub(crate) fn segment_stats_snapshot(&self) -> &Arc<SegmentStatsSnapshot> {
         &self.segment_stats_snapshot
     }
 
@@ -1248,8 +1241,11 @@ impl SearchIndexReader {
             self.need_scores,
             self.searcher.clone(),
         ));
-        let constrained_weight =
-            Arc::new(unconstrained_weight.and_query(self.make_query(partition_bounds, None)));
+        let range_query = Box::new(ConstScoreQuery::new(
+            self.make_query(partition_bounds, None),
+            0.0,
+        ));
+        let constrained_weight = Arc::new(unconstrained_weight.and_query(range_query));
         let mut iterators = Vec::new();
         for (segment_ord, segment_reader) in self.segment_readers_in_segments(included) {
             iterators.push(ScorerIter::new(
@@ -2267,9 +2263,7 @@ impl SearchIndexReader {
     }
 
     fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
-        self.segment_stats_snapshot
-            .segment_index(*segment_id)
-            .map(|ord| ord as SegmentOrdinal)
+        self.segment_stats_snapshot.segment_ordinal(*segment_id)
     }
 
     fn candidates(
@@ -2753,19 +2747,22 @@ mod tests {
                 "{query:?}, {bounds:?}"
             );
 
-            let exact = scored_hits(reader.and_query_input(&bounds).search());
+            let make_bounds_query =
+                || Box::new(ConstScoreQuery::new(reader.make_query(&bounds, None), 0.0));
+            let exact = scored_hits(reader.and_query(make_bounds_query()).search());
             let is_all = matches!(query, SearchQueryInput::All);
             if is_all {
                 assert_eq!(exact.len(), expected_all, "{bounds:?}");
             }
-            // Preserve the existing per-group queries, including their exact score
-            // contributions. Applying the range to every segment is not the score oracle.
+            // Partition bounds are wrapped in ConstScoreQuery(..., 0.0) so they do not
+            // alter scores. Applying the range across all segments or per group matches
+            // the per-partition search.
             let per_group = scored_hits(
                 reader
                     .search_segments(segments.included.iter().copied())
                     .chain(
                         reader
-                            .and_query_input(&bounds)
+                            .and_query(make_bounds_query())
                             .search_segments(segments.partially_included.iter().copied()),
                     ),
             );
@@ -2779,16 +2776,14 @@ mod tests {
             assert_eq!(calls.load(Relaxed), 0, "preparation must remain lazy");
             let actual = scored_hits(scan);
             assert_eq!(actual.len(), exact.len(), "{query:?}, {bounds:?}");
-            if is_all && scoring {
-                assert_eq!(actual, exact, "{bounds:?}");
-            }
+            assert_eq!(actual, exact, "{query:?}, scoring={scoring}, {bounds:?}");
             assert_eq!(
                 actual, per_group,
                 "{query:?}, scoring={scoring}, {bounds:?}"
             );
             assert_eq!(
                 calls.load(Relaxed),
-                usize::from(expected_included + expected_partial > 0)
+                usize::from(expected_included > 0) + usize::from(expected_partial > 0)
             );
         };
 
@@ -2864,25 +2859,28 @@ mod tests {
         );
         // Partition 0 owns the NULL rows, so a nullable segment inside its value range is fully
         // included and searches without the partition filter: all three rows belong to it.
-        // Partition 1 does not own NULLs, so the same segment stays partially included and
-        // the filter excludes the NULL row.
+        // With the edge inside the segment, partition 0 keeps the NULL row and drops the value
+        // above the edge. Partition 1 does not own NULLs, so the same segment stays partially
+        // included and the filter excludes the NULL row.
         for (split, partition, expected_all, included, partial) in
-            [(21, 0, 3, 1, 0), (5, 1, 2, 0, 1)]
+            [(21, 0, 3, 1, 0), (15, 0, 2, 0, 1), (5, 1, 2, 0, 1)]
         {
             let partitioning = RangePartitioning {
                 partition_by: FieldName::from("value"),
                 split_points: vec![PdbOwnedValue::I64(split)],
             };
-            check(
-                &index_rel,
-                &SearchQueryInput::All,
-                false,
-                &partitioning,
-                partition,
-                expected_all,
-                included,
-                partial,
-            );
+            for scoring in [false, true] {
+                check(
+                    &index_rel,
+                    &SearchQueryInput::All,
+                    scoring,
+                    &partitioning,
+                    partition,
+                    expected_all,
+                    included,
+                    partial,
+                );
+            }
         }
     }
 

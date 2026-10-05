@@ -27,7 +27,7 @@ CREATE TABLE strkey_build (
     id_txt   text NOT NULL,
     keep     boolean NOT NULL,
     ordinal  bigint NOT NULL
-);
+) WITH (autovacuum_enabled = false);
 
 INSERT INTO strkey_build (id, id_txt, keep, ordinal)
 SELECT md5('k' || i)::uuid,
@@ -41,7 +41,7 @@ CREATE TABLE strkey_probe (
     fk_uuid   uuid NOT NULL,
     fk_txt    text NOT NULL,
     amount    bigint NOT NULL
-);
+) WITH (autovacuum_enabled = false);
 
 INSERT INTO strkey_probe (fk_uuid, fk_txt, amount)
 SELECT md5('k' || i)::uuid,

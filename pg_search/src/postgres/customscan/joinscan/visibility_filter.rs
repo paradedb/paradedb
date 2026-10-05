@@ -41,9 +41,9 @@
 //!    `PgSearchScanPlan` into `VisibilityFilterExec` (and `SegmentedTopKExec`) so
 //!    `VisibilityChecker` can resolve packed DocAddresses to real ctids.
 //! 4. `VisibilityFilterExec` (physical execution) — opens heap relations, creates
-//!    `VisibilityChecker` per relation equipped with the wired `FFHelper`, resolves
-//!    packed DocAddresses and checks visibility in batch, filtering invisible rows
-//!    and updating ctids.
+//!    `VisibilityChecker` per relation equipped with the wired `FFHelper`, checks
+//!    visibility in batch while deferring CTID fast-field reads for all-visible blocks,
+//!    filtering invisible rows and tracking `ctids_fetched` vs `ctids_lazy` metrics.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -70,7 +70,7 @@ use datafusion::physical_plan::filter_pushdown::{
     FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::{
-    BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet, RecordOutput,
 };
 use datafusion::physical_plan::projection::{
     EmbeddedProjection, ProjectionExec, try_embed_projection,
@@ -82,13 +82,13 @@ use datafusion::physical_plan::{
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
-use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
+use crate::index::fast_fields_helper::for_each_segment;
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::CtidResolver;
-use crate::scan::deferred_encode::unpack_doc_address;
+use crate::scan::deferred_encode::DeferredCtid;
 use crate::scan::deferred_lookup::open_rebuilt_ffhelper;
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::late_materialization::is_reduction_node;
@@ -972,21 +972,21 @@ type VisibilityDispatchPayload = (
     Vec<(usize, u32)>,
 );
 
-/// Physical plan node that resolves packed DocAddresses to real ctids and checks heap visibility.
+/// Physical plan node that checks heap visibility and lazily resolves packed DocAddresses.
 ///
 /// For each `(plan_position, heap_oid)` in `plan_pos_oids`, it:
 /// 1. Reads the `ctid_{plan_position}` column containing packed DocAddresses.
-/// 2. Uses [`VisibilityChecker::for_segment`] to determine if each segment is all-visible.
-///    For all-visible segments, per-doc visibility checks are skipped entirely and CTIDs are
-///    only read if the column is retained. For other segments, [`VisibilityChecker::check_segment_docs`]
-///    is run using the visibility map fast-path (avoiding heap buffer accesses for all-visible pages).
+/// 2. Uses [`VisibilityChecker::check_segment_docs_mask`] (if pruned) or
+///    [`VisibilityChecker::check_segment_docs_lazy`] (if retaining ctids) to determine visibility.
+///    For all-visible segments and blocks, fast-field CTID reads are deferred without accessing
+///    heap buffers, emitting a tagged `DocAddress` ([`DeferredCtid`]). For dirty blocks,
+///    fast-field CTIDs are read and verified against the heap via MVCC.
 /// 3. Filters the batch to only visible rows.
-/// 4. For retained ctid columns, replaces packed doc-addresses with the resolved ctids. For
-///    all-visible pages and segments, this preserves the raw index ctid (which may be an index
-///    root pointing to a HOT redirect). This is safe and intentional: downstream heap tuple
-///    fetching (in `JoinScanState::build_result_tuple`) resolves HOT redirects via
-///    `table_index_fetch_tuple` (`exec_if_visible`) for the final surviving output rows only,
-///    avoiding heap page reads for candidate rows in this node.
+/// 4. For retained ctid columns, passes through the deferred CTIDs (real CTIDs for dirty blocks,
+///    packed doc-addresses for all-visible blocks). Downstream at the top of the plan,
+///    `JoinScan::resolve_batch_ctids` resolves any surviving doc-addresses in batch, and
+///    `JoinScanState::build_result_tuple` resolves HOT redirects via `table_index_fetch_tuple`
+///    (`exec_if_visible`) for the final surviving output rows only.
 /// 5. Applies an optional embedded projection to prune columns (including ctid columns).
 pub struct VisibilityFilterExec {
     input: Arc<dyn ExecutionPlan>,
@@ -1124,7 +1124,7 @@ impl VisibilityFilterExec {
 
     /// Sets the ctid resolver (FFHelper and its index relation OID) for
     /// the given plan_position. Called by `VisibilityCtidResolverRule`.
-    pub fn set_ctid_resolver(&self, plan_pos: usize, indexrelid: u32, ffhelper: Arc<FFHelper>) {
+    pub fn set_ctid_resolver(&self, plan_pos: usize, resolver: CtidResolver) {
         let mut resolvers = self
             .ctid_resolvers
             .lock()
@@ -1132,7 +1132,7 @@ impl VisibilityFilterExec {
         if plan_pos >= resolvers.len() {
             resolvers.resize(plan_pos + 1, None);
         }
-        resolvers[plan_pos] = Some((indexrelid, ffhelper));
+        resolvers[plan_pos] = Some(resolver);
     }
 
     /// Serialize for leader dispatch. The `ctid_resolvers` are live and don't travel; the worker
@@ -1144,7 +1144,7 @@ impl VisibilityFilterExec {
             .expect("VisibilityFilterExec ctid_resolvers lock poisoned")
             .iter()
             .enumerate()
-            .filter_map(|(pos, r)| r.as_ref().map(|(relid, _)| (pos, *relid)))
+            .filter_map(|(pos, r)| r.as_ref().map(|res| (pos, res.indexrelid)))
             .collect();
         let payload: VisibilityDispatchPayload = (
             self.plan_pos_oids.clone(),
@@ -1161,7 +1161,7 @@ impl VisibilityFilterExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
+        ctid_resolvers: Vec<(usize, CtidResolver)>,
         index_segment_views: &[SegmentView],
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (plan_pos_oids, table_names, projection, resolver_indexes): VisibilityDispatchPayload =
@@ -1171,11 +1171,18 @@ impl VisibilityFilterExec {
                 ))
             })?;
         let exec = VisibilityFilterExec::try_new(input, plan_pos_oids, table_names, projection)?;
-        for (plan_pos, indexrelid, ffhelper) in &ctid_resolvers {
-            exec.set_ctid_resolver(*plan_pos, *indexrelid, Arc::clone(ffhelper));
+        for (plan_pos, resolver) in ctid_resolvers {
+            exec.set_ctid_resolver(plan_pos, resolver);
         }
         for (plan_pos, indexrelid) in resolver_indexes {
-            if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
+            if exec
+                .ctid_resolvers
+                .lock()
+                .expect("VisibilityFilterExec ctid_resolvers lock poisoned")
+                .get(plan_pos)
+                .and_then(|r| r.as_ref())
+                .is_some()
+            {
                 continue;
             }
             let view = index_segment_views.get(plan_pos).cloned().ok_or_else(|| {
@@ -1185,7 +1192,7 @@ impl VisibilityFilterExec {
             })?;
             let ffhelper =
                 open_rebuilt_ffhelper(indexrelid, &[], MvccSatisfies::ParallelWorker(view))?;
-            exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+            exec.set_ctid_resolver(plan_pos, CtidResolver::new(indexrelid, ffhelper));
         }
         Ok(Arc::new(exec))
     }
@@ -1393,7 +1400,7 @@ impl ExecutionPlan for VisibilityFilterExec {
             let heaprel = PgSearchRelation::open(heap_oid);
             let resolver = resolvers
                 .get(plan_pos)
-                .and_then(|r| r.as_ref().map(|(_, ff)| Arc::clone(ff)))
+                .and_then(|r| r.as_ref().map(|res| Arc::clone(&res.ffhelper)))
                 .ok_or_else(|| {
                     DataFusionError::Execution(format!(
                         "VisibilityFilterExec: no ctid resolver wired for \
@@ -1416,6 +1423,8 @@ impl ExecutionPlan for VisibilityFilterExec {
         }
 
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
+        let ctids_fetched = MetricBuilder::new(&self.metrics).counter("ctids_fetched", partition);
+        let ctids_lazy = MetricBuilder::new(&self.metrics).counter("ctids_lazy", partition);
         let stream_input_schema = Arc::clone(&input_schema);
         let projection = self.projection.clone();
         let stream_gen = async_stream::try_stream! {
@@ -1424,7 +1433,9 @@ impl ExecutionPlan for VisibilityFilterExec {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let result = match batch_res {
                     Ok(batch) => {
-                        let filtered = filter_batch(&stream_input_schema, &mut checkers, batch)?;
+                        let (filtered, stats) = filter_batch(&stream_input_schema, &mut checkers, batch)?;
+                        ctids_fetched.add(stats.fetched);
+                        ctids_lazy.add(stats.lazy);
                         match &projection {
                             Some(proj) => filtered
                                 .project(proj)
@@ -1460,30 +1471,49 @@ pub(crate) struct DeferredCtidMaterializationState {
     visible_mask: Vec<bool>,
     segment_doc_ids: Vec<DocId>,
     segment_ctids: Vec<Option<u64>>,
+    segment_mask: Vec<bool>,
 }
 
-/// Checks visibility of packed DocAddresses via [`VisibilityChecker::for_segment`] and
-/// [`VisibilityChecker::check_segment_docs`].
+/// Statistics tracking how many ctids were fetched vs stayed lazy during visibility checking.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CtidVisibilityStats {
+    pub fetched: usize,
+    pub lazy: usize,
+}
+
+impl std::ops::AddAssign for CtidVisibilityStats {
+    fn add_assign(&mut self, other: Self) {
+        self.fetched += other.fetched;
+        self.lazy += other.lazy;
+    }
+}
+
+/// Checks visibility of packed DocAddresses via [`VisibilityChecker::check_segment_docs_mask`] and
+/// [`VisibilityChecker::check_segment_docs_lazy`].
 ///
-/// For all-visible segments, visibility checking is skipped and all rows are marked visible;
-/// if `is_pruned` is true, CTID reads from the fast field are also skipped entirely.
-/// For segments requiring checks, uses the visibility map fast-path on all-visible pages to avoid
-/// reading heap buffers.
-/// On all-visible pages, the returned CTID is the raw index CTID (which may be a HOT redirect root).
-/// When `is_pruned` is false, returns `(visible_mask, Some(ctids_array))`. Downstream tuple
-/// fetching in `JoinScanState::build_result_tuple` resolves HOT redirects via `table_index_fetch_tuple`
-/// (`exec_if_visible`) for surviving output rows.
-/// When `is_pruned` is true, returns `(visible_mask, None)`, skipping CTID array materialization.
+/// For all-visible segments and blocks, visibility is confirmed via the visibility map fast-path without
+/// reading the `ctid` fast field or accessing heap buffers.
+/// For dirty blocks, fast-field CTIDs are read and verified against the heap via MVCC.
+/// When `is_pruned` is false, returns `(visible_mask, Some(ctids_array), stats)` where `ctids_array`
+/// contains deferred CTIDs (a mix of real CTIDs and packed DocAddresses). Downstream tuple
+/// fetching in `JoinScan` resolves remaining DocAddresses in batch before calling `build_result_tuple`.
+/// When `is_pruned` is true, returns `(visible_mask, None, stats)`, skipping CTID array materialization.
 pub(crate) fn materialize_and_check_deferred_ctid(
     checker: &mut VisibilityChecker,
     doc_addr_array: &UInt64Array,
     state: &mut DeferredCtidMaterializationState,
     is_pruned: bool,
-) -> Result<(BooleanArray, Option<ArrayRef>)> {
+) -> Result<(BooleanArray, Option<ArrayRef>, CtidVisibilityStats)> {
     let num_rows = doc_addr_array.len();
     let doc_addresses = (0..num_rows)
         .filter(|&i| !doc_addr_array.is_null(i))
-        .map(|i| (i, unpack_doc_address(doc_addr_array.value(i))));
+        .map(|i| {
+            let val = doc_addr_array.value(i);
+            let doc_addr = DeferredCtid(val)
+                .doc_address()
+                .expect("expected tagged doc address in deferred ctid column");
+            (i, doc_addr)
+        });
 
     state.visible_mask.clear();
     state.visible_mask.resize(num_rows, false);
@@ -1493,6 +1523,7 @@ pub(crate) fn materialize_and_check_deferred_ctid(
         state.resolved_ctids.resize(num_rows, None);
     }
 
+    let mut stats = CtidVisibilityStats::default();
     let num_segments = checker
         .ffhelper()
         .expect("FFHelper must be configured on VisibilityChecker")
@@ -1501,36 +1532,34 @@ pub(crate) fn materialize_and_check_deferred_ctid(
         state.segment_doc_ids.clear();
         state.segment_doc_ids.extend(rows.iter().map(|(_, id)| *id));
 
-        if let Some(checker) = checker
-            .for_segment(seg_ord)
-            .map_err(|e| DataFusionError::External(Box::new(e)))?
-        {
-            state.segment_ctids.clear();
-            state.segment_ctids.resize(rows.len(), None);
-
-            checker.check_segment_docs(seg_ord, &state.segment_doc_ids, &mut state.segment_ctids);
-
-            for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
-                if let Some(ctid) = value {
-                    state.visible_mask[*row_idx] = true;
-                    if !is_pruned {
-                        state.resolved_ctids[*row_idx] = Some(*ctid);
-                    }
-                }
-            }
+        if is_pruned {
+            let mask = checker.check_segment_docs_mask(
+                seg_ord,
+                &state.segment_doc_ids,
+                &mut state.segment_mask,
+            );
+            mask.for_each_visible(|i| {
+                state.visible_mask[rows[i].0] = true;
+            });
         } else {
-            for (row_idx, _) in &rows {
-                state.visible_mask[*row_idx] = true;
-            }
-            if !is_pruned {
-                state.segment_ctids.clear();
-                state.segment_ctids.resize(rows.len(), None);
-                let ffhelper = checker.ffhelper().expect("FFHelper must be configured");
-                ffhelper
-                    .ctid(seg_ord)
-                    .as_u64s(&state.segment_doc_ids, &mut state.segment_ctids);
-                for ((row_idx, _), value) in rows.iter().zip(state.segment_ctids.iter()) {
-                    state.resolved_ctids[*row_idx] = *value;
+            let ctids = checker.check_segment_docs_lazy(
+                seg_ord,
+                &state.segment_doc_ids,
+                &mut state.segment_ctids,
+            );
+            ctids.for_each_visible(|i, ctid| {
+                let row_idx = rows[i].0;
+                state.visible_mask[row_idx] = true;
+                state.resolved_ctids[row_idx] = Some(ctid);
+            });
+            for ctid_opt in &state.segment_ctids {
+                match ctid_opt {
+                    Some(val) if DeferredCtid(*val).is_doc_address() => {
+                        stats.lazy += 1;
+                    }
+                    _ => {
+                        stats.fetched += 1;
+                    }
                 }
             }
         }
@@ -1543,7 +1572,7 @@ pub(crate) fn materialize_and_check_deferred_ctid(
     } else {
         Some(uint64_array_from_options(&state.resolved_ctids))
     };
-    Ok((mask, maybe_resolved))
+    Ok((mask, maybe_resolved, stats))
 }
 
 fn uint64_array_from_options(values: &[Option<u64>]) -> ArrayRef {
@@ -1567,12 +1596,12 @@ struct CtidCheckerEntry {
 
 /// Runs visibility check for a single relation's ctid column via [`materialize_and_check_deferred_ctid`].
 ///
-/// Uses the visibility map fast-path to confirm visibility, returning `(visible_mask, maybe_resolved_ctids)`.
+/// Uses the visibility map fast-path to confirm visibility, returning `(visible_mask, maybe_resolved_ctids, stats)`.
 /// For pruned columns, `maybe_resolved_ctids` is `None` to skip unnecessary Arrow array materialization.
 fn check_column_visibility(
     entry: &mut CtidCheckerEntry,
     ctid_array: &UInt64Array,
-) -> Result<(BooleanArray, Option<ArrayRef>)> {
+) -> Result<(BooleanArray, Option<ArrayRef>, CtidVisibilityStats)> {
     materialize_and_check_deferred_ctid(
         &mut entry.checker,
         ctid_array,
@@ -1585,9 +1614,9 @@ fn filter_batch(
     schema: &SchemaRef,
     checkers: &mut [CtidCheckerEntry],
     batch: RecordBatch,
-) -> Result<RecordBatch> {
+) -> Result<(RecordBatch, CtidVisibilityStats)> {
     if batch.num_rows() == 0 {
-        return Ok(batch);
+        return Ok((batch, CtidVisibilityStats::default()));
     }
 
     let num_rows = batch.num_rows();
@@ -1595,6 +1624,7 @@ fn filter_batch(
     // The ctid columns arrive as packed DocAddresses and are resolved to real ctids
     // and visibility-checked by VisibilityChecker.
     let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
+    let mut batch_stats = CtidVisibilityStats::default();
 
     let mut visible_mask = None;
     for entry in checkers.iter_mut() {
@@ -1609,7 +1639,8 @@ fn filter_batch(
                 ))
             })?;
 
-        let (current_mask, maybe_resolved) = check_column_visibility(entry, ctid_array)?;
+        let (current_mask, maybe_resolved, stats) = check_column_visibility(entry, ctid_array)?;
+        batch_stats += stats;
         visible_mask = Some(match visible_mask.take() {
             None => current_mask,
             Some(mask) => and(&mask, &current_mask)
@@ -1628,10 +1659,11 @@ fn filter_batch(
     let resolved_batch = RecordBatch::try_new(schema.clone(), columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
     if visible_count == num_rows {
-        return Ok(resolved_batch);
+        return Ok((resolved_batch, batch_stats));
     }
-    filter_record_batch(&resolved_batch, &visible_mask)
-        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+    let filtered_batch = filter_record_batch(&resolved_batch, &visible_mask)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+    Ok((filtered_batch, batch_stats))
 }
 
 #[cfg(any(test, feature = "pg_test"))]

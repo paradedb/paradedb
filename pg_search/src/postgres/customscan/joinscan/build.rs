@@ -479,16 +479,13 @@ impl JoinSourceCandidate {
         let query = self.query.clone().unwrap_or(SearchQueryInput::All);
         let directory = MvccSatisfies::Estimation.directory(&index_rel);
         let segment_count = directory.total_segment_count();
-        let total_docs = directory.total_docs();
         crate::index::open_index(directory).expect("Failed to open index metadata");
         self.segment_count = Some(segment_count.load(std::sync::atomic::Ordering::Relaxed));
-        let matching_rows = crate::api::operator::estimate_matching_rows(&index_rel, query)
-            .unwrap_or_else(|| {
-                (total_docs.load(std::sync::atomic::Ordering::Relaxed) as f64
-                    * crate::UNKNOWN_SELECTIVITY)
-                    .ceil() as u64
-            });
-        self.estimate = Some(RowEstimate::Known(matching_rows));
+        self.estimate = Some(
+            crate::api::operator::estimate_matching_rows(&index_rel, query)
+                .map(RowEstimate::Known)
+                .unwrap_or_default(),
+        );
         self.estimate_from_total_docs = false;
     }
 }

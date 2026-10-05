@@ -964,8 +964,19 @@ pub(crate) fn estimate_matching_rows(
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
     let selectivity = estimate_selectivity(indexrel, search_query_input, None)?;
-    let rows = indexrel.heap_relation()?.reltuples()?;
-    (rows >= 0.0).then(|| (selectivity * rows as f64).ceil() as u64)
+    let heaprel = indexrel.heap_relation()?;
+    let (mut pages, mut rows, mut all_visible_fraction) = (0, 0.0, 0.0);
+    // Using the whole heap can overestimate matches for partial indexes.
+    unsafe {
+        pg_sys::estimate_rel_size(
+            heaprel.as_ptr(),
+            std::ptr::null_mut(),
+            &mut pages,
+            &mut rows,
+            &mut all_visible_fraction,
+        );
+    }
+    Some((selectivity * rows).ceil() as u64)
 }
 
 pub(crate) fn estimate_query_cost(

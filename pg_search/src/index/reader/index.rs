@@ -1933,9 +1933,18 @@ impl SearchIndexReader {
             None,
         )?;
 
-        let estimated_docs =
-            (self.total_docs() as f64 * crate::UNKNOWN_SELECTIVITY).ceil() as usize;
-        query_tree.traverse_mut(0, &mut |node, _depth| node.set_estimate(estimated_docs));
+        query_tree.traverse_mut(0, &mut |node, _depth| {
+            // Label-only nodes keep the actual query in their child.
+            let query = match &node.query {
+                SearchQueryInput::All | SearchQueryInput::Empty if node.children.len() == 1 => {
+                    &node.children[0].query
+                }
+                query => query,
+            };
+            node.estimated_docs =
+                crate::api::operator::estimate_matching_rows(&self.index_rel, query.clone())
+                    .map(|rows| rows as usize);
+        });
         Ok(query_tree)
     }
 

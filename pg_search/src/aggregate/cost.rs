@@ -19,6 +19,28 @@ use super::AggregateRequest;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::schema::SearchIndexSchema;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
+use tantivy::aggregation::metric::{IntermediateExtendedStats, IntermediateStats};
+
+// Relative weights multiplied by cpu_operator_cost, not calibrated CPU timings.
+const GROUP_KEY_OPS_PER_ROW: f64 = 3.0;
+const GROUP_KEY_OPS_PER_GROUP: f64 = 4.0;
+const STATS_OPS_PER_VALUE: f64 = 4.0;
+const EXTENDED_STATS_OPS_PER_VALUE: f64 = 8.0;
+const CARDINALITY_OPS_PER_VALUE: f64 = 8.0;
+const PERCENTILES_OPS_PER_VALUE: f64 = 16.0;
+const TOP_HITS_OPS_PER_HEAP_LEVEL: f64 = 2.0;
+const BUCKET_OPS_PER_VALUE: f64 = 3.0;
+
+// Approximate variable-state sizes; fixed metric state uses Tantivy's type sizes below.
+const GROUP_KEY_STATE_BYTES: f64 = 16.0;
+const CARDINALITY_STATE_BYTES: f64 = 2.0 * 1024.0;
+const PERCENTILES_STATE_BYTES: f64 = 32.0 * 1024.0;
+const TOP_HITS_BYTES_PER_FIELD: f64 = 16.0;
+const TOP_HITS_OVERHEAD_BYTES_PER_HIT: f64 = 32.0;
+const BUCKET_STATE_BYTES: f64 = 24.0;
+
+// Charge one parallel_tuple_cost per this many estimated partial-state bytes.
+pub(super) const TRANSFER_BYTES_PER_TUPLE_COST: f64 = 64.0;
 
 #[derive(Default)]
 pub(super) struct AggregateCost {
@@ -27,7 +49,7 @@ pub(super) struct AggregateCost {
 }
 
 impl AggregateCost {
-    pub fn estimate(
+    pub fn estimate_request(
         request: &AggregateRequest,
         rows: Option<u64>,
         participants: f64,
@@ -36,7 +58,7 @@ impl AggregateCost {
         if matches!(request, AggregateRequest::Sql(clause) if clause.is_bare_doc_count()) {
             return Some(Self {
                 operations: 0.0,
-                state_bytes: 8.0,
+                state_bytes: size_of::<u64>() as f64,
             });
         }
         let rows = rows? as f64;
@@ -61,8 +83,9 @@ impl AggregateCost {
                 };
                 let partial_groups = groups.min((rows / participants).max(1.0));
                 let keys = columns.len() as f64;
-                cost.operations = rows * keys * 3.0 + groups * keys * 4.0;
-                cost.state_bytes = partial_groups * keys * 16.0;
+                cost.operations =
+                    rows * keys * GROUP_KEY_OPS_PER_ROW + groups * keys * GROUP_KEY_OPS_PER_GROUP;
+                cost.state_bytes = partial_groups * keys * GROUP_KEY_STATE_BYTES;
                 for aggregate in clause.aggregates() {
                     if clause.can_use_doc_count(aggregate) {
                         continue;
@@ -70,10 +93,14 @@ impl AggregateCost {
                     let metric = if matches!(aggregate, AggregateType::CountAny { .. }) {
                         Self {
                             operations: rows,
-                            state_bytes: 8.0,
+                            state_bytes: size_of::<u64>() as f64,
                         }
                     } else {
-                        Self::aggregation(&aggregate.clone().into(), rows / groups, schema)?
+                        Self::estimate_tantivy_tree(
+                            &aggregate.clone().into(),
+                            rows / groups,
+                            schema,
+                        )?
                     };
                     cost.operations += metric.operations * groups;
                     cost.state_bytes += metric.state_bytes * partial_groups;
@@ -81,7 +108,7 @@ impl AggregateCost {
             }
             AggregateRequest::Json(aggregations) => {
                 for aggregation in aggregations.values() {
-                    let metric = Self::aggregation(aggregation, rows, schema)?;
+                    let metric = Self::estimate_tantivy_tree(aggregation, rows, schema)?;
                     cost.operations += metric.operations;
                     cost.state_bytes += metric.state_bytes;
                 }
@@ -90,7 +117,7 @@ impl AggregateCost {
         (cost.operations.is_finite() && cost.state_bytes.is_finite()).then_some(cost)
     }
 
-    fn aggregation(
+    fn estimate_tantivy_tree(
         aggregation: &Aggregation,
         rows: f64,
         schema: &SearchIndexSchema,
@@ -99,32 +126,50 @@ impl AggregateCost {
         for field in aggregation.agg.get_fast_field_names() {
             scalar_field(schema, field)?;
         }
-        let (operations, state_bytes, buckets) = match &aggregation.agg {
+        let (ops_per_value, state_bytes_per_bucket, buckets) = match &aggregation.agg {
             // These metrics share Tantivy's stats collector and intermediate state.
-            Count(_) | Sum(_) | Average(_) | Min(_) | Max(_) | Stats(_) => (4.0, 40.0, 1.0),
-            ExtendedStats(_) => (8.0, 64.0, 1.0),
-            Cardinality(_) => (8.0, 2048.0, 1.0),
-            Percentiles(_) => (16.0, 32768.0, 1.0),
+            Count(_) | Sum(_) | Average(_) | Min(_) | Max(_) | Stats(_) => (
+                STATS_OPS_PER_VALUE,
+                size_of::<IntermediateStats>() as f64,
+                1.0,
+            ),
+            ExtendedStats(_) => (
+                EXTENDED_STATS_OPS_PER_VALUE,
+                size_of::<IntermediateExtendedStats>() as f64,
+                1.0,
+            ),
+            Cardinality(_) => (CARDINALITY_OPS_PER_VALUE, CARDINALITY_STATE_BYTES, 1.0),
+            Percentiles(_) => (PERCENTILES_OPS_PER_VALUE, PERCENTILES_STATE_BYTES, 1.0),
             TopHits(request) => {
                 let json = serde_json::to_value(request).ok()?;
                 let retained =
                     json["size"].as_u64()? as f64 + json["from"].as_u64().unwrap_or(0) as f64;
                 let fields = request.field_names().len() as f64;
+                let heap_levels = retained.max(2.0).log2();
+                let bytes_per_hit =
+                    fields * TOP_HITS_BYTES_PER_FIELD + TOP_HITS_OVERHEAD_BYTES_PER_HIT;
                 (
-                    2.0 * retained.max(2.0).log2(),
-                    retained.min(rows) * (fields + 2.0) * 16.0,
+                    TOP_HITS_OPS_PER_HEAP_LEVEL * heap_levels,
+                    retained.min(rows) * bytes_per_hit,
                     1.0,
                 )
             }
-            Range(request) => (3.0, 24.0, (request.ranges.len() * 2 + 1) as f64),
+            Range(request) => {
+                let max_boundaries = request.ranges.len() * 2;
+                (
+                    BUCKET_OPS_PER_VALUE,
+                    BUCKET_STATE_BYTES,
+                    (max_boundaries + 1) as f64,
+                )
+            }
             Histogram(request) => {
                 let bounds = request.hard_bounds.as_ref()?;
                 if request.interval <= 0.0 || !request.interval.is_finite() {
                     return None;
                 }
                 (
-                    3.0,
-                    24.0,
+                    BUCKET_OPS_PER_VALUE,
+                    BUCKET_STATE_BYTES,
                     ((bounds.max - bounds.min) / request.interval)
                         .ceil()
                         .max(0.0)
@@ -135,11 +180,11 @@ impl AggregateCost {
             Terms(_) | MultiTerms(_) | Composite(_) | DateHistogram(_) | Filter(_) => return None,
         };
         let mut cost = Self {
-            operations: rows * operations,
-            state_bytes: buckets * state_bytes,
+            operations: rows * ops_per_value,
+            state_bytes: buckets * state_bytes_per_bucket,
         };
         for child in aggregation.sub_aggregation.values() {
-            let child = Self::aggregation(child, rows / buckets, schema)?;
+            let child = Self::estimate_tantivy_tree(child, rows / buckets, schema)?;
             cost.operations += child.operations * buckets;
             cost.state_bytes += child.state_bytes * buckets;
         }

@@ -658,7 +658,7 @@ pub fn execute_aggregate(
                     .min(pg_sys::max_worker_processes as usize),
             )
             && let Some((cost, rows)) = estimate_query_work(index, query.clone(), Some(&reader))
-            && let Some(aggregate_cost) = cost::AggregateCost::estimate(
+            && let Some(aggregate_cost) = cost::AggregateCost::estimate_request(
                 &agg_req,
                 rows,
                 parallel_divisor(workers, pg_sys::parallel_leader_participation),
@@ -676,7 +676,9 @@ pub fn execute_aggregate(
                 .unwrap_or(0) as f64
                 / reader.total_docs().max(1) as f64;
             let transfer_cost = workers.get() as f64
-                * (aggregate_cost.state_bytes / 64.0).ceil().max(1.0)
+                * (aggregate_cost.state_bytes / cost::TRANSFER_BYTES_PER_TUPLE_COST)
+                    .ceil()
+                    .max(1.0)
                 * (pg_sys::parallel_tuple_cost + pg_sys::cpu_operator_cost)
                 + work * (largest_fraction - 1.0 / divisor).max(0.0);
             if !parallel_scan_is_cheaper(

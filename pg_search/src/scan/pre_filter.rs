@@ -140,12 +140,7 @@ impl PreFilter {
         self.required_columns.iter().all(|&idx| {
             matches!(
                 which_fast_fields.get(idx),
-                Some(
-                    WhichFastField::Named(..)
-                        | WhichFastField::Deferred(..)
-                        | WhichFastField::Array(..)
-                        | WhichFastField::Score
-                )
+                Some(WhichFastField::Named { .. } | WhichFastField::Score(_))
             )
         })
     }
@@ -1198,7 +1193,13 @@ mod tests {
         }
 
         // Score is populated before pre-filtering, so it stays eligible.
-        let wff = vec![WhichFastField::Score];
+        let wff = vec![WhichFastField::score()];
+        assert!(filter(vec![0]).columns_fetchable(&wff));
+
+        let wff = vec![WhichFastField::eager(
+            "id",
+            crate::schema::SearchFieldType::I64(pgrx::pg_sys::INT8OID),
+        )];
         assert!(filter(vec![0]).columns_fetchable(&wff));
 
         // `ctid` and the other pseudo-columns resolve only after pre-filtering
@@ -1216,11 +1217,11 @@ mod tests {
         }
 
         // Mixed filters are rejected when any required column is unfetchable.
-        let wff = vec![WhichFastField::Score, WhichFastField::Ctid];
+        let wff = vec![WhichFastField::score(), WhichFastField::Ctid];
         assert!(!filter(vec![0, 1]).columns_fetchable(&wff));
 
         // Out-of-bounds indices are rejected rather than panicking.
-        let wff = vec![WhichFastField::Score];
+        let wff = vec![WhichFastField::score()];
         assert!(!filter(vec![7]).columns_fetchable(&wff));
 
         // Filters requiring nothing are trivially eligible.

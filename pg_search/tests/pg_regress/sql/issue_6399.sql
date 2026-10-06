@@ -17,8 +17,23 @@ SET max_parallel_workers_per_gather = 0;
 
 -- Plan assertion: confirms the aggregate custom scan uses the ctid semi-join
 -- with dynamic filtering so the regression cannot pass via fallback planning.
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT count(*) FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob');
+DO $$
+DECLARE
+  r record;
+  plan text := '';
+BEGIN
+  FOR r IN EXECUTE $query$
+    EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+    SELECT count(*) FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob')
+  $query$ LOOP
+    plan := plan || r."QUERY PLAN" || E'\n';
+  END LOOP;
+  IF plan NOT LIKE '%Custom Scan (ParadeDB Aggregate Scan)%'
+     OR plan !~ 'HashJoinExec:.*join_type=(Left|Right)Semi, on=.*ctid_'
+     OR plan !~ 'PgSearchScan:.*dynamic_filters=[1-9][0-9]*' THEN
+    RAISE EXCEPTION 'Expected aggregate ctid semi-join with dynamic filtering, got: %', plan;
+  END IF;
+END $$;
 
 -- Previously errored with "Pre-filter failed: Column 0 not fetched".
 SELECT count(*) FROM issue_6399_pf WHERE ctid IN (SELECT ctid FROM issue_6399_pf WHERE name @@@ 'bob');

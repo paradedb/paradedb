@@ -56,6 +56,7 @@ mod pushdown;
 pub mod qual_inspect;
 mod range_table;
 mod scan;
+pub(crate) mod search_operator_relations;
 pub mod solve_expr;
 
 use crate::api::HashMap;

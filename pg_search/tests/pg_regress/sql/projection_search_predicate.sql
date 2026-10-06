@@ -15,7 +15,8 @@ INSERT INTO projection_search_predicate VALUES
 CREATE INDEX projection_search_predicate_idx
 ON projection_search_predicate USING paradedb (id, body);
 
--- The search term cannot affect which rows satisfy the redundant branch.
+-- PostgreSQL drops the redundant branch, and the search predicate with it. The scan runs on
+-- what remains and the projections see no search terms, as with `pdb.all()`.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.score(id)
 FROM projection_search_predicate
@@ -25,106 +26,143 @@ SELECT id, pdb.score(id)
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
+
+SELECT id, pdb.score(id)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
+ORDER BY id;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+SELECT id, pdb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+
+SELECT id, pdb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
+ORDER BY id;
+
+SELECT id, pdb.snippets(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+
+SELECT id, pdb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+
+SELECT id, paradedb.score(id)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+
+SELECT id, paradedb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+
+SELECT id, paradedb.snippets(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+
+SELECT id, paradedb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+
+-- Without a score or snippet to compute, PostgreSQL's plan stands as it is.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+
+-- The operator is written against a subquery column or a CTE column.
+SELECT id, pdb.score(id)
+FROM (SELECT * FROM projection_search_predicate) s
+WHERE s.category = 'electronics' OR (s.category = 'electronics' AND s.body === 'keyboard')
+ORDER BY id;
+
+WITH c AS (SELECT * FROM projection_search_predicate)
+SELECT id, pdb.score(id)
+FROM c
+WHERE c.category = 'electronics' OR (c.category = 'electronics' AND c.body === 'keyboard')
+ORDER BY id;
+
+-- The operator is written against one side of a join.
+CREATE TABLE projection_search_predicate_labels (
+    id INTEGER PRIMARY KEY,
+    label TEXT
+);
+INSERT INTO projection_search_predicate_labels VALUES (1, 'x'), (2, 'y'), (3, 'z');
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, l.label, pdb.score(p.id)
+FROM projection_search_predicate p
+JOIN projection_search_predicate_labels l ON p.id = l.id
+WHERE p.category = 'electronics' OR (p.category = 'electronics' AND p.body === 'keyboard')
+ORDER BY p.id;
+SELECT p.id, l.label, pdb.score(p.id)
+FROM projection_search_predicate p
+JOIN projection_search_predicate_labels l ON p.id = l.id
+WHERE p.category = 'electronics' OR (p.category = 'electronics' AND p.body === 'keyboard')
+ORDER BY p.id;
+
+-- The operator is written against a partitioned table; the partitions are scanned.
+CREATE TABLE projection_search_predicate_parts (
+    id INTEGER,
+    body TEXT,
+    category TEXT,
+    yr INTEGER
+) PARTITION BY RANGE (yr);
+CREATE TABLE projection_search_predicate_parts_2020
+    PARTITION OF projection_search_predicate_parts FOR VALUES FROM (2020) TO (2021);
+CREATE TABLE projection_search_predicate_parts_2021
+    PARTITION OF projection_search_predicate_parts FOR VALUES FROM (2021) TO (2022);
+INSERT INTO projection_search_predicate_parts VALUES
+    (1, 'mechanical keyboard', 'electronics', 2020),
+    (2, 'wireless mouse', 'electronics', 2021),
+    (3, 'keyboard stand', 'accessories', 2021);
+CREATE INDEX projection_search_predicate_parts_idx
+ON projection_search_predicate_parts USING paradedb (id, body);
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.score(id)
+FROM projection_search_predicate_parts
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+SELECT id, pdb.score(id)
+FROM projection_search_predicate_parts
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+
+-- No search predicate was written, so none was simplified away.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
+SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
 \echo :SQLSTATE
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, pdb.score(id)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
-ORDER BY id;
-SELECT id, pdb.score(id)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
-ORDER BY id;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, pdb.snippet(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-SELECT id, pdb.snippet(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, pdb.snippet(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
-ORDER BY id;
-SELECT id, pdb.snippet(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
-ORDER BY id;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, pdb.snippets(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-SELECT id, pdb.snippets(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, pdb.snippet_positions(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-SELECT id, pdb.snippet_positions(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, paradedb.score(id)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-SELECT id, paradedb.score(id)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, paradedb.snippet(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-SELECT id, paradedb.snippet(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, paradedb.snippets(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-SELECT id, paradedb.snippets(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, paradedb.snippet_positions(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-SELECT id, paradedb.snippet_positions(body)
-FROM projection_search_predicate
-WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
-ORDER BY id;
-
--- A missing search predicate does not imply that optimization removed one.
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
-SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.snippet(body) FROM projection_search_predicate ORDER BY id;
 SELECT id, pdb.snippet(body) FROM projection_search_predicate ORDER BY id;
+
+-- The whole WHERE clause folds away, so the scan covers every row, as with `pdb.all()`.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.score(id)
+FROM projection_search_predicate
+WHERE body === 'keyboard' OR TRUE
+ORDER BY id;
+SELECT id, pdb.score(id)
+FROM projection_search_predicate
+WHERE body === 'keyboard' OR TRUE
+ORDER BY id;
 
 PREPARE redundant_score(text, text) AS
 SELECT id, pdb.score(id)
@@ -142,22 +180,14 @@ SET plan_cache_mode = force_custom_plan;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE redundant_score('electronics', 'keyboard');
 EXECUTE redundant_score('electronics', 'keyboard');
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-EXECUTE redundant_snippet('electronics', 'keyboard');
 EXECUTE redundant_snippet('electronics', 'keyboard');
 
 SET plan_cache_mode = force_generic_plan;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE redundant_score('electronics', 'keyboard');
 EXECUTE redundant_score('electronics', 'keyboard');
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE redundant_snippet('electronics', 'keyboard');
-EXECUTE redundant_snippet('electronics', 'keyboard');
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE redundant_score('accessories', 'mouse');
-EXECUTE redundant_score('accessories', 'mouse');
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-EXECUTE redundant_snippet('accessories', 'mouse');
 EXECUTE redundant_snippet('accessories', 'mouse');
 
 RESET plan_cache_mode;
@@ -188,6 +218,8 @@ FROM projection_search_predicate
 WHERE body @@@ 'keyboard'
 ORDER BY id;
 
+DROP TABLE projection_search_predicate_parts;
+DROP TABLE projection_search_predicate_labels;
 DROP TABLE projection_search_predicate;
 
 \i common/common_cleanup.sql

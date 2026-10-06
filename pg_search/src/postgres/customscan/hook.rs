@@ -27,6 +27,7 @@ use crate::postgres::customscan::builders::custom_path::{
 };
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::search_operator_relations;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use crate::postgres::node::NodeExt;
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
@@ -472,6 +473,10 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         };
         return result;
     }
+
+    // Taken while the quals are still as written, before the planner can simplify a search
+    // predicate away.
+    let _search_operator_relations = search_operator_relations::capture(parse);
 
     // Check if we should replace window functions and do so if needed
     // This checks the OUTER query level

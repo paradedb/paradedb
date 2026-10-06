@@ -84,6 +84,7 @@ use crate::postgres::customscan::qual_inspect::{
     extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
 };
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::customscan::search_operator_relations;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     self, CustomScan, CustomScanState, RelPathlistHookArgs, range_table,
@@ -328,6 +329,16 @@ impl BaseScan {
         let allow_without_operator =
             gucs::enable_custom_scan_without_operator() || query_has_window_agg_functions(root);
 
+        // Looked into only once nothing else lets the scan through. `uses_our_operator` reads the
+        // quals the planner left: when it simplified the operator away (`A OR (A AND body @@@
+        // 'q')` plans as `A`), the projections still need this scan, so it goes ahead on what
+        // remains.
+        let search_operator_simplified_away = quals.is_some()
+            && !state.uses_our_operator
+            && !allow_without_operator
+            && search_operator_simplified_away(root, rti, builder.args().rel);
+        let allow_without_operator = allow_without_operator || search_operator_simplified_away;
+
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
         if quals.is_none() {
@@ -422,7 +433,12 @@ impl BaseScan {
         //    down once the scan is chosen, but they don't justify the scan on
         //    their own, OR
         // 2. enable_custom_scan_without_operator is true, OR
-        // 3. The query has window aggregates (pdb.agg()) that we must handle.
+        // 3. The query has window aggregates (pdb.agg()) that we must handle, OR
+        // 4. The query applied one of our operators to this table, projects its score or
+        //    snippet, and the planner simplified the operator away.
+        if search_operator_simplified_away {
+            warn_search_operator_simplified_away(builder.args().rte());
+        }
         if state.uses_our_operator || allow_without_operator {
             quals
         } else {
@@ -446,6 +462,39 @@ impl BaseScan {
 
         quals.clone()
     }
+}
+
+/// True when the query applied a search operator to the relation and projects its score or
+/// snippet, yet no clause the planner left for the relation carries the operator: the planner
+/// simplified it away. A join clause that still carries it is the join path's business. The
+/// cheap lookup comes first, and most scans stop there.
+unsafe fn search_operator_simplified_away(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    rel: *mut pg_sys::RelOptInfo,
+) -> bool {
+    search_operator_relations::applies_to(root, rti)
+        && !PgList::<pg_sys::RestrictInfo>::from_pg((*rel).joininfo)
+            .iter_ptr()
+            .any(|ri| search_operator_relations::contains_search_predicate((*ri).clause.cast()))
+        && search_operator_relations::projection_funcoids().is_some_and(|funcids| {
+            !pullout_funcexprs(
+                (*(*root).parse).targetList.cast(),
+                funcids,
+                rti as i32,
+                root,
+            )
+            .is_empty()
+        })
+}
+
+fn warn_search_operator_simplified_away(rte: &pg_sys::RangeTblEntry) {
+    BaseScan::add_planner_warning(
+        "BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and \
+         `pdb.snippet` only reflect the remaining predicates. \
+         To disable this warning: SET paradedb.planner_warnings = 'off'",
+        search_operator_relations::rte_alias(rte),
+    );
 }
 
 /// Check if the query's target list contains window_agg() function calls
@@ -836,7 +885,17 @@ impl CustomScan for BaseScan {
             // Check if the query has window aggregates (pdb.agg() or window_agg())
             let has_window_aggs = query_has_window_agg_functions(builder.args().root);
 
-            if matches!(ri_type, RestrictInfoType::None) && !has_window_aggs {
+            // The planner may have folded the whole WHERE clause away (`body @@@ 'q' OR TRUE`)
+            // from under a score or snippet that still needs this scan, which then covers every
+            // row as it does for `pdb.all()`.
+            let whole_where_folded_away = matches!(ri_type, RestrictInfoType::None)
+                && !has_window_aggs
+                && search_operator_simplified_away(builder.args().root, builder.args().rti, rel);
+
+            if matches!(ri_type, RestrictInfoType::None)
+                && !has_window_aggs
+                && !whole_where_folded_away
+            {
                 // this relation has no restrictions (WHERE clause predicates) and no window aggregates,
                 // so there's no need for us to do anything
                 return None;
@@ -928,6 +987,10 @@ impl CustomScan for BaseScan {
             let quals = match quals {
                 Some(q) => q,
                 None if has_window_aggs => Qual::All,
+                None if whole_where_folded_away => {
+                    warn_search_operator_simplified_away(builder.args().rte());
+                    Qual::All
+                }
                 None => return None,
             };
 

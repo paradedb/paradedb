@@ -27,7 +27,7 @@ fn missing_scan_error(function: &str) -> ! {
         pgrx::function_name!(),
     )
     .set_detail(
-        "A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.",
+        "The query must apply a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` to the same table, in a shape a ParadeDB scan can run.",
     )
     .set_hint(format!(
         "Use `EXPLAIN` to check whether a ParadeDB scan evaluates `{function}`, or remove it from the query.",

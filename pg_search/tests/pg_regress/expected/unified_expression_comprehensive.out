@@ -211,12 +211,19 @@ FROM products
 WHERE (name ||| 'Apple' AND description ||| 'smartphone')
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
-            QUERY PLAN            
-----------------------------------
+WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
+                     QUERY PLAN                     
+----------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Seq Scan on products
-(3 rows)
+   ->  Custom Scan (ParadeDB Base Scan) on products
+         Table: products
+         Index: products_bm25_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Full Index Scan: true
+         Tantivy Query: "all"
+(9 rows)
 
 SELECT 
     id,
@@ -227,7 +234,22 @@ FROM products
 WHERE (name ||| 'Apple' AND description ||| 'smartphone')
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
-ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
+WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
+ id |       name        | category_name | score 
+----+-------------------+---------------+-------
+  1 | Apple iPhone 14   | Casual        |     0
+  2 | MacBook Pro       | Electronics   |     0
+  3 | Nike Air Max      | Footwear      |     0
+  4 | Samsung Galaxy    | Electronics   |     0
+  5 | Adidas Ultraboost | Footwear      |     0
+  6 | Nike Normal       | Footwear      |     0
+  7 | Apple Watch       | Electronics   |     0
+  8 | Sony Headphones   | Electronics   |     0
+  9 | Running Socks     | Footwear      |     0
+ 10 | Budget Phone      | Electronics   |     0
+ 11 | Budget Tablet     | Garbage       |     0
+(11 rows)
+
 -- Test Case 3: Another example with price filter (non-indexed)
 -- Should show the same issue - scores become null due to non-indexed predicate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

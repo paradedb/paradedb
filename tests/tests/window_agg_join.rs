@@ -365,8 +365,8 @@ fn global_window_aggregates_over_pruned_anti_join(
 
 // `pdb.agg() OVER ()` over a join. products carry a category (three values and
 // NULL) indexed under its own name and under an alias, a NUMERIC price, a
-// timestamp, an array and a JSON document; reviews a reviewer, a boolean and an
-// integer score. The aggregate scan computes the same document over the same
+// timestamp, an array (NULL or empty for some) and a JSON document; reviews a
+// reviewer, a boolean and an integer score. The aggregate scan computes the same document over the same
 // join without the LIMIT, so it is the oracle.
 fn setup_pdb_agg(conn: &mut PgConnection) {
     r#"
@@ -400,7 +400,11 @@ fn setup_pdb_agg(conn: &mut PgConnection) {
            (ARRAY['office', 'gaming', 'travel', NULL])[1 + (g % 4)],
            (g * 0.25)::numeric(10, 2),
            '2026-01-01'::timestamp + (g % 3) * interval '1 day',
-           ARRAY['tag_' || (g % 2), 'tag_' || (g % 3)],
+           CASE g % 7
+               WHEN 0 THEN NULL
+               WHEN 1 THEN ARRAY[]::text[]
+               ELSE ARRAY['tag_' || (g % 2), 'tag_' || (g % 3)]
+           END,
            jsonb_build_object('color', (ARRAY['red', 'blue', 'green'])[1 + (g % 3)])
     FROM generate_series(1, 1000) g;
     INSERT INTO wjp_reviews
@@ -483,6 +487,28 @@ fn assert_pdb_aggs_in_topk_agg(plan: &str, distinct_specs: usize) {
                     "revenue": {"sum": {"field": "price"}}
                 }
             }
+        }}"#
+)]
+// An array key: a row is in the bucket of each of its elements, and a NULL or
+// empty array puts it in the NULL bucket, or the `missing` one.
+#[case::terms_on_array(r#"{"terms": {"field": "tags"}}"#)]
+#[case::terms_on_array_with_missing(r#"{"terms": {"field": "tags", "missing": "untagged"}}"#)]
+// The root and the scalar level see each row once while the array level sees
+// it per element, in both nestings.
+#[case::array_terms_under_scalar_terms(
+    r#"{"terms": {"field": "category"},
+        "aggs": {
+            "tags": {
+                "terms": {"field": "tags"},
+                "aggs": {"reviewers": {"cardinality": {"field": "reviewer"}}}
+            }
+        }}"#
+)]
+#[case::scalar_terms_under_array_terms(
+    r#"{"terms": {"field": "tags"},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}},
+            "categories": {"terms": {"field": "category"}}
         }}"#
 )]
 fn pdb_agg_window_matches_aggregate_scan(mut conn: PgConnection, #[case] spec: &str) {
@@ -657,13 +683,12 @@ fn pdb_agg_window_query_shapes(mut conn: PgConnection, #[case] shape: PdbAggShap
 }
 
 /// What the aggregate scan turns down in a spec, JoinScan turns down too, along
-/// with a visibility it cannot honor and an array field it would have to
-/// unnest. Nothing else computes a `pdb.agg()`, so the query fails.
+/// with a visibility it cannot honor. Nothing else computes a `pdb.agg()`, so
+/// the query fails.
 #[rstest]
 #[case::unsupported_aggregation(r#"pdb.agg('{"histogram": {"field": "score", "interval": 2}}')"#)]
 #[case::terms_min_doc_count_zero(r#"pdb.agg('{"terms": {"field": "score", "min_doc_count": 0}}')"#)]
 #[case::ambiguous_field(r#"pdb.agg('{"max": {"field": "id"}}')"#)]
-#[case::array_field(r#"pdb.agg('{"terms": {"field": "tags"}}')"#)]
 #[case::visibility(r#"pdb.agg('{"avg": {"field": "score"}}', 'raw')"#)]
 fn pdb_agg_window_declines(mut conn: PgConnection, #[case] call: &str) {
     setup_pdb_agg(&mut conn);

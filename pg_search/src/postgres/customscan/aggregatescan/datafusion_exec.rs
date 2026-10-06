@@ -698,21 +698,31 @@ fn apply_pdb_aggregate(
     df.select(select)
 }
 
+/// The `missing` key as Tantivy reads it, before the cast to the column's type.
+fn pdb_missing_literal(missing: &Key, field: &PdbAggFieldRef) -> ScalarValue {
+    match missing {
+        Key::Str(s) => ScalarValue::from(s.as_str()),
+        Key::I64(v) => ScalarValue::from(*v),
+        Key::U64(v) => ScalarValue::from(*v),
+        // A timestamp column takes its literal as whole microseconds.
+        Key::F64(v) if field.is_datetime() => ScalarValue::from(*v as i64),
+        Key::F64(v) => ScalarValue::from(*v),
+    }
+}
+
 /// The `missing` literal in the column's own Arrow type, so `coalesce` neither
 /// widens the key column nor fails on a text column with a numeric literal.
 fn pdb_missing_lit(missing: &Key, field: &PdbAggFieldRef) -> Expr {
-    let literal = match missing {
-        Key::Str(s) => lit(s.clone()),
-        Key::I64(v) => lit(*v),
-        Key::U64(v) => lit(*v),
-        // A timestamp column takes its literal as whole microseconds.
-        Key::F64(v) if field.is_datetime() => lit(*v as i64),
-        Key::F64(v) => lit(*v),
-    };
     Expr::Cast(Cast::new(
-        Box::new(literal),
+        Box::new(lit(pdb_missing_literal(missing, field))),
         field.field_type.arrow_data_type(),
     ))
+}
+
+/// [`pdb_missing_lit`] as a value, for a key written over the NULL elements of
+/// an array column once the `pdb_agg` accumulator has exploded it.
+pub(crate) fn pdb_missing_scalar(missing: &Key, field: &PdbAggFieldRef) -> Result<ScalarValue> {
+    pdb_missing_literal(missing, field).cast_to(&field.field_type.arrow_data_type())
 }
 
 pub(crate) fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {

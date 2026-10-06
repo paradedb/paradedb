@@ -84,11 +84,17 @@ pub struct Metric {
 pub struct PdbTerm {
     pub field: String,
     pub is_array: bool,
+    /// The alias of the join's own `LATERAL unnest` of this array field, when it
+    /// has one. The scans then key on those elements, each join row counting
+    /// once, and so must the oracle, in place of an unnest of its own.
+    pub unnested_as: Option<String>,
 }
 
 impl PdbTerm {
     pub fn sql_key(&self) -> String {
-        if self.is_array {
+        if let Some(alias) = &self.unnested_as {
+            alias.clone()
+        } else if self.is_array {
             format!("_{}", self.field.replace('.', "_"))
         } else {
             self.field.clone()
@@ -235,7 +241,7 @@ impl PdbAggExpr {
         let mut from = from_clause.to_string();
         let mut keys: Vec<String> = self.outer_group.iter().cloned().collect();
         for term in &self.terms {
-            if term.is_array {
+            if term.is_array && term.unnested_as.is_none() {
                 let alias = term.sql_key();
                 // Tantivy and DataFusion (via PreserveAndExpandEmpty) preserve documents
                 // with empty or NULL arrays, assigning them to the NULL/missing bucket
@@ -248,7 +254,7 @@ impl PdbAggExpr {
                 ));
                 keys.push(alias);
             } else {
-                keys.push(term.field.clone());
+                keys.push(term.sql_key());
             }
         }
         let mut select: Vec<String> = keys.clone();
@@ -488,7 +494,7 @@ pub fn arb_pdb_agg_join(
                 },
                 allow_arrays: true,
             };
-            let agg = arb_pdb_agg(joined.clone(), shape);
+            let agg = arb_pdb_agg(joined.clone(), join.unnested_fields(), shape);
             let outer_strat = arb_wheres(vec![joined[0].clone()], &where_cols).boxed();
             let inner_strat = joined[1..]
                 .iter()
@@ -513,6 +519,7 @@ pub fn arb_pdb_agg_join(
 pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
     arb_pdb_agg(
         Vec::new(),
+        Vec::new(),
         SpecShape {
             outer_group: OuterGroup::Always,
             allow_outer_aggs: false,
@@ -525,28 +532,35 @@ pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
 }
 
 /// A `pdb.agg()` for `pdb.agg(...) OVER ()` beside the rows of a join over
-/// `tables`. A window has no SQL group or aggregates beside it, and JoinScan,
-/// which computes it, declines array fields. `has_keyless_step` bounds
-/// `cardinality` as in [`arb_pdb_agg_join`].
+/// `tables`. A window has no SQL group or aggregates beside it.
+/// `has_keyless_step` bounds `cardinality` and `unnested` names the arrays the
+/// join unnests itself, both as in [`arb_pdb_agg_join`].
 pub fn arb_pdb_agg_window(
     tables: Vec<String>,
     has_keyless_step: bool,
+    unnested: Vec<(String, String)>,
 ) -> impl Strategy<Value = PdbAggExpr> {
     arb_pdb_agg(
         tables,
+        unnested,
         SpecShape {
             outer_group: OuterGroup::Never,
             allow_outer_aggs: false,
             numeric_metrics: true,
             size_anywhere: false,
             sketch_keys: if has_keyless_step { 1 } else { usize::MAX },
-            allow_arrays: false,
+            allow_arrays: true,
         },
     )
 }
 
 /// Fields are qualified by each of `tables`, or bare when there are none.
-fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = PdbAggExpr> {
+/// `unnested` maps the array fields the join already unnests to their aliases.
+fn arb_pdb_agg(
+    tables: Vec<String>,
+    unnested: Vec<(String, String)>,
+    shape: SpecShape,
+) -> impl Strategy<Value = PdbAggExpr> {
     let qualify = |columns: &[&str]| -> Vec<String> {
         if tables.is_empty() {
             return columns.iter().map(|c| c.to_string()).collect();
@@ -630,12 +644,19 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
         .map(|f| PdbTerm {
             field: f.clone(),
             is_array: false,
+            unnested_as: None,
         })
         .collect();
     if shape.allow_arrays {
-        all_terms.extend(array_fields.iter().map(|f| PdbTerm {
-            field: f.clone(),
-            is_array: true,
+        all_terms.extend(array_fields.iter().map(|f| {
+            PdbTerm {
+                field: f.clone(),
+                is_array: true,
+                unnested_as: unnested
+                    .iter()
+                    .find(|(field, _)| field == f)
+                    .map(|(_, alias)| alias.clone()),
+            }
         }));
     }
 
@@ -792,10 +813,12 @@ mod tests {
                 PdbTerm {
                     field: "users.tags".to_string(),
                     is_array: true,
+                    unnested_as: None,
                 },
                 PdbTerm {
                     field: "users.age".to_string(),
                     is_array: false,
+                    unnested_as: None,
                 },
             ],
             size: Some((0, 10)),

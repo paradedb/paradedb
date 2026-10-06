@@ -80,10 +80,9 @@ pub enum WindowAggDef {
 }
 impl WindowAggDef {
     /// Lower a `pdb.agg(...) OVER ()` under the constraints the aggregate scan
-    /// puts on the spec. Two things it accepts are turned down here: a
-    /// visibility other than the default, since the rows the aggregate reads
-    /// are the rows the scan returns and those have to be visible, and an array
-    /// field, which it unnests under its own aggregate node.
+    /// puts on the spec. One thing it accepts is turned down here: a visibility
+    /// other than the default, since the rows the aggregate reads are the rows
+    /// the scan returns and those have to be visible.
     fn try_pdb_agg_from_window_func(
         wf: &WindowFunc,
         sources: &[&JoinSource],
@@ -103,12 +102,6 @@ impl WindowAggDef {
             return Err(format!(
                 "pdb.agg() as a window function over a join only supports visibility '{}'",
                 MvccVisibility::default().as_sql_value()
-            ));
-        }
-        if let Some(field) = request.fields().find(|field| field.is_array) {
-            return Err(format!(
-                "pdb.agg() as a window function over a join does not support array field '{}'",
-                field.field_name
             ));
         }
         Ok(Self::PdbAgg(Box::new(request)))

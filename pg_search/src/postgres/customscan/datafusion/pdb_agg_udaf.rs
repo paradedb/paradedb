@@ -31,9 +31,14 @@ use std::ops::Range;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use arrow_array::cast::AsArray;
-use arrow_array::{Array, ArrayRef, RecordBatch, RecordBatchOptions, UInt64Array, new_null_array};
+use arrow_array::types::UInt32Type;
+use arrow_array::{
+    Array, ArrayRef, GenericListArray, RecordBatch, RecordBatchOptions, Scalar, UInt32Array,
+    UInt64Array, new_null_array,
+};
 use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
-use datafusion::arrow::compute::cast;
+use datafusion::arrow::compute::kernels::zip::zip;
+use datafusion::arrow::compute::{cast, is_not_null, take};
 use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::common::ScalarValue;
@@ -52,7 +57,7 @@ use pgrx::{IntoDatum, pg_sys};
 
 use super::{literal_arg, reject_distinct};
 use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-    make_plan_position_col, pdb_key_expr, pdb_metric_call,
+    make_plan_position_col, pdb_key_expr, pdb_metric_call, pdb_missing_scalar,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::{
     PdbAggColumn, PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, assemble_pdb_agg_rows,
@@ -143,10 +148,22 @@ fn request_from_literal(literal: &ScalarValue) -> Result<PdbAggRequest> {
 /// over the rows of `plan`. The keys are the `terms` fields of the spec and the
 /// metric arguments those of the aggregates the aggregate scan plans for it,
 /// both in the order of the request's [`PdbAggPlan`].
+///
+/// An array key is the list column as the join puts it out (or the element
+/// column, when the query already unnests it); the accumulator explodes it, and
+/// applies the key's `missing` after that, since `coalesce` means nothing on a
+/// list. The aggregate scan instead names the column of its own plan-level
+/// unnest, which this plan does not have.
 pub fn pdb_agg(request: &PdbAggRequest, plan: &RelNode) -> Result<Expr> {
     pdb_agg_call(
         request,
-        |key| pdb_key_expr(key, plan),
+        |key| {
+            if key.field.is_array {
+                make_plan_position_col(plan, key.field.plan_position, &key.field.field_name)
+            } else {
+                pdb_key_expr(key, plan)
+            }
+        },
         |field| make_plan_position_col(plan, field.plan_position, &field.field_name),
     )
 }
@@ -241,7 +258,11 @@ impl Level {
 
 struct PdbAggAccumulator {
     plan: PdbAggPlan,
+    /// The type each key is interned as: the element type for an array key.
     key_fields: Vec<FieldRef>,
+    /// The `missing` key of an array key, written over its NULL elements after
+    /// the explode. `None` for the other keys, whose `coalesce` is in the plan.
+    key_missing: Vec<Option<ScalarValue>>,
     metrics: Vec<Metric>,
     /// The levels that hold anything: a root without metrics of its own, that of
     /// a spec whose root is a `terms`, is left out. Behind a lock only because
@@ -262,10 +283,25 @@ impl PdbAggAccumulator {
 
         let arg_fields = args.expr_fields;
         let keys_end = LITERAL_ARGS + plan.keys.len();
-        let key_fields = arg_fields
+        let key_fields: Vec<FieldRef> = arg_fields
             .get(LITERAL_ARGS..keys_end)
             .ok_or_else(|| wrong_arguments(arg_fields.len()))?
-            .to_vec();
+            .iter()
+            .map(|field| match field.data_type() {
+                // An array key arrives as the list column; its buckets are keyed
+                // on the elements, and a NULL or empty list is a NULL element.
+                DataType::List(element) => Arc::new(element.as_ref().clone().with_nullable(true)),
+                _ => Arc::clone(field),
+            })
+            .collect();
+        let key_missing = plan
+            .keys
+            .iter()
+            .map(|key| match (&key.missing, key.field.is_array) {
+                (Some(missing), true) => pdb_missing_scalar(missing, &key.field).map(Some),
+                _ => Ok(None),
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let input_schema = Arc::new(args.schema.clone());
         let mut next_arg = keys_end;
@@ -330,6 +366,7 @@ impl PdbAggAccumulator {
         Ok(Self {
             plan,
             key_fields,
+            key_missing,
             metrics,
             levels: Mutex::new(levels),
         })
@@ -454,31 +491,98 @@ fn wrong_arguments(found: usize) -> DataFusionError {
 /// A level's buckets are framed by their length, a level without any by zero.
 const LEVEL_LENGTH_BYTES: usize = size_of::<u64>();
 
+/// One row per element of `list`, each with the row it came from. A NULL or
+/// empty list keeps its row, with a NULL element, so the row lands where a row
+/// with a NULL scalar key does.
+fn explode(list: &GenericListArray<i32>) -> Result<(UInt32Array, ArrayRef)> {
+    let offsets = list.value_offsets();
+    let mut row_of_element = Vec::with_capacity(list.values().len());
+    let mut element: Vec<Option<u32>> = Vec::with_capacity(list.values().len());
+    for row in 0..list.len() {
+        let (start, end) = (offsets[row], offsets[row + 1]);
+        if list.is_null(row) || start == end {
+            row_of_element.push(row as u32);
+            element.push(None);
+        } else {
+            for i in start..end {
+                row_of_element.push(row as u32);
+                element.push(Some(i as u32));
+            }
+        }
+    }
+    // The offsets index the whole child array, and a NULL index takes a NULL.
+    let elements = take(list.values(), &UInt32Array::from(element), None)?;
+    Ok((UInt32Array::from(row_of_element), elements))
+}
+
 impl Accumulator for PdbAggAccumulator {
+    /// A level keyed on an array sees one row per element, with the row's other
+    /// keys and metric arguments repeated alongside: a row is in the bucket of
+    /// each of its elements, and the accumulators assign each row to one bucket.
+    /// The explode is per level, so the root and the levels keyed on scalars
+    /// still see every row once.
     fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
         let num_rows = values.first().map_or(0, |values| values.len());
         if num_rows == 0 {
             return Ok(());
         }
         let metrics = &self.metrics;
+        let key_missing = &self.key_missing;
         for (_, state) in self
             .levels
             .get_mut()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
         {
-            let keys: Vec<ArrayRef> = state
-                .keys
-                .iter()
-                .map(|&key| Arc::clone(&values[LITERAL_ARGS + key]))
-                .collect();
-            state.intern(&keys, num_rows)?;
+            // The row each exploded row came from; `None` until a key is a list.
+            let mut rows: Option<UInt32Array> = None;
+            let mut keys: Vec<ArrayRef> = Vec::with_capacity(state.keys.len());
+            for &key in &state.keys {
+                let column = match &rows {
+                    Some(rows) => take(&values[LITERAL_ARGS + key], rows, None)?,
+                    None => Arc::clone(&values[LITERAL_ARGS + key]),
+                };
+                let column = match column.as_list_opt::<i32>() {
+                    Some(list) => {
+                        let (row_of_element, elements) = explode(list)?;
+                        for earlier in &mut keys {
+                            *earlier = take(earlier, &row_of_element, None)?;
+                        }
+                        rows = Some(match &rows {
+                            Some(rows) => take(rows, &row_of_element, None)?
+                                .as_primitive::<UInt32Type>()
+                                .clone(),
+                            None => row_of_element,
+                        });
+                        elements
+                    }
+                    None => column,
+                };
+                let column = match &key_missing[key] {
+                    Some(missing) => zip(
+                        &is_not_null(&column)?,
+                        &column,
+                        &Scalar::new(missing.to_array()?),
+                    )?,
+                    None => column,
+                };
+                keys.push(column);
+            }
+            let exploded_rows = rows.as_ref().map_or(num_rows, |rows| rows.len());
+            state.intern(&keys, exploded_rows)?;
             for (metric, accumulator) in &mut state.metrics {
-                accumulator.update_batch(
-                    &values[metrics[*metric].args.clone()],
-                    &state.bucket_of_row,
-                    None,
-                    state.num_buckets,
-                )?;
+                let args = &values[metrics[*metric].args.clone()];
+                let exploded: Vec<ArrayRef>;
+                let args = match &rows {
+                    Some(rows) => {
+                        exploded = args
+                            .iter()
+                            .map(|arg| take(arg, rows, None))
+                            .collect::<Result<_, _>>()?;
+                        exploded.as_slice()
+                    }
+                    None => args,
+                };
+                accumulator.update_batch(args, &state.bucket_of_row, None, state.num_buckets)?;
             }
         }
         Ok(())

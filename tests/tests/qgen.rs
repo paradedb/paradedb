@@ -302,6 +302,7 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
             let pdb_agg = proptest::option::of(arb_pdb_agg_window(
                 used_tables.clone(),
                 join.has_keyless_step(),
+                join.unnested_fields(),
             ));
             (
                 Just((join, where_expr, cross_rel)),

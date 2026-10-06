@@ -19,6 +19,7 @@ mod count_all_collector;
 pub mod exec;
 
 use std::error::Error;
+use std::num::NonZeroUsize;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
@@ -26,6 +27,7 @@ use crate::aggregate::count_all_collector::CountAllCollector;
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
+use crate::api::operator::estimate_query_cost;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
@@ -41,6 +43,7 @@ use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
+use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
 use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
@@ -632,6 +635,42 @@ pub fn execute_aggregate(
             return Ok(results);
         }
 
+        let mut nworkers =
+            (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
+        if nworkers > 0 && pg_sys::parallel_leader_participation {
+            nworkers -= 1;
+        }
+        nworkers = nworkers
+            .min(pg_sys::max_parallel_workers as usize)
+            .min(pg_sys::max_worker_processes as usize);
+
+        let mut costable =
+            matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count());
+        query.visit_ref(&mut |node| {
+            if matches!(
+                node,
+                SearchQueryInput::HeapFilter { .. } | SearchQueryInput::PostgresExpression { .. }
+            ) {
+                costable = false;
+            }
+        });
+        if costable
+            && let Some(workers) = NonZeroUsize::new(nworkers)
+            && let Some(cost) = estimate_query_cost(index, query.clone())
+        {
+            let work = cost as f64 * pg_sys::cpu_index_tuple_cost;
+            let transfer_cost = nworkers as f64 * pg_sys::parallel_tuple_cost;
+            if !parallel_scan_is_cheaper(
+                work,
+                workers,
+                pg_sys::parallel_leader_participation,
+                transfer_cost,
+            ) {
+                nworkers = 0;
+            }
+            pgrx::debug1!("count traversal cost={cost}, requested parallel workers={nworkers}");
+        }
+
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
             .segment_readers()
@@ -644,6 +683,15 @@ pub fn execute_aggregate(
         // (cloned into `query`) with the shared view.
         let mut leader_bitmap_source = None;
         let bitmap_handle = bitmap_exec.and_then(|bitmap_exec| {
+            if nworkers == 0 {
+                if let Some(cell) = query.bitmap_cell()
+                    && cell.get().is_none()
+                    && let Some(source) = bitmap_exec.private_source()
+                {
+                    cell.fill(source);
+                }
+                return None;
+            }
             let consumers = query.bitmap_consumer_count();
             if consumers == 0 {
                 return None;
@@ -672,25 +720,19 @@ pub fn execute_aggregate(
             bitmap_handle,
         )?;
 
-        // limit number of workers to the number of segments
-        let mut nworkers =
-            (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
-
-        if nworkers > 0 && pg_sys::parallel_leader_participation {
-            // make sure to account for the leader being a worker too
-            nworkers -= 1;
-        }
         pgrx::debug1!(
             "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
             *std::ptr::addr_of!(pg_sys::parallel_leader_participation)
         );
-        if let Some(mut process) = launch_parallel_process!(
-            ParallelAggregation<ParallelAggregationWorker>,
-            process,
-            WorkerStyle::Query,
-            nworkers,
-            16384
-        ) {
+        if nworkers > 0
+            && let Some(mut process) = launch_parallel_process!(
+                ParallelAggregation<ParallelAggregationWorker>,
+                process,
+                WorkerStyle::Query,
+                nworkers,
+                16384
+            )
+        {
             // signal our workers with the number of workers actually launched
             // they need this before they can begin checking out the correct segment counts
             let mut nlaunched = process.launched_workers();

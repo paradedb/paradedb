@@ -24,8 +24,29 @@ use crate::postgres::ParallelScanState;
 pub use crate::scan::info::RowEstimate;
 
 use pgrx::pg_sys;
+use std::num::NonZeroUsize;
 
 use tantivy::index::SegmentId;
+
+pub(crate) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool) -> f64 {
+    if leader_participates {
+        (nworkers.get() + 1) as f64
+    } else {
+        nworkers.get() as f64
+    }
+}
+
+pub(crate) fn parallel_scan_is_cheaper(
+    work: f64,
+    nworkers: NonZeroUsize,
+    leader_participates: bool,
+    transfer_cost: f64,
+) -> bool {
+    work / parallel_divisor(nworkers, leader_participates)
+        + unsafe { pg_sys::parallel_setup_cost }
+        + transfer_cost
+        < work
+}
 
 fn clamp_to_gather_limits(nworkers: usize) -> usize {
     unsafe {

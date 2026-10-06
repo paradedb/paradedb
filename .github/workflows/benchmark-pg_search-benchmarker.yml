@@ -1,6 +1,6 @@
 # Benchmark pg_search (Benchmarker)
 #
-# Runs the benchmarker suite on datasets (hn-ci and stackexchange), indexing
+# Runs the benchmarker suite on hn-ci, stackexchange, and wikipedia, indexing
 # with a pg_search compiled from this repo's source and overlaid onto a
 # released ParadeDB image. Dashboards and latency history are published to
 # gh-pages.
@@ -22,11 +22,11 @@ on:
       - "**/*.toml"
       - "Cargo.lock"
   pull_request:
-    types: [labeled] # Opt in on a PR with `benchmark-benchmarker` (all), `benchmark-benchmarker-hn`, or `benchmark-benchmarker-stackexchange`
+    types: [labeled] # Opt in with `benchmark-benchmarker` (all) or `benchmark-benchmarker-{hn,stackexchange,wikipedia}`.
   workflow_dispatch:
     inputs:
       dataset:
-        description: "Which dataset(s) to benchmark: 'all', 'hn-ci', or 'stackexchange'."
+        description: "Which dataset(s) to benchmark: 'all', 'hn-ci', 'stackexchange', or 'wikipedia'."
         required: false
         type: string
         default: "all"
@@ -44,6 +44,14 @@ on:
         default: "planetscale/paradedb-benchmarker"
       benchmarker_stackexchange_ref:
         description: "benchmarker repo ref for stackexchange (branch/tag/SHA)."
+        required: false
+        default: "datasets"
+      benchmarker_wikipedia_repo:
+        description: "benchmarker repo to clone for wikipedia."
+        required: false
+        default: "planetscale/paradedb-benchmarker"
+      benchmarker_wikipedia_ref:
+        description: "benchmarker repo ref for wikipedia (branch/tag/SHA)."
         required: false
         default: "datasets"
       base_paradedb_image:
@@ -193,8 +201,8 @@ jobs:
           pr_number: ${{ github.event.pull_request.number }}
           auto_push: ${{ github.ref == 'refs/heads/main' }}
 
-  benchmark-stackexchange:
-    name: Benchmarker (stackexchange)
+  benchmark-datasets:
+    name: Benchmarker (${{ matrix.dataset }})
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
@@ -204,10 +212,19 @@ jobs:
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == '')) ||
-      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange'))
+      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == 'wikipedia' || inputs.dataset == '')) ||
+      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: >-
+          ${{ fromJSON(
+            (inputs.dataset == 'stackexchange' || github.event.label.name == 'benchmark-benchmarker-stackexchange') && '["stackexchange"]' ||
+            (inputs.dataset == 'wikipedia' || github.event.label.name == 'benchmark-benchmarker-wikipedia') && '["wikipedia"]' ||
+            '["stackexchange", "wikipedia"]'
+          ) }}
     env:
-      DATASET: stackexchange
+      DATASET: ${{ matrix.dataset }}
       BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
       SNAPSHOT_PREFIX: snapshots/benchmarker
       IMAGE_TAG: paradedb-source:ci
@@ -218,7 +235,7 @@ jobs:
 
       # The label triggers this run; remove it so it can be re-applied to re-run.
       - name: Maybe Remove Label
-        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange')
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -226,7 +243,7 @@ jobs:
           gh pr edit "${PR_NUMBER}" \
             --repo "${GITHUB_REPOSITORY}" \
             --remove-label benchmark-benchmarker \
-            --remove-label benchmark-benchmarker-stackexchange || true
+            --remove-label "benchmark-benchmarker-${DATASET}" || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -257,8 +274,8 @@ jobs:
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
-          repository: ${{ inputs.benchmarker_stackexchange_repo || 'planetscale/paradedb-benchmarker' }}
-          ref: ${{ inputs.benchmarker_stackexchange_ref || 'datasets' }}
+          repository: ${{ inputs[format('benchmarker_{0}_repo', matrix.dataset)] || 'planetscale/paradedb-benchmarker' }}
+          ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'datasets' }}
           patch_file: .github/patches/benchmarker.patch
           lfs: "false"
 
@@ -356,8 +373,8 @@ jobs:
 
   notify-slack-on-failure:
     name: Notify Slack on Failure
-    needs: [benchmark-hn, benchmark-stackexchange]
-    if: always() && (needs.benchmark-hn.result == 'failure' || needs.benchmark-stackexchange.result == 'failure') && github.event_name == 'push'
+    needs: [benchmark-hn, benchmark-datasets]
+    if: always() && (needs.benchmark-hn.result == 'failure' || needs.benchmark-datasets.result == 'failure') && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       actions: read

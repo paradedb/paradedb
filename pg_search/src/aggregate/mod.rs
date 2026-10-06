@@ -75,9 +75,10 @@ pub enum AggregateRequest {
 }
 
 impl AggregateRequest {
-    /// Counts grouping-key and collector updates per document, ignoring value multiplicity.
-    /// Bare COUNT(*) adds no collector work. Filters return None because their queries
-    /// need a separate traversal estimate.
+    /// Estimates the number of logical operations needed to aggregate each matching document.
+    /// Each operation, such as updating a running sum, gets the same cost regardless
+    /// of its complexity or how many values the document contains. The caller multiplies
+    /// this count by estimated matching documents and cpu_operator_cost.
     fn updates_per_doc(&self) -> Option<usize> {
         let mut updates_per_doc = 0;
         match self {

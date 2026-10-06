@@ -1214,9 +1214,11 @@ pub fn assemble_pdb_agg_rows(
     Ok(AssembledPdbAggRows { root_batch, json })
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::prelude::*;
     use serde_json::json;
 
     fn field(name: &str) -> PdbAggFieldRef {
@@ -1259,7 +1261,7 @@ mod tests {
         PdbAggPlan::build(&[(1, &spec, false)], 1, 1).expect("fits the grouping id")
     }
 
-    #[test]
+    #[pg_test]
     fn grouping_ids_follow_datafusion_bit_order() {
         let plan = nested_plan();
         assert_eq!(plan.keys.len(), 2);
@@ -1271,7 +1273,7 @@ mod tests {
         assert_eq!(plan.grouping_id_for_level(2), 0b000);
     }
 
-    #[test]
+    #[pg_test]
     fn output_columns_follow_the_documented_order() {
         let plan = nested_plan();
         // [g, agg_0, __grouping_id, k0, k1, m...]
@@ -1291,7 +1293,7 @@ mod tests {
         assert_eq!(key_cols, &[0, 3, 4]);
     }
 
-    #[test]
+    #[pg_test]
     fn stats_are_shared_across_nodes_but_not_across_filters() {
         let spec = request(
             json!({
@@ -1323,7 +1325,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[pg_test]
     fn metrics_without_terms_need_no_grouping_sets() {
         let spec = request(json!({"sum": {"field": "v"}}), &["v"]);
         let plan = PdbAggPlan::build(&[(0, &spec, false)], 1, 0).expect("fits the grouping id");
@@ -1332,14 +1334,14 @@ mod tests {
         assert_eq!(plan.metric_col(0), 1);
     }
 
-    #[test]
+    #[pg_test]
     fn grouping_expressions_are_capped_at_the_id_width() {
         let spec = request(json!({"terms": {"field": "a"}}), &["a"]);
         assert!(PdbAggPlan::build(&[(0, &spec, false)], MAX_GROUP_EXPRS - 1, 0).is_ok());
         assert!(PdbAggPlan::build(&[(0, &spec, false)], MAX_GROUP_EXPRS, 0).is_err());
     }
 
-    #[test]
+    #[pg_test]
     fn null_keys_take_the_column_sentinel() {
         let text = PdbAggFieldRef {
             field_type: SearchFieldType::Text(pg_sys::TEXTOID),

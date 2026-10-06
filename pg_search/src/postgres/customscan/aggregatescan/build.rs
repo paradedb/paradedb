@@ -96,8 +96,6 @@ pub struct AggregateCSClause {
     index_created_by_version: Option<Version>,
     is_execution_time: bool,
     aggregate_orderby: Option<AggregateOrderBy>,
-    #[serde(default)]
-    estimated_groups: Option<f64>,
 }
 
 trait CollectNested<Key: AggregationKey> {
@@ -267,10 +265,6 @@ impl CollectAggregations for AggregateCSClause {
 }
 
 impl AggregateCSClause {
-    pub(crate) fn estimated_groups(&self) -> Option<f64> {
-        self.estimated_groups
-    }
-
     pub fn aggregates(&self) -> impl Iterator<Item = &AggregateType> {
         self.targetlist.aggregates()
     }
@@ -529,7 +523,6 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             index_created_by_version: index.created_by_version(),
             is_execution_time: false,
             aggregate_orderby,
-            estimated_groups: Some(unsafe { args.estimate_group_count() }),
         })
     }
 }

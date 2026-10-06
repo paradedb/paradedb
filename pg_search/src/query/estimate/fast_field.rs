@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::{Context, Estimate, combine};
+use super::{Context, Estimate};
 use crate::index::stats::distribution::Distribution;
 use std::ops::Bound;
 use tantivy::SegmentReader;
@@ -178,12 +178,9 @@ pub(super) fn range(
         },
     };
     let name = column_name(term, ctx.reader);
-    let Some((_, manifest)) = ctx.stats() else {
-        return Ok(None);
-    };
     let query_type = term.value().json_path_type().unwrap_or(term.typ());
     let mut estimates = Vec::new();
-    for (ordinal, (column, code)) in manifest.columns.iter().enumerate() {
+    for (ordinal, (column, code)) in ctx.manifest.columns.iter().enumerate() {
         if column != &name {
             continue;
         }
@@ -277,5 +274,5 @@ pub(super) fn range(
             },
         ));
     }
-    Ok(Some(combine(estimates, 1, ctx.reader.max_doc())))
+    Ok(Some(Estimate::combine(estimates, 1, ctx.reader.max_doc())))
 }

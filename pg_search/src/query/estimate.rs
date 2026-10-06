@@ -15,17 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::OnceCell;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Bound;
+use std::sync::Arc;
 
+use super::proximity::{ProximityClause, query::ProximityQuery};
 use crate::index::stats::{
     SegmentStats,
     distribution::{Distribution, DistributionManifest},
 };
 use tantivy::SegmentReader;
 use tantivy::query::*;
-use tantivy::schema::{Field, Term, Type};
+use tantivy::schema::{Field, IndexRecordOption, Term, Type};
 
 /// Estimates queries using pg_search's shared statistics and planner context.
 trait QueryEstimate {
@@ -38,192 +40,66 @@ struct Estimate {
     work: u64,
 }
 
-impl Estimate {
-    fn prior(fraction: f64, reader: &SegmentReader) -> Self {
-        Self {
-            fraction,
-            work: reader.max_doc() as u64,
-        }
-    }
-    fn count(count: u32, work: u64, reader: &SegmentReader) -> Self {
-        Self {
-            fraction: if reader.max_doc() == 0 {
-                0.0
-            } else {
-                count as f64 / reader.max_doc() as f64
-            },
-            work,
-        }
-    }
-}
-
 struct Context<'a> {
     reader: &'a SegmentReader,
     planner: Option<(*mut pgrx::pg_sys::PlannerInfo, pgrx::pg_sys::Index)>,
-    stats: OnceCell<Option<(SegmentStats, DistributionManifest)>>,
-    distributions: std::cell::RefCell<HashMap<usize, Option<std::sync::Arc<Distribution>>>>,
+    stats: SegmentStats,
+    manifest: DistributionManifest,
+    distributions: RefCell<HashMap<usize, Option<Arc<Distribution>>>>,
 }
 
-impl<'a> Context<'a> {
-    fn stats(&self) -> Option<&(SegmentStats, DistributionManifest)> {
-        self.stats
-            .get_or_init(|| {
-                let stats = SegmentStats::of_reader(self.reader).ok()??;
-                let manifest = stats.distributions().ok()??;
-                Some((stats, manifest))
-            })
-            .as_ref()
-    }
-    fn distribution(&self, ordinal: usize) -> Option<std::sync::Arc<Distribution>> {
-        let (stats, manifest) = self.stats()?;
-        self.distributions
-            .borrow_mut()
-            .entry(ordinal)
-            .or_insert_with(|| {
-                stats
-                    .distribution(manifest, ordinal)
-                    .ok()?
-                    .map(std::sync::Arc::new)
-            })
-            .clone()
-    }
-}
+#[derive(Debug, Clone)]
+pub(super) struct UnresolvedQuery;
 
-fn combine(
-    clauses: impl IntoIterator<Item = (Occur, Estimate)>,
-    minimum_should_match: usize,
-    max_doc: u32,
-) -> Estimate {
-    let mut must = 1.0;
-    let mut excludes = 1.0;
-    let mut should = Vec::new();
-    let mut required_work = None;
-    let mut optional_work = 0u64;
-    let mut has_must = false;
-    for (occur, estimate) in clauses {
-        match occur {
-            Occur::Must => {
-                has_must = true;
-                must *= estimate.fraction;
-                required_work =
-                    Some(required_work.map_or(estimate.work, |work: u64| work.min(estimate.work)));
-            }
-            Occur::Should => {
-                should.push(estimate.fraction);
-                optional_work = optional_work.saturating_add(estimate.work);
-            }
-            Occur::MustNot => excludes *= 1.0 - estimate.fraction,
+impl QueryEstimate for dyn Query {
+    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
+        if let Some(inner) = self.matching_query() {
+            return inner.estimate_docs(ctx);
         }
-    }
-    let needed = if has_must {
-        minimum_should_match
-    } else {
-        minimum_should_match.max(1)
-    };
-    let optional = if needed == 0 {
-        1.0
-    } else if needed > should.len() {
-        0.0
-    } else {
-        let mut probabilities = vec![0.0; needed + 1];
-        probabilities[0] = 1.0;
-        for p in should {
-            probabilities[needed] += probabilities[needed - 1] * p;
-            for k in (1..needed).rev() {
-                probabilities[k] = probabilities[k] * (1.0 - p) + probabilities[k - 1] * p;
-            }
-            probabilities[0] *= 1.0 - p;
-        }
-        probabilities[needed]
-    };
-    let fraction = (must * optional * excludes).clamp(0.0, 1.0);
-    let work = required_work
-        .unwrap_or(optional_work)
-        .max((fraction * max_doc as f64).ceil() as u64);
-    Estimate { fraction, work }
-}
-
-fn prefix_end(prefix: &[u8]) -> Option<Vec<u8>> {
-    let mut end = prefix.to_vec();
-    while let Some(byte) = end.pop() {
-        if byte < u8::MAX {
-            end.push(byte + 1);
-            return Some(end);
-        }
-    }
-    None
-}
-
-fn automaton_prefix(automaton: &impl tantivy_fst::Automaton) -> Vec<u8> {
-    let mut prefix = Vec::new();
-    let mut state = automaton.start();
-    while prefix.len() < 64 && !automaton.is_match(&state) {
-        let mut next = None;
-        for byte in 0..=u8::MAX {
-            let next_state = automaton.accept(&state, byte);
-            if automaton.can_match(&next_state) {
-                if next.is_some() {
-                    return prefix;
+        macro_rules! estimate_as {
+            ($($query:ty),* $(,)?) => {$(
+                if let Some(query) = self.downcast_ref::<$query>() {
+                    return query.estimate_docs(ctx);
                 }
-                next = Some((byte, next_state));
-            }
+            )*};
         }
-        let Some((byte, next_state)) = next else {
-            break;
-        };
-        prefix.push(byte);
-        state = next_state;
+        estimate_as! {
+            TermQuery,
+            BooleanQuery,
+            DisjunctionMaxQuery,
+            TermSetQuery,
+            PhraseQuery,
+            PhrasePrefixQuery,
+            RegexQuery,
+            RegexPhraseQuery,
+            FuzzyTermQuery,
+            ExistsQuery,
+            RangeQuery,
+            InvertedIndexRangeQuery,
+            FastFieldRangeQuery,
+            MoreLikeThisQuery,
+            AllQuery,
+            EmptyQuery,
+            UnresolvedQuery,
+            super::heap_field_filter::HeapFilterQuery,
+            super::score::ScoreFilter,
+            super::more_like_this::MoreLikeThisQuery,
+            ProximityQuery,
+        }
+        Ok(None)
     }
-    prefix
 }
 
-fn terms_matching(
-    field: Field,
-    prefix: &[u8],
-    matches: impl Fn(&[u8]) -> bool,
-    max_expansions: usize,
-    ctx: &Context<'_>,
-) -> tantivy::Result<Option<Estimate>> {
-    use tantivy_common::HasLen;
-    const TERMS: usize = 4096;
-    const BYTES: usize = 1 << 20;
-    let inverted = ctx.reader.inverted_index(field)?;
-    let dictionary = inverted.terms();
-    let end = prefix_end(prefix);
-    let upper = end.as_deref().map_or(Bound::Unbounded, Bound::Excluded);
-    if dictionary
-        .file_slice_for_range((Bound::Included(prefix), upper), Some((TERMS + 1) as u64))?
-        .len()
-        > BYTES
-    {
-        return Ok(Some(Estimate::prior(0.01, ctx.reader)));
+impl QueryEstimate for AllQuery {
+    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
+        Ok(Some(Estimate::prior(1.0, ctx.reader)))
     }
-    let mut stream = dictionary.range().ge(prefix);
-    if let Some(end) = &end {
-        stream = stream.lt(end);
+}
+
+impl QueryEstimate for EmptyQuery {
+    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
+        Ok(Some(Estimate::count(0, 0, ctx.reader)))
     }
-    let mut stream = stream.limit((TERMS + 1) as u64).into_stream()?;
-    let mut terms = 0;
-    let mut bytes = 0;
-    let mut clauses = Vec::new();
-    while stream.advance() {
-        terms += 1;
-        bytes += stream.key().len();
-        if terms > TERMS || bytes > BYTES {
-            return Ok(Some(Estimate::prior(0.01, ctx.reader)));
-        }
-        if matches(stream.key()) {
-            if clauses.len() == max_expansions {
-                return Ok(Some(Estimate::prior(0.01, ctx.reader)));
-            }
-            let count = stream.value().doc_freq;
-            clauses.push((
-                Occur::Should,
-                Estimate::count(count, count as u64, ctx.reader),
-            ));
-        }
-    }
-    Ok(Some(combine(clauses, 1, ctx.reader.max_doc())))
 }
 
 /// Uses the number of documents containing the term from the inverted index.
@@ -236,16 +112,10 @@ impl QueryEstimate for TermQuery {
             .get_field_entry(term.field())
             .is_indexed()
         {
-            return fast_field::range(
-                (
-                    &Bound::Included(term.clone()),
-                    &Bound::Included(term.clone()),
-                ),
-                ctx,
-            );
+            let bound = Bound::Included(term.clone());
+            return fast_field::range((&bound, &bound), ctx);
         }
-        let count = ctx.reader.inverted_index(term.field())?.doc_freq(term)?;
-        Ok(Some(Estimate::count(count, count as u64, ctx.reader)))
+        ctx.term(term).map(Some)
     }
 }
 
@@ -254,12 +124,12 @@ impl QueryEstimate for BooleanQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
         let mut children = Vec::new();
         for (occur, child) in self.clauses() {
-            let Some(child) = QueryEstimate::estimate_docs(child.as_ref(), ctx)? else {
+            let Some(child) = child.as_ref().estimate_docs(ctx)? else {
                 return Ok(None);
             };
             children.push((*occur, child));
         }
-        Ok(Some(combine(
+        Ok(Some(Estimate::combine(
             children,
             self.get_minimum_number_should_match(),
             ctx.reader.max_doc(),
@@ -272,12 +142,12 @@ impl QueryEstimate for DisjunctionMaxQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
         let mut children = Vec::new();
         for child in self.disjuncts() {
-            let Some(child) = QueryEstimate::estimate_docs(child.as_ref(), ctx)? else {
+            let Some(child) = child.as_ref().estimate_docs(ctx)? else {
                 return Ok(None);
             };
             children.push((Occur::Should, child));
         }
-        Ok(Some(combine(children, 1, ctx.reader.max_doc())))
+        Ok(Some(Estimate::combine(children, 1, ctx.reader.max_doc())))
     }
 }
 
@@ -286,37 +156,25 @@ impl QueryEstimate for TermSetQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
         let mut children = Vec::new();
         for term in self.terms() {
-            let query = TermQuery::new(term.clone(), tantivy::schema::IndexRecordOption::Basic);
-            let Some(child) = QueryEstimate::estimate_docs(&query, ctx)? else {
+            let query = TermQuery::new(term.clone(), IndexRecordOption::Basic);
+            let Some(child) = query.estimate_docs(ctx)? else {
                 return Ok(None);
             };
             children.push((Occur::Should, child));
         }
-        Ok(Some(combine(children, 1, ctx.reader.max_doc())))
+        Ok(Some(Estimate::combine(children, 1, ctx.reader.max_doc())))
     }
 }
 
 /// Multiplies the term probabilities and discounts for words having to occur together.
 impl QueryEstimate for PhraseQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        let mut clauses = Vec::new();
-        let terms = self.phrase_terms();
-        let mut work = 0u64;
-        for term in &terms {
-            let count = ctx.reader.inverted_index(term.field())?.doc_freq(term)?;
-            work = work.saturating_add(count as u64);
-            clauses.push((
-                Occur::Must,
-                Estimate::count(count, count as u64, ctx.reader),
-            ));
-        }
-        let candidates = combine(clauses, 0, ctx.reader.max_doc()).fraction;
-        let checks = (10 * terms.len()).max(1) as u64;
-        let fraction = candidates * ((self.slop() as f64 + 1.0) / checks as f64).min(1.0);
-        work = work.saturating_add(
-            (candidates * ctx.reader.max_doc() as f64 * checks as f64).ceil() as u64,
-        );
-        Ok(Some(Estimate { fraction, work }))
+        let terms = self
+            .phrase_terms()
+            .iter()
+            .map(|term| ctx.term(term))
+            .collect::<tantivy::Result<Vec<_>>>()?;
+        Ok(Some(Estimate::phrase(&terms, self.slop(), ctx.reader)))
     }
 }
 
@@ -325,13 +183,14 @@ impl QueryEstimate for PhrasePrefixQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
         let terms = self.phrase_terms();
         if terms.is_empty() {
-            return terms_matching(
-                self.field(),
-                self.prefix().serialized_value_bytes(),
-                |_| true,
-                self.max_expansions() as usize,
-                ctx,
-            );
+            return ctx
+                .matching_terms(
+                    self.field(),
+                    self.prefix().serialized_value_bytes(),
+                    |_| true,
+                    self.max_expansions() as usize,
+                )
+                .map(Some);
         }
         let mut rarest = ctx.reader.max_doc();
         let mut work = 0u64;
@@ -351,33 +210,24 @@ impl QueryEstimate for PhrasePrefixQuery {
 /// Reads document frequencies for matching words, stopping at the dictionary budget.
 impl QueryEstimate for RegexQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        estimate_regex(self, ctx, usize::MAX)
+        ctx.regex(self, usize::MAX).map(Some)
     }
 }
-fn estimate_regex(
-    query: &RegexQuery,
-    ctx: &Context<'_>,
-    limit: usize,
-) -> tantivy::Result<Option<Estimate>> {
-    use tantivy_fst::Automaton;
-    let automaton = query.regex();
-    let prefix = automaton_prefix(automaton);
-    terms_matching(
-        query.field(),
-        &prefix,
-        |bytes| {
-            let mut state = automaton.start();
-            for &byte in bytes {
-                state = automaton.accept(&state, byte);
-                if !automaton.can_match(&state) {
-                    return false;
-                }
-            }
-            automaton.is_match(&state)
-        },
-        limit,
-        ctx,
-    )
+
+/// Combines the regex word estimates and discounts for their required positions.
+impl QueryEstimate for RegexPhraseQuery {
+    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
+        let mut terms = Vec::new();
+        for term in self.phrase_terms() {
+            let value = term.value();
+            let Some(pattern) = value.as_str() else {
+                return Ok(None);
+            };
+            let query = RegexQuery::from_pattern(pattern, self.field())?;
+            terms.push(ctx.regex(&query, self.max_expansions() as usize)?);
+        }
+        Ok(Some(Estimate::phrase(&terms, self.slop(), ctx.reader)))
+    }
 }
 
 /// Reads frequencies for words within the edit distance, with the same dictionary budget.
@@ -394,17 +244,11 @@ impl QueryEstimate for FuzzyTermQuery {
         let Some(word) = word else {
             return Ok(None);
         };
-        if word.len() > 256 {
-            return Ok(Some(Estimate::prior(0.01, ctx.reader)));
-        }
-        if self.distance() > 2 {
+        if word.len() > 256 || self.distance() > 2 {
             return Ok(Some(Estimate::prior(0.01, ctx.reader)));
         }
         if self.distance() == 0 && !self.prefix() {
-            return QueryEstimate::estimate_docs(
-                &TermQuery::new(term.clone(), tantivy::schema::IndexRecordOption::Basic),
-                ctx,
-            );
+            return TermQuery::new(term.clone(), IndexRecordOption::Basic).estimate_docs(ctx);
         }
         static BUILDERS: std::sync::LazyLock<[[LevenshteinAutomatonBuilder; 2]; 3]> =
             std::sync::LazyLock::new(|| {
@@ -422,57 +266,26 @@ impl QueryEstimate for FuzzyTermQuery {
             builder.build_dfa(word)
         };
         let path = bytes.as_json().map(|(path, _)| path).unwrap_or_default();
-        terms_matching(
+        ctx.matching_terms(
             term.field(),
             path,
             |term| matches!(dfa.eval(term), Distance::Exact(_)),
             usize::MAX,
-            ctx,
         )
-    }
-}
-
-/// Combines the regex word estimates and discounts for their required positions.
-impl QueryEstimate for RegexPhraseQuery {
-    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        let mut children = Vec::new();
-        let mut cost = 0u64;
-        for term in self.phrase_terms() {
-            let pattern = term.value();
-            let Some(pattern) = pattern.as_str() else {
-                return Ok(None);
-            };
-            let query = RegexQuery::from_pattern(pattern, self.field())?;
-            let Some(child) = estimate_regex(&query, ctx, self.max_expansions() as usize)? else {
-                return Ok(None);
-            };
-            cost = cost.saturating_add(child.work);
-            children.push((Occur::Must, child));
-        }
-        let checks = (children.len() * 10).max(1) as f64;
-        let candidates = combine(children, 0, ctx.reader.max_doc()).fraction;
-        let fraction = candidates * ((self.slop() as f64 + 1.0) / checks).min(1.0);
-        Ok(Some(Estimate {
-            fraction,
-            work: cost
-                .saturating_add((candidates * ctx.reader.max_doc() as f64 * checks).ceil() as u64),
-        }))
+        .map(Some)
     }
 }
 
 /// Uses the document presence counts, or the aligned samples when several JSON columns qualify.
 impl QueryEstimate for ExistsQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        let Some((_, manifest)) = ctx.stats() else {
-            return Ok(None);
-        };
         let mut wanted = Vec::new();
         // Resolve schema names using the fast-field reader, including escaped JSON paths.
         let Some(canonical) = ctx.reader.fast_fields().resolve_field(self.field_name())? else {
             return Ok(Some(Estimate::count(0, 0, ctx.reader)));
         };
         let prefix = format!("{canonical}\u{1}");
-        for (ordinal, (name, _)) in manifest.columns.iter().enumerate() {
+        for (ordinal, (name, _)) in ctx.manifest.columns.iter().enumerate() {
             if name == &canonical || (self.json_subpaths() && name.starts_with(&prefix)) {
                 let Some(summary) = ctx.distribution(ordinal) else {
                     return Ok(None);
@@ -498,154 +311,9 @@ impl QueryEstimate for ExistsQuery {
             .filter(|&doc| wanted.iter().any(|s| !s.sample[doc].is_empty()))
             .count();
         Ok(Some(Estimate {
-            fraction: if samples == 0 {
-                0.0
-            } else {
-                matched as f64 / samples as f64
-            },
+            fraction: matched as f64 / samples.max(1) as f64,
             work: ctx.reader.max_doc() as u64,
         }))
-    }
-}
-
-/// Uses the rarer required side, since every match must contain both sides.
-impl QueryEstimate for crate::query::proximity::query::ProximityQuery {
-    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        self.sides(self.left(), self.right(), ctx)
-    }
-}
-impl crate::query::proximity::query::ProximityQuery {
-    fn sides(
-        &self,
-        left: &crate::query::proximity::ProximityClause,
-        right: &crate::query::proximity::ProximityClause,
-        ctx: &Context<'_>,
-    ) -> tantivy::Result<Option<Estimate>> {
-        let (Some(left), Some(right)) = (self.clause(left, ctx)?, self.clause(right, ctx)?) else {
-            return Ok(None);
-        };
-        let fraction = left.fraction.min(right.fraction);
-        Ok(Some(Estimate {
-            fraction,
-            work: left
-                .work
-                .saturating_add(right.work)
-                .saturating_add((fraction * ctx.reader.max_doc() as f64).ceil() as u64),
-        }))
-    }
-    fn clause(
-        &self,
-        clause: &crate::query::proximity::ProximityClause,
-        ctx: &Context<'_>,
-    ) -> tantivy::Result<Option<Estimate>> {
-        use crate::query::proximity::ProximityClause;
-        match clause {
-            ProximityClause::Uninitialized => Ok(Some(Estimate::count(0, 0, ctx.reader))),
-            ProximityClause::Term(word) => QueryEstimate::estimate_docs(
-                &TermQuery::new(
-                    Term::from_field_text(self.field(), word),
-                    tantivy::schema::IndexRecordOption::Basic,
-                ),
-                ctx,
-            ),
-            ProximityClause::Regex {
-                pattern,
-                max_expansions,
-            } => estimate_regex(
-                &RegexQuery::from_pattern(pattern.as_str(), self.field())?,
-                ctx,
-                *max_expansions,
-            ),
-            ProximityClause::Clauses(clauses) => {
-                let mut estimates = Vec::new();
-                for clause in clauses {
-                    let Some(child) = self.clause(clause, ctx)? else {
-                        return Ok(None);
-                    };
-                    estimates.push((Occur::Should, child));
-                }
-                Ok(Some(combine(estimates, 1, ctx.reader.max_doc())))
-            }
-            ProximityClause::Proximity { left, right, .. } => self.sides(left, right, ctx),
-        }
-    }
-}
-
-pub(crate) fn estimate_docs(
-    query: &dyn Query,
-    reader: &SegmentReader,
-    planner: Option<(*mut pgrx::pg_sys::PlannerInfo, pgrx::pg_sys::Index)>,
-) -> tantivy::Result<Option<(u32, u64)>> {
-    let ctx = Context {
-        reader,
-        planner: planner.filter(|(root, _)| !root.is_null()),
-        stats: OnceCell::new(),
-        distributions: Default::default(),
-    };
-    // Old segments retain the old planner, including queries which only need term frequencies.
-    if ctx.stats().is_none() {
-        return Ok(None);
-    }
-    if reader.max_doc() == 0 {
-        return Ok(Some((0, 0)));
-    }
-    let estimate = QueryEstimate::estimate_docs(query, &ctx)?;
-    Ok(estimate.map(|estimate| {
-        (
-            (estimate.fraction.clamp(0.0, 1.0) * reader.max_doc() as f64).ceil() as u32,
-            estimate.work,
-        )
-    }))
-}
-
-impl QueryEstimate for dyn Query {
-    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        if let Some(inner) = self.matching_query() {
-            return QueryEstimate::estimate_docs(inner, ctx);
-        }
-        macro_rules! estimate_as {
-            ($($query:ty),* $(,)?) => {$(
-                if let Some(query) = self.downcast_ref::<$query>() {
-                    return QueryEstimate::estimate_docs(query, ctx);
-                }
-            )*};
-        }
-        estimate_as! {
-            TermQuery,
-            BooleanQuery,
-            DisjunctionMaxQuery,
-            TermSetQuery,
-            PhraseQuery,
-            PhrasePrefixQuery,
-            RegexQuery,
-            RegexPhraseQuery,
-            FuzzyTermQuery,
-            ExistsQuery,
-            RangeQuery,
-            InvertedIndexRangeQuery,
-            FastFieldRangeQuery,
-            MoreLikeThisQuery,
-            AllQuery,
-            EmptyQuery,
-            UnresolvedQuery,
-            super::heap_field_filter::HeapFilterQuery,
-            super::score::ScoreFilter,
-            super::more_like_this::MoreLikeThisQuery,
-            crate::query::proximity::query::ProximityQuery,
-        }
-        Ok(None)
-    }
-}
-
-impl QueryEstimate for AllQuery {
-    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        Ok(Some(Estimate::prior(1.0, ctx.reader)))
-    }
-}
-
-impl QueryEstimate for EmptyQuery {
-    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        Ok(Some(Estimate::count(0, 0, ctx.reader)))
     }
 }
 
@@ -654,30 +322,32 @@ impl QueryEstimate for RangeQuery {
         if matches!(self.bounds(), (Bound::Unbounded, Bound::Unbounded)) {
             return Ok(Some(Estimate::prior(1.0, ctx.reader)));
         }
-        if ctx
-            .reader
-            .schema()
-            .get_field_entry(self.field())
-            .field_type()
-            .is_fast()
+        if ctx.reader.schema().get_field_entry(self.field()).is_fast()
             && !matches!(self.value_type(), Type::Facet | Type::Custom | Type::Vector)
         {
             fast_field::range(self.bounds(), ctx)
         } else {
-            estimate_inverted_range(self.bounds(), ctx)
+            ctx.inverted_range(self.bounds()).map(Some)
         }
     }
 }
 
 impl QueryEstimate for InvertedIndexRangeQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        estimate_inverted_range(self.bounds(), ctx)
+        ctx.inverted_range(self.bounds()).map(Some)
     }
 }
 
 impl QueryEstimate for FastFieldRangeQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
         fast_field::range(self.bounds(), ctx)
+    }
+}
+
+/// Uses the rarer required side, since every match must contain both sides.
+impl QueryEstimate for ProximityQuery {
+    fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
+        self.sides(self.left(), self.right(), ctx)
     }
 }
 
@@ -704,70 +374,10 @@ impl QueryEstimate for UnresolvedQuery {
     }
 }
 
-/// Combines frequencies in the term range, or uses a one-third prior when the lookup exceeds its budget.
-fn estimate_inverted_range(
-    bounds: (&Bound<Term>, &Bound<Term>),
-    ctx: &Context<'_>,
-) -> tantivy::Result<Option<Estimate>> {
-    use tantivy_common::HasLen;
-    let bounds = (bounds.0.as_ref(), bounds.1.as_ref());
-    let term = match bounds {
-        (Bound::Included(t) | Bound::Excluded(t), _)
-        | (_, Bound::Included(t) | Bound::Excluded(t)) => t,
-        _ => return Ok(Some(Estimate::prior(1.0, ctx.reader))),
-    };
-    let inverted = ctx.reader.inverted_index(term.field())?;
-    let dictionary = inverted.terms();
-    let lower = bounds.0.map(Term::serialized_value_bytes);
-    let upper = bounds.1.map(Term::serialized_value_bytes);
-    if dictionary
-        .file_slice_for_range((lower, upper), Some(4097))?
-        .len()
-        > 1 << 20
-    {
-        return Ok(Some(Estimate::prior(1.0 / 3.0, ctx.reader)));
-    }
-    let mut stream = dictionary.range();
-    match lower {
-        Bound::Included(v) => stream = stream.ge(v),
-        Bound::Excluded(v) => stream = stream.gt(v),
-        Bound::Unbounded => {}
-    }
-    match upper {
-        Bound::Included(v) => stream = stream.le(v),
-        Bound::Excluded(v) => stream = stream.lt(v),
-        Bound::Unbounded => {}
-    }
-    let mut stream = stream.limit(4097).into_stream()?;
-    let mut clauses = Vec::new();
-    let mut bytes = 0;
-    while stream.advance() {
-        bytes += stream.key().len();
-        if clauses.len() == 4096 || bytes > 1 << 20 {
-            return Ok(Some(Estimate::prior(1.0 / 3.0, ctx.reader)));
-        }
-        let count = stream.value().doc_freq;
-        clauses.push((
-            Occur::Should,
-            Estimate::count(count, count as u64, ctx.reader),
-        ));
-    }
-    Ok(Some(combine(clauses, 1, ctx.reader.max_doc())))
-}
-#[derive(Debug, Clone)]
-pub(super) struct UnresolvedQuery;
-impl Query for UnresolvedQuery {
-    fn weight(&self, _: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
-        Err(tantivy::TantivyError::InvalidArgument(
-            "PostgreSQL query expression has not been evaluated".into(),
-        ))
-    }
-}
-
 /// Scores have no stored distribution, so assume one third of candidates survive the bound.
 impl QueryEstimate for super::score::ScoreFilter {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        let Some(mut inner) = QueryEstimate::estimate_docs(self.query.as_ref(), ctx)? else {
+        let Some(mut inner) = self.query.as_ref().estimate_docs(ctx)? else {
             return Ok(None);
         };
         if self.bounds.is_empty() {
@@ -782,8 +392,7 @@ impl QueryEstimate for super::score::ScoreFilter {
 /// PostgreSQL estimates the original heap predicates; their selectivity never reduces index work.
 impl QueryEstimate for super::heap_field_filter::HeapFilterQuery {
     fn estimate_docs(&self, ctx: &Context<'_>) -> tantivy::Result<Option<Estimate>> {
-        let Some(mut inner) = QueryEstimate::estimate_docs(self.indexed_query.as_ref(), ctx)?
-        else {
+        let Some(mut inner) = self.indexed_query.as_ref().estimate_docs(ctx)? else {
             return Ok(None);
         };
         let mut filters: Vec<&super::heap_field_filter::HeapFieldFilter> = Vec::new();
@@ -825,6 +434,358 @@ impl QueryEstimate for super::heap_field_filter::HeapFilterQuery {
         inner.fraction *= fraction.clamp(0.0, 1.0);
         Ok(Some(inner))
     }
+}
+
+impl Query for UnresolvedQuery {
+    fn weight(&self, _: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+        Err(tantivy::TantivyError::InvalidArgument(
+            "PostgreSQL query expression has not been evaluated".into(),
+        ))
+    }
+}
+
+pub(crate) fn estimate_docs(
+    query: &dyn Query,
+    reader: &SegmentReader,
+    planner: Option<(*mut pgrx::pg_sys::PlannerInfo, pgrx::pg_sys::Index)>,
+) -> tantivy::Result<Option<(u32, u64)>> {
+    // Old segments retain the old planner, including queries which only need term frequencies.
+    let Some(stats) = SegmentStats::of_reader(reader).ok().flatten() else {
+        return Ok(None);
+    };
+    let Some(manifest) = stats.distributions().ok().flatten() else {
+        return Ok(None);
+    };
+    if reader.max_doc() == 0 {
+        return Ok(Some((0, 0)));
+    }
+    let ctx = Context {
+        reader,
+        planner: planner.filter(|(root, _)| !root.is_null()),
+        stats,
+        manifest,
+        distributions: Default::default(),
+    };
+    Ok(query.estimate_docs(&ctx)?.map(|estimate| {
+        (
+            (estimate.fraction.clamp(0.0, 1.0) * reader.max_doc() as f64).ceil() as u32,
+            estimate.work,
+        )
+    }))
+}
+
+impl Estimate {
+    fn prior(fraction: f64, reader: &SegmentReader) -> Self {
+        Self {
+            fraction,
+            work: reader.max_doc() as u64,
+        }
+    }
+    fn count(count: u32, work: u64, reader: &SegmentReader) -> Self {
+        Self {
+            fraction: if reader.max_doc() == 0 {
+                0.0
+            } else {
+                count as f64 / reader.max_doc() as f64
+            },
+            work,
+        }
+    }
+
+    fn phrase(terms: &[Self], slop: u32, reader: &SegmentReader) -> Self {
+        let candidates = Estimate::combine(
+            terms.iter().map(|&term| (Occur::Must, term)),
+            0,
+            reader.max_doc(),
+        )
+        .fraction;
+        let checks = (10 * terms.len()).max(1) as f64;
+        let work = terms
+            .iter()
+            .fold(0u64, |work, term| work.saturating_add(term.work));
+        Self {
+            fraction: candidates * ((slop as f64 + 1.0) / checks).min(1.0),
+            work: work
+                .saturating_add((candidates * reader.max_doc() as f64 * checks).ceil() as u64),
+        }
+    }
+    fn combine(
+        clauses: impl IntoIterator<Item = (Occur, Estimate)>,
+        minimum_should_match: usize,
+        max_doc: u32,
+    ) -> Estimate {
+        let mut must = 1.0;
+        let mut excludes = 1.0;
+        let mut should = Vec::new();
+        let mut required_work = None;
+        let mut optional_work = 0u64;
+        for (occur, estimate) in clauses {
+            match occur {
+                Occur::Must => {
+                    must *= estimate.fraction;
+                    required_work = Some(
+                        required_work.map_or(estimate.work, |work: u64| work.min(estimate.work)),
+                    );
+                }
+                Occur::Should => {
+                    should.push(estimate.fraction);
+                    optional_work = optional_work.saturating_add(estimate.work);
+                }
+                Occur::MustNot => excludes *= 1.0 - estimate.fraction,
+            }
+        }
+        let needed = if required_work.is_some() {
+            minimum_should_match
+        } else {
+            minimum_should_match.max(1)
+        };
+        let optional = if needed == 0 {
+            1.0
+        } else if needed > should.len() {
+            0.0
+        } else {
+            let mut probabilities = vec![0.0; needed + 1];
+            probabilities[0] = 1.0;
+            for p in should {
+                probabilities[needed] += probabilities[needed - 1] * p;
+                for k in (1..needed).rev() {
+                    probabilities[k] = probabilities[k] * (1.0 - p) + probabilities[k - 1] * p;
+                }
+                probabilities[0] *= 1.0 - p;
+            }
+            probabilities[needed]
+        };
+        let fraction = (must * optional * excludes).clamp(0.0, 1.0);
+        let work = required_work
+            .unwrap_or(optional_work)
+            .max((fraction * max_doc as f64).ceil() as u64);
+        Estimate { fraction, work }
+    }
+}
+
+impl Context<'_> {
+    fn distribution(&self, ordinal: usize) -> Option<Arc<Distribution>> {
+        self.distributions
+            .borrow_mut()
+            .entry(ordinal)
+            .or_insert_with(|| {
+                self.stats
+                    .distribution(&self.manifest, ordinal)
+                    .ok()?
+                    .map(Arc::new)
+            })
+            .clone()
+    }
+
+    fn term(&self, term: &Term) -> tantivy::Result<Estimate> {
+        let count = self.reader.inverted_index(term.field())?.doc_freq(term)?;
+        Ok(Estimate::count(count, count as u64, self.reader))
+    }
+
+    fn matching_terms(
+        &self,
+        field: Field,
+        prefix: &[u8],
+        matches: impl Fn(&[u8]) -> bool,
+        max_expansions: usize,
+    ) -> tantivy::Result<Estimate> {
+        let end = prefix_end(prefix);
+        self.terms_in_range(
+            field,
+            (
+                Bound::Included(prefix),
+                end.as_deref().map_or(Bound::Unbounded, Bound::Excluded),
+            ),
+            matches,
+            max_expansions,
+            0.01,
+        )
+    }
+
+    fn terms_in_range(
+        &self,
+        field: Field,
+        bounds: (Bound<&[u8]>, Bound<&[u8]>),
+        matches: impl Fn(&[u8]) -> bool,
+        max_expansions: usize,
+        fallback: f64,
+    ) -> tantivy::Result<Estimate> {
+        use tantivy_common::HasLen;
+        const TERMS: usize = 4096;
+        const BYTES: usize = 1 << 20;
+        let inverted = self.reader.inverted_index(field)?;
+        let dictionary = inverted.terms();
+        let prior = Estimate::prior(fallback, self.reader);
+        if dictionary
+            .file_slice_for_range(bounds, Some((TERMS + 1) as u64))?
+            .len()
+            > BYTES
+        {
+            return Ok(prior);
+        }
+        let mut stream = dictionary.range();
+        match bounds.0 {
+            Bound::Included(v) => stream = stream.ge(v),
+            Bound::Excluded(v) => stream = stream.gt(v),
+            Bound::Unbounded => {}
+        }
+        match bounds.1 {
+            Bound::Included(v) => stream = stream.le(v),
+            Bound::Excluded(v) => stream = stream.lt(v),
+            Bound::Unbounded => {}
+        }
+        let mut stream = stream.limit((TERMS + 1) as u64).into_stream()?;
+        let mut terms = 0;
+        let mut bytes = 0;
+        let mut clauses = Vec::new();
+        while stream.advance() {
+            terms += 1;
+            bytes += stream.key().len();
+            if terms > TERMS || bytes > BYTES {
+                return Ok(prior);
+            }
+            if matches(stream.key()) {
+                if clauses.len() == max_expansions {
+                    return Ok(prior);
+                }
+                let count = stream.value().doc_freq;
+                clauses.push((
+                    Occur::Should,
+                    Estimate::count(count, count as u64, self.reader),
+                ));
+            }
+        }
+        Ok(Estimate::combine(clauses, 1, self.reader.max_doc()))
+    }
+
+    fn regex(&self, query: &RegexQuery, limit: usize) -> tantivy::Result<Estimate> {
+        use tantivy_fst::Automaton;
+        let automaton = query.regex();
+        let prefix = automaton_prefix(automaton);
+        self.matching_terms(
+            query.field(),
+            &prefix,
+            |bytes| {
+                let mut state = automaton.start();
+                for &byte in bytes {
+                    state = automaton.accept(&state, byte);
+                    if !automaton.can_match(&state) {
+                        return false;
+                    }
+                }
+                automaton.is_match(&state)
+            },
+            limit,
+        )
+    }
+
+    fn inverted_range(&self, bounds: (&Bound<Term>, &Bound<Term>)) -> tantivy::Result<Estimate> {
+        let bounds = (bounds.0.as_ref(), bounds.1.as_ref());
+        let term = match bounds {
+            (Bound::Included(t) | Bound::Excluded(t), _)
+            | (_, Bound::Included(t) | Bound::Excluded(t)) => t,
+            _ => return Ok(Estimate::prior(1.0, self.reader)),
+        };
+        self.terms_in_range(
+            term.field(),
+            (
+                bounds.0.map(Term::serialized_value_bytes),
+                bounds.1.map(Term::serialized_value_bytes),
+            ),
+            |_| true,
+            usize::MAX,
+            1.0 / 3.0,
+        )
+    }
+}
+
+impl ProximityQuery {
+    fn sides(
+        &self,
+        left: &ProximityClause,
+        right: &ProximityClause,
+        ctx: &Context<'_>,
+    ) -> tantivy::Result<Option<Estimate>> {
+        let (Some(left), Some(right)) = (self.clause(left, ctx)?, self.clause(right, ctx)?) else {
+            return Ok(None);
+        };
+        let fraction = left.fraction.min(right.fraction);
+        Ok(Some(Estimate {
+            fraction,
+            work: left
+                .work
+                .saturating_add(right.work)
+                .saturating_add((fraction * ctx.reader.max_doc() as f64).ceil() as u64),
+        }))
+    }
+    fn clause(
+        &self,
+        clause: &ProximityClause,
+        ctx: &Context<'_>,
+    ) -> tantivy::Result<Option<Estimate>> {
+        match clause {
+            ProximityClause::Uninitialized => Ok(Some(Estimate::count(0, 0, ctx.reader))),
+            ProximityClause::Term(word) => TermQuery::new(
+                Term::from_field_text(self.field(), word),
+                IndexRecordOption::Basic,
+            )
+            .estimate_docs(ctx),
+            ProximityClause::Regex {
+                pattern,
+                max_expansions,
+            } => ctx
+                .regex(
+                    &RegexQuery::from_pattern(pattern.as_str(), self.field())?,
+                    *max_expansions,
+                )
+                .map(Some),
+            ProximityClause::Clauses(clauses) => {
+                let mut estimates = Vec::new();
+                for clause in clauses {
+                    let Some(child) = self.clause(clause, ctx)? else {
+                        return Ok(None);
+                    };
+                    estimates.push((Occur::Should, child));
+                }
+                Ok(Some(Estimate::combine(estimates, 1, ctx.reader.max_doc())))
+            }
+            ProximityClause::Proximity { left, right, .. } => self.sides(left, right, ctx),
+        }
+    }
+}
+
+fn prefix_end(prefix: &[u8]) -> Option<Vec<u8>> {
+    let mut end = prefix.to_vec();
+    while let Some(byte) = end.pop() {
+        if byte < u8::MAX {
+            end.push(byte + 1);
+            return Some(end);
+        }
+    }
+    None
+}
+
+fn automaton_prefix(automaton: &impl tantivy_fst::Automaton) -> Vec<u8> {
+    let mut prefix = Vec::new();
+    let mut state = automaton.start();
+    while prefix.len() < 64 && !automaton.is_match(&state) {
+        let mut next = None;
+        for byte in 0..=u8::MAX {
+            let next_state = automaton.accept(&state, byte);
+            if automaton.can_match(&next_state) {
+                if next.is_some() {
+                    return prefix;
+                }
+                next = Some((byte, next_state));
+            }
+        }
+        let Some((byte, next_state)) = next else {
+            break;
+        };
+        prefix.push(byte);
+        state = next_state;
+    }
+    prefix
 }
 
 mod fast_field;
@@ -889,7 +850,7 @@ mod tests {
     fn term(field: Field, word: &str) -> Box<dyn Query> {
         Box::new(TermQuery::new(
             Term::from_field_text(field, word),
-            tantivy::schema::IndexRecordOption::Basic,
+            IndexRecordOption::Basic,
         ))
     }
 
@@ -973,7 +934,7 @@ mod tests {
             work: 50,
         };
         for (needed, expected) in [(1, 0.875), (2, 0.5), (3, 0.125), (4, 0.0)] {
-            let result = combine([(Occur::Should, half); 3], needed, 100);
+            let result = Estimate::combine([(Occur::Should, half); 3], needed, 100);
             assert_eq!((result.fraction, result.work), (expected, 150));
         }
         for (occurs, expected) in [
@@ -982,7 +943,7 @@ mod tests {
             (vec![Occur::MustNot], 0.0),
         ] {
             assert_eq!(
-                combine(occurs.into_iter().map(|occur| (occur, half)), 0, 100).fraction,
+                Estimate::combine(occurs.into_iter().map(|occur| (occur, half)), 0, 100).fraction,
                 expected
             );
         }

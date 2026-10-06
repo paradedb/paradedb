@@ -17,77 +17,19 @@
 
 use super::{Context, Estimate};
 use crate::index::stats::distribution::Distribution;
-use std::ops::Bound;
+use std::ops::{Bound, RangeBounds};
 use tantivy::SegmentReader;
 use tantivy::columnar::{ColumnType, MonotonicallyMappableToU64};
 use tantivy::query::Occur;
 use tantivy::schema::{Term, Type};
 
-#[derive(Clone, Copy, PartialEq)]
-enum Value {
-    Integer(i128),
-    Float(f64),
-    Encoded(u128),
-}
-
-impl Value {
-    fn from_term(term: &Term) -> Option<Self> {
-        let bytes = term.value();
-        let bytes = bytes.as_json_value_bytes().unwrap_or_else(|| bytes.clone());
-        Some(match bytes.typ() {
-            Type::I64 => Self::Integer(bytes.as_i64()? as i128),
-            Type::U64 => Self::Integer(bytes.as_u64()? as i128),
-            Type::F64 => Self::Float(bytes.as_f64()?),
-            Type::Bool => Self::Encoded(bytes.as_bool()?.to_u64() as u128),
-            Type::Date => Self::Encoded(bytes.as_date()?.to_u64() as u128),
-            Type::IpAddr => Self::Encoded(u128::from(bytes.as_ip_addr()?)),
-            _ => return None,
-        })
-    }
-    fn compare(self, encoded: u128, typ: ColumnType) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
-        match self {
-            Self::Encoded(value) => encoded.cmp(&value),
-            Self::Integer(value) => match typ {
-                ColumnType::I64 => (i64::from_u64(encoded as u64) as i128).cmp(&value),
-                ColumnType::U64 => (encoded as i128).cmp(&value),
-                ColumnType::F64 => f64::from_u64(encoded as u64).total_cmp(&(value as f64)),
-                _ => Ordering::Less,
-            },
-            Self::Float(value) => {
-                let actual = match typ {
-                    ColumnType::I64 => i64::from_u64(encoded as u64) as f64,
-                    ColumnType::U64 => encoded as f64,
-                    ColumnType::F64 => f64::from_u64(encoded as u64),
-                    _ => return Ordering::Less,
-                };
-                actual.total_cmp(&value)
-            }
-        }
-    }
-}
-
 fn range_fraction(
     stats: &Distribution,
-    typ: ColumnType,
-    lower: Bound<Value>,
-    upper: Bound<Value>,
+    lower: Bound<u128>,
+    upper: Bound<u128>,
     num_docs: u32,
 ) -> f64 {
-    use std::cmp::Ordering;
-    let contains = |value| {
-        let above = match lower {
-            Bound::Unbounded => true,
-            Bound::Included(bound) => bound.compare(value, typ) != Ordering::Less,
-            Bound::Excluded(bound) => bound.compare(value, typ) == Ordering::Greater,
-        };
-        let below = match upper {
-            Bound::Unbounded => true,
-            Bound::Included(bound) => bound.compare(value, typ) != Ordering::Greater,
-            Bound::Excluded(bound) => bound.compare(value, typ) == Ordering::Less,
-        };
-        above && below
-    };
+    let contains = |value| (lower, upper).contains(&value);
     if stats.sample.is_empty() {
         return 0.0;
     }
@@ -141,11 +83,32 @@ fn column_name(term: &Term, reader: &SegmentReader) -> String {
     }
 }
 
-fn term_bound(bound: &Bound<Term>) -> Option<Bound<Value>> {
+fn term_bound(bound: &Bound<Term>, typ: ColumnType) -> Option<Bound<u128>> {
+    let encode = |term: &Term| {
+        let value = term.value();
+        let value = value.as_json_value_bytes().unwrap_or_else(|| value.clone());
+        if value.typ().numerical_type() != typ.numerical_type() {
+            let number = value
+                .as_f64()
+                .or_else(|| value.as_i64().map(|v| v as f64))
+                .or_else(|| value.as_u64().map(|v| v as f64))?;
+            return Some(u128::from(match typ {
+                ColumnType::I64 => (number as i64).to_u64(),
+                ColumnType::U64 => number as u64,
+                ColumnType::F64 => number.to_u64(),
+                _ => return None,
+            }));
+        }
+        if typ == ColumnType::IpAddr {
+            Some(u128::from(value.as_ip_addr()?))
+        } else {
+            value.as_u64_lenient().map(u128::from)
+        }
+    };
     Some(match bound {
         Bound::Unbounded => Bound::Unbounded,
-        Bound::Included(term) => Bound::Included(Value::from_term(term)?),
-        Bound::Excluded(term) => Bound::Excluded(Value::from_term(term)?),
+        Bound::Included(term) => Bound::Included(encode(term)?),
+        Bound::Excluded(term) => Bound::Excluded(encode(term)?),
     })
 }
 
@@ -216,14 +179,11 @@ pub(super) fn range(
                         stats
                             .dictionary
                             .get(pos)
-                            .map_or(Bound::Excluded(Value::Encoded(u128::MAX)), |(ord, _)| {
-                                Bound::Included(Value::Encoded(*ord))
-                            })
+                            .map_or(Bound::Excluded(u128::MAX), |(ord, _)| Bound::Included(*ord))
                     } else {
-                        pos.checked_sub(1)
-                            .map_or(Bound::Excluded(Value::Encoded(0)), |pos| {
-                                Bound::Included(Value::Encoded(stats.dictionary[pos].0))
-                            })
+                        pos.checked_sub(1).map_or(Bound::Excluded(0), |pos| {
+                            Bound::Included(stats.dictionary[pos].0)
+                        })
                     }
                 }
             };
@@ -260,12 +220,13 @@ pub(super) fn range(
             }
             (map(lower, true), map(upper, false))
         } else {
-            let (Some(lower), Some(upper)) = (term_bound(lower), term_bound(upper)) else {
+            let (Some(lower), Some(upper)) = (term_bound(lower, typ), term_bound(upper, typ))
+            else {
                 return Ok(None);
             };
             (lower, upper)
         };
-        let fraction = range_fraction(&stats, typ, lower, upper, ctx.reader.max_doc());
+        let fraction = range_fraction(&stats, lower, upper, ctx.reader.max_doc());
         estimates.push((
             Occur::Should,
             Estimate {

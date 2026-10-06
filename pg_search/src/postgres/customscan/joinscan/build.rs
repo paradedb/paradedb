@@ -474,12 +474,8 @@ impl JoinSourceCandidate {
 
     /// Calculate and store the estimated number of rows matching the query.
     ///
-    /// Uses `MvccSatisfies::LargestSegment` for cheap estimation. When the
-    /// query has heap filters or `PostgresExpression`s (which need executor
-    /// state we don't have at planning time), falls back to `total_docs` as
-    /// an upper bound - looser estimate but avoids evaluating Param-bearing
-    /// expressions during planning (would segfault on unbound PARAM_EXEC).
-    pub fn estimate_rows(&mut self) {
+    /// Uses segment statistics when available, preserving the legacy estimator otherwise.
+    pub fn estimate_rows(&mut self, root: *mut pg_sys::PlannerInfo) {
         if !self.has_bm25_index() {
             return;
         }
@@ -491,6 +487,30 @@ impl JoinSourceCandidate {
         let heap_rel = PgSearchRelation::open(heaprelid);
         let query = self.query.clone().unwrap_or(SearchQueryInput::All);
         let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
+
+        {
+            let reader = SearchIndexReader::open_with_context(
+                &index_rel,
+                SearchQueryInput::All,
+                false,
+                MvccSatisfies::Estimation,
+                None,
+                None,
+                query.needs_tokenizer(),
+                None,
+            )
+            .expect("Failed to open index reader for estimation");
+            if let Some((selectivity, _)) =
+                reader.estimate_metadata(&query, Some((root, self.heap_rti)))
+            {
+                let total_docs = row_estimate
+                    .known_rows()
+                    .unwrap_or(reader.total_docs() as f64);
+                self.segment_count = Some(reader.total_segment_count());
+                self.estimate = Some(RowEstimate::Known((selectivity * total_docs).ceil() as u64));
+                return;
+            }
+        }
 
         if query.has_postgres_expressions() || query.has_heap_filters() {
             let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)

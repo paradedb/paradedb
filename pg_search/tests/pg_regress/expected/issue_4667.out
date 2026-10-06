@@ -67,11 +67,11 @@ WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pus
                              : SortExec: TopK(fetch=26), expr=[col_1@0 DESC, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST, col_4@3 ASC NULLS LAST], preserve_partitioning=[false]
                              :   AggregateExec: mode=Single, gby=[id@1 as col_1, full_name@2 as col_2, linkedin_followers@3 as col_3, seniority_slug@4 as col_4], aggr=[min(p_0.ctid_0) as ctid_0]
                              :     FilterExec: mark@6 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2, full_name@3, linkedin_followers@4, seniority_slug@5]
-                             :       HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(id@0, company_id@1)]
-                             :         CooperativeExec
-                             :           PgSearchScan: table=c, segments=1, visibility=eager, query="all"
+                             :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
                              :         CooperativeExec
                              :           PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                             :         CooperativeExec
+                             :           PgSearchScan: table=c, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (27 rows)
 
 SELECT DISTINCT

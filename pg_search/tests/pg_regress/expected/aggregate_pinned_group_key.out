@@ -364,8 +364,8 @@ FROM pinned_key_items
 WHERE region = 1 AND account_id = 1 AND id @@@ paradedb.all()
 GROUP BY account_id, kind
 ORDER BY kind;
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: (count(*)), account_id, kind
    Sort Key: pinned_key_items.kind
@@ -376,14 +376,11 @@ ORDER BY kind;
          Group By: kind
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
-           :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
-           :       TantivyFetchExec: fetch=[kind]
-           :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
-           :           CooperativeExec
-           :             PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"region","value":1}},{"term":{"field":"account_id","value":1}}]}}
-(17 rows)
+           : AggregateExec: mode=Single, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.account_id) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :   ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, account_id@2 as account_id]
+           :     CooperativeExec
+           :       PgSearchScan: table=pinned_key_items, segments=1, eager=[kind], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"region","value":1}},{"term":{"field":"account_id","value":1}}]}}
+(14 rows)
 
 SELECT COUNT(*) AS count_all, account_id, kind
 FROM pinned_key_items
@@ -1100,8 +1097,8 @@ FROM pinned_key_items
 WHERE updated = TIMESTAMPTZ '2024-01-02 00:00:00+00' AND id @@@ paradedb.all()
 GROUP BY updated, kind
 ORDER BY kind;
-                                                                                                                                                QUERY PLAN                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                    QUERY PLAN                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: kind
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -1110,14 +1107,11 @@ ORDER BY kind;
          Group By: kind
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[kind@0 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.updated) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
-           :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.updated) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
-           :       TantivyFetchExec: fetch=[kind]
-           :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, updated@2 as updated]
-           :           CooperativeExec
-           :             PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(updated = 'Tue Jan 02 00:00:00 2024 UTC'::timestamp with time zone)"}]}}]}}
-(15 rows)
+           : AggregateExec: mode=Single, gby=[kind@1 as kind], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.updated) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_1]
+           :   ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, updated@2 as updated]
+           :     CooperativeExec
+           :       PgSearchScan: table=pinned_key_items, segments=1, eager=[kind], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(updated = 'Tue Jan 02 00:00:00 2024 UTC'::timestamp with time zone)"}]}}]}}
+(12 rows)
 
 SELECT updated, kind, COUNT(*)
 FROM pinned_key_items
@@ -2093,8 +2087,8 @@ SELECT DISTINCT k
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 ORDER BY k;
-                                                                                                                          QUERY PLAN                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: k
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -2102,13 +2096,10 @@ ORDER BY k;
          Indexes: pinned_key_arrays_idx (pinned_key_arrays)
          Group By: k
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[k@0 as k], aggr=[]
-           :   TantivyDecodeExec: decode=[k]
-           :     AggregateExec: mode=Partial, gby=[k@0 as k], aggr=[]
-           :       TantivyFetchExec: fetch=[k]
-           :         CooperativeExec
-           :           PgSearchScan: table=pinned_key_arrays, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(tags = '{1}'::integer[])"}]}}]}}
-(13 rows)
+           : AggregateExec: mode=Single, gby=[k@0 as k], aggr=[]
+           :   CooperativeExec
+           :     PgSearchScan: table=pinned_key_arrays, segments=1, eager=[k], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(tags = '{1}'::integer[])"}]}}]}}
+(10 rows)
 
 SELECT DISTINCT k
 FROM pinned_key_arrays

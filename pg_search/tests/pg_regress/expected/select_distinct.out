@@ -971,11 +971,11 @@ WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to volatile functions 
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[category@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[], lim=[10]
-                 :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(category@0, category@0)]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@0, category@0)]
                  :       CooperativeExec
-                 :         PgSearchScan: table=dr, segments=1, dynamic_filters=1, visibility=eager, query="all"
+                 :         PgSearchScan: table=dp, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
                  :       CooperativeExec
-                 :         PgSearchScan: table=dp, segments=1, dynamic_filters=2, visibility=eager, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(((id)::double precision + random()) > '0'::double precision)"}]}}]}}
+                 :         PgSearchScan: table=dr, segments=1, dynamic_filters=2, visibility=eager, query="all"
 (15 rows)
 
 SELECT DISTINCT dp.category

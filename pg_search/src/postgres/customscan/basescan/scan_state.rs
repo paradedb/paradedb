@@ -575,12 +575,14 @@ impl SolvePostgresExpressions for BaseScanState {
         self.search_query_input = self.base_search_query_input.clone();
     }
 
+    // Ask the base query: `init_expr_context` asks in `begin_custom_scan`, before
+    // `init_search_query_input` copies the base query into `search_query_input`.
     fn has_postgres_expressions(&mut self) -> bool {
-        self.search_query_input.has_postgres_expressions()
+        self.base_search_query_input.has_postgres_expressions()
     }
 
     fn has_parameters(&mut self) -> bool {
-        self.search_query_input.has_parameters()
+        self.base_search_query_input.has_parameters()
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

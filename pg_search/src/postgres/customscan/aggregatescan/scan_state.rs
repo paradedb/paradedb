@@ -287,16 +287,23 @@ impl SolvePostgresExpressions for AggregateScanState {
             .for_each(|agg| agg.init_postgres_expressions(planstate));
     }
 
+    /// Resets `expr_context` once, then solves every query without resetting: a reset per query
+    /// would free the trees solved for the queries before it.
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
         if let Some(ref mut df) = self.datafusion_state {
             df.plan.visit_queries_mut(&mut |q| {
-                q.solve_postgres_expressions(expr_context);
+                q.solve_postgres_expressions_no_reset(expr_context);
             });
         }
         if !self.is_datafusion_backend() {
             self.aggregate_clause
                 .query_mut()
-                .solve_postgres_expressions(expr_context);
+                .solve_postgres_expressions_no_reset(expr_context);
             self.aggregate_clause
                 .aggregates_mut()
                 .for_each(|agg| agg.solve_postgres_expressions(expr_context));

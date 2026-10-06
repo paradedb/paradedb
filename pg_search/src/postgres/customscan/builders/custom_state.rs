@@ -29,6 +29,9 @@ pub struct Args {
 pub struct CustomScanStateWrapper<CS: CustomScan> {
     pub csstate: pg_sys::CustomScanState,
     custom_state: CS::State,
+    /// The ExprContext runtime expressions are solved in. BaseScan and Tantivy AggregateScan
+    /// get a separate one from `init_expr_context` (null when there is nothing to solve);
+    /// JoinScan and DataFusion AggregateScan use `ps_ExprContext`.
     pub runtime_context: *mut pg_sys::ExprContext,
 }
 

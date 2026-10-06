@@ -250,27 +250,20 @@ pub trait SolvePostgresExpressions {
     fn has_parameters(&mut self) -> bool;
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext);
 
+    /// Returns the ExprContext to solve runtime Postgres expressions in, or null when the query has
+    /// none. Like PostgreSQL's `iss_RuntimeContext`, it is separate from the planstate's own
+    /// `ps_ExprContext`: scans may reset that one's per-tuple memory for every row, but a solved
+    /// query is read until the next solve.
+    #[must_use = "retain the returned runtime context for solving expressions"]
     unsafe fn init_expr_context(
         &mut self,
         estate: *mut pg_sys::EState,
-        planstate: *mut pg_sys::PlanState,
-    ) {
-        if self.has_postgres_expressions() || self.has_parameters() {
-            // we have some runtime Postgres expressions/sub-queries that need to be evaluated
-            //
-            // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
-            // make a new one and swap some pointers around
-
-            // hold onto the planstate's current ExprContext
-            // TODO(@mdashti): improve this code by using an extended version of 'ExprContextGuard'
-            let stdecontext = (*planstate).ps_ExprContext;
-
-            // assign a new one
-            pg_sys::ExecAssignExprContext(estate, planstate);
-
-            // and restore our planstate's original ExprContext
-            (*planstate).ps_ExprContext = stdecontext;
+    ) -> *mut pg_sys::ExprContext {
+        if !(self.has_postgres_expressions() || self.has_parameters()) {
+            return std::ptr::null_mut();
         }
+
+        pg_sys::CreateExprContext(estate)
     }
 
     fn init_search_query_input(&mut self) {}
@@ -285,6 +278,9 @@ pub trait SolvePostgresExpressions {
     /// time.
     fn attach_bitmap_cell(&mut self, _cell: &BitmapCell) {}
 
+    /// Solving resets `expr_context`'s per-tuple memory and leaves the solved query there, so
+    /// nothing else may reset it while the solved query is in use. `init_expr_context` returns
+    /// such a context.
     fn prepare_query_for_execution(
         &mut self,
         planstate: *mut pg_sys::PlanState,

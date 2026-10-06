@@ -1,0 +1,494 @@
+-- A generic plan solves its parameters into the search query once per scan, and
+-- each segment reads the solved query when it starts. `lib` is not in the index,
+-- so `lib = $2` is a heap filter that the solve rewrites. The solved query must
+-- outlive the per-row memory resets of the Base Scan (`score()`, `snippet()`)
+-- and of the Aggregate Scan (wrapped aggregates), and the solves of the
+-- Aggregate Scan's `FILTER` clauses.
+-- https://github.com/paradedb/paradedb/issues/6492
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.enable_columnar_exec = false;
+CREATE TABLE issue_6492 (id int PRIMARY KEY, body text, lib text);
+CREATE INDEX issue_6492_idx ON issue_6492 USING bm25 (id, body);
+-- each insert adds a segment
+INSERT INTO issue_6492
+SELECT g,
+       repeat(CASE WHEN g % 4 = 0 THEN 'contrato de prestacao ' ELSE 'alpha beta servicos ' END
+              || md5(g::text) || ' ', 1 + g % 8),
+       'lib' || (g % 5)
+FROM generate_series(1, 500) g;
+INSERT INTO issue_6492
+SELECT g,
+       repeat(CASE WHEN g % 4 = 0 THEN 'contrato de prestacao ' ELSE 'alpha beta servicos ' END
+              || md5(g::text) || ' ', 1 + g % 8),
+       'lib' || (g % 5)
+FROM generate_series(501, 1000) g;
+INSERT INTO issue_6492
+SELECT g,
+       repeat(CASE WHEN g % 4 = 0 THEN 'contrato de prestacao ' ELSE 'alpha beta servicos ' END
+              || md5(g::text) || ' ', 1 + g % 8),
+       'lib' || (g % 5)
+FROM generate_series(1001, 1500) g;
+SELECT count(*) > 1 AS several_segments FROM paradedb.index_info('issue_6492_idx');
+ several_segments 
+------------------
+ t
+(1 row)
+
+PREPARE scored(text, text) AS
+SELECT id, paradedb.score(id) > 0 AS scored
+FROM issue_6492 WHERE body @@@ $1 AND lib = $2
+ORDER BY id;
+PREPARE snippets(text, text) AS
+SELECT id, paradedb.snippet(body) IS NOT NULL AS has_snippet, paradedb.score(id) > 0 AS scored
+FROM issue_6492 WHERE body @@@ $1 AND lib = $2
+ORDER BY id;
+PREPARE filtered(text, text) AS
+SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE body @@@ 'contrato') AS contrato
+FROM issue_6492 WHERE body @@@ $1 AND lib = $2;
+-- A wrapped aggregate is projected in per-row memory, which the Aggregate Scan
+-- resets for every row it returns. EXPLAIN ANALYZE prints the solved query after
+-- the last row.
+PREPARE wrapped(text, text) AS
+SELECT id, repeat(COUNT(*)::text, 200) AS counts
+FROM issue_6492 WHERE body @@@ $1 AND lib = $2
+GROUP BY id;
+-- keeps only the scan line, without the PostgreSQL-version-specific row counts
+CREATE FUNCTION issue_6492_explain_analyze(q text) RETURNS SETOF text AS $$
+DECLARE
+    r record;
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF) ' || q LOOP
+        IF r."QUERY PLAN" LIKE '%Custom Scan%' THEN
+            RETURN NEXT regexp_replace(r."QUERY PLAN", '\s*\(actual.*$', '');
+        END IF;
+    END LOOP;
+END $$ LANGUAGE plpgsql;
+-- `wrapped` returns 300 wide rows; generic and custom plans are compared by summary
+CREATE FUNCTION issue_6492_wrapped_summary(q text) RETURNS text AS $$
+DECLARE
+    r record;
+    n bigint := 0;
+    id_sum bigint := 0;
+    weighted_counts bigint := 0;
+    count_text text;
+BEGIN
+    FOR r IN EXECUTE q LOOP
+        -- `counts` repeats the count's text 200 times
+        count_text := left(r.counts, length(r.counts) / 200);
+        IF r.counts <> repeat(count_text, 200) THEN
+            RAISE EXCEPTION 'id %: malformed counts', r.id;
+        END IF;
+        n := n + 1;
+        id_sum := id_sum + r.id;
+        weighted_counts := weighted_counts + r.id * count_text::bigint;
+    END LOOP;
+    RETURN n || ' rows, id sum ' || id_sum || ', id-weighted count sum ' || weighted_counts;
+END $$ LANGUAGE plpgsql;
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (COSTS OFF) EXECUTE scored('contrato', 'lib1');
+                                                                                                                                                           QUERY PLAN                                                                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Base Scan) on issue_6492
+         Table: issue_6492
+         Index: issue_6492_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('issue_6492_idx'::regclass, paradedb.parse_with_field('body'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(lib = $2)"}]}}]}}
+(8 rows)
+
+EXECUTE scored('contrato', 'lib1');
+  id  | scored 
+------+--------
+   16 | t
+   36 | t
+   56 | t
+   76 | t
+   96 | t
+  116 | t
+  136 | t
+  156 | t
+  176 | t
+  196 | t
+  216 | t
+  236 | t
+  256 | t
+  276 | t
+  296 | t
+  316 | t
+  336 | t
+  356 | t
+  376 | t
+  396 | t
+  416 | t
+  436 | t
+  456 | t
+  476 | t
+  496 | t
+  516 | t
+  536 | t
+  556 | t
+  576 | t
+  596 | t
+  616 | t
+  636 | t
+  656 | t
+  676 | t
+  696 | t
+  716 | t
+  736 | t
+  756 | t
+  776 | t
+  796 | t
+  816 | t
+  836 | t
+  856 | t
+  876 | t
+  896 | t
+  916 | t
+  936 | t
+  956 | t
+  976 | t
+  996 | t
+ 1016 | t
+ 1036 | t
+ 1056 | t
+ 1076 | t
+ 1096 | t
+ 1116 | t
+ 1136 | t
+ 1156 | t
+ 1176 | t
+ 1196 | t
+ 1216 | t
+ 1236 | t
+ 1256 | t
+ 1276 | t
+ 1296 | t
+ 1316 | t
+ 1336 | t
+ 1356 | t
+ 1376 | t
+ 1396 | t
+ 1416 | t
+ 1436 | t
+ 1456 | t
+ 1476 | t
+ 1496 | t
+(75 rows)
+
+EXECUTE snippets('contrato', 'lib1');
+  id  | has_snippet | scored 
+------+-------------+--------
+   16 | t           | t
+   36 | t           | t
+   56 | t           | t
+   76 | t           | t
+   96 | t           | t
+  116 | t           | t
+  136 | t           | t
+  156 | t           | t
+  176 | t           | t
+  196 | t           | t
+  216 | t           | t
+  236 | t           | t
+  256 | t           | t
+  276 | t           | t
+  296 | t           | t
+  316 | t           | t
+  336 | t           | t
+  356 | t           | t
+  376 | t           | t
+  396 | t           | t
+  416 | t           | t
+  436 | t           | t
+  456 | t           | t
+  476 | t           | t
+  496 | t           | t
+  516 | t           | t
+  536 | t           | t
+  556 | t           | t
+  576 | t           | t
+  596 | t           | t
+  616 | t           | t
+  636 | t           | t
+  656 | t           | t
+  676 | t           | t
+  696 | t           | t
+  716 | t           | t
+  736 | t           | t
+  756 | t           | t
+  776 | t           | t
+  796 | t           | t
+  816 | t           | t
+  836 | t           | t
+  856 | t           | t
+  876 | t           | t
+  896 | t           | t
+  916 | t           | t
+  936 | t           | t
+  956 | t           | t
+  976 | t           | t
+  996 | t           | t
+ 1016 | t           | t
+ 1036 | t           | t
+ 1056 | t           | t
+ 1076 | t           | t
+ 1096 | t           | t
+ 1116 | t           | t
+ 1136 | t           | t
+ 1156 | t           | t
+ 1176 | t           | t
+ 1196 | t           | t
+ 1216 | t           | t
+ 1236 | t           | t
+ 1256 | t           | t
+ 1276 | t           | t
+ 1296 | t           | t
+ 1316 | t           | t
+ 1336 | t           | t
+ 1356 | t           | t
+ 1376 | t           | t
+ 1396 | t           | t
+ 1416 | t           | t
+ 1436 | t           | t
+ 1456 | t           | t
+ 1476 | t           | t
+ 1496 | t           | t
+(75 rows)
+
+EXPLAIN (COSTS OFF) EXECUTE filtered('servicos OR prestacao', 'lib1');
+                                                                                                                                                        QUERY PLAN                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on issue_6492
+   Index: issue_6492_idx
+   Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('issue_6492_idx'::regclass, paradedb.parse_with_field('body'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(lib = $2)"}]}}]}}
+     Applies to Aggregates: COUNT(*), COUNT(*)
+     Aggregate Definition: {"0":{"filter":"*"},"1":{"aggs":{"0":{"filter":"*"}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"body","lenient":null,"query_string":"contrato"}}}},"type":"FilterQuery"}}}
+(5 rows)
+
+EXECUTE filtered('servicos OR prestacao', 'lib1');
+ total | contrato 
+-------+----------
+   300 |       75
+(1 row)
+
+EXECUTE filtered('servicos OR prestacao', 'lib2');
+ total | contrato 
+-------+----------
+   300 |       75
+(1 row)
+
+SELECT * FROM issue_6492_explain_analyze($$EXECUTE wrapped('servicos OR prestacao', 'lib1')$$);
+             issue_6492_explain_analyze              
+-----------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on issue_6492
+(1 row)
+
+SELECT * FROM issue_6492_explain_analyze($$EXECUTE wrapped('servicos OR prestacao', 'lib2')$$);
+             issue_6492_explain_analyze              
+-----------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on issue_6492
+(1 row)
+
+SELECT issue_6492_wrapped_summary($$EXECUTE wrapped('servicos OR prestacao', 'lib1')$$);
+              issue_6492_wrapped_summary               
+-------------------------------------------------------
+ 300 rows, id sum 224550, id-weighted count sum 224550
+(1 row)
+
+SELECT issue_6492_wrapped_summary($$EXECUTE wrapped('servicos OR prestacao', 'lib2')$$);
+              issue_6492_wrapped_summary               
+-------------------------------------------------------
+ 300 rows, id sum 224850, id-weighted count sum 224850
+(1 row)
+
+-- the same results from custom plans
+SET plan_cache_mode = force_custom_plan;
+EXECUTE snippets('contrato', 'lib1');
+  id  | has_snippet | scored 
+------+-------------+--------
+   16 | t           | t
+   36 | t           | t
+   56 | t           | t
+   76 | t           | t
+   96 | t           | t
+  116 | t           | t
+  136 | t           | t
+  156 | t           | t
+  176 | t           | t
+  196 | t           | t
+  216 | t           | t
+  236 | t           | t
+  256 | t           | t
+  276 | t           | t
+  296 | t           | t
+  316 | t           | t
+  336 | t           | t
+  356 | t           | t
+  376 | t           | t
+  396 | t           | t
+  416 | t           | t
+  436 | t           | t
+  456 | t           | t
+  476 | t           | t
+  496 | t           | t
+  516 | t           | t
+  536 | t           | t
+  556 | t           | t
+  576 | t           | t
+  596 | t           | t
+  616 | t           | t
+  636 | t           | t
+  656 | t           | t
+  676 | t           | t
+  696 | t           | t
+  716 | t           | t
+  736 | t           | t
+  756 | t           | t
+  776 | t           | t
+  796 | t           | t
+  816 | t           | t
+  836 | t           | t
+  856 | t           | t
+  876 | t           | t
+  896 | t           | t
+  916 | t           | t
+  936 | t           | t
+  956 | t           | t
+  976 | t           | t
+  996 | t           | t
+ 1016 | t           | t
+ 1036 | t           | t
+ 1056 | t           | t
+ 1076 | t           | t
+ 1096 | t           | t
+ 1116 | t           | t
+ 1136 | t           | t
+ 1156 | t           | t
+ 1176 | t           | t
+ 1196 | t           | t
+ 1216 | t           | t
+ 1236 | t           | t
+ 1256 | t           | t
+ 1276 | t           | t
+ 1296 | t           | t
+ 1316 | t           | t
+ 1336 | t           | t
+ 1356 | t           | t
+ 1376 | t           | t
+ 1396 | t           | t
+ 1416 | t           | t
+ 1436 | t           | t
+ 1456 | t           | t
+ 1476 | t           | t
+ 1496 | t           | t
+(75 rows)
+
+EXECUTE filtered('servicos OR prestacao', 'lib1');
+ total | contrato 
+-------+----------
+   300 |       75
+(1 row)
+
+EXECUTE filtered('servicos OR prestacao', 'lib2');
+ total | contrato 
+-------+----------
+   300 |       75
+(1 row)
+
+SELECT issue_6492_wrapped_summary($$EXECUTE wrapped('servicos OR prestacao', 'lib1')$$);
+              issue_6492_wrapped_summary               
+-------------------------------------------------------
+ 300 rows, id sum 224550, id-weighted count sum 224550
+(1 row)
+
+SELECT issue_6492_wrapped_summary($$EXECUTE wrapped('servicos OR prestacao', 'lib2')$$);
+              issue_6492_wrapped_summary               
+-------------------------------------------------------
+ 300 rows, id sum 224850, id-weighted count sum 224850
+(1 row)
+
+DEALLOCATE scored;
+DEALLOCATE snippets;
+DEALLOCATE filtered;
+DEALLOCATE wrapped;
+DROP FUNCTION issue_6492_explain_analyze;
+DROP FUNCTION issue_6492_wrapped_summary;
+RESET plan_cache_mode;
+-- The same with a parallel scan: each process solves the query once and reads it
+-- for every segment it claims. Without workers, the leader claims them all.
+CREATE TABLE issue_6492_parallel (id int PRIMARY KEY, body text, lib text);
+CREATE INDEX issue_6492_parallel_idx ON issue_6492_parallel USING bm25 (id, body);
+INSERT INTO issue_6492_parallel SELECT * FROM issue_6492;
+INSERT INTO issue_6492_parallel
+SELECT g,
+       repeat(CASE WHEN g % 4 = 0 THEN 'contrato de prestacao ' ELSE 'alpha beta servicos ' END
+              || md5(g::text) || ' ', 1 + g % 8),
+       'lib' || (g % 5)
+FROM generate_series(1501, 3000) g;
+SET max_parallel_workers_per_gather = 2;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET paradedb.min_rows_per_worker = 0;
+-- keep the counts from replacing the Base Scan
+SET paradedb.enable_aggregate_custom_scan = false;
+PREPARE parallel_snippets(text, text) AS
+SELECT count(*) AS total, count(paradedb.snippet(body)) AS snippets,
+       count(*) FILTER (WHERE paradedb.score(id) > 0) AS scored, sum(id) AS id_sum
+FROM issue_6492_parallel WHERE body @@@ $1 AND lib = $2;
+SET plan_cache_mode = force_generic_plan;
+EXECUTE parallel_snippets('contrato', 'lib1');
+ total | snippets | scored | id_sum 
+-------+----------+--------+--------
+   150 |      150 |    150 | 225900
+(1 row)
+
+EXECUTE parallel_snippets('contrato', 'lib3');
+ total | snippets | scored | id_sum 
+-------+----------+--------+--------
+   150 |      150 |    150 | 224700
+(1 row)
+
+-- the same results from custom plans
+SET plan_cache_mode = force_custom_plan;
+EXECUTE parallel_snippets('contrato', 'lib1');
+ total | snippets | scored | id_sum 
+-------+----------+--------+--------
+   150 |      150 |    150 | 225900
+(1 row)
+
+EXECUTE parallel_snippets('contrato', 'lib3');
+ total | snippets | scored | id_sum 
+-------+----------+--------+--------
+   150 |      150 |    150 | 224700
+(1 row)
+
+DEALLOCATE parallel_snippets;
+RESET plan_cache_mode;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET min_parallel_table_scan_size;
+RESET paradedb.min_rows_per_worker;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET paradedb.enable_columnar_exec;
+DROP TABLE issue_6492_parallel;
+DROP TABLE issue_6492;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

@@ -59,11 +59,14 @@ pub fn aggregation_results_iter(
         .set_is_execution_time();
 
     let planstate = state.planstate();
-    let expr_context = state.runtime_context;
+    let expr_context = state.csstate.ss.ps.ps_ExprContext;
+    // Solve in `runtime_context`: wrapped aggregates reset `ps_ExprContext` for each row, and
+    // EXPLAIN ANALYZE reads the solved query after the last one.
+    let runtime_context = state.runtime_context;
 
     state
         .custom_state_mut()
-        .prepare_query_for_execution(planstate, expr_context);
+        .prepare_query_for_execution(planstate, runtime_context);
 
     let aggregate_clause = state.custom_state().aggregate_clause.clone();
     let query = aggregate_clause.query().clone();

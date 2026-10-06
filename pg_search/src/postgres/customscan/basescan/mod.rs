@@ -131,10 +131,14 @@ impl BaseScan {
         let executor_scan_init_ns =
             std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
         let planstate = state.planstate();
-        let expr_context = state.runtime_context;
+        // Solve in `runtime_context`: `exec_custom_scan` resets `ps_ExprContext` for each row it
+        // projects with scores or snippets, but each segment's scorer reads the solved query
+        // lazily, after earlier rows were returned.
+        let runtime_context = state.runtime_context;
         state
             .custom_state_mut()
-            .prepare_query_for_execution(planstate, expr_context);
+            .prepare_query_for_execution(planstate, runtime_context);
+        let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
         // Open the index
         let indexrel = state
@@ -1872,7 +1876,6 @@ impl CustomScan for BaseScan {
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
-            let planstate = state.planstate();
 
             pg_sys::ExecInitScanTupleSlot(
                 estate,
@@ -1902,10 +1905,7 @@ impl CustomScan for BaseScan {
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
 
-            state
-                .custom_state_mut()
-                .init_expr_context(estate, planstate);
-            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+            state.runtime_context = state.custom_state_mut().init_expr_context(estate);
         }
         let begin_ns = begin_start.elapsed().as_nanos() as u64;
         let custom_state = state.custom_state_mut();

@@ -936,10 +936,7 @@ impl CustomScan for AggregateScan {
                 state.custom_state_mut().bitmap_exec = Some(bitmap_exec);
             }
 
-            state
-                .custom_state_mut()
-                .init_expr_context(estate, planstate);
-            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+            state.runtime_context = state.custom_state_mut().init_expr_context(estate);
 
             // Create a reusable tuple slot for aggregate results
             // This avoids per-row MakeTupleTableSlot calls which leak memory

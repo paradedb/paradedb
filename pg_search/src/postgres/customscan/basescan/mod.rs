@@ -38,7 +38,7 @@ use std::ptr::addr_of_mut;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use crate::api::operator::estimate_query_cost;
+use crate::api::operator::{estimate_matching_rows, estimate_query_cost};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
@@ -913,12 +913,21 @@ impl CustomScan for BaseScan {
             }
             .max(1.0);
 
+            // Bitmap savings depend on candidates before heap filtering, not final output rows.
+            let bitmap_candidate_rows = if gucs::enable_bitmap_intersection()
+                && quals.contains_heap_expr()
+            {
+                estimate_matching_rows(&bm25_index, query.without_heap_filters(), Some((root, rti)))
+                    .map(|rows| rows as f64)
+            } else {
+                None
+            };
             let harvested_bitmap = bitmap_intersection::BitmapPlanner::from_query(
                 root,
                 builder.args().rel,
                 bm25_index.oid(),
                 &quals,
-                row_estimate.known_rows().map(|rows| rows as f64),
+                bitmap_candidate_rows,
             )
             .and_then(|planner| planner.harvest());
             if let Some(harvested) = &harvested_bitmap {

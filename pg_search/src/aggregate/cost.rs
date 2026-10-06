@@ -20,74 +20,64 @@ use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::schema::SearchIndexSchema;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 
-pub(super) fn estimate_collector_operations(
-    request: &AggregateRequest,
-    rows: Option<u64>,
-    schema: &SearchIndexSchema,
-) -> Option<f64> {
-    let mut updates_per_doc = 0;
-    match request {
-        AggregateRequest::Sql(clause) => {
-            if clause.is_bare_doc_count() {
-                return Some(0.0);
-            }
-            if clause.has_filter() {
-                return None;
-            }
-            for column in clause.grouping_columns() {
-                scalar_field(schema, &column.field_name)?;
-                updates_per_doc += 1;
-            }
-            for aggregate in clause.aggregates() {
-                if clause.can_use_doc_count(aggregate) {
-                    continue;
+impl AggregateRequest {
+    pub(super) fn estimate_collector_operations(
+        &self,
+        rows: Option<u64>,
+        schema: &SearchIndexSchema,
+    ) -> Option<f64> {
+        let mut updates_per_doc = 0;
+        match self {
+            AggregateRequest::Sql(clause) => {
+                if clause.is_bare_doc_count() {
+                    return Some(0.0);
                 }
-                updates_per_doc += if matches!(aggregate, AggregateType::CountAny { .. }) {
-                    1
-                } else {
-                    count_tantivy_collectors(&aggregate.clone().into(), schema)?
-                };
+                if clause.has_filter() {
+                    return None;
+                }
+                for column in clause.grouping_columns() {
+                    if !schema.is_scalar_field(&column.field_name) {
+                        return None;
+                    }
+                    updates_per_doc += 1;
+                }
+                for aggregate in clause.aggregates() {
+                    if clause.can_use_doc_count(aggregate) {
+                        continue;
+                    }
+                    updates_per_doc += if matches!(aggregate, AggregateType::CountAny { .. }) {
+                        1
+                    } else {
+                        count_tantivy_collectors(&aggregate.clone().into(), schema)?
+                    };
+                }
+            }
+            AggregateRequest::Json(aggregations) => {
+                for aggregation in aggregations.values() {
+                    updates_per_doc += count_tantivy_collectors(aggregation, schema)?;
+                }
             }
         }
-        AggregateRequest::Json(aggregations) => {
-            for aggregation in aggregations.values() {
-                updates_per_doc += count_tantivy_collectors(aggregation, schema)?;
-            }
-        }
+        Some(rows? as f64 * updates_per_doc as f64)
     }
-    Some(rows? as f64 * updates_per_doc as f64)
 }
 
 fn count_tantivy_collectors(
     aggregation: &Aggregation,
     schema: &SearchIndexSchema,
 ) -> Option<usize> {
-    use AggregationVariants::*;
-    if matches!(
-        aggregation.agg,
-        Terms(_) | MultiTerms(_) | Composite(_) | DateHistogram(_) | Filter(_)
-    ) {
+    // Filters evaluate another query whose traversal cost is not included here.
+    if matches!(aggregation.agg, AggregationVariants::Filter(_)) {
         return None;
     }
     for field in aggregation.agg.get_fast_field_names() {
-        scalar_field(schema, field)?;
+        if !schema.is_scalar_field(field) {
+            return None;
+        }
     }
     let mut collectors = 1;
     for child in aggregation.sub_aggregation.values() {
         collectors += count_tantivy_collectors(child, schema)?;
     }
     Some(collectors)
-}
-
-fn scalar_field(schema: &SearchIndexSchema, field: &str) -> Option<()> {
-    let field = schema.search_field(field)?;
-    schema
-        .categorized_fields()
-        .iter()
-        .any(|(candidate, data)| {
-            candidate.field_name().root() == field.field_name().root()
-                && !data.is_array
-                && !data.is_json
-        })
-        .then_some(())
 }

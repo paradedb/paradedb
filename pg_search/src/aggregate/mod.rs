@@ -659,7 +659,7 @@ pub fn execute_aggregate(
             )
             && let Some((cost, rows)) = estimate_query_work(index, query.clone(), Some(&reader))
             && let Some(collector_operations) =
-                cost::estimate_collector_operations(&agg_req, rows, reader.schema())
+                agg_req.estimate_collector_operations(rows, reader.schema())
         {
             // TODO: Tune per query using measured collector work, bucket fanout,
             // and partial-result transfer/merge costs.

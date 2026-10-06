@@ -647,6 +647,8 @@ impl SearchIndexReader {
         let mut directory = mvcc_style.directory(index_relation);
         directory.io_stats = io_stats;
         let mut index = crate::index::open_index(directory.clone())?;
+        index.settings_mut().bitmap_postings.use_for_queries =
+            crate::gucs::enable_bitmap_postings();
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);

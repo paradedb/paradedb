@@ -216,6 +216,7 @@ impl Trace {
                     "term" => "Term Dictionary",
                     "fieldnorm" => "Field Norms",
                     "pnorm" => "Posting Norms",
+                    "bmap" => "Posting Bitmaps",
                     "ctid_map" => "CTID Map",
                     "fast" => "Columnar Fields",
                     "store" => "Document Store",

@@ -1166,6 +1166,11 @@ pub mod interrupt_collector {
             self.inner.collect_block(docs);
         }
 
+        fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
+            self.maybe_check_interrupt(tantivy::BLOCK_WINDOW as usize);
+            self.inner.collect_bitmap(base, mask);
+        }
+
         fn harvest(self) -> Self::Fruit {
             self.inner.harvest()
         }
@@ -1352,6 +1357,15 @@ pub mod mvcc_collector {
 
             if self.doc_buffer.len() >= BATCH_SIZE {
                 self.flush();
+            }
+        }
+
+        fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
+            if self.lock.is_none() {
+                self.inner.collect_bitmap(base, mask);
+            } else {
+                tantivy::DocSetBatch::Bitmap(base, mask)
+                    .for_each_doc_block(|docs| self.collect_block(docs));
             }
         }
 

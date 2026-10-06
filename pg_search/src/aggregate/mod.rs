@@ -27,7 +27,7 @@ use crate::aggregate::count_all_collector::CountAllCollector;
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::api::operator::estimate_query_work;
+use crate::api::operator::estimate_selectivity_and_cost;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
@@ -52,6 +52,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 use crate::query::tid_bitmap_stream::{BitmapCell, BitmapCursorSource};
+use crate::scan::info::RowEstimate;
 use crate::schema::SearchIndexSchema;
 
 use parking_lot::Mutex;
@@ -718,28 +719,38 @@ pub fn execute_aggregate(
                     .min(pg_sys::max_parallel_workers as usize)
                     .min(pg_sys::max_worker_processes as usize),
             )
-            && let Some((cost, rows)) = estimate_query_work(index, query.clone(), Some(&reader))
             && let Some(updates_per_doc) = agg_req.updates_per_doc()
-            && (updates_per_doc == 0 || rows.is_some())
+            && let (selectivity, Some(cost)) = estimate_selectivity_and_cost(index, query.clone())
         {
-            let collector_operations = rows.unwrap_or(0) as f64 * updates_per_doc as f64;
-            // TODO: Tune per query using measured collector work, bucket fanout,
-            // and partial-result transfer/merge costs.
-            let work = cost as f64 * pg_sys::cpu_index_tuple_cost
-                + collector_operations * pg_sys::cpu_operator_cost;
-            let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
-            if !parallel_scan_is_cheaper(
-                work,
-                workers,
-                pg_sys::parallel_leader_participation,
-                transfer_cost,
-            ) {
-                nworkers = 0;
-                serial_aggregate = true;
-            }
-            pgrx::debug1!(
-                "aggregate traversal cost={cost}, matching rows={rows:?}, collector work={collector_operations}, requested parallel workers={nworkers}"
+            let total_rows = RowEstimate::from_reltuples(
+                index
+                    .heap_relation()
+                    .and_then(|heap| heap.reltuples())
+                    .map(f64::from),
             );
+            let rows = selectivity
+                .zip(total_rows.known_rows())
+                .map(|(selectivity, rows)| (selectivity * rows).ceil() as u64);
+            if updates_per_doc == 0 || rows.is_some() {
+                let collector_operations = rows.unwrap_or(0) as f64 * updates_per_doc as f64;
+                // TODO: Tune per query using measured collector work, bucket fanout,
+                // and partial-result transfer/merge costs.
+                let work = cost as f64 * pg_sys::cpu_index_tuple_cost
+                    + collector_operations * pg_sys::cpu_operator_cost;
+                let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
+                if !parallel_scan_is_cheaper(
+                    work,
+                    workers,
+                    pg_sys::parallel_leader_participation,
+                    transfer_cost,
+                ) {
+                    nworkers = 0;
+                    serial_aggregate = true;
+                }
+                pgrx::debug1!(
+                    "aggregate traversal cost={cost}, matching rows={rows:?}, collector work={collector_operations}, requested parallel workers={nworkers}"
+                );
+            }
         }
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();

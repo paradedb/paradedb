@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use crate::api::operator::{
-    estimate_query_work, estimate_selectivity_and_cost, expr_contains_search_predicate,
+    estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
 };
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, Varno};

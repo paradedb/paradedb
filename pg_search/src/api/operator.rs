@@ -750,33 +750,12 @@ pub(crate) fn estimate_matching_rows(
         .map(|estimate| estimate.matching_docs as u64)
 }
 
-/// Estimate traversal cost and matching rows, reusing an execution reader when available.
-/// Without a reader, use the planner's combined selectivity/cost estimate.
-pub(crate) fn estimate_query_work(
+/// Estimate the query's traversal cost using the shared selectivity/cost estimator.
+pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
-    reader: Option<&SearchIndexReader>,
-) -> Option<(u64, Option<u64>)> {
-    if let Some(reader) = reader
-        && !estimate_heuristically(&search_query_input)
-    {
-        let row_estimate = RowEstimate::from_reltuples(
-            indexrel
-                .heap_relation()
-                .and_then(|heap| heap.reltuples())
-                .map(f64::from),
-        );
-        return reader.estimate_query_work(row_estimate);
-    }
-    let (selectivity, cost) = estimate_selectivity_and_cost(indexrel, search_query_input);
-    let rows = selectivity
-        .zip(
-            reader
-                .and_then(|_| indexrel.heap_relation())
-                .and_then(|heap| heap.reltuples()),
-        )
-        .map(|(selectivity, rows)| (selectivity * f64::from(rows)) as u64);
-    cost.map(|cost| (cost, rows))
+) -> Option<u64> {
+    estimate_selectivity_and_cost(indexrel, search_query_input).1
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

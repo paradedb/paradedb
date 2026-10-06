@@ -1910,9 +1910,9 @@ impl SearchIndexReader {
     ) -> Option<(f64, f64)> {
         debug_assert!(self.segment_readers().len() <= 1);
         let reader = self.segment_readers().first()?;
-        let query =
-            crate::query::estimate::MetadataQuery::new(self.make_query(query, None), planner);
-        let (matches, work) = query.estimate_docs(reader).ok()??;
+        let query = self.make_query(query, None);
+        let (matches, work) =
+            crate::query::estimate::estimate_docs(query.as_ref(), reader, planner).ok()??;
         let total = f64::from(reader.max_doc()).max(1.0);
         Some((f64::from(matches) / total, work as f64 / total))
     }
@@ -2125,8 +2125,9 @@ impl SearchIndexReader {
             )
             .expect("converting query for estimation should not fail");
 
-        let tantivy_query = crate::query::estimate::MetadataQuery::new(tantivy_query, None);
-        if let Ok(Some((count, _))) = tantivy_query.estimate_docs(largest_reader) {
+        if let Ok(Some((count, _))) =
+            crate::query::estimate::estimate_docs(tantivy_query.as_ref(), largest_reader, None)
+        {
             let alive_fraction =
                 f64::from(largest_reader.num_docs()) / f64::from(largest_reader.max_doc()).max(1.0);
             node.set_estimate(

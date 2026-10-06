@@ -19,9 +19,8 @@
 mod tests {
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::{SearchIndexReader, test_support::segmented_index_fixture};
-    use crate::query::{SearchQueryInput, estimate::MetadataQuery};
+    use crate::query::{SearchQueryInput, estimate::estimate_docs};
     use pgrx::prelude::*;
-    use tantivy::query::Query;
 
     #[pg_test]
     fn metadata_estimation_never_fetches_mlt_document() {
@@ -42,9 +41,7 @@ mod tests {
                     pg_sys::Oid::INVALID,
                 );
         assert_eq!(
-            MetadataQuery::new(Box::new(query), None)
-                .estimate_docs(&reader.segment_readers()[0])
-                .unwrap(),
+            estimate_docs(&query, &reader.segment_readers()[0], None).unwrap(),
             Some((1, 10))
         );
     }

@@ -49,9 +49,12 @@ fn fixture(stats: bool) -> (Index, Field, Field, Field, Field) {
 
 fn estimate_query(index: &Index, query: Box<dyn Query>) -> Option<(u32, u64)> {
     let reader = index.reader().unwrap();
-    MetadataQuery::new(query, None)
-        .estimate_docs(&reader.searcher().segment_readers()[0])
-        .unwrap()
+    estimate_docs(
+        query.as_ref(),
+        &reader.searcher().segment_readers()[0],
+        None,
+    )
+    .unwrap()
 }
 
 fn term(field: Field, word: &str) -> Box<dyn Query> {
@@ -372,25 +375,31 @@ fn missing_required_summary_does_not_produce_a_partial_estimate() {
 #[test]
 fn estimation_does_not_build_weights() {
     #[derive(Debug, Clone)]
-    struct MetadataOnly;
+    struct MetadataOnly(TermQuery);
     impl Query for MetadataOnly {
         fn weight(&self, _: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
             panic!("estimation constructed a weight")
         }
-        fn estimate_docs(&self, _: &SegmentReader) -> tantivy::Result<Option<(u32, u64)>> {
-            Ok(Some((2, 3)))
+        fn matching_query(&self) -> Option<&dyn Query> {
+            Some(&self.0)
         }
     }
-    let (index, _, _, _, _) = fixture(true);
+    let (index, text, _, _, _) = fixture(true);
     assert_eq!(
         estimate_query(
             &index,
             Box::new(BoostQuery::new(
-                ConstScoreQuery::new(MetadataOnly, 1.0),
+                ConstScoreQuery::new(
+                    MetadataOnly(TermQuery::new(
+                        Term::from_field_text(text, "red"),
+                        tantivy::schema::IndexRecordOption::Basic,
+                    )),
+                    1.0
+                ),
                 2.0
             ))
         ),
-        Some((2, 3))
+        Some((2, 2))
     );
 }
 

@@ -770,6 +770,21 @@ impl VisibilityChecker {
         self.segment_checks[&segment_ord].clone()
     }
 
+    pub(crate) fn is_doc_range_all_visible(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+        docs: Range<DocId>,
+    ) -> bool {
+        if docs.is_empty() || !self.check_visibility {
+            return true;
+        }
+        let Some(ranges) = self.doc_id_ranges_needing_visibility_checks(segment_ord) else {
+            return false;
+        };
+        let idx = ranges.partition_point(|range| range.end <= docs.start);
+        idx == ranges.len() || ranges[idx].start >= docs.end
+    }
+
     /// Checks if a single document is visible under this checker's snapshot.
     pub fn check_doc(&mut self, segment_ord: SegmentOrdinal, doc_id: DocId) -> bool {
         if !self.check_visibility {
@@ -1864,7 +1879,7 @@ impl<I: Iterator<Item = u64>> Iterator for PrefetchWindow<'_, I> {
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::*;
 
     #[test]
@@ -1910,5 +1925,48 @@ mod tests {
         assert_eq!(collected, vec![(0, 10), (2, 30)]);
 
         assert_eq!(vis.iter_visible().collect::<Vec<_>>(), vec![10, 30]);
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn bitmap_window_visibility_proof() {
+        Spi::run("CREATE TABLE bitmap_visibility_windows (id int)").unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_visibility_windows'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let relation = PgSearchRelation::open(oid);
+        let mut checker =
+            VisibilityChecker::with_rel_and_snap(&relation, unsafe { pg_sys::GetActiveSnapshot() });
+        checker
+            .segment_checks
+            .insert(0, Some(Arc::from([1024..2048, 4096..4100])));
+        for (docs, expected) in [
+            (0..1024, true),
+            (1024..2048, false),
+            (2048..3072, true),
+            (3072..4096, true),
+            (4096..5120, false),
+            (5120..6144, true),
+            (1023..1025, false),
+            (2047..2049, false),
+        ] {
+            assert_eq!(
+                checker.is_doc_range_all_visible(0, docs.clone()),
+                expected,
+                "{docs:?}"
+            );
+        }
+        checker.segment_checks.insert(1, None);
+        assert!(!checker.is_doc_range_all_visible(1, 0..1024));
+        checker.segment_checks.insert(2, Some(Arc::from([])));
+        assert!(checker.is_doc_range_all_visible(2, 0..1024));
+        Spi::run("SET LOCAL paradedb.enable_visibility_map_shortcuts = off").unwrap();
+        assert!(!checker.is_doc_range_all_visible(0, 0..1024));
     }
 }

@@ -1361,7 +1361,14 @@ pub mod mvcc_collector {
         }
 
         fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
-            if self.lock.is_none() {
+            let all_visible = self.lock.as_ref().is_none_or(|lock| {
+                lock.lock().is_doc_range_all_visible(
+                    self.segment_ord,
+                    base..base.saturating_add(mask.len() as u32 * 64),
+                )
+            });
+            if all_visible {
+                self.flush();
                 self.inner.collect_bitmap(base, mask);
             } else {
                 tantivy::DocSetBatch::Bitmap(base, mask)

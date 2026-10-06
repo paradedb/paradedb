@@ -319,9 +319,9 @@ pub fn collect_filters(
 /// same goes for `tableoid` and junk columns, which are filled in later too.
 pub fn is_available_for_pre_filter(which_ff: &WhichFastField) -> bool {
     match which_ff {
-        WhichFastField::Named { .. }
-        | WhichFastField::Score(_)
-        | WhichFastField::MatchTag(_) => true,
+        WhichFastField::Named { .. } | WhichFastField::Score(_) | WhichFastField::MatchTag(_) => {
+            true
+        }
         WhichFastField::Ctid
         | WhichFastField::TableOid
         | WhichFastField::Junk(_)

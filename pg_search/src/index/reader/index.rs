@@ -2125,6 +2125,24 @@ impl SearchIndexReader {
             )
             .expect("converting query for estimation should not fail");
 
+        let tantivy_query = crate::query::estimate::MetadataQuery::new(tantivy_query, None);
+        if let Ok(Some((count, _))) = tantivy_query.estimate_docs(largest_reader) {
+            let alive_fraction =
+                f64::from(largest_reader.num_docs()) / f64::from(largest_reader.max_doc()).max(1.0);
+            node.set_estimate(
+                (f64::from(count) * alive_fraction / segment_doc_proportion).ceil() as usize,
+            );
+            return;
+        }
+        if node.query.has_heap_filters() || node.query.has_postgres_expressions() {
+            node.set_estimate(
+                (node.query.selectivity_heuristic() * f64::from(largest_reader.num_docs())
+                    / segment_doc_proportion)
+                    .ceil() as usize,
+            );
+            return;
+        }
+
         let weight = tantivy_query
             .weight(enable_scoring(node.query.need_scores(), &self.searcher))
             .expect("creating weight for estimation should not fail");

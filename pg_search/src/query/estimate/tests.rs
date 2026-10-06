@@ -217,6 +217,16 @@ fn every_native_leaf_has_an_estimate() {
             Bound::Included(Term::from_field_text(label, "banana")),
             Bound::Unbounded,
         )),
+        Box::new(crate::query::proximity::query::ProximityQuery::new(
+            text,
+            crate::query::proximity::ProximityClause::Term("red".into()),
+            crate::query::proximity::ProximityDistance::AnyOrder(2),
+            crate::query::proximity::ProximityClause::Term("cat".into()),
+        )),
+        Box::new(crate::query::score::ScoreFilter::new(
+            vec![(Bound::Excluded(0.0), Bound::Unbounded)],
+            term(text, "red"),
+        )),
         Box::new(UnresolvedQuery),
     ];
     for query in queries {
@@ -325,5 +335,131 @@ fn broad_regex_stops_at_the_dictionary_budget() {
             Box::new(RegexQuery::from_pattern(".*", text).unwrap())
         ),
         Some((50, 5000))
+    );
+}
+
+#[test]
+fn missing_required_summary_does_not_produce_a_partial_estimate() {
+    let mut schema = Schema::builder();
+    let text = schema.add_text_field("text", STRING);
+    let values = schema.add_u64_field("values", FAST);
+    let index = Index::builder()
+        .schema(schema.build())
+        .register_plugin(std::sync::Arc::new(crate::index::stats::StatsPlugin))
+        .create_in_ram()
+        .unwrap();
+    let mut writer: IndexWriter = index.writer_with_num_threads(1, 15_000_000).unwrap();
+    let mut document = doc!(text => "red");
+    for value in 0..20000 {
+        document.add_u64(values, value);
+    }
+    writer.add_document(document).unwrap();
+    writer.commit().unwrap();
+    assert_eq!(estimate_query(&index, term(text, "red")), Some((1, 1)));
+    let query = BooleanQuery::new(vec![
+        (Occur::Must, term(text, "red")),
+        (
+            Occur::Must,
+            Box::new(RangeQuery::new(
+                Bound::Included(Term::from_field_u64(values, 1)),
+                Bound::Unbounded,
+            )),
+        ),
+    ]);
+    assert_eq!(estimate_query(&index, Box::new(query)), None);
+}
+
+#[test]
+fn estimation_does_not_build_weights() {
+    #[derive(Debug, Clone)]
+    struct MetadataOnly;
+    impl Query for MetadataOnly {
+        fn weight(&self, _: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+            panic!("estimation constructed a weight")
+        }
+        fn estimate_docs(&self, _: &SegmentReader) -> tantivy::Result<Option<(u32, u64)>> {
+            Ok(Some((2, 3)))
+        }
+    }
+    let (index, _, _, _, _) = fixture(true);
+    assert_eq!(
+        estimate_query(
+            &index,
+            Box::new(BoostQuery::new(
+                ConstScoreQuery::new(MetadataOnly, 1.0),
+                2.0
+            ))
+        ),
+        Some((2, 3))
+    );
+}
+
+#[test]
+fn fast_range_value_types_preserve_their_order() {
+    let mut schema = Schema::builder();
+    let signed = schema.add_i64_field("signed", FAST);
+    let float = schema.add_f64_field("float", FAST);
+    let boolean = schema.add_bool_field("boolean", FAST);
+    let date = schema.add_date_field("date", FAST);
+    let ip = schema.add_ip_addr_field("ip", FAST);
+    let bytes = schema.add_bytes_field("bytes", FAST);
+    let facet = schema.add_facet_field("facet", tantivy::schema::FacetOptions::default());
+    let index = Index::builder()
+        .schema(schema.build())
+        .register_plugin(std::sync::Arc::new(crate::index::stats::StatsPlugin))
+        .create_in_ram()
+        .unwrap();
+    let mut writer: IndexWriter = index.writer_with_num_threads(1, 15_000_000).unwrap();
+    for i in 0..4 {
+        writer
+            .add_document(doc!(signed => i - 2, float => i as f64 - 1.5,
+            boolean => i % 2 == 0, date => tantivy::DateTime::from_timestamp_secs(i),
+            ip => std::net::Ipv6Addr::from(i as u128), bytes => vec![i as u8],
+            facet => tantivy::schema::Facet::from(&format!("/value{i}"))))
+            .unwrap();
+    }
+    writer.commit().unwrap();
+    for bound in [
+        Term::from_field_i64(signed, 0),
+        Term::from_field_f64(float, 0.5),
+        Term::from_field_date(date, tantivy::DateTime::from_timestamp_secs(2)),
+        Term::from_field_ip_addr(ip, std::net::Ipv6Addr::from(2)),
+        Term::from_field_bytes(bytes, &[2]),
+    ] {
+        assert_eq!(
+            estimate_query(
+                &index,
+                Box::new(RangeQuery::new(Bound::Included(bound), Bound::Unbounded))
+            )
+            .unwrap()
+            .0,
+            2
+        );
+    }
+    let bound = Term::from_field_bool(boolean, true);
+    assert_eq!(
+        estimate_query(
+            &index,
+            Box::new(RangeQuery::new(
+                Bound::Included(bound.clone()),
+                Bound::Included(bound)
+            ))
+        )
+        .unwrap()
+        .0,
+        2
+    );
+    let bound = Term::from_facet(facet, &tantivy::schema::Facet::from("/value2"));
+    assert_eq!(
+        estimate_query(
+            &index,
+            Box::new(RangeQuery::new(
+                Bound::Included(bound.clone()),
+                Bound::Included(bound)
+            ))
+        )
+        .unwrap()
+        .0,
+        1
     );
 }

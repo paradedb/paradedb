@@ -677,7 +677,10 @@ fn estimate(query: &dyn Query, ctx: &Context<'_>) -> tantivy::Result<Option<Esti
             .get_field_entry(query.field())
             .field_type()
             .is_fast()
-        {
+            && !matches!(
+                query.value_type(),
+                Type::Facet | Type::Custom | Type::Vector
+            ) {
             fast_field::range(query.bounds(), ctx)
         } else {
             InvertedRangeEstimate(query.bounds().0, query.bounds().1).estimate(ctx)
@@ -831,3 +834,6 @@ impl HeapEstimate<'_> {
 mod fast_field;
 #[cfg(test)]
 mod tests;
+
+#[cfg(any(test, feature = "pg_test"))]
+mod backend_tests;

@@ -688,6 +688,12 @@ pub(crate) fn estimate_selectivity_and_cost(
     search_query_input: SearchQueryInput,
     planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> (Option<f64>, Option<u64>) {
+    if search_query_input.is_match_all() {
+        return (
+            Some(1.0),
+            estimate_heap_rows(indexrel).map(|rows| rows.ceil() as u64),
+        );
+    }
     if let Ok(reader) = SearchIndexReader::open_with_context(
         indexrel,
         SearchQueryInput::All,

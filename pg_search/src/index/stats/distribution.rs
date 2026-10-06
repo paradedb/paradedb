@@ -270,6 +270,109 @@ mod tests {
     }
 
     #[test]
+    fn distribution_old_unknown_and_missing_entries() {
+        use std::io::Write;
+        for version in [None, Some(VERSION + 1)] {
+            let mut bytes = Vec::new();
+            let mut write = CompositeWrite::wrap(&mut bytes);
+            if let Some(version) = version {
+                write
+                    .for_field_with_idx(Field::from_field_id(0), MANIFEST_IDX)
+                    .write_all(&[version])
+                    .unwrap();
+            }
+            write.close().unwrap();
+            let stats =
+                crate::index::stats::SegmentStats::open(tantivy::directory::FileSlice::from(bytes))
+                    .unwrap();
+            assert!(stats.distributions().unwrap().is_none());
+        }
+        let mut bytes = Vec::new();
+        let mut write = CompositeWrite::wrap(&mut bytes);
+        DistributionManifest::write(
+            std::iter::once(Ok((
+                "huge".into(),
+                column(&[vec![0; MAX_SAMPLE_VALUES + 1]]),
+            ))),
+            &mut write,
+        )
+        .unwrap();
+        write.close().unwrap();
+        let stats =
+            crate::index::stats::SegmentStats::open(tantivy::directory::FileSlice::from(bytes))
+                .unwrap();
+        let manifest = stats.distributions().unwrap().unwrap();
+        assert_eq!(manifest.columns[0].0, "huge");
+        assert!(stats.distribution(&manifest, 0).unwrap().is_none());
+    }
+
+    #[test]
+    fn distribution_merge_upgrades_old_segments_and_removes_deleted_values() {
+        use tantivy::merge_policy::NoMergePolicy;
+        use tantivy::schema::{FAST, INDEXED, Schema};
+        use tantivy::{Index, IndexWriter, TantivyDocument, Term, doc};
+        let mut schema = Schema::builder();
+        let id = schema.add_u64_field("id", FAST | INDEXED);
+        let schema = schema.build();
+        let index = Index::builder()
+            .schema(schema)
+            .register_plugin(std::sync::Arc::new(super::super::plugin::StatsPlugin))
+            .create_in_ram()
+            .unwrap();
+        {
+            let mut writer: IndexWriter<TantivyDocument> = index.writer(15_000_000).unwrap();
+            writer.set_merge_policy(Box::new(NoMergePolicy));
+            writer.add_document(doc!(id => 1u64)).unwrap();
+            writer.add_document(doc!(id => 999u64)).unwrap();
+            writer.commit().unwrap();
+        }
+        let old_segment = index.searchable_segments().unwrap().remove(0);
+        tantivy::directory::Directory::delete(
+            index.directory(),
+            &old_segment.relative_path(super::super::plugin::stats_component()),
+        )
+        .unwrap();
+        CompositeWrite::wrap(
+            old_segment
+                .open_write(super::super::plugin::stats_component())
+                .unwrap(),
+        )
+        .close()
+        .unwrap();
+        assert!(
+            crate::index::stats::SegmentStats::of_segment(&old_segment)
+                .unwrap()
+                .unwrap()
+                .distributions()
+                .unwrap()
+                .is_none()
+        );
+        {
+            let mut writer: IndexWriter<TantivyDocument> = index.writer(15_000_000).unwrap();
+            writer.set_merge_policy(Box::new(NoMergePolicy));
+            writer.add_document(doc!(id => 2u64)).unwrap();
+            writer.delete_term(Term::from_field_u64(id, 999));
+            writer.commit().unwrap();
+            writer
+                .merge(&index.searchable_segment_ids().unwrap())
+                .wait()
+                .unwrap();
+        }
+        let segments = index.searchable_segments().unwrap();
+        assert_eq!(segments.len(), 1);
+        let stats = crate::index::stats::SegmentStats::of_segment(&segments[0])
+            .unwrap()
+            .unwrap();
+        let manifest = stats.distributions().unwrap().unwrap();
+        let summary = stats.distribution(&manifest, 0).unwrap().unwrap();
+        assert_eq!(summary.present_docs, 2);
+        assert_eq!(summary.distinct, 2.0);
+        let mut values: Vec<_> = summary.sample.into_iter().flatten().collect();
+        values.sort_unstable();
+        assert_eq!(values, vec![1, 2]);
+    }
+
+    #[test]
     fn distribution_counts_documents_and_preserves_empty_rows() {
         let stats = Distribution::collect(&column(&[vec![1, 1, 2], vec![], vec![1]])).unwrap();
         assert_eq!(stats.present_docs, 2);

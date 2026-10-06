@@ -28,12 +28,13 @@ use tantivy::directory::CompositeFile;
 use tantivy::directory::CompositeWrite;
 use tantivy::schema::Field;
 
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 const MANIFEST_IDX: usize = 2;
 const SAMPLE_DOCS: usize = 2048;
 const MAX_SAMPLE_VALUES: usize = 16384;
 const HISTOGRAM_SIZE: usize = 128;
 const COMMON_VALUES: usize = 32;
+const MAX_DICTIONARY_BYTES: usize = 1 << 20;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct DistributionManifest {
@@ -50,6 +51,7 @@ pub(crate) struct ValueFrequency {
 /// Values use the column's order-preserving encoding; strings use segment-local ordinals.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Distribution {
+    pub(crate) dictionary: Vec<(u128, Vec<u8>)>,
     pub(crate) present_docs: u32,
     pub(crate) distinct: f64,
     pub(crate) common: Vec<ValueFrequency>,
@@ -122,27 +124,50 @@ impl DistributionManifest {
 impl Distribution {
     fn collect(column: &DynamicColumn) -> Option<Self> {
         match column {
-            DynamicColumn::Bool(c) => Self::from_column(c, |v| u128::from(v.to_u64())),
-            DynamicColumn::I64(c) => Self::from_column(c, |v| u128::from(v.to_u64())),
-            DynamicColumn::U64(c) => Self::from_column(c, u128::from),
-            DynamicColumn::F64(c) => Self::from_column(c, |v| u128::from(v.to_u64())),
-            DynamicColumn::DateTime(c) => Self::from_column(c, |v| u128::from(v.to_u64())),
-            DynamicColumn::IpAddr(c) => Self::from_column(c, u128::from),
-            DynamicColumn::Str(c) => Self::from_column(c.ords(), u128::from).map(|mut s| {
-                s.distinct = c.num_terms() as f64;
-                s
-            }),
-            DynamicColumn::Bytes(c) => Self::from_column(c.ords(), u128::from).map(|mut s| {
-                s.distinct = c.num_terms() as f64;
-                s
-            }),
+            DynamicColumn::Bool(c) => Self::from_column(c, |v| u128::from(v.to_u64()), None),
+            DynamicColumn::I64(c) => Self::from_column(c, |v| u128::from(v.to_u64()), None),
+            DynamicColumn::U64(c) => Self::from_column(c, u128::from, None),
+            DynamicColumn::F64(c) => Self::from_column(c, |v| u128::from(v.to_u64()), None),
+            DynamicColumn::DateTime(c) => Self::from_column(c, |v| u128::from(v.to_u64()), None),
+            DynamicColumn::IpAddr(c) => Self::from_column(c, u128::from, None),
+            DynamicColumn::Str(c) => {
+                Self::from_column(c.ords(), u128::from, Some(c.num_terms() as f64))?
+                    .with_dictionary(|ord, bytes| c.ord_to_bytes(ord, bytes))
+            }
+            DynamicColumn::Bytes(c) => {
+                Self::from_column(c.ords(), u128::from, Some(c.num_terms() as f64))?
+                    .with_dictionary(|ord, bytes| c.ord_to_bytes(ord, bytes))
+            }
         }
+    }
+
+    fn with_dictionary(
+        mut self,
+        resolve: impl Fn(u64, &mut Vec<u8>) -> io::Result<bool>,
+    ) -> Option<Self> {
+        let mut ords: Vec<_> = self.sample.iter().flatten().copied().collect();
+        ords.sort_unstable();
+        ords.dedup();
+        let mut total_bytes = 0;
+        for ord in ords {
+            let mut bytes = Vec::new();
+            if !resolve(ord as u64, &mut bytes).ok()? {
+                return None;
+            }
+            total_bytes += bytes.len();
+            if total_bytes > MAX_DICTIONARY_BYTES {
+                return None;
+            }
+            self.dictionary.push((ord, bytes));
+        }
+        Some(self)
     }
 
     /// Scan only during segment serialization. Keep a uniform document sample and an HLL count.
     fn from_column<T: PartialOrd + Copy + Debug + Send + Sync + 'static>(
         column: &Column<T>,
         encode: impl Fn(T) -> u128,
+        known_distinct: Option<f64>,
     ) -> Option<Self> {
         let mut rng = StdRng::seed_from_u64(0x57A75);
         let mut docs: Vec<u32> = (0..column.num_docs().min(SAMPLE_DOCS as u32)).collect();
@@ -160,12 +185,18 @@ impl Distribution {
         let mut selected = docs.into_iter().peekable();
         for doc in 0..column.num_docs() {
             let keep = selected.peek() == Some(&doc);
+            if !keep && known_distinct.is_some() {
+                present_docs += u32::from(column.first(doc).is_some());
+                continue;
+            }
             let mut row = Vec::new();
             let mut present = false;
             for value in column.values_for_doc(doc) {
                 present = true;
                 let value = encode(value);
-                distinct.insert_bytes(&value.to_le_bytes());
+                if known_distinct.is_none() {
+                    distinct.insert_bytes(&value.to_le_bytes());
+                }
                 if keep {
                     sampled_values += 1;
                     if sampled_values > MAX_SAMPLE_VALUES {
@@ -210,8 +241,9 @@ impl Distribution {
                 .collect()
         };
         Some(Self {
+            dictionary: Vec::new(),
             present_docs,
-            distinct: distinct.finalize().unwrap_or_default(),
+            distinct: known_distinct.unwrap_or_else(|| distinct.finalize().unwrap_or_default()),
             common,
             histogram,
             sample,
@@ -272,7 +304,7 @@ mod tests {
     #[test]
     fn distribution_old_unknown_and_missing_entries() {
         use std::io::Write;
-        for version in [None, Some(VERSION + 1)] {
+        for version in [None, Some(VERSION - 1), Some(VERSION + 1)] {
             let mut bytes = Vec::new();
             let mut write = CompositeWrite::wrap(&mut bytes);
             if let Some(version) = version {
@@ -370,6 +402,98 @@ mod tests {
         let mut values: Vec<_> = summary.sample.into_iter().flatten().collect();
         values.sort_unstable();
         assert_eq!(values, vec![1, 2]);
+    }
+
+    #[test]
+    fn distribution_separates_json_paths_and_types() {
+        let mut writer = ColumnarWriter::default();
+        writer.record_numerical(0, "json\u{1}value", 42u64);
+        writer.record_str(1, "json\u{1}value", "forty two");
+        writer.record_str(2, "json\u{1}other", "separate");
+        writer.record_bool(0, "flag", true);
+        writer.record_ip_addr(0, "ip", "::1".parse().unwrap());
+        writer.record_datetime(
+            0,
+            "date",
+            tantivy_common::DateTime::from_timestamp_micros(123),
+        );
+        writer.record_numerical(0, "negative", -42i64);
+        writer.record_numerical(0, "float", 1.5f64);
+        writer.record_bytes(0, "bytes", b"raw");
+        let mut fast = Vec::new();
+        writer
+            .serialize(3, None, &DEFAULT_CODEC_TYPES, &mut fast)
+            .unwrap();
+        let reader = ColumnarReader::open(fast).unwrap();
+        let mut bytes = Vec::new();
+        let mut output = CompositeWrite::wrap(&mut bytes);
+        DistributionManifest::write(
+            reader
+                .iter_columns()
+                .unwrap()
+                .map(|(name, h)| h.open().map(|c| (name, c))),
+            &mut output,
+        )
+        .unwrap();
+        output.close().unwrap();
+        let stats =
+            crate::index::stats::SegmentStats::open(tantivy::directory::FileSlice::from(bytes))
+                .unwrap();
+        let manifest = stats.distributions().unwrap().unwrap();
+        assert_eq!(
+            manifest
+                .columns
+                .iter()
+                .filter(|(name, _)| name == "json\u{1}value")
+                .count(),
+            2
+        );
+        for ordinal in 0..manifest.columns.len() {
+            let summary = stats.distribution(&manifest, ordinal).unwrap().unwrap();
+            assert_eq!(summary.present_docs, 1);
+            assert_eq!(summary.distinct, 1.0);
+            assert_eq!(summary.sample.len(), 3);
+            if matches!(
+                tantivy::columnar::ColumnType::try_from_code(manifest.columns[ordinal].1).unwrap(),
+                tantivy::columnar::ColumnType::Str | tantivy::columnar::ColumnType::Bytes
+            ) {
+                assert_eq!(summary.dictionary.len(), 1);
+                assert!(!summary.dictionary[0].1.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn distribution_string_dictionary_has_a_byte_budget() {
+        let mut writer = ColumnarWriter::default();
+        for doc in 0..32 {
+            writer.record_str(doc, "text", &format!("{doc:02}{}", "x".repeat(40000)));
+        }
+        let mut bytes = Vec::new();
+        writer
+            .serialize(32, None, &DEFAULT_CODEC_TYPES, &mut bytes)
+            .unwrap();
+        let reader = ColumnarReader::open(bytes).unwrap();
+        let column = reader.read_columns("text").unwrap()[0].open().unwrap();
+        assert!(Distribution::collect(&column).is_none());
+    }
+
+    #[test]
+    fn distribution_size_stays_bounded_as_data_grows() {
+        for count in [10000, 200000] {
+            let column = column(&(0..count).map(|i| vec![i]).collect::<Vec<_>>());
+            let start = std::time::Instant::now();
+            let summary = Distribution::collect(&column).unwrap();
+            let bytes = postcard::to_allocvec(&summary).unwrap().len();
+            eprintln!(
+                "{count} values: {} ms, {bytes} summary bytes",
+                start.elapsed().as_millis()
+            );
+            assert_eq!(summary.sample.len(), SAMPLE_DOCS);
+            assert_eq!(summary.histogram.len(), HISTOGRAM_SIZE);
+            assert!(bytes < 65536);
+            assert!((summary.distinct / count as f64 - 1.0).abs() < 0.1);
+        }
     }
 
     #[test]

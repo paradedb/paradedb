@@ -687,6 +687,16 @@ pub fn execute_aggregate(
         // traversal * cpu_index_tuple_cost + rows * updates_per_doc * cpu_operator_cost.
         // Use workers when dividing that work among participants saves more than
         // parallel_setup_cost + workers * parallel_tuple_cost. Unknown estimates keep the initial budget.
+        //
+        // - traversal: estimated work to find matching documents.
+        // - rows: estimated number of matching documents.
+        // - updates_per_doc: estimated aggregation operations for each document.
+        // - cpu_index_tuple_cost: PostgreSQL cost per index entry processed.
+        // - cpu_operator_cost: PostgreSQL cost per operation.
+        // - workers: number of background workers being considered.
+        // - participants: workers plus the leader, if it participates.
+        // - parallel_setup_cost: fixed cost of starting a parallel query.
+        // - parallel_tuple_cost: cost to transfer a result, charged once per worker here.
         let mut nworkers =
             (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
         if nworkers > 0 && pg_sys::parallel_leader_participation {

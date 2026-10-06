@@ -396,18 +396,18 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
 
     // A window aggregate as the whole select list, with no ORDER BY: the aggregate
     // has no sort key, and nothing to carry but the window's own column. Every
-    // row holds the same count, so it does not matter which five come back.
-    assert_paths_agree::<(i64,)>(
-        &mut conn,
-        r#"
+    // row holds the same count, so it does not matter which five come back. A
+    // window aggregate takes the Top-K aggregate path whatever the GUC says, so
+    // there is no SortExec plan to compare against.
+    let window_only = r#"
         SELECT count(*) OVER ()
         FROM tka_t1 t1
         JOIN tka_t2 t2 ON t1.id = t2.t1_id
         WHERE t1.val ||| 'val'
         LIMIT 5
-        "#,
-        5,
-    );
+        "#;
+    let rows: Vec<(i64,)> = window_only.fetch(&mut conn);
+    assert_eq!(rows, vec![(join_rows,); 5], "{window_only}");
 
     // An expression as the whole select list, with no ORDER BY: no column is
     // selected and no heap tuple is fetched, so the evaluated expression is all

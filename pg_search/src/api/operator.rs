@@ -902,13 +902,13 @@ fn selectivity_clause(
                 ..
             }
             | SearchQueryInput::MoreLikeThis { .. }) => break query,
-            SearchQueryInput::Parse { .. }
+            query @ (SearchQueryInput::Parse { .. }
             | SearchQueryInput::FieldedQuery {
                 query: pdb::Query::Parse { .. } | pdb::Query::ParseWithField { .. },
                 ..
-            } => {
-                // TODO: Route parsed text and non-text leaves through their respective estimators.
-                return fallback();
+            }) => {
+                // TODO: Use PostgreSQL statistics for parsed non-text leaves.
+                break query;
             }
             SearchQueryInput::FieldedQuery {
                 field,

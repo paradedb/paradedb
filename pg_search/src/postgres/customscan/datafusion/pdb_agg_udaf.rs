@@ -655,7 +655,8 @@ impl AggregateUDFImpl for PdbAgg {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
     use crate::api::MvccVisibility;
@@ -664,6 +665,7 @@ mod tests {
     use datafusion::datasource::MemTable;
     use datafusion::physical_plan::displayable;
     use datafusion::prelude::{SessionConfig, SessionContext, col};
+    use pgrx::prelude::*;
     use serde_json::{Value, json};
 
     /// `(category, brand, price, qty)`, every column nullable.
@@ -789,7 +791,7 @@ mod tests {
         })
     }
 
-    #[test]
+    #[pg_test]
     fn nested_terms_with_metrics() {
         let batches: Vec<RecordBatch> = rows().iter().map(|rows| batch(rows)).collect();
         let document = document(nested_spec(), vec![batches]);
@@ -865,7 +867,7 @@ mod tests {
 
     /// The partial stage hands its buckets over as state, and the final stage
     /// merges buckets that more than one partition saw.
-    #[test]
+    #[pg_test]
     fn partial_and_final_stages_agree_with_a_single_pass() {
         let single: Vec<RecordBatch> = rows().iter().map(|rows| batch(rows)).collect();
         let split: Vec<Vec<RecordBatch>> = rows().iter().map(|rows| vec![batch(rows)]).collect();
@@ -881,7 +883,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[pg_test]
     fn metric_at_the_root() {
         let batches: Vec<RecordBatch> = rows().iter().map(|rows| batch(rows)).collect();
         assert_eq!(
@@ -894,7 +896,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[pg_test]
     fn empty_input_answers_with_the_empty_document() {
         let empty = vec![vec![batch(&[])]];
         assert_eq!(

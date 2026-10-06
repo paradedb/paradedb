@@ -675,9 +675,12 @@ impl JoinScan {
             }
         }
 
-        // Window aggregates are computed inside the Top-K aggregate node, which
+        // pdb.agg() window functions computed inside the Top-K aggregate node, which
         // needs OFFSET + LIMIT known at planning.
-        if !window_aggs.is_empty()
+        let has_pdb_agg = window_aggs
+            .iter()
+            .any(|agg| agg.agg_def.pdb_agg().is_some());
+        if has_pdb_agg
             && limit_offset
                 .as_ref()
                 .and_then(|lo| lo.static_fetch())

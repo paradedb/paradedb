@@ -895,6 +895,10 @@ fn build_clause_df<'a>(
                 apply_topk_as_agg(df, join_clause, &private_data.output_columns, fetch)?;
             (df, distinct_col_map, true)
         } else {
+            // if no static offset + k is known (so this branch is taken), we can still compute sql
+            // window functions. (pdb.agg() window functions are rejected elsewhere)
+            let df = apply_sql_window_functions(df, join_clause)?;
+
             let (df, distinct_col_map, expressions_evaluated) =
                 apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
             // 5. Apply Sort
@@ -1653,12 +1657,7 @@ fn resolve_orderby_feature(
 /// Driven by `join_clause.window_aggs` rather than the output projection:
 /// an aggregate embedded in an expression has no `ChildProjection::WindowAgg`
 /// entry — only a sentinel Var referencing the column by name.
-///
-/// Kept as a fallback: the Top-K aggregate path computes the window aggregates
-/// in its aggregate node instead (see `window_agg_aggregate_exprs`). A `pdb.agg()` has no
-/// window form, so it is not computed here.
-#[allow(dead_code)]
-fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
+fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
     let mut window_exprs: Vec<Expr> = Vec::new();
     // Materialize only canonical entries: duplicates share the canonical
     // column, and identical window expressions in one Window node trip

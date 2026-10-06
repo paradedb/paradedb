@@ -2454,6 +2454,37 @@ mod tests {
     };
 
     #[pg_test]
+    fn metadata_estimation_uses_one_immutable_segment() {
+        for (name, immutable) in [("estimate_mixed", 3), ("estimate_mutable", 0)] {
+            let (index, _) = segmented_index_fixture(name, immutable, true);
+            let reader = SearchIndexReader::open(
+                &index,
+                SearchQueryInput::All,
+                false,
+                MvccSatisfies::Estimation,
+            )
+            .unwrap();
+            assert_eq!(reader.segment_readers().len(), usize::from(immutable != 0));
+            if immutable != 0 {
+                assert_eq!(reader.segment_readers()[0].max_doc(), 10);
+                assert_eq!(
+                    reader.estimate_metadata(&SearchQueryInput::All, None),
+                    Some((1.0, 1.0))
+                );
+            }
+            assert_eq!(
+                crate::api::operator::estimate_selectivity_and_cost(
+                    &index,
+                    SearchQueryInput::All,
+                    None
+                )
+                .0,
+                Some(1.0)
+            );
+        }
+    }
+
+    #[pg_test]
     fn collect_ctidset_rebinds_visibility_to_each_reader() {
         let (index_rel, heap_oid) = segmented_index_fixture("ctidset_reader_reuse", 2, false);
         let heap_rel = PgSearchRelation::open(heap_oid);

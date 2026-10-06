@@ -42,6 +42,7 @@ use crate::postgres::storage::block::STATS_EXT;
 use crate::postgres::types::is_datetime_type;
 use crate::schema::{SearchField, SearchFieldType};
 
+pub(crate) mod distribution;
 mod plugin;
 mod pruning;
 #[cfg(any(test, feature = "pg_test"))]
@@ -470,6 +471,20 @@ impl SegmentStats {
         Ok(self
             .read::<LogicalWire>(field, LOGICAL_IDX)?
             .map(LogicalBounds::from))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn distributions(&self) -> io::Result<Option<distribution::DistributionManifest>> {
+        distribution::DistributionManifest::read(&self.file)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn distribution(
+        &self,
+        manifest: &distribution::DistributionManifest,
+        ordinal: usize,
+    ) -> io::Result<Option<distribution::Distribution>> {
+        manifest.distribution(&self.file, ordinal)
     }
 
     fn read<T: DeserializeOwned>(&self, field: Field, idx: usize) -> io::Result<Option<T>> {

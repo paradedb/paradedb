@@ -19,7 +19,7 @@
 //!
 //! One `CompositeFile` per segment, keyed by `(Field, idx)`. `idx = 0` holds the empirical
 //! `min`/`max` of a fast field, `idx = 1` the box a partitioned build assigned to the segment's
-//! partition, and `idx = 2` stays reserved for sketches. The footer maps each entry to a byte
+//! partition, and `idx >= 2` holds versioned distribution summaries. The footer maps each entry to a byte
 //! range, so a reader touches only the entries it asks for.
 //!
 //! The two entries have different lifecycles. Empirical stats come from the segment's own
@@ -141,6 +141,15 @@ fn write_stats(
         write
             .for_field_with_idx(field, LOGICAL_IDX)
             .write_all(&bytes)?;
+    }
+    if let Ok(fast) = segment.open_read(SegmentComponent::FastFields) {
+        let columnar = ColumnarReader::open(fast)?;
+        super::distribution::DistributionManifest::write(
+            columnar
+                .iter_columns()?
+                .map(|(name, handle)| handle.open().map(|column| (name, column))),
+            &mut write,
+        )?;
     }
     write.close()?;
     Ok(())

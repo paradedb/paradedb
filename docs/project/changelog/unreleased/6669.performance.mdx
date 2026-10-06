@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+A join of three or more range-partitioned tables now keeps its first join task-local when the two tables share a `partition_by` key. This removes one network shuffle of the larger table.

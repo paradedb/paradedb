@@ -2109,7 +2109,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "4.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed.git?branch=stuhood.task-multiplex-race#ffe17f95039a44c010fbf915b617f63225f7b429"
+source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-10-06-224907#2b82e8d2af32a6b15fb301be858ef47d7b629a3c"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5760,7 +5760,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",

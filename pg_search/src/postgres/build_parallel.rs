@@ -41,7 +41,6 @@ use crate::postgres::ps_status::{
     set_ps_display_suffix,
 };
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::tuplesort::Int8Sorter;
 use crate::postgres::utils::{
@@ -843,7 +842,7 @@ impl<'a> WorkerBuildState<'a> {
         // segments that `finish_partition` merges back down in bounded passes.)
         let max_docs_per_segment = if partitioning.is_none() && worker_segment_target > 1 {
             Some(
-                plan::estimate_heap_reltuples(heaprel) as u32
+                heaprel.estimate_reltuples() as u32
                     / coordination.nlaunched as u32
                     / worker_segment_target as u32,
             )
@@ -1059,7 +1058,7 @@ impl<'a> WorkerBuildState<'a> {
     /// This is used to determine how many segments to merge down in chunks.
     fn estimated_nsegments(&self, docs_per_segment: u32) -> usize {
         *self.estimated_nsegments.get_or_init(|| {
-            let reltuples = plan::estimate_heap_reltuples(&self.heaprel);
+            let reltuples = self.heaprel.estimate_reltuples();
             let reltuples_per_worker = reltuples / self.coordination.nlaunched as f64;
             let nsegments = (reltuples_per_worker / docs_per_segment as f64).ceil() as usize;
             pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nlaunched: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.coordination.nlaunched);
@@ -1459,7 +1458,7 @@ pub(super) fn build_index(
     unsafe {
         pg_sys::pgstat_progress_update_param(
             pg_sys::PROGRESS_CREATEIDX_TUPLES_TOTAL as i32,
-            plan::estimate_heap_reltuples(&heaprel) as i64,
+            heaprel.estimate_reltuples() as i64,
         );
     }
 
@@ -1657,7 +1656,7 @@ pub(crate) mod plan {
         indexrel: &PgSearchRelation,
     ) -> usize {
         // If there are fewer rows than number of CPUs, use 1 worker
-        let reltuples = plan::estimate_heap_reltuples(heaprel);
+        let reltuples = heaprel.estimate_reltuples();
         let target_segment_count = indexrel.options().target_segment_count();
         if reltuples <= target_segment_count as f64 {
             pgrx::debug1!(
@@ -1683,35 +1682,6 @@ pub(crate) mod plan {
         }
 
         target_segment_count
-    }
-
-    // TODO: Convert to use RowEstimate.
-    pub(super) fn estimate_heap_reltuples(heap_relation: &PgSearchRelation) -> f64 {
-        let mut reltuples = unsafe { (*heap_relation.rd_rel).reltuples };
-
-        // if the reltuples estimate is not available, estimate the number of tuples in the heap
-        // by multiplying the number of pages by the max offset number of the first page
-        if reltuples <= 0.0 {
-            let npages = unsafe {
-                pg_sys::RelationGetNumberOfBlocksInFork(
-                    heap_relation.as_ptr(),
-                    heap_relation.fork_number(),
-                )
-            };
-
-            if npages == 0 {
-                // the tuple count actually is 0
-                return 0.0;
-            }
-
-            let bman = BufferManager::new(heap_relation);
-            let buffer = bman.get_buffer(0);
-            let page = buffer.page();
-            let max_offset = page.max_offset_number();
-            reltuples = npages as f32 * max_offset as f32;
-        }
-
-        reltuples as f64
     }
 
     pub(super) fn estimate_heap_byte_size(heap_relation: &PgSearchRelation) -> usize {

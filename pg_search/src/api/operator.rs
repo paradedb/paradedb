@@ -691,7 +691,9 @@ pub(crate) fn estimate_selectivity_and_cost(
     if search_query_input.is_match_all() {
         return (
             Some(1.0),
-            estimate_heap_rows(indexrel).map(|rows| rows.ceil() as u64),
+            indexrel
+                .heap_relation()
+                .map(|heap| heap.estimate_reltuples().ceil() as u64),
         );
     }
     if let Ok(reader) = SearchIndexReader::open_with_context(
@@ -709,15 +711,19 @@ pub(crate) fn estimate_selectivity_and_cost(
         {
             return (
                 Some(selectivity),
-                estimate_heap_rows(indexrel).map(|rows| (rows * work_per_row).ceil() as u64),
+                indexrel
+                    .heap_relation()
+                    .map(|heap| (heap.estimate_reltuples() * work_per_row).ceil() as u64),
             );
         }
         if reader.segment_readers().is_empty() {
             let selectivity = search_query_input.selectivity_heuristic();
             return (
                 Some(selectivity),
-                estimate_heap_rows(indexrel)
-                    .map(|rows| (rows * crate::gucs::expensive_query_cost_factor()).ceil() as u64),
+                indexrel.heap_relation().map(|heap| {
+                    (heap.estimate_reltuples() * crate::gucs::expensive_query_cost_factor()).ceil()
+                        as u64
+                }),
             );
         }
     }
@@ -758,14 +764,15 @@ pub(crate) fn estimate_selectivity(
     estimate_selectivity_and_cost(indexrel, search_query_input, planner).0
 }
 
-/// Scales selectivity using PostgreSQL's heap-size estimate, including before ANALYZE.
+/// Scales selectivity using the shared heap-row estimate, including before ANALYZE.
 pub(crate) fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
     planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<u64> {
     let selectivity = estimate_selectivity(indexrel, search_query_input, planner)?;
-    Some((selectivity * estimate_heap_rows(indexrel)?).ceil() as u64)
+    let rows = indexrel.heap_relation()?.estimate_reltuples();
+    Some((selectivity * rows).ceil() as u64)
 }
 
 /// Estimates the index traversal work used to choose TopK workers.
@@ -775,22 +782,6 @@ pub(crate) fn estimate_query_cost(
     planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<u64> {
     estimate_selectivity_and_cost(indexrel, search_query_input, planner).1
-}
-
-fn estimate_heap_rows(indexrel: &PgSearchRelation) -> Option<f64> {
-    let heap = indexrel.heap_relation()?;
-    let (mut pages, mut rows, mut visible) = (0, 0.0, 0.0);
-    // For partial indexes, scaling to the whole heap is a conservative work estimate.
-    unsafe {
-        pg_sys::estimate_rel_size(
-            heap.as_ptr(),
-            std::ptr::null_mut(),
-            &mut pages,
-            &mut rows,
-            &mut visible,
-        );
-    }
-    Some(rows)
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

@@ -21,6 +21,7 @@ use crate::index::directory::utils::load_index_settings;
 use crate::index::setup_tokenizers;
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
@@ -358,6 +359,29 @@ impl PgSearchRelation {
         } else {
             Some(reltuples)
         }
+    }
+
+    pub(crate) fn estimate_reltuples(&self) -> f64 {
+        let mut reltuples = unsafe { (*self.rd_rel).reltuples };
+
+        // Without statistics, extrapolate from the first heap page.
+        if reltuples <= 0.0 {
+            let npages = unsafe {
+                pg_sys::RelationGetNumberOfBlocksInFork(self.as_ptr(), self.fork_number())
+            };
+
+            if npages == 0 {
+                return 0.0;
+            }
+
+            let bman = BufferManager::new(self);
+            let buffer = bman.get_buffer(0);
+            let page = buffer.page();
+            let max_offset = page.max_offset_number();
+            reltuples = npages as f32 * max_offset as f32;
+        }
+
+        reltuples as f64
     }
 
     pub fn as_ptr(&self) -> pg_sys::Relation {

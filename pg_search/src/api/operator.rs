@@ -750,14 +750,24 @@ pub(crate) fn estimate_matching_rows(
         .map(|estimate| estimate.matching_docs as u64)
 }
 
-/// Estimate the query's Tantivy `DocSet::cost()` -- a synthetic measure of how much work
-/// driving the docset takes -- for the score-DESC TopK worker decision
-/// (`decide_nonprunable_topk_workers`). `None` (caller falls back to the general worker
-/// path) for expensive-to-estimate queries (#4172) and when the index can't be opened.
+/// Estimate traversal cost for the worker decision, reusing an execution reader when available.
+/// Without a reader, use the planner's combined selectivity/cost estimate.
 pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    reader: Option<&SearchIndexReader>,
 ) -> Option<u64> {
+    if let Some(reader) = reader
+        && !estimate_heuristically(&search_query_input)
+    {
+        let row_estimate = RowEstimate::from_reltuples(
+            indexrel
+                .heap_relation()
+                .and_then(|heap| heap.reltuples())
+                .map(f64::from),
+        );
+        return reader.estimate_query_cost(row_estimate);
+    }
     estimate_selectivity_and_cost(indexrel, search_query_input).1
 }
 

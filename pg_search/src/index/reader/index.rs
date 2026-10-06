@@ -1902,6 +1902,32 @@ impl SearchIndexReader {
         }
     }
 
+    /// Estimate traversal cost from the existing largest segment without counting its matches.
+    pub(crate) fn estimate_query_cost(&self, total_docs: RowEstimate) -> Option<u64> {
+        let Some(largest_reader) = self
+            .segment_readers()
+            .iter()
+            .max_by_key(|reader| reader.num_docs())
+        else {
+            return Some(0);
+        };
+        let scorer = self.weight().scorer(largest_reader, 1.0).ok()?;
+        let cost = scorer
+            .cost()
+            .max(self.shortest_posting_list(largest_reader).unwrap_or(0));
+        if cost == 0 && scorer.doc() != tantivy::TERMINATED {
+            return None;
+        }
+        let total_docs = match total_docs {
+            RowEstimate::Known(total_docs) if total_docs > 0 => total_docs,
+            _ => self.total_docs(),
+        };
+        Some(scale_largest_segment_estimate(
+            cost,
+            largest_reader.num_docs() as f64 / total_docs as f64,
+        ))
+    }
+
     /// Given an estimate of the total number of rows in the relation, return estimates of:
     /// 1. The number of rows which will be matched by the configured query.
     /// 2. The total number of rows in the index (estimated if total_docs is Unknown).

@@ -657,7 +657,7 @@ pub fn execute_aggregate(
                     .min(pg_sys::max_parallel_workers as usize)
                     .min(pg_sys::max_worker_processes as usize),
             )
-            && let Some(cost) = estimate_query_cost(index, query.clone())
+            && let Some(cost) = estimate_query_cost(index, query.clone(), Some(&reader))
         {
             let work = cost as f64 * pg_sys::cpu_index_tuple_cost;
             let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;

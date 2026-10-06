@@ -268,7 +268,7 @@ pub(super) unsafe fn costable_drive_cost(
     {
         return None;
     }
-    cost_memo.get_or_compute(|| estimate_query_cost(bm25_index, query.clone()))
+    cost_memo.get_or_compute(|| estimate_query_cost(bm25_index, query.clone(), None))
 }
 
 /// Cost-model leaf for a costable effective-LIMIT scan (see module docs for why pg_search forces

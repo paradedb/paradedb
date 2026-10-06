@@ -23,7 +23,6 @@ use rand::{RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use tantivy::aggregation::metric::CardinalityCollector;
 use tantivy::columnar::{Column, DynamicColumn, MonotonicallyMappableToU64};
-#[cfg(test)]
 use tantivy::directory::CompositeFile;
 use tantivy::directory::CompositeWrite;
 use tantivy::schema::Field;
@@ -85,7 +84,6 @@ impl DistributionManifest {
         Ok(())
     }
 
-    #[cfg(test)]
     pub(crate) fn read(file: &CompositeFile) -> io::Result<Option<Self>> {
         let Some(slice) = file.open_read_with_idx(Field::from_field_id(0), MANIFEST_IDX) else {
             return Ok(None);
@@ -100,7 +98,6 @@ impl DistributionManifest {
             .map_err(io::Error::other)
     }
 
-    #[cfg(test)]
     pub(crate) fn distribution(
         &self,
         file: &CompositeFile,

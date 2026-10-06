@@ -681,22 +681,46 @@ fn open_and_estimate_docs(
     Some(search_reader.estimate_docs(row_estimate))
 }
 
-/// One index open, both planning answers: selectivity (matching/total docs) and the
-/// query's Tantivy `DocSet::cost()`. basescan path generation needs both for the same
-/// combined query, so it opens once here instead of calling `estimate_selectivity` and
-/// `estimate_query_cost` back-to-back.
-///
-/// Returns `(selectivity, query_cost)`:
-/// - expensive-to-estimate query (#4172): `(selectivity_heuristic, scaled match estimate)`
-///   -- no open; the cost is the heuristic match estimate scaled by
-///   `EXPENSIVE_QUERY_COST_FACTOR` (`None` only when the row count is unknown);
-/// - empty index / no valid total: `(None, Some(0))` -- the cost is a known 0;
-/// - open failure: `(None, None)`.
+/// Estimates matches and traversal work from the largest immutable segment's metadata.
+/// Missing summaries retain the legacy search/heuristic estimator for the whole query.
 pub(crate) fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> (Option<f64>, Option<u64>) {
-    if estimate_heuristically(&search_query_input) {
+    if let Ok(reader) = SearchIndexReader::open_with_context(
+        indexrel,
+        SearchQueryInput::All,
+        false,
+        MvccSatisfies::Estimation,
+        None,
+        None,
+        search_query_input.needs_tokenizer(),
+        None,
+    ) {
+        if let Some((selectivity, work_per_row)) =
+            reader.estimate_metadata(&search_query_input, planner)
+        {
+            return (
+                Some(selectivity),
+                estimate_heap_rows(indexrel).map(|rows| (rows * work_per_row).ceil() as u64),
+            );
+        }
+        if reader.segment_readers().is_empty() {
+            let selectivity = search_query_input.selectivity_heuristic();
+            return (
+                Some(selectivity),
+                estimate_heap_rows(indexrel)
+                    .map(|rows| (rows * crate::gucs::expensive_query_cost_factor()).ceil() as u64),
+            );
+        }
+    }
+
+    // Legacy segments keep the previous search/heuristic decision tree.
+    if estimate_heuristically(&search_query_input)
+        || search_query_input.has_heap_filters()
+        || search_query_input.has_postgres_expressions()
+    {
         // #4172 skips opening the index, so derive the work estimate from the same
         // heuristic: these shapes drive far more docset work than they match, so scale the
         // heuristic match estimate (selectivity x rows) by EXPENSIVE_QUERY_COST_FACTOR.
@@ -723,42 +747,44 @@ pub(crate) fn estimate_selectivity_and_cost(
 pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<f64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).0
+    estimate_selectivity_and_cost(indexrel, search_query_input, planner).0
 }
 
-/// The estimated number of heap rows matching `search_query_input`, scaled from the
-/// largest segment up to the whole relation. Unlike `estimate_selectivity` this is an
-/// absolute row count, which is what `visibility => 'threshold'` compares against
-/// `paradedb.visibility_threshold`.
-///
-/// `None` when there is nothing to estimate from: an index that can't be opened, or an
-/// expensive-to-estimate query (#4172) over a heap with no `reltuples`.
+/// Scales selectivity using PostgreSQL's heap-size estimate, including before ANALYZE.
 pub(crate) fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<u64> {
-    if estimate_heuristically(&search_query_input) {
-        let selectivity = search_query_input.selectivity_heuristic();
-        return indexrel
-            .heap_relation()
-            .and_then(|heap| heap.reltuples())
-            .map(|reltuples| (selectivity * reltuples as f64) as u64);
-    }
-
-    open_and_estimate_docs(indexrel, search_query_input)
-        .map(|estimate| estimate.matching_docs as u64)
+    let selectivity = estimate_selectivity(indexrel, search_query_input, planner)?;
+    Some((selectivity * estimate_heap_rows(indexrel)?).ceil() as u64)
 }
 
-/// Estimate the query's Tantivy `DocSet::cost()` -- a synthetic measure of how much work
-/// driving the docset takes -- for the score-DESC TopK worker decision
-/// (`decide_nonprunable_topk_workers`). `None` (caller falls back to the general worker
-/// path) for expensive-to-estimate queries (#4172) and when the index can't be opened.
+/// Estimates the index traversal work used to choose TopK workers.
 pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<u64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).1
+    estimate_selectivity_and_cost(indexrel, search_query_input, planner).1
+}
+
+fn estimate_heap_rows(indexrel: &PgSearchRelation) -> Option<f64> {
+    let heap = indexrel.heap_relation()?;
+    let (mut pages, mut rows, mut visible) = (0, 0.0, 0.0);
+    // For partial indexes, scaling to the whole heap is a conservative work estimate.
+    unsafe {
+        pg_sys::estimate_rel_size(
+            heap.as_ptr(),
+            std::ptr::null_mut(),
+            &mut pages,
+            &mut rows,
+            &mut visible,
+        );
+    }
+    Some(rows)
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

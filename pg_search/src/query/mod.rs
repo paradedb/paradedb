@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod builder;
+pub(crate) mod estimate;
 pub mod estimate_tree;
 pub mod heap_field_filter;
 mod more_like_this;
@@ -1606,10 +1607,6 @@ impl SearchQueryInput {
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
                 let (indexed_tantivy_query, opt_output) = B::split_for_parent(inner_output);
 
-                // Is initialized in `begin_custom_scan` if `has_heap_filters`.
-                let expr_context = expr_context
-                    .expect("An expression context must be provided when heap filtering.");
-
                 // Create combined query with heap field filters
                 let query = Box::new(heap_field_filter::HeapFilterQuery::new(
                     indexed_tantivy_query,
@@ -1629,9 +1626,11 @@ impl SearchQueryInput {
                     cloned_for_estimate,
                 ))
             }
-            SearchQueryInput::PostgresExpression { .. } => {
-                panic!("postgres expressions have not been solved")
-            }
+            SearchQueryInput::PostgresExpression { .. } => Ok(builder.build_leaf(
+                Box::new(estimate::UnresolvedQuery),
+                || "PostgreSQL Expression".to_owned(),
+                cloned_for_estimate,
+            )),
             SearchQueryInput::FieldedQuery {
                 field,
                 query: pdb_query,

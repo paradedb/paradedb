@@ -331,6 +331,8 @@ pub enum MvccSatisfies {
     /// Replay exactly the given view; see [`SegmentView`].
     ParallelWorker(SegmentView),
     LargestSegment,
+    /// Largest immutable segment, without materializing mutable rows.
+    Estimation,
     Snapshot,
     Vacuum,
     Mergeable,
@@ -443,6 +445,7 @@ impl MVCCDirectory {
         match &*self.mvcc_style {
             MvccSatisfies::ParallelWorker(_) => "parallel-worker replay",
             MvccSatisfies::LargestSegment => "largest segment",
+            MvccSatisfies::Estimation => "estimation",
             MvccSatisfies::Snapshot => "snapshot",
             MvccSatisfies::Vacuum => "vacuum",
             MvccSatisfies::Mergeable => "mergeable",
@@ -1124,7 +1127,8 @@ pub fn index_memory_segment(
     let query_visible = match mvcc_style {
         MvccSatisfies::Snapshot
         | MvccSatisfies::ParallelWorker(_)
-        | MvccSatisfies::LargestSegment => true,
+        | MvccSatisfies::LargestSegment
+        | MvccSatisfies::Estimation => true,
         MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
     };
 

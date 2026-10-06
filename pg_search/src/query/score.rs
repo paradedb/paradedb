@@ -22,8 +22,8 @@ use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, Term};
 
 #[derive(Debug)]
 pub struct ScoreFilter {
-    bounds: Vec<(Bound<f32>, Bound<f32>)>,
-    query: Box<dyn Query>,
+    pub(super) bounds: Vec<(Bound<f32>, Bound<f32>)>,
+    pub(super) query: Box<dyn Query>,
 }
 
 impl QueryClone for ScoreFilter {

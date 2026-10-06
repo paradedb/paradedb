@@ -298,13 +298,13 @@ pub enum TidProbe {
 /// Tantivy query that combines indexed search with heap field filtering
 #[derive(Debug)]
 pub struct HeapFilterQuery {
-    indexed_query: Box<dyn Query>,
-    always_filters: Vec<HeapFieldFilter>,
-    recheck_filters: Vec<HeapFieldFilter>,
+    pub(super) indexed_query: Box<dyn Query>,
+    pub(super) always_filters: Vec<HeapFieldFilter>,
+    pub(super) recheck_filters: Vec<HeapFieldFilter>,
     bitmap_consumer_id: Option<u32>,
     bitmap_cell: Option<BitmapCell>,
     rel_oid: pg_sys::Oid,
-    expr_context: NonNull<pg_sys::ExprContext>,
+    expr_context: Option<NonNull<pg_sys::ExprContext>>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
 }
 
@@ -321,7 +321,7 @@ impl HeapFilterQuery {
         bitmap_consumer_id: Option<u32>,
         bitmap_cell: Option<BitmapCell>,
         rel_oid: pg_sys::Oid,
-        expr_context: NonNull<pg_sys::ExprContext>,
+        expr_context: Option<NonNull<pg_sys::ExprContext>>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> Self {
         Self {
@@ -354,6 +354,11 @@ impl tantivy::query::QueryClone for HeapFilterQuery {
 
 impl Query for HeapFilterQuery {
     fn weight(&self, enable_scoring: EnableScoring) -> tantivy::Result<Box<dyn Weight>> {
+        let expr_context = self.expr_context.ok_or_else(|| {
+            tantivy::TantivyError::InvalidArgument(
+                "Heap filtering requires an execution context".into(),
+            )
+        })?;
         let indexed_weight = self.indexed_query.weight(enable_scoring)?;
         Ok(Box::new(HeapFilterWeight {
             indexed_weight,
@@ -362,7 +367,7 @@ impl Query for HeapFilterQuery {
             bitmap_consumer_id: self.bitmap_consumer_id,
             bitmap_cell: self.bitmap_cell.clone(),
             rel_oid: self.rel_oid,
-            expr_context: self.expr_context,
+            expr_context,
             planstate: self.planstate,
         }))
     }

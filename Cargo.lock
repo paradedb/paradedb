@@ -5090,6 +5090,7 @@ dependencies = [
  "futures",
  "half 2.7.1",
  "lazy_static",
+ "levenshtein_automata",
  "log",
  "macros",
  "once_cell",

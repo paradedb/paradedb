@@ -364,7 +364,10 @@ pub unsafe fn load_metas(
     let mut segment_metas = metapage.segment_metas();
     let mut exhausted_metas_lists = false;
 
-    let is_largest_only = &MvccSatisfies::LargestSegment == solve_mvcc;
+    let is_largest_only = matches!(
+        solve_mvcc,
+        MvccSatisfies::LargestSegment | MvccSatisfies::Estimation
+    );
     let mut largest_doc_count = 0;
 
     loop {
@@ -372,7 +375,7 @@ pub unsafe fn load_metas(
         segment_metas.for_each(|bman, mut entry| {
             if matches!(
                 solve_mvcc,
-                MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment
+                MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment | MvccSatisfies::Estimation
             ) && !entry.visible()
             {
                 return;
@@ -387,7 +390,7 @@ pub unsafe fn load_metas(
                     || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax() == pg_sys::InvalidTransactionId)
 
                     // a snapshot or ::LargestSegment can see any that are visible in its snapshot
-                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment) && entry.visible())
+                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment | MvccSatisfies::Estimation) && entry.visible())
 
                     // mergeable can see any that are known to be mergeable
                     || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.is_mergeable(indexrel))
@@ -412,7 +415,7 @@ pub unsafe fn load_metas(
             // It can't match anything, so query readers skip it. Vacuum and merge still see it.
             if matches!(
                 solve_mvcc,
-                MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment
+                MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment | MvccSatisfies::Estimation
             ) && entry.is_mutable()
                 && entry.num_docs() == 0
             {
@@ -422,6 +425,9 @@ pub unsafe fn load_metas(
             total_segments += 1;
             total_docs += entry.num_docs();
 
+            if matches!(solve_mvcc, MvccSatisfies::Estimation) && entry.is_mutable() {
+                return;
+            }
             let mut need_entry = true;
             if is_largest_only {
                 if entry.num_docs() > largest_doc_count {

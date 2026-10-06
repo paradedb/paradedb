@@ -1902,6 +1902,21 @@ impl SearchIndexReader {
         }
     }
 
+    /// Reads metadata from the representative segment without constructing a scorer.
+    pub(crate) fn estimate_metadata(
+        &self,
+        query: &SearchQueryInput,
+        planner: Option<(*mut pgrx::pg_sys::PlannerInfo, pgrx::pg_sys::Index)>,
+    ) -> Option<(f64, f64)> {
+        debug_assert!(self.segment_readers().len() <= 1);
+        let reader = self.segment_readers().first()?;
+        let query =
+            crate::query::estimate::MetadataQuery::new(self.make_query(query, None), planner);
+        let (matches, work) = query.estimate_docs(reader).ok()??;
+        let total = f64::from(reader.max_doc()).max(1.0);
+        Some((f64::from(matches) / total, work as f64 / total))
+    }
+
     /// Given an estimate of the total number of rows in the relation, return estimates of:
     /// 1. The number of rows which will be matched by the configured query.
     /// 2. The total number of rows in the index (estimated if total_docs is Unknown).

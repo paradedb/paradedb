@@ -48,6 +48,8 @@ mod pruning;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 
+#[cfg(test)]
+pub(crate) use plugin::StatsPlugin;
 use plugin::stats_component;
 pub(crate) use plugin::{StatsWriter, logical_bounds_hold, register};
 pub(crate) use pruning::{
@@ -473,12 +475,10 @@ impl SegmentStats {
             .map(LogicalBounds::from))
     }
 
-    #[cfg(test)]
     pub(crate) fn distributions(&self) -> io::Result<Option<distribution::DistributionManifest>> {
         distribution::DistributionManifest::read(&self.file)
     }
 
-    #[cfg(test)]
     pub(crate) fn distribution(
         &self,
         manifest: &distribution::DistributionManifest,

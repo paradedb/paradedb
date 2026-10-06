@@ -1062,7 +1062,11 @@ impl CustomScan for BaseScan {
             } else {
                 // Ask the index. This is the one branch that opens, so reuse that same
                 // open's cost for the TopK worker decision instead of opening twice.
-                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone());
+                let (sel, cost) = estimate_selectivity_and_cost(
+                    &bm25_index,
+                    query.clone(),
+                    Some((builder.args().root, rti)),
+                );
                 precomputed_query_cost = cost;
                 sel.unwrap_or(UNKNOWN_SELECTIVITY)
             };
@@ -1151,6 +1155,7 @@ impl CustomScan for BaseScan {
                     &bm25_index,
                     &quals,
                     builder.args().root,
+                    rti,
                     &mut cost_memo,
                 ),
                 RowEstimate::Unknown => None,

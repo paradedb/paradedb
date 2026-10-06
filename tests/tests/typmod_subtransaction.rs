@@ -115,6 +115,41 @@ async fn retry_index_after_rollback(
     Ok(())
 }
 
+/// The savepoint inserts the row itself, so index creation finds it in the table instead of
+/// inserting it. The id it caches from there must be forgotten on rollback too.
+#[rstest]
+#[tokio::test]
+async fn retry_index_after_rollback_of_found_row(database: Db) -> Result<()> {
+    let mut conn = database.connection().await;
+    conn.execute(
+        "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+         CREATE TABLE typmod_subtransaction (id integer PRIMARY KEY, body text);
+         INSERT INTO typmod_subtransaction VALUES (1, 'hello world')",
+    )
+    .await?;
+
+    let option = "alias=found_row_body";
+    let create_index = format!(
+        "CREATE INDEX typmod_subtransaction_idx ON typmod_subtransaction
+         USING paradedb (id, (body::pdb.simple('{option}')))"
+    );
+    conn.execute("BEGIN; SAVEPOINT attempt").await?;
+    sqlx::query("SELECT paradedb._save_typmod(ARRAY[$1])")
+        .bind(option)
+        .execute(&mut conn)
+        .await?;
+    conn.execute(AssertSqlSafe(create_index.as_str())).await?;
+    conn.execute("ROLLBACK TO SAVEPOINT attempt").await?;
+
+    conn.execute(AssertSqlSafe(create_index.as_str())).await?;
+    conn.execute("COMMIT").await?;
+    assert_eq!(option_count(&mut conn, option).await?, 1);
+
+    let mut fresh = database.connection().await;
+    assert_index_works(&mut fresh).await?;
+    Ok(())
+}
+
 #[rstest]
 #[case::savepoint("SAVEPOINT attempt", "ROLLBACK TO SAVEPOINT attempt")]
 #[case::nested(

@@ -540,36 +540,40 @@ enum AddedEntry {
 
 thread_local! {
     static XACT_CALLBACKS_REGISTERED: Cell<bool> = const { Cell::new(false) };
-    /// The entries added in the current transaction, each with the transaction nesting level it
-    /// was added at, so that an abort removes those entries and keeps everything cached before.
-    static ADDED: RefCell<Vec<(i32, AddedEntry)>> = const { RefCell::new(Vec::new()) };
+    /// The entries added in the current transaction, each with the subtransaction it was added
+    /// in, so that an abort removes those entries and keeps everything cached before.
+    static ADDED: RefCell<Vec<(pg_sys::SubTransactionId, AddedEntry)>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 /// Records `entry` so that aborting the (sub)transaction it is added in removes it again.
 fn remember_added(entry: AddedEntry) {
     ensure_xact_callbacks_registered();
-    let level = unsafe { pg_sys::GetCurrentTransactionNestLevel() };
-    ADDED.with_borrow_mut(|added| added.push((level, entry)));
+    let subid = unsafe { pg_sys::GetCurrentSubTransactionId() };
+    ADDED.with_borrow_mut(|added| added.push((subid, entry)));
 }
 
-/// Removes the entries added at nesting level `level` or deeper from the caches.
-fn forget_added(level: i32) {
+/// Removes the entries added in subtransaction `subid` or later from the caches.
+///
+/// Subtransaction ids only grow within a transaction, so these are the entries of `subid` and
+/// of the subtransactions started inside it, released or not. Entries of a savepoint released
+/// before `subid` started have a smaller id and stay.
+fn forget_added(subid: pg_sys::SubTransactionId) {
     let removed: Vec<_> = ADDED.with_borrow_mut(|added| {
         added
-            .extract_if(.., |(entry_level, _)| *entry_level >= level)
+            .extract_if(.., |(entry_subid, _)| *entry_subid >= subid)
             .collect()
     });
     for (_, entry) in removed {
         match entry {
             AddedEntry::Load(typmod) => {
-                if let Some(cache) = LOAD_CACHE.get() {
-                    cache.lock().remove(&typmod);
-                }
+                LOAD_CACHE
+                    .get_or_init(Default::default)
+                    .lock()
+                    .remove(&typmod);
             }
             AddedEntry::Save(key) => {
-                if let Some(cache) = SAVE_CACHE.get() {
-                    cache.lock().remove(&key);
-                }
+                SAVE_CACHE.get_or_init(Default::default).lock().remove(&key);
             }
         }
     }
@@ -590,20 +594,8 @@ fn ensure_xact_callbacks_registered() {
         forget_added(0);
         XACT_CALLBACKS_REGISTERED.set(false);
     });
-    register_subxact_callback(PgSubXactCallbackEvent::AbortSub, |_, _| {
-        forget_added(unsafe { pg_sys::GetCurrentTransactionNestLevel() });
-    });
-    // A released savepoint's entries now belong to its parent, as its row changes do, so
-    // rolling back a later sibling savepoint must not remove them.
-    register_subxact_callback(PgSubXactCallbackEvent::CommitSub, |_, _| {
-        let level = unsafe { pg_sys::GetCurrentTransactionNestLevel() };
-        ADDED.with_borrow_mut(|added| {
-            for (entry_level, _) in added.iter_mut() {
-                if *entry_level == level {
-                    *entry_level = level - 1;
-                }
-            }
-        });
+    register_subxact_callback(PgSubXactCallbackEvent::AbortSub, |subid, _| {
+        forget_added(subid)
     });
     XACT_CALLBACKS_REGISTERED.set(true);
 }

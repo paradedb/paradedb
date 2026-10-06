@@ -1014,7 +1014,7 @@ impl<'a> TopKAggSelectedExpressions<'a> {
                     .into_iter()
                     .filter(|column| !is_pdb_agg_column(column, self.join_clause))
                     .collect();
-                inputs.sort();
+                inputs.sort(); // sort is necessary to make column order deterministic
                 // With DISTINCT the payload is the distinct key. Window aggregate columns
                 // can join it, since their value is the same on every row and so is the
                 // entry's. Any other input would have to be part of the key while the

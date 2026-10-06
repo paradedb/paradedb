@@ -567,18 +567,6 @@ impl SearchIndexSchema {
         }
     }
 
-    /// Returns true for a known field sourced from a non-array, non-JSON SQL value.
-    pub fn is_scalar_field(&self, name: impl AsRef<str>) -> bool {
-        let Some(field) = self.search_field(name) else {
-            return false;
-        };
-        self.categorized_fields().iter().any(|(candidate, data)| {
-            candidate.field_name().root() == field.field_name().root()
-                && !data.is_array
-                && !data.is_json
-        })
-    }
-
     /// Returns an additional existence check without replacing the original query.
     ///
     /// For a scalar fast field, `color @@@ 'blue'` gets an `exists(color)` guard.

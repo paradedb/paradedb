@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod cost;
 mod count_all_collector;
 pub mod exec;
 
@@ -73,6 +72,53 @@ use tantivy::index::SegmentId;
 pub enum AggregateRequest {
     Sql(AggregateCSClause),
     Json(Aggregations),
+}
+
+impl AggregateRequest {
+    /// Counts grouping-key and collector updates per document, ignoring value multiplicity.
+    /// Bare COUNT(*) adds no collector work. Filters return None because their queries
+    /// need a separate traversal estimate.
+    fn updates_per_doc(&self) -> Option<usize> {
+        let mut updates_per_doc = 0;
+        match self {
+            AggregateRequest::Sql(clause) => {
+                if clause.is_bare_doc_count() {
+                    return Some(0);
+                }
+                if clause.has_filter() {
+                    return None;
+                }
+                updates_per_doc += clause.grouping_columns().len();
+                for aggregate in clause.aggregates() {
+                    if clause.can_use_doc_count(aggregate) {
+                        continue;
+                    }
+                    updates_per_doc += if matches!(aggregate, AggregateType::CountAny { .. }) {
+                        1
+                    } else {
+                        count_tantivy_collectors(&aggregate.clone().into())?
+                    };
+                }
+            }
+            AggregateRequest::Json(aggregations) => {
+                for aggregation in aggregations.values() {
+                    updates_per_doc += count_tantivy_collectors(aggregation)?;
+                }
+            }
+        }
+        Some(updates_per_doc)
+    }
+}
+
+fn count_tantivy_collectors(aggregation: &Aggregation) -> Option<usize> {
+    if matches!(aggregation.agg, AggregationVariants::Filter(_)) {
+        return None;
+    }
+    let mut collectors = 1;
+    for child in aggregation.sub_aggregation.values() {
+        collectors += count_tantivy_collectors(child)?;
+    }
+    Some(collectors)
 }
 
 impl TryInto<Aggregations> for AggregateRequest {
@@ -636,6 +682,10 @@ pub fn execute_aggregate(
             return Ok(results);
         }
 
+        // Cap workers by segments/GUCs and account for leader participation. Serial cost is
+        // traversal * cpu_index_tuple_cost + rows * updates_per_doc * cpu_operator_cost.
+        // Use workers when dividing that work among participants saves more than
+        // parallel_setup_cost + workers * parallel_tuple_cost. Unknown estimates keep the initial budget.
         let mut nworkers =
             (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
         if nworkers > 0 && pg_sys::parallel_leader_participation {
@@ -658,7 +708,7 @@ pub fn execute_aggregate(
                     .min(pg_sys::max_worker_processes as usize),
             )
             && let Some((cost, rows)) = estimate_query_work(index, query.clone(), Some(&reader))
-            && let Some(updates_per_doc) = agg_req.updates_per_doc(reader.schema())
+            && let Some(updates_per_doc) = agg_req.updates_per_doc()
             && (updates_per_doc == 0 || rows.is_some())
         {
             let collector_operations = rows.unwrap_or(0) as f64 * updates_per_doc as f64;

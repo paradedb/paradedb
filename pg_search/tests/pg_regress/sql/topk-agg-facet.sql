@@ -1089,6 +1089,34 @@ WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
 
+-- Test 27f: SQL window aggregates over a JOIN with a parameterized LIMIT.
+-- In a generic plan the fetch is not known at planning, so the Top-K
+-- aggregate node cannot be used: JoinScan still engages and computes the
+-- window aggregates in a DataFusion window node instead.
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE window_join_param_limit(int) AS
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    r.score + COUNT(*) OVER () AS score_plus_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT $1;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE window_join_param_limit(3);
+
+EXECUTE window_join_param_limit(3);
+
+DEALLOCATE window_join_param_limit;
+
+RESET plan_cache_mode;
+
 -- Test 28: Window function in subquery
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *

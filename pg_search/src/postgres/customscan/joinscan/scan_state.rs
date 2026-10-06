@@ -1458,11 +1458,6 @@ fn apply_distinct_group_by(
         return Ok((df, DistinctColMap::default(), false));
     };
 
-    assert!(
-        join_clause.window_aggs.is_empty(),
-        "This path should never be taken if there were window expressions"
-    );
-
     let group_exprs: Vec<Expr> = key_exprs
         .into_iter()
         .enumerate()

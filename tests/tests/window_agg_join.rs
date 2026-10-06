@@ -721,17 +721,17 @@ enum WindowShape {
     Distinct,
     /// A target list of window aggregates alone: every row is one group.
     DistinctWindowsOnly,
-    /// The window aggregates run inside the Top-K aggregate, which needs k at
-    /// planning time; a parameterized LIMIT declines and PostgreSQL computes
-    /// the query.
-    ParameterizedLimitDeclines,
+    /// The Top-K aggregate needs k at planning time. With a parameterized
+    /// LIMIT it is not known, so the JoinScan computes the window aggregates
+    /// in a DataFusion window node instead.
+    ParameterizedLimit,
 }
 
 #[rstest]
 #[case::no_order_by(WindowShape::NoOrderBy)]
 #[case::distinct(WindowShape::Distinct)]
 #[case::distinct_windows_only(WindowShape::DistinctWindowsOnly)]
-#[case::parameterized_limit_declines(WindowShape::ParameterizedLimitDeclines)]
+#[case::parameterized_limit(WindowShape::ParameterizedLimit)]
 fn global_window_aggregates_query_shapes(
     mut conn: PgConnection,
     #[case] shape: WindowShape,
@@ -801,7 +801,7 @@ fn global_window_aggregates_query_shapes(
             let rows = query.fetch_result::<(i64,)>(&mut conn)?;
             assert_eq!(rows, vec![(1000,)]);
         }
-        WindowShape::ParameterizedLimitDeclines => {
+        WindowShape::ParameterizedLimit => {
             r#"
             SET plan_cache_mode = force_generic_plan;
             PREPARE wj_page AS
@@ -815,7 +815,10 @@ fn global_window_aggregates_query_shapes(
             .execute(&mut conn);
 
             let plan = explain(&mut conn, "EXECUTE wj_page(3)");
-            assert!(!plan.contains(JOIN_SCAN), "{plan}");
+            assert!(plan.contains(JOIN_SCAN), "{plan}");
+            assert!(!plan.contains("WindowAgg "), "{plan}");
+            assert!(plan.contains("WindowAggExec"), "{plan}");
+            assert!(!plan.contains("topk_as_agg("), "{plan}");
 
             let rows = "EXECUTE wj_page(3)".fetch_result::<(i32, i64)>(&mut conn)?;
             assert_eq!(rows, vec![(999, 1000), (997, 1000), (995, 1000)]);

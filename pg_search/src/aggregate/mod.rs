@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod cost;
 mod count_all_collector;
 pub mod exec;
 
@@ -27,7 +28,7 @@ use crate::aggregate::count_all_collector::CountAllCollector;
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::api::operator::estimate_query_cost;
+use crate::api::operator::estimate_query_work;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
@@ -43,7 +44,7 @@ use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
-use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
+use crate::postgres::customscan::parallel::{parallel_divisor, parallel_scan_is_cheaper};
 use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
@@ -640,8 +641,7 @@ pub fn execute_aggregate(
         if nworkers > 0 && pg_sys::parallel_leader_participation {
             nworkers -= 1;
         }
-        let mut costable =
-            matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count());
+        let mut costable = true;
         query.visit_ref(&mut |node| {
             if matches!(
                 node,
@@ -650,17 +650,35 @@ pub fn execute_aggregate(
                 costable = false;
             }
         });
-        let mut serial_count = false;
+        let mut serial_aggregate = false;
         if costable
             && let Some(workers) = NonZeroUsize::new(
                 nworkers
                     .min(pg_sys::max_parallel_workers as usize)
                     .min(pg_sys::max_worker_processes as usize),
             )
-            && let Some(cost) = estimate_query_cost(index, query.clone(), Some(&reader))
+            && let Some((cost, rows)) = estimate_query_work(index, query.clone(), Some(&reader))
+            && let Some(aggregate_cost) = cost::AggregateCost::estimate(
+                &agg_req,
+                rows,
+                parallel_divisor(workers, pg_sys::parallel_leader_participation),
+                reader.schema(),
+            )
         {
-            let work = cost as f64 * pg_sys::cpu_index_tuple_cost;
-            let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
+            let work = cost as f64 * pg_sys::cpu_index_tuple_cost
+                + aggregate_cost.operations * pg_sys::cpu_operator_cost;
+            let divisor = parallel_divisor(workers, pg_sys::parallel_leader_participation);
+            let largest_fraction = reader
+                .segment_readers()
+                .iter()
+                .map(|segment| segment.num_docs())
+                .max()
+                .unwrap_or(0) as f64
+                / reader.total_docs().max(1) as f64;
+            let transfer_cost = workers.get() as f64
+                * (aggregate_cost.state_bytes / 64.0).ceil().max(1.0)
+                * (pg_sys::parallel_tuple_cost + pg_sys::cpu_operator_cost)
+                + work * (largest_fraction - 1.0 / divisor).max(0.0);
             if !parallel_scan_is_cheaper(
                 work,
                 workers,
@@ -668,9 +686,13 @@ pub fn execute_aggregate(
                 transfer_cost,
             ) {
                 nworkers = 0;
-                serial_count = true;
+                serial_aggregate = true;
             }
-            pgrx::debug1!("count traversal cost={cost}, requested parallel workers={nworkers}");
+            pgrx::debug1!(
+                "aggregate traversal cost={cost}, matching rows={rows:?}, collector work={}, partial bytes={}, requested parallel workers={nworkers}",
+                aggregate_cost.operations,
+                aggregate_cost.state_bytes
+            );
         }
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
@@ -717,7 +739,7 @@ pub fn execute_aggregate(
             "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
             *std::ptr::addr_of!(pg_sys::parallel_leader_participation)
         );
-        if !serial_count
+        if !serial_aggregate
             && let Some(mut process) = launch_parallel_process!(
                 ParallelAggregation<ParallelAggregationWorker>,
                 process,

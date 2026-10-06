@@ -656,7 +656,7 @@ fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
 
 /// Open a single-segment (`LargestSegment`) reader and estimate matching docs,
 /// total docs, and the query's Tantivy `DocSet::cost()` in one pass. The single
-/// source for both `estimate_selectivity` and `estimate_query_cost`.
+/// source for both `estimate_selectivity` and planner traversal estimates.
 ///
 /// Returns `None` if the reader can't be opened (e.g. a transient/concurrent-DDL
 /// failure); callers degrade gracefully rather than crash planning. The same open
@@ -684,7 +684,7 @@ fn open_and_estimate_docs(
 /// One index open, both planning answers: selectivity (matching/total docs) and the
 /// query's Tantivy `DocSet::cost()`. basescan path generation needs both for the same
 /// combined query, so it opens once here instead of calling `estimate_selectivity` and
-/// `estimate_query_cost` back-to-back.
+/// a separate traversal estimate back-to-back.
 ///
 /// Returns `(selectivity, query_cost)`:
 /// - expensive-to-estimate query (#4172): `(selectivity_heuristic, scaled match estimate)`
@@ -750,13 +750,13 @@ pub(crate) fn estimate_matching_rows(
         .map(|estimate| estimate.matching_docs as u64)
 }
 
-/// Estimate traversal cost for the worker decision, reusing an execution reader when available.
+/// Estimate traversal cost and matching rows, reusing an execution reader when available.
 /// Without a reader, use the planner's combined selectivity/cost estimate.
-pub(crate) fn estimate_query_cost(
+pub(crate) fn estimate_query_work(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
-) -> Option<u64> {
+) -> Option<(u64, Option<u64>)> {
     if let Some(reader) = reader
         && !estimate_heuristically(&search_query_input)
     {
@@ -766,9 +766,17 @@ pub(crate) fn estimate_query_cost(
                 .and_then(|heap| heap.reltuples())
                 .map(f64::from),
         );
-        return reader.estimate_query_cost(row_estimate);
+        return reader.estimate_query_work(row_estimate);
     }
-    estimate_selectivity_and_cost(indexrel, search_query_input).1
+    let (selectivity, cost) = estimate_selectivity_and_cost(indexrel, search_query_input);
+    let rows = selectivity
+        .zip(
+            reader
+                .and_then(|_| indexrel.heap_relation())
+                .and_then(|heap| heap.reltuples()),
+        )
+        .map(|(selectivity, rows)| (selectivity * f64::from(rows)) as u64);
+    cost.map(|cost| (cost, rows))
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

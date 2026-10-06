@@ -124,6 +124,14 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
 
                 // Check if this field exists in the index schema as a fast field
                 if let Some(search_field) = schema.search_field(&field_name) {
+                    if search_field.field_type().is_timetz() {
+                        return Err(format!(
+                            "grouping field {} is timetz, whose index value does not preserve its time zone",
+                            field_name
+                        )
+                        .into());
+                    }
+
                     // Reject NUMERIC fields - GROUP BY pushdown not supported
                     // (NUMERIC values are stored scaled and would need descaling)
                     if search_field.field_type().is_numeric() {

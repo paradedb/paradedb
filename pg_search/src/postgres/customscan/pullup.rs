@@ -135,7 +135,7 @@ pub fn resolve_fast_field_by_name(
 ) -> Option<WhichFastField> {
     let schema = index.schema().ok()?;
     let search_field = schema.search_field(field_name)?;
-    if search_field.is_fast() {
+    if search_field.is_fast() && !search_field.field_type().is_timetz() {
         let is_array = schema
             .categorized_fields()
             .iter()
@@ -263,7 +263,7 @@ pub fn field_type_for_pullup(
     field_type: SearchFieldType,
     is_array: bool,
 ) -> Option<SearchFieldType> {
-    if is_array {
+    if is_array || field_type.is_timetz() {
         return None;
     }
     match field_type {

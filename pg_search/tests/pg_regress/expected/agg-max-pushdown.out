@@ -166,17 +166,24 @@ SELECT min(t) FROM date_agg_test WHERE id @@@ pdb.all();
 
 -- Test MAX with timetz
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT max(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: field 'ttz' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: date_agg_test)
                                QUERY PLAN                               
 ------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
-   Output: pdb.agg_fn('MAX'::text)
-   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
-   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-     Applies to Aggregates: MAX(ttz)
-     Aggregate Definition: {"0":{"max":{"field":"ttz","missing":null}}}
-(6 rows)
+ Aggregate
+   Output: max(ttz)
+   ->  Custom Scan (ParadeDB Base Scan) on public.date_agg_test
+         Output: ttz
+         Table: date_agg_test
+         Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
 
 SELECT max(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: field 'ttz' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: date_agg_test)
      max     
 -------------
  14:45:30+00
@@ -184,17 +191,24 @@ SELECT max(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
 
 -- Test MIN with timetz
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT min(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: field 'ttz' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: date_agg_test)
                                QUERY PLAN                               
 ------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
-   Output: pdb.agg_fn('MIN'::text)
-   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
-   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-     Applies to Aggregates: MIN(ttz)
-     Aggregate Definition: {"0":{"min":{"field":"ttz","missing":null}}}
-(6 rows)
+ Aggregate
+   Output: min(ttz)
+   ->  Custom Scan (ParadeDB Base Scan) on public.date_agg_test
+         Output: ttz
+         Table: date_agg_test
+         Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
 
 SELECT min(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: field 'ttz' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: date_agg_test)
      min     
 -------------
  08:00:00+00

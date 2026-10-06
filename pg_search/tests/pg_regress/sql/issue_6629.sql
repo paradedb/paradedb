@@ -1,0 +1,67 @@
+CREATE TABLE issue_6629 (id INTEGER PRIMARY KEY, tz TIMETZ, n NUMERIC(10, 2), tzs TIMETZ[]);
+INSERT INTO issue_6629 (id, tz, n) VALUES
+    (1, '10:11:12+02', 1),
+    (2, '10:11:12+02', 2),
+    (3, '08:11:12+00', 3),
+    (4, '11:11:12+02', 4),
+    (5, '00:30:00+02', 5),
+    (6, NULL, 6);
+UPDATE issue_6629 SET tzs = ARRAY[tz];
+CREATE INDEX issue_6629_idx ON issue_6629 USING paradedb (id, tz, n, tzs);
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.planner_warnings = off;
+
+SELECT id, tz FROM issue_6629 WHERE id @@@ pdb.all() ORDER BY id;
+
+SELECT assert(
+    (SELECT array_agg(tz::text ORDER BY id) FROM issue_6629 WHERE id @@@ pdb.all()),
+    ARRAY['10:11:12+02', '10:11:12+02', '08:11:12+00', '11:11:12+02', '00:30:00+02', NULL]::TEXT[],
+    'columnar projection must preserve timetz offsets'
+);
+
+SELECT assert(
+    (SELECT array_agg(t::text ORDER BY id) FROM (
+        SELECT id, t FROM issue_6629, LATERAL unnest(tzs) AS t
+        WHERE id @@@ pdb.all() ORDER BY id LIMIT 6
+    ) AS items),
+    ARRAY['10:11:12+02', '10:11:12+02', '08:11:12+00', '11:11:12+02', '00:30:00+02', NULL]::TEXT[],
+    'array pullup must preserve timetz offsets'
+);
+
+SELECT assert(
+    (SELECT count(*) FROM (SELECT tz, count(*) FROM issue_6629 WHERE id @@@ pdb.all() GROUP BY tz) AS groups),
+    5::BIGINT,
+    'Tantivy grouping must distinguish timetz offsets'
+);
+
+SELECT assert(
+    (SELECT count(*) FROM (SELECT tz, sum(n) FROM issue_6629 WHERE id @@@ pdb.all() GROUP BY tz) AS groups),
+    5::BIGINT,
+    'DataFusion grouping must distinguish timetz offsets'
+);
+
+SELECT assert(
+    (SELECT max(tz) FROM issue_6629 WHERE id @@@ pdb.all()),
+    '11:11:12+02'::TIMETZ,
+    'MAX must preserve the timetz value and ordering'
+);
+
+SELECT assert(
+    (SELECT min(tz) FROM issue_6629 WHERE id @@@ pdb.all()),
+    '00:30:00+02'::TIMETZ,
+    'MIN must preserve the timetz value and ordering'
+);
+
+SELECT assert(
+    (SELECT count(*) FROM (SELECT DISTINCT tz FROM issue_6629 WHERE id @@@ pdb.all()) AS values),
+    5::BIGINT,
+    'DISTINCT must distinguish timetz offsets'
+);
+
+SELECT assert(
+    (SELECT array_agg(id ORDER BY tz, id) FROM (SELECT id, tz FROM issue_6629 WHERE id @@@ pdb.all() ORDER BY tz, id LIMIT 4) AS topk),
+    ARRAY[5, 1, 2, 3],
+    'Top K must preserve timetz ordering'
+);
+
+DROP TABLE issue_6629;

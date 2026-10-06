@@ -2393,7 +2393,7 @@ pub unsafe fn try_extract_lateral_unnest_from_rte(
     let att = tupdesc.get((source_attno - 1) as usize)?;
     let col_name = att.name();
     let search_field = schema.search_field(col_name)?;
-    if !search_field.is_fast() {
+    if !search_field.is_fast() || search_field.field_type().is_timetz() {
         return None;
     }
     let categorized = schema.categorized_fields();

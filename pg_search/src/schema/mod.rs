@@ -160,6 +160,10 @@ impl SearchFieldType {
         )
     }
 
+    pub fn is_timetz(&self) -> bool {
+        self.typeoid().value() == pg_sys::TIMETZOID
+    }
+
     /// Returns true if this field type is supported as a `top_hits.sort` key.
     ///
     /// Tantivy's `top_hits` sort accessor is built with numeric-or-date column types only
@@ -614,7 +618,7 @@ impl SearchIndexSchema {
     /// and declines. Returns `false` if the field doesn't exist.
     pub fn supports_tantivy_aggregate(&self, name: impl AsRef<str>) -> bool {
         self.search_field(name)
-            .is_some_and(|f| !f.field_type().is_numeric())
+            .is_some_and(|f| !f.field_type().is_numeric() && !f.field_type().is_timetz())
     }
 
     pub fn fields(&self) -> impl Iterator<Item = (Field, &FieldEntry)> {
@@ -813,6 +817,10 @@ impl SearchField {
     }
 
     fn is_sortable(&self, desired_normalizer: SearchNormalizer) -> bool {
+        if self.field_type.is_timetz() {
+            return false;
+        }
+
         // Range fields are stored as a tantivy JSON object, so they'd otherwise fall into the
         // `JsonObject` arm below. They are sortable via `SortByRange`, which reads the bound
         // sub-columns and compares them the way Postgres' `range_cmp` does. Only raw sorting:
@@ -1175,5 +1183,19 @@ mod tests {
     fn test_default_config_ltree() {
         let config = SearchFieldConfig::default_ltree();
         assert!(matches!(config, SearchFieldConfig::Facet));
+    }
+
+    #[test]
+    fn timetz_fields_require_heap_pullup() {
+        use crate::postgres::customscan::pullup::field_type_for_pullup;
+
+        for field_type in [
+            SearchFieldType::I64(pg_sys::TIMETZOID),
+            SearchFieldType::Date(pg_sys::TIMETZOID),
+        ] {
+            assert!(field_type_for_pullup(field_type, false).is_none());
+        }
+        assert!(field_type_for_pullup(SearchFieldType::I64(pg_sys::TIMEOID), false).is_some());
+        assert!(field_type_for_pullup(SearchFieldType::Date(pg_sys::TIMEOID), false).is_some());
     }
 }

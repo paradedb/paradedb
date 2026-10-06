@@ -21,16 +21,12 @@ use crate::schema::SearchIndexSchema;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 
 impl AggregateRequest {
-    pub(super) fn estimate_collector_operations(
-        &self,
-        rows: Option<u64>,
-        schema: &SearchIndexSchema,
-    ) -> Option<f64> {
+    pub(super) fn updates_per_doc(&self, schema: &SearchIndexSchema) -> Option<usize> {
         let mut updates_per_doc = 0;
         match self {
             AggregateRequest::Sql(clause) => {
                 if clause.is_bare_doc_count() {
-                    return Some(0.0);
+                    return Some(0);
                 }
                 if clause.has_filter() {
                     return None;
@@ -58,7 +54,7 @@ impl AggregateRequest {
                 }
             }
         }
-        Some(rows? as f64 * updates_per_doc as f64)
+        Some(updates_per_doc)
     }
 }
 

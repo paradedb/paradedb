@@ -658,9 +658,10 @@ pub fn execute_aggregate(
                     .min(pg_sys::max_worker_processes as usize),
             )
             && let Some((cost, rows)) = estimate_query_work(index, query.clone(), Some(&reader))
-            && let Some(collector_operations) =
-                agg_req.estimate_collector_operations(rows, reader.schema())
+            && let Some(updates_per_doc) = agg_req.updates_per_doc(reader.schema())
+            && (updates_per_doc == 0 || rows.is_some())
         {
+            let collector_operations = rows.unwrap_or(0) as f64 * updates_per_doc as f64;
             // TODO: Tune per query using measured collector work, bucket fanout,
             // and partial-result transfer/merge costs.
             let work = cost as f64 * pg_sys::cpu_index_tuple_cost

@@ -56,9 +56,9 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
 static ENABLE_BITMAP_POSTINGS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
 static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".

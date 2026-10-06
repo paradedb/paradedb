@@ -828,7 +828,7 @@ impl QueryEstimate for super::heap_field_filter::HeapFilterQuery {
 }
 
 mod fast_field;
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
 mod tests;
 
 #[cfg(any(test, feature = "pg_test"))]

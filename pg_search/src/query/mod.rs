@@ -608,6 +608,7 @@ impl SearchQueryInput {
         use crate::MORE_LIKE_THIS_SELECTIVITY;
 
         match self {
+            SearchQueryInput::All => Some(1.0),
             SearchQueryInput::Empty => Some(0.0),
             SearchQueryInput::Boolean {
                 must,

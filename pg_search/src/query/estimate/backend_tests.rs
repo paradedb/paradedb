@@ -78,6 +78,32 @@ mod tests {
     }
 
     #[pg_test]
+    fn mutable_only_boolean_estimates_preserve_match_all() {
+        let (index, _) = segmented_index_fixture("estimate_mutable_all", 0, true);
+        let reader = SearchIndexReader::open(
+            &index,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Estimation,
+        )
+        .unwrap();
+        assert!(reader.segment_readers().is_empty());
+        Spi::run(
+            "ALTER TABLE estimate_mutable_all ALTER COLUMN title DROP NOT NULL;
+            ANALYZE estimate_mutable_all;
+            SET LOCAL enable_seqscan=off;
+            SET LOCAL max_parallel_workers_per_gather=0;",
+        )
+        .unwrap();
+        for query in ["id @@@ pdb.all()", "estimate_mutable_all @@@ pdb.all()"] {
+            let plan = Spi::get_one::<pgrx::Json>(&format!(
+                "EXPLAIN (FORMAT JSON) SELECT id FROM estimate_mutable_all WHERE {query} AND title IS NOT NULL"
+            )).unwrap().unwrap().0;
+            assert_eq!(plan[0]["Plan"]["Plan Rows"].as_u64(), Some(5), "{plan}");
+        }
+    }
+
+    #[pg_test]
     fn metadata_estimation_keeps_heap_planner_context() {
         Spi::run("CREATE TABLE estimate_heap_context (id bigint, title text, heap_value int);
             INSERT INTO estimate_heap_context SELECT g, CASE WHEN g % 2 = 0 THEN 'red' ELSE 'blue' END, g FROM generate_series(1,1000) g;

@@ -92,7 +92,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 2.3: AND with array (multiple terms)
@@ -333,8 +333,8 @@ WHERE id @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -342,7 +342,7 @@ WHERE id @@@ paradedb.range(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":4}},"estimated_docs":4}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":16}},"estimated_docs":16}
 (8 rows)
 
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
@@ -478,7 +478,7 @@ WHERE description @@@ paradedb.disjunction_max(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"tie_breaker":0.30000001192092896},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"tie_breaker":0.30000001192092896},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 5.11: Parse query (query string syntax)
@@ -559,8 +559,8 @@ WHERE description @@@ paradedb.regex_phrase(
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE id @@@ pdb.more_like_this(1);
-                                                                                                                                                              QUERY PLAN                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                             QUERY PLAN                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -568,7 +568,7 @@ WHERE id @@@ pdb.more_like_this(1);
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: true
-   Tantivy Query: {"with_index":{"query":{"more_like_this":{"field":"id","key_value":1,"fields":null,"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null},"estimated_docs":19}},"estimated_docs":19}
+   Tantivy Query: {"with_index":{"query":{"more_like_this":{"field":"id","key_value":1,"fields":null,"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null},"estimated_docs":1}},"estimated_docs":1}
 (8 rows)
 
 -- Test 5.16: Match query with explicit tokenizer
@@ -587,7 +587,7 @@ WHERE description @@@ paradedb.match(
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 5.17: Match conjunction (all terms must match)
@@ -925,7 +925,7 @@ EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, BUFFERS ON, SUMMARY OFF) SELEC
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
    Buffers: shared hit=20
  Planning:
-   Buffers: shared hit=41
+   Buffers: shared hit=45
 (21 rows)
 
 -- Test 7.3: Verify EXPLAIN without VERBOSE does NOT show estimates
@@ -1207,28 +1207,28 @@ WHERE rating @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                   +
-   {                                                                                                                                                                                                 +
-     "Plan": {                                                                                                                                                                                       +
-       "Node Type": "Custom Scan",                                                                                                                                                                   +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                 +
-       "Parallel Aware": false,                                                                                                                                                                      +
-       "Async Capable": false,                                                                                                                                                                       +
-       "Relation Name": "estimate_items",                                                                                                                                                            +
-       "Schema": "recursive_test",                                                                                                                                                                   +
-       "Alias": "estimate_items",                                                                                                                                                                    +
-       "Disabled": false,                                                                                                                                                                            +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                    +
-       "Table": "estimate_items",                                                                                                                                                                    +
-       "Index": "idx_recursive_estimates",                                                                                                                                                           +
-       "Worker Selection": "Cost model",                                                                                                                                                             +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                         +
-       "Scores": false,                                                                                                                                                                              +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":4}},\"estimated_docs\":4}"+
-     }                                                                                                                                                                                               +
-   }                                                                                                                                                                                                 +
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                     +
+   {                                                                                                                                                                                                   +
+     "Plan": {                                                                                                                                                                                         +
+       "Node Type": "Custom Scan",                                                                                                                                                                     +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                   +
+       "Parallel Aware": false,                                                                                                                                                                        +
+       "Async Capable": false,                                                                                                                                                                         +
+       "Relation Name": "estimate_items",                                                                                                                                                              +
+       "Schema": "recursive_test",                                                                                                                                                                     +
+       "Alias": "estimate_items",                                                                                                                                                                      +
+       "Disabled": false,                                                                                                                                                                              +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                      +
+       "Table": "estimate_items",                                                                                                                                                                      +
+       "Index": "idx_recursive_estimates",                                                                                                                                                             +
+       "Worker Selection": "Cost model",                                                                                                                                                               +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                           +
+       "Scores": false,                                                                                                                                                                                +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":16}},\"estimated_docs\":16}"+
+     }                                                                                                                                                                                                 +
+   }                                                                                                                                                                                                   +
  ]
 (1 row)
 

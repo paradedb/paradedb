@@ -724,13 +724,13 @@ fn selectivity_clause(
                 };
                 for filter in always_filters.iter().chain(&recheck_filters) {
                     // Heap filters retain their original PostgreSQL predicates.
-                    boolean
-                        .must
-                        .push(if planner.is_some_and(|(root, _)| !root.is_null()) {
-                            unsafe { filter.get_expression_node() }
+                    boolean.must.push(
+                        if let Some((root, _)) = planner.filter(|(root, _)| !root.is_null()) {
+                            unsafe { estimate::postgres_clause(root, filter.get_expression_node()) }
                         } else {
                             fallback().0
-                        });
+                        },
+                    );
                 }
                 return (unsafe { boolean.into_clause(planner) }, cost);
             }

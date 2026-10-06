@@ -21,7 +21,9 @@ use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{ConstNode, TantivyValueError};
-use crate::postgres::utils::{FieldSource, ToPalloc, strip_tokenizer_cast};
+use crate::postgres::utils::{
+    FieldSource, ToPalloc, make_simple_restrictinfo, strip_tokenizer_cast,
+};
 use crate::query::pdb_query::pdb;
 use pgrx::{PgList, pg_sys};
 use std::ffi::CStr;
@@ -85,7 +87,10 @@ pub(super) unsafe fn non_text_clause(
             )
             .cast()
         };
-        return Some(Comparison::try_from((&*expr, c"@?", value)).ok()?.into());
+        return Some(postgres_clause(
+            root,
+            Comparison::try_from((&*expr, c"@?", value)).ok()?.into(),
+        ));
     }
     let expr_oid = pg_sys::exprType(expr.cast());
     let element_oid = pg_sys::get_base_element_type(expr_oid);
@@ -232,7 +237,24 @@ pub(super) unsafe fn non_text_clause(
             unreachable!("operator support functions must classify queries before estimation")
         }
     }
-    Some(pg_sys::make_ands_explicit(clauses.into_pg()).cast())
+    Some(postgres_clause(
+        root,
+        pg_sys::make_ands_explicit(clauses.into_pg()).cast(),
+    ))
+}
+
+/// PostgreSQL needs RestrictInfo metadata to apply extended statistics.
+pub(super) unsafe fn postgres_clause(
+    root: *mut pg_sys::PlannerInfo,
+    clause: *mut pg_sys::Node,
+) -> *mut pg_sys::Node {
+    let mut clauses = PgList::<pg_sys::Node>::new();
+    for clause in
+        PgList::<pg_sys::Node>::from_pg(pg_sys::make_ands_implicit(clause.cast())).iter_ptr()
+    {
+        clauses.push(make_simple_restrictinfo(root, clause.cast()).cast());
+    }
+    pg_sys::make_ands_explicit(clauses.into_pg()).cast()
 }
 
 struct FieldExpression(*mut pg_sys::Expr);

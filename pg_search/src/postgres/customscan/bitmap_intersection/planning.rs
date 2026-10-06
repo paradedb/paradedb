@@ -26,7 +26,7 @@ use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::planner_warnings::add_planner_warning;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::strip_relabel;
+use crate::postgres::utils::{make_simple_restrictinfo, strip_relabel};
 use crate::query::SearchQueryInput;
 use pgrx::{PgList, pg_sys};
 
@@ -889,45 +889,4 @@ unsafe fn selectivity(ipath: *mut pg_sys::IndexPath) -> f64 {
 
 unsafe fn is_pseudoconstant(node: *mut pg_sys::Node) -> bool {
     unsafe { !pg_sys::contain_var_clause(node) && !pg_sys::contain_volatile_functions(node) }
-}
-
-#[cfg(feature = "pg15")]
-unsafe fn make_simple_restrictinfo(
-    root: *mut pg_sys::PlannerInfo,
-    clause: *mut pg_sys::Expr,
-) -> *mut pg_sys::RestrictInfo {
-    unsafe {
-        pg_sys::make_restrictinfo(
-            root,
-            clause,
-            true,
-            false,
-            false,
-            0,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    }
-}
-
-#[cfg(not(feature = "pg15"))]
-unsafe fn make_simple_restrictinfo(
-    root: *mut pg_sys::PlannerInfo,
-    clause: *mut pg_sys::Expr,
-) -> *mut pg_sys::RestrictInfo {
-    unsafe {
-        pg_sys::make_restrictinfo(
-            root,
-            clause,
-            true,
-            false,
-            false,
-            false,
-            0,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    }
 }

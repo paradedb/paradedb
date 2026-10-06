@@ -34,6 +34,8 @@ const MAX_SAMPLE_VALUES: usize = 16384;
 const HISTOGRAM_SIZE: usize = 128;
 const COMMON_VALUES: usize = 32;
 const MAX_DICTIONARY_BYTES: usize = 1 << 20;
+const MAX_COLUMNS: usize = 1024;
+const MAX_COLUMN_NAME_BYTES: usize = 1 << 16;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct DistributionManifest {
@@ -68,8 +70,14 @@ impl DistributionManifest {
             version: VERSION,
             columns: Vec::new(),
         };
+        let mut name_bytes = 0;
         for column in columns {
             let (name, column) = column?;
+            name_bytes += name.len();
+            // JSON can introduce arbitrarily many paths. An absent manifest keeps the old planner.
+            if manifest.columns.len() == MAX_COLUMNS || name_bytes > MAX_COLUMN_NAME_BYTES {
+                return Ok(());
+            }
             let idx = MANIFEST_IDX + 1 + manifest.columns.len();
             manifest.columns.push((name, column.column_type() as u8));
             if let Some(stats) = Distribution::collect(&column) {
@@ -271,6 +279,23 @@ mod tests {
             .unwrap()[0]
             .open()
             .unwrap()
+    }
+
+    #[test]
+    fn distribution_manifest_has_a_fixed_budget() {
+        let column = column(&[vec![1]]);
+        let mut bytes = Vec::new();
+        let mut write = CompositeWrite::wrap(&mut bytes);
+        DistributionManifest::write(
+            (0..=MAX_COLUMNS).map(|i| Ok((format!("json\u{1}{i}"), column.clone()))),
+            &mut write,
+        )
+        .unwrap();
+        write.close().unwrap();
+        let stats =
+            crate::index::stats::SegmentStats::open(tantivy::directory::FileSlice::from(bytes))
+                .unwrap();
+        assert!(stats.distributions().unwrap().is_none());
     }
 
     #[test]

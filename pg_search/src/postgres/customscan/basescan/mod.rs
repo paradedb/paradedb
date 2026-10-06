@@ -954,6 +954,7 @@ impl CustomScan for BaseScan {
                     &bm25_index,
                     &quals,
                     builder.args().root,
+                    rti,
                     &mut cost_memo,
                 ),
                 RowEstimate::Unknown => None,

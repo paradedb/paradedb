@@ -2736,14 +2736,13 @@ mod tests {
             MvccSatisfies::Estimation,
         )
         .unwrap();
-        assert_eq!(
-            crate::api::operator::estimate_selectivity_and_cost(
-                &index_rel,
-                range_query("id", 100, 200),
-                None,
-            ),
-            (Some(crate::UNKNOWN_SELECTIVITY), None),
+        let (selectivity, cost) = crate::api::operator::estimate_selectivity_and_cost(
+            &index_rel,
+            range_query("id", 100, 200),
+            None,
         );
+        assert_eq!(selectivity, Some(crate::UNKNOWN_SELECTIVITY));
+        assert!(cost.is_some_and(|cost| cost > 0));
         assert_eq!(
             STATS_OPENS.load(Relaxed),
             0,

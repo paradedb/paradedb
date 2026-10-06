@@ -654,7 +654,8 @@ pub(crate) fn estimate_selectivity_and_cost(
     planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> (Option<f64>, Option<u64>) {
     let reader = OnceLock::new();
-    let (clause, cost) = selectivity_clause(indexrel, query, planner, &reader);
+    let rows = estimate_heap_rows(indexrel);
+    let (clause, cost) = selectivity_clause(indexrel, query, planner, &reader, rows);
     (
         Some(unsafe { estimate::Selectivity::estimate(clause, planner) }),
         cost,
@@ -666,11 +667,15 @@ fn selectivity_clause(
     mut query: SearchQueryInput,
     planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
     reader: &OnceLock<anyhow::Result<SearchIndexReader>>,
+    rows: Option<f64>,
 ) -> (*mut pg_sys::Node, Option<u64>) {
     let fallback = || {
         (
             estimate::Selectivity(crate::UNKNOWN_SELECTIVITY).into(),
-            None,
+            rows.map(|rows| {
+                (rows * crate::UNKNOWN_SELECTIVITY * crate::gucs::expensive_query_cost_factor())
+                    .ceil() as u64
+            }),
         )
     };
     let query = loop {
@@ -682,7 +687,7 @@ fn selectivity_clause(
             } => {
                 return (
                     estimate::Selectivity(crate::FULL_RELATION_SELECTIVITY).into(),
-                    None,
+                    rows.map(|rows| rows.ceil() as u64),
                 );
             }
             SearchQueryInput::Empty
@@ -711,7 +716,8 @@ fn selectivity_clause(
                 recheck_filters,
                 ..
             } => {
-                let (child, cost) = selectivity_clause(indexrel, *indexed_query, planner, reader);
+                let (child, cost) =
+                    selectivity_clause(indexrel, *indexed_query, planner, reader, rows);
                 let mut boolean = estimate::BooleanClause {
                     must: vec![child],
                     ..Default::default()
@@ -726,11 +732,6 @@ fn selectivity_clause(
                             fallback().0
                         });
                 }
-                let cost = if always_filters.is_empty() && recheck_filters.is_empty() {
-                    cost
-                } else {
-                    None
-                };
                 return (unsafe { boolean.into_clause(planner) }, cost);
             }
             SearchQueryInput::ScoreFilter { bounds, query } => {
@@ -740,7 +741,7 @@ fn selectivity_clause(
                 let Some(query) = query else {
                     return fallback();
                 };
-                let (child, cost) = selectivity_clause(indexrel, *query, planner, reader);
+                let (child, cost) = selectivity_clause(indexrel, *query, planner, reader, rows);
                 if bounds
                     .iter()
                     .any(|bounds| matches!(bounds, (Bound::Unbounded, Bound::Unbounded)))
@@ -775,7 +776,7 @@ fn selectivity_clause(
                 ) {
                     return (
                         estimate::Selectivity(crate::FULL_RELATION_SELECTIVITY).into(),
-                        None,
+                        rows.map(|rows| rows.ceil() as u64),
                     );
                 }
                 // This query creates U64 terms, so its bounds are ordinary unsigned values.
@@ -807,26 +808,25 @@ fn selectivity_clause(
                 if must.is_empty() && should.is_empty() || minimum_should_match > should.len() {
                     return (estimate::Selectivity(0.0).into(), Some(0));
                 }
-                let mut cost = Some(0u64);
-                let mut clauses = |queries: Vec<SearchQueryInput>| {
+                let mut costs = Vec::new();
+                let mut clauses = |occur, queries: Vec<SearchQueryInput>| {
                     queries
                         .into_iter()
                         .map(|query| {
                             let (clause, child_cost) =
-                                selectivity_clause(indexrel, query, planner, reader);
-                            cost = cost
-                                .zip(child_cost)
-                                .map(|(total, child)| total.saturating_add(child));
+                                selectivity_clause(indexrel, query, planner, reader, rows);
+                            costs.push((occur, child_cost));
                             clause
                         })
                         .collect()
                 };
                 let boolean = estimate::BooleanClause {
-                    must: clauses(must),
-                    should: clauses(should),
-                    must_not: clauses(must_not),
+                    must: clauses(tantivy::query::Occur::Must, must),
+                    should: clauses(tantivy::query::Occur::Should, should),
+                    must_not: clauses(tantivy::query::Occur::MustNot, must_not),
                     minimum_should_match,
                 };
+                let cost = boolean.estimate_cost(&costs);
                 return (unsafe { boolean.into_clause(planner) }, cost);
             }
             // DisjunctionMax has the same matches as OR; only scoring differs.
@@ -921,12 +921,50 @@ fn selectivity_clause(
                     | pdb::Query::RangeTerm { .. }
                     | pdb::Query::RangeWithin { .. }),
             } => {
-                return planner
-                    .and_then(|(root, rti)| unsafe {
-                        estimate::non_text_clause(root, rti, indexrel, &field, &query)
+                let clause = planner.and_then(|(root, rti)| unsafe {
+                    estimate::non_text_clause(root, rti, indexrel, &field, &query)
+                });
+                let schema = indexrel.schema().ok();
+                let search_field = schema
+                    .as_ref()
+                    .and_then(|schema| schema.search_field(&field));
+                let cost = match &query {
+                    pdb::Query::Term { .. } => search_field
+                        .filter(|field| field.field_entry().is_indexed())
+                        .and_then(|_| {
+                            estimate_tantivy_query(
+                                indexrel,
+                                &SearchQueryInput::FieldedQuery {
+                                    field,
+                                    query: query.clone(),
+                                },
+                                reader,
+                            )
+                        })
+                        .map(|(_, cost)| cost),
+                    // Match Tantivy's fast-field scan cost without scanning the column.
+                    pdb::Query::Range { .. }
+                        if search_field.is_some_and(|field| field.is_fast()) =>
+                    {
+                        rows.map(|rows| (rows * 0.8).ceil() as u64)
+                    }
+                    _ => None,
+                }
+                .or_else(|| {
+                    rows.map(|rows| {
+                        let fraction = match (&query, clause) {
+                            (
+                                pdb::Query::Term { .. }
+                                | pdb::Query::Exists
+                                | pdb::Query::Range { .. },
+                                Some(clause),
+                            ) => unsafe { estimate::Selectivity::estimate(clause, planner) },
+                            _ => 1.0,
+                        };
+                        (rows * fraction).ceil() as u64
                     })
-                    .map(|clause| (clause, None))
-                    .unwrap_or_else(fallback);
+                });
+                return (clause.unwrap_or_else(|| fallback().0), cost);
             }
             SearchQueryInput::FieldedQuery {
                 query: pdb::Query::UnclassifiedString { .. } | pdb::Query::UnclassifiedArray { .. },
@@ -936,25 +974,33 @@ fn selectivity_clause(
         };
     };
 
-    let Ok(reader) = reader.get_or_init(|| {
-        SearchIndexReader::open_with_context(
-            indexrel,
-            SearchQueryInput::All,
-            false,
-            MvccSatisfies::Estimation,
-            None,
-            None,
-            true,
-            None,
-        )
-    }) else {
-        return fallback();
-    };
-    let query = reader.make_query(&query, None);
-    reader
-        .estimate_docs(estimate::query_estimate(query.as_ref()).as_ref())
+    estimate_tantivy_query(indexrel, &query, reader)
         .map(|(selectivity, cost)| (estimate::Selectivity(selectivity).into(), Some(cost)))
         .unwrap_or_else(fallback)
+}
+
+fn estimate_tantivy_query(
+    indexrel: &PgSearchRelation,
+    query: &SearchQueryInput,
+    reader: &OnceLock<anyhow::Result<SearchIndexReader>>,
+) -> Option<(f64, u64)> {
+    let reader = reader
+        .get_or_init(|| {
+            SearchIndexReader::open_with_context(
+                indexrel,
+                SearchQueryInput::All,
+                false,
+                MvccSatisfies::Estimation,
+                None,
+                None,
+                true,
+                None,
+            )
+        })
+        .as_ref()
+        .ok()?;
+    let query = reader.make_query(query, None);
+    reader.estimate_docs(estimate::query_estimate(query.as_ref()).as_ref())
 }
 
 pub(crate) fn estimate_selectivity(
@@ -971,6 +1017,10 @@ pub(crate) fn estimate_matching_rows(
     planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<u64> {
     let selectivity = estimate_selectivity(indexrel, search_query_input, planner)?;
+    Some((selectivity * estimate_heap_rows(indexrel)?).ceil() as u64)
+}
+
+fn estimate_heap_rows(indexrel: &PgSearchRelation) -> Option<f64> {
     let heaprel = indexrel.heap_relation()?;
     let (mut pages, mut rows, mut all_visible_fraction) = (0, 0.0, 0.0);
     // Using the whole heap can overestimate matches for partial indexes.
@@ -983,14 +1033,15 @@ pub(crate) fn estimate_matching_rows(
             &mut all_visible_fraction,
         );
     }
-    Some((selectivity * rows).ceil() as u64)
+    Some(rows)
 }
 
 pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
 ) -> Option<u64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input, None).1
+    estimate_selectivity_and_cost(indexrel, search_query_input, planner).1
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

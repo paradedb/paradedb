@@ -520,8 +520,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.expensive_query_cost_factor",
-        c"Deprecated; has no effect",
-        c"Query work cost estimation is currently disabled.",
+        c"Multiplier for query work when metadata cannot estimate it",
+        c"Multiplies the estimated match count to approximate traversal work.",
         &EXPENSIVE_QUERY_COST_FACTOR,
         0.0,
         100000.0,
@@ -1096,6 +1096,10 @@ impl WorkMem {
 
 pub fn limit_fetch_multiplier() -> f64 {
     LIMIT_FETCH_MULTIPLIER.get()
+}
+
+pub fn expensive_query_cost_factor() -> f64 {
+    EXPENSIVE_QUERY_COST_FACTOR.get()
 }
 
 pub fn visibility_threshold() -> u64 {

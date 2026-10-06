@@ -252,8 +252,8 @@ pub(super) fn topk_can_prune_for_method(
 }
 
 /// The query's Tantivy drive cost when the scan is costable, else `None` -- `None` for a
-/// runtime-bound/correlated/external predicate (no resolved value to open a scorer for) or an open
-/// failure. Memoized so the index opens at most once per query.
+/// runtime-bound/correlated/external predicate or unavailable metadata.
+/// Memoized so the index opens at most once per query.
 ///
 /// # Safety
 /// `root` must point to a valid `PlannerInfo` for the duration of this call.
@@ -262,6 +262,7 @@ pub(super) unsafe fn costable_drive_cost(
     bm25_index: &PgSearchRelation,
     quals: &Qual,
     root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
     cost_memo: &mut CostMemo,
 ) -> Option<u64> {
     if quals.contains_exprs()
@@ -270,7 +271,7 @@ pub(super) unsafe fn costable_drive_cost(
     {
         return None;
     }
-    cost_memo.get_or_compute(|| estimate_query_cost(bm25_index, query.clone()))
+    cost_memo.get_or_compute(|| estimate_query_cost(bm25_index, query.clone(), Some((root, rti))))
 }
 
 /// Cost-model leaf for a costable effective-LIMIT scan (see module docs for why pg_search forces

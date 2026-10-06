@@ -516,6 +516,29 @@ pub(super) struct BooleanClause {
 }
 
 impl BooleanClause {
+    /// Intersections use the cheapest required driver; unions traverse every child.
+    pub(super) fn estimate_cost(&self, costs: &[(Occur, Option<u64>)]) -> Option<u64> {
+        if self.must.is_empty() && self.should.is_empty()
+            || self.minimum_should_match > self.should.len()
+        {
+            return Some(0);
+        }
+        let required = costs
+            .iter()
+            .filter(|(occur, _)| *occur == Occur::Must)
+            .try_fold(u64::MAX, |cost, (_, child)| Some(cost.min((*child)?)))?;
+        if !self.must.is_empty() && self.minimum_should_match == 0 {
+            return Some(required);
+        }
+        let union = costs
+            .iter()
+            .filter(|(occur, _)| *occur == Occur::Should)
+            .try_fold(0u64, |cost, (_, child)| {
+                Some(cost.saturating_add((*child)?))
+            })?;
+        Some(required.min(union))
+    }
+
     pub(super) unsafe fn into_clause(
         mut self,
         planner: Option<(*mut pg_sys::PlannerInfo, pg_sys::Index)>,
@@ -571,7 +594,9 @@ pub(super) fn query_estimate(mut query: &dyn Query) -> Box<dyn QueryEstimate + '
     while let Some(boxed) = query.downcast_ref::<Box<dyn Query>>() {
         query = boxed.as_ref();
     }
-    if let Some(query) = query.downcast_ref::<BooleanQuery>() {
+    if let Some(query) = query.downcast_ref::<TermQuery>() {
+        Box::new(TermQueryEstimate(query))
+    } else if let Some(query) = query.downcast_ref::<BooleanQuery>() {
         Box::new(BooleanQueryEstimate(query))
     } else if let Some(query) = query.downcast_ref::<DisjunctionMaxQuery>() {
         Box::new(DisjunctionMaxQueryEstimate(query))
@@ -583,6 +608,21 @@ pub(super) fn query_estimate(mut query: &dyn Query) -> Box<dyn QueryEstimate + '
         Box::new(ConstScoreQueryEstimate(query))
     } else {
         Box::new(TantivyQueryEstimate(query))
+    }
+}
+
+struct TermQueryEstimate<'a>(&'a TermQuery);
+
+impl QueryEstimate for TermQueryEstimate<'_> {
+    /// Posting counts estimate traversal work for text and non-text equality alike.
+    fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<(u32, u64)>> {
+        let term = self.0.term();
+        if !reader.schema().get_field_entry(term.field()).is_indexed() {
+            // Unindexed fields have no posting counts.
+            return Ok(None);
+        }
+        let count = reader.inverted_index(term.field())?.doc_freq(term)?;
+        Ok(Some((count, u64::from(count))))
     }
 }
 
@@ -630,7 +670,10 @@ impl QueryEstimate for TermSetQueryEstimate<'_> {
             reader,
             self.0.terms().map(|term| {
                 let query = TermQuery::new(term.clone(), tantivy::schema::IndexRecordOption::Basic);
-                (Occur::Should, query.estimate_docs(reader))
+                (
+                    Occur::Should,
+                    TermQueryEstimate(&query).estimate_docs(reader),
+                )
             }),
         )
     }
@@ -672,12 +715,16 @@ impl BooleanClause {
         if reader.max_doc() == 0 {
             return Ok(Some((0, 0)));
         }
-        let mut work = 0u64;
+        let mut costs = Vec::new();
         for (occur, estimate) in children {
-            let Some((count, cost)) = estimate? else {
-                return Ok(None);
-            };
-            work = work.saturating_add(cost);
+            let (count, cost) = estimate?.unwrap_or_else(|| {
+                let matches = f64::from(reader.max_doc()) * crate::UNKNOWN_SELECTIVITY;
+                (
+                    matches.ceil() as u32,
+                    (matches * crate::gucs::expensive_query_cost_factor()).ceil() as u64,
+                )
+            });
+            costs.push((occur, Some(cost)));
             let clause =
                 Selectivity(f64::from(count.min(reader.max_doc())) / f64::from(reader.max_doc()))
                     .into();
@@ -687,6 +734,9 @@ impl BooleanClause {
                 Occur::MustNot => self.must_not.push(clause),
             }
         }
+        let work = self
+            .estimate_cost(&costs)
+            .expect("child costs are available");
         let selectivity = unsafe { Selectivity::estimate(self.into_clause(None), None) };
         Ok(Some((
             (selectivity * f64::from(reader.max_doc())).ceil() as u32,

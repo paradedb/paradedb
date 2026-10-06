@@ -21,6 +21,9 @@
 //! must be equal. On a single table the other backend is the oracle instead, and
 //! the documents themselves are compared. `missing`, `min_doc_count`, and `order`
 //! by a metric have no SQL translation here and are left to the regression tests.
+//!
+//! As a window function, `pdb.agg(...) OVER ()` puts the document of the whole
+//! join on every row a query returns, so the same `GROUP BY` is its oracle too.
 
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -301,6 +304,28 @@ impl PdbAggExpr {
         Ok(out)
     }
 
+    /// The rows of [`Self::pg_query`] for the document that `pdb.agg(...) OVER ()`
+    /// puts in the last column of every row, flattened once. Empty when there is
+    /// no row to carry a document.
+    pub fn window_rows(&self, rows: &[PgRow]) -> Result<Vec<String>, sqlx::Error> {
+        let mut documents = rows
+            .iter()
+            .map(|row| row.try_get::<Value, _>(row.len() - 1));
+        let Some(first) = documents.next().transpose()? else {
+            return Ok(Vec::new());
+        };
+        for document in documents {
+            if document? != first {
+                return Err(sqlx::Error::Protocol(
+                    "pdb.agg() OVER () rows carry different documents".into(),
+                ));
+            }
+        }
+        let mut out = Vec::new();
+        self.flatten(&first, 0, &mut Vec::new(), &mut out);
+        Ok(out)
+    }
+
     /// The SQL group value and the `pdb.agg()` document of each row of
     /// [`Self::pdb_query`], as they are.
     pub fn documents(&self, rows: Vec<PgRow>) -> Result<Vec<(String, Value)>, sqlx::Error> {
@@ -376,11 +401,18 @@ fn json_string(value: &Value) -> String {
     }
 }
 
+/// Whether a SQL `GROUP BY` sits beside the call.
+#[derive(Clone, Copy)]
+enum OuterGroup {
+    Never,
+    Maybe,
+    Always,
+}
+
 /// What the oracle of a test can express, which bounds the specs it gets.
 #[derive(Clone, Copy)]
 struct SpecShape {
-    /// A SQL `GROUP BY` always sits beside the call.
-    grouped: bool,
+    outer_group: OuterGroup,
     /// Standard SQL aggregates may sit beside the call.
     allow_outer_aggs: bool,
     /// NUMERIC columns may be metric fields.
@@ -445,7 +477,7 @@ pub fn arb_pdb_agg_join(
         let where_cols = where_columns.clone();
         arb_joins(join_types, joined.clone(), &key_columns).prop_flat_map(move |join| {
             let shape = SpecShape {
-                grouped: false,
+                outer_group: OuterGroup::Maybe,
                 allow_outer_aggs: true,
                 numeric_metrics: true,
                 size_anywhere: false,
@@ -482,11 +514,32 @@ pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
     arb_pdb_agg(
         Vec::new(),
         SpecShape {
-            grouped: true,
+            outer_group: OuterGroup::Always,
             allow_outer_aggs: false,
             numeric_metrics: false,
             size_anywhere: true,
             sketch_keys: usize::MAX,
+            allow_arrays: false,
+        },
+    )
+}
+
+/// A `pdb.agg()` for `pdb.agg(...) OVER ()` beside the rows of a join over
+/// `tables`. A window has no SQL group or aggregates beside it, and JoinScan,
+/// which computes it, declines array fields. `has_keyless_step` bounds
+/// `cardinality` as in [`arb_pdb_agg_join`].
+pub fn arb_pdb_agg_window(
+    tables: Vec<String>,
+    has_keyless_step: bool,
+) -> impl Strategy<Value = PdbAggExpr> {
+    arb_pdb_agg(
+        tables,
+        SpecShape {
+            outer_group: OuterGroup::Never,
+            allow_outer_aggs: false,
+            numeric_metrics: true,
+            size_anywhere: false,
+            sketch_keys: if has_keyless_step { 1 } else { usize::MAX },
             allow_arrays: false,
         },
     )
@@ -529,12 +582,14 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
         ),
         1 => (Just(MetricKind::Avg), proptest::sample::select(int_fields.clone())),
     ];
-    let outer_group = if shape.grouped {
-        proptest::sample::select(key_fields.clone())
+    let outer_group = match shape.outer_group {
+        OuterGroup::Always => proptest::sample::select(key_fields.clone())
             .prop_map(Some)
-            .boxed()
-    } else {
-        proptest::option::weighted(0.3, proptest::sample::select(key_fields.clone())).boxed()
+            .boxed(),
+        OuterGroup::Maybe => {
+            proptest::option::weighted(0.3, proptest::sample::select(key_fields.clone())).boxed()
+        }
+        OuterGroup::Never => Just(None).boxed(),
     };
 
     let outer_aggs_strat = if shape.allow_outer_aggs {

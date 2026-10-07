@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::identity;
+use std::net::Ipv6Addr;
 use std::sync::{Arc, OnceLock};
 
 use crate::api::CTID_FIELD_NAME;
@@ -38,7 +39,7 @@ use datafusion::common::Result;
 use datafusion::error::DataFusionError;
 use serde::{Deserialize, Serialize};
 use tantivy::SegmentOrdinal;
-use tantivy::columnar::{BytesColumn, StrColumn};
+use tantivy::columnar::{BytesColumn, ColumnType, DynamicColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, DocId, IndexSortByField, Searcher, SegmentReader};
@@ -267,6 +268,7 @@ pub enum FFType {
     U64(Column<u64>),
     Bool(Column<bool>),
     Date(Column<tantivy::DateTime>),
+    IpAddr(Column<Ipv6Addr>),
 }
 
 impl FFType {
@@ -305,6 +307,15 @@ impl FFType {
             Some(Self::Bool(ff))
         } else if let Ok(ff) = ffr.date(field_name) {
             Some(Self::Date(ff))
+        } else if let Ok(handles) = ffr.dynamic_column_handles(field_name) {
+            for handle in handles {
+                if handle.column_type() == ColumnType::IpAddr
+                    && let Ok(DynamicColumn::IpAddr(col)) = handle.open()
+                {
+                    return Some(Self::IpAddr(col));
+                }
+            }
+            None
         } else {
             None
         }
@@ -368,6 +379,11 @@ impl FFType {
                     .map(|first| first.into())
                     .unwrap_or(PdbOwnedValue::Null),
             ),
+            FFType::IpAddr(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(PdbOwnedValue::IpAddr)
+                    .unwrap_or(PdbOwnedValue::Null),
+            ),
         }
     }
 
@@ -410,6 +426,20 @@ impl FFType {
             )),
             FFType::I64(_) if is_pgoid_datetime_type(search_field_type.typeoid()) => {
                 fetch_ff_column!(self, ids, I64 => identity => TimestampMicrosecondBuilder)
+            }
+            FFType::IpAddr(col) => {
+                let mut column_results = Vec::with_capacity(ids.len());
+                column_results.resize(ids.len(), None);
+                col.first_vals(ids, &mut column_results);
+                let mut builder = StringViewBuilder::with_capacity(ids.len());
+                for maybe_val in column_results {
+                    if let Some(ip) = maybe_val {
+                        builder.append_value(ip.to_string());
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Arc::new(builder.finish()) as ArrayRef
             }
             numeric_column => fetch_ff_column!(numeric_column, ids,
                 I64  => identity => Int64Builder,
@@ -503,6 +533,12 @@ impl FFType {
                 ),
                 |doc| col.values_for_doc(doc),
                 |b, v| b.append_value(datetime_to_pg_micros(v)),
+            ),
+            FFType::IpAddr(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(StringViewBuilder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(v.to_string()),
             ),
             FFType::Junk => Arc::new(arrow_array::new_null_array(
                 &arrow_schema::DataType::List(list_item_field(arrow_schema::DataType::Null)),

@@ -1,0 +1,26 @@
+-- Regression coverage for issue #6628.
+-- Inet columnar fields must be readable from FFType during columnar scans.
+-- https://github.com/paradedb/paradedb/issues/6628
+
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+
+DROP TABLE IF EXISTS inet_items;
+CREATE TABLE inet_items (id SERIAL PRIMARY KEY, ip INET);
+INSERT INTO inet_items (ip) VALUES ('10.0.0.1'), ('10.0.0.2'), ('10.0.0.2');
+CREATE INDEX inet_items_idx ON inet_items USING paradedb (id, ip);
+
+SELECT id, ip::text
+FROM inet_items
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT ip::text, COUNT(*)
+FROM inet_items
+WHERE id @@@ paradedb.all()
+GROUP BY ip
+ORDER BY ip;
+
+RESET paradedb.enable_aggregate_custom_scan;
+
+DROP TABLE inet_items;

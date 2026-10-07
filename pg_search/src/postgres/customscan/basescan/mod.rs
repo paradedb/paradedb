@@ -1196,18 +1196,9 @@ impl CustomScan for BaseScan {
                 // applied to the cost.)
                 let path_drive_cost = match reason {
                     WorkerDecisionReason::BlockWandPrunable => None,
-                    WorkerDecisionReason::SortedPerSegment => {
-                        // Use the expensive-query heuristic for an unresolved predicate, with
-                        // at least a full scan of work that LIMIT cannot discount.
-                        table.reltuples().map(|rows| {
-                            (rows as f64
-                                * PARAMETERIZED_SELECTIVITY
-                                * crate::gucs::expensive_query_cost_factor())
-                            .max(rows as f64) as u64
-                        })
-                    }
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
+                    | WorkerDecisionReason::SortedPerSegment
                     | WorkerDecisionReason::RowHeuristic => drive_cost,
                 };
                 let drive = match (path_drive_cost, row_estimate.known_rows()) {
@@ -1248,8 +1239,6 @@ impl CustomScan for BaseScan {
                             .map_or(1.0, |n| parallel_divisor(n, parallel_leader_participates));
                         let rows = base_result_rows / divisor;
                         let total_cost = startup_cost + cost_basis.parallelizable_cost / divisor;
-                        let startup_cost =
-                            startup_cost + cost_basis.parallelizable_startup_cost / divisor;
 
                         let mut path_builder = CustomPathBuilder::<Self>::new(
                             builder.args().root,

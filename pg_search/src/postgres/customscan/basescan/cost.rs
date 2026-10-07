@@ -136,7 +136,6 @@ pub(super) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool
 }
 
 pub(super) struct PathCostBasis {
-    pub(super) parallelizable_startup_cost: f64,
     pub(super) parallelizable_cost: f64,
 }
 
@@ -501,8 +500,6 @@ pub(super) fn estimate_path_cost(
         .unwrap_or(0.0);
 
     PathCostBasis {
-        // Sorted scans must finish collecting before LIMIT can consume any rows.
-        parallelizable_startup_cost: if is_sorted { scan_work } else { 0.0 },
         parallelizable_cost: scan_work + output_cost,
     }
 }

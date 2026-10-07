@@ -87,23 +87,77 @@ impl TryInto<Aggregations> for AggregateRequest {
 struct State {
     // these require the Spinlock mutex for atomic access (read and write)
     mutex: Spinlock,
+    _pad: [u8; 4],
     nlaunched: usize,
     remaining_segments: usize,
 }
+
+// SAFETY: State is #[repr(C)] with explicit padding. All fields are
+// integer types (Spinlock = i32 wrapper, usize). Every bit pattern is valid.
+unsafe impl bytemuck::Zeroable for State {}
+unsafe impl bytemuck::Pod for State {}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Config {
     indexrelid: pg_sys::Oid,
+    _pad1: [u8; 4],
     total_segments: usize,
-    solve_mvcc: bool,
-    collect_visibility_stats: bool,
-
+    solve_mvcc: u8,
+    collect_visibility_stats: u8,
+    _pad2: [u8; 6],
     memory_limit: u64,
     bucket_limit: u32,
+    _pad3: [u8; 4],
+}
+
+// SAFETY: Config is #[repr(C)] with explicit padding. All fields are
+// integer types (Oid = u32 wrapper, usize, u8, u64, u32). Every bit
+// pattern is valid.
+unsafe impl bytemuck::Zeroable for Config {}
+unsafe impl bytemuck::Pod for Config {}
+
+impl Config {
+    fn new(
+        indexrelid: pg_sys::Oid,
+        total_segments: usize,
+        solve_mvcc: bool,
+        collect_visibility_stats: bool,
+        memory_limit: u64,
+        bucket_limit: u32,
+    ) -> Self {
+        Self {
+            indexrelid,
+            _pad1: [0; 4],
+            total_segments,
+            solve_mvcc: solve_mvcc as u8,
+            collect_visibility_stats: collect_visibility_stats as u8,
+            _pad2: [0; 6],
+            memory_limit,
+            bucket_limit,
+            _pad3: [0; 4],
+        }
+    }
+
+    fn solve_mvcc(&self) -> bool {
+        self.solve_mvcc != 0
+    }
+
+    fn collect_visibility_stats(&self) -> bool {
+        self.collect_visibility_stats != 0
+    }
 }
 
 impl State {
+    fn new(nlaunched: usize, remaining_segments: usize) -> Self {
+        Self {
+            mutex: Spinlock::new(),
+            _pad: [0; 4],
+            nlaunched,
+            remaining_segments,
+        }
+    }
+
     fn set_launched_workers(&mut self, nlaunched: usize) {
         let _lock = self.mutex.acquire();
         self.nlaunched = nlaunched;
@@ -116,19 +170,44 @@ impl State {
 }
 
 type NumDeletedDocs = u32;
+
+#[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
+#[repr(C)]
+struct SegmentDeletedDocs {
+    segment_id_bytes: [u8; 16],
+    deleted_docs: u32,
+}
+
+impl SegmentDeletedDocs {
+    fn new(id: SegmentId, deleted: NumDeletedDocs) -> Self {
+        Self {
+            segment_id_bytes: *id.uuid_bytes(),
+            deleted_docs: deleted,
+        }
+    }
+
+    fn segment_id(&self) -> SegmentId {
+        SegmentId::from_bytes(self.segment_id_bytes)
+    }
+}
+
 struct ParallelAggregation {
     state: State,
     config: Config,
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
     bitmap_handle_bytes: Vec<u8>,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    segment_ids: Vec<SegmentDeletedDocs>,
     ambulkdelete_epoch: u32,
 }
 
 impl ParallelStateType for State {}
 impl ParallelStateType for Config {}
-impl ParallelStateType for (SegmentId, NumDeletedDocs) {}
+impl ParallelStateType for SegmentDeletedDocs {}
+
+const _: () = assert!(size_of::<State>() == 24);
+const _: () = assert!(size_of::<Config>() == 40);
+const _: () = assert!(size_of::<SegmentDeletedDocs>() == 20);
 
 impl ParallelProcess for ParallelAggregation {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
@@ -154,24 +233,20 @@ impl ParallelAggregation {
         collect_visibility_stats: bool,
         memory_limit: u64,
         bucket_limit: u32,
-        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+        segment_ids: Vec<SegmentDeletedDocs>,
         ambulkdelete_epoch: u32,
         bitmap_handle: Option<SharedBitmapHandle>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            state: State {
-                mutex: Spinlock::new(),
-                nlaunched: 0,
-                remaining_segments: segment_ids.len(),
-            },
-            config: Config {
+            state: State::new(0, segment_ids.len()),
+            config: Config::new(
                 indexrelid,
-                total_segments: segment_ids.len(),
+                segment_ids.len(),
                 solve_mvcc,
                 collect_visibility_stats,
                 memory_limit,
                 bucket_limit,
-            },
+            ),
             agg_req_bytes: serde_json::to_vec(&aggregation)?,
             query_bytes: serde_json::to_vec(query)?,
             bitmap_handle_bytes: postcard::to_allocvec(&bitmap_handle)?,
@@ -186,7 +261,7 @@ struct ParallelAggregationWorker<'a> {
     config: Config,
     aggregation: Option<AggregateRequest>,
     query: SearchQueryInput,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    segment_ids: Vec<SegmentDeletedDocs>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
     /// The owner's published claim table, attached lazily by bgworkers (the
@@ -227,7 +302,7 @@ impl<'a> ParallelAggregationWorker<'a> {
     fn new_local(
         aggregation: AggregateRequest,
         query: SearchQueryInput,
-        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+        segment_ids: Vec<SegmentDeletedDocs>,
         ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
         solve_mvcc: bool,
@@ -238,14 +313,14 @@ impl<'a> ParallelAggregationWorker<'a> {
     ) -> Self {
         Self {
             state,
-            config: Config {
+            config: Config::new(
                 indexrelid,
-                total_segments: segment_ids.len(),
+                segment_ids.len(),
                 solve_mvcc,
                 collect_visibility_stats,
                 memory_limit,
                 bucket_limit,
-            },
+            ),
             aggregation: Some(aggregation),
             query,
             segment_ids,
@@ -282,8 +357,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         self.state.remaining_segments -= 1;
         self.segment_ids
             .get(self.state.remaining_segments)
-            .cloned()
-            .map(|(segment_id, _)| segment_id)
+            .map(|entry| entry.segment_id())
     }
 
     fn execute_aggregate(
@@ -355,12 +429,12 @@ impl<'a> ParallelAggregationWorker<'a> {
             .expect("index should belong to a heap relation");
         let visibility_stats = self
             .config
-            .collect_visibility_stats
+            .collect_visibility_stats()
             .then(|| Arc::new(Mutex::new(VisibilityStats::default())));
         let (base_collector, vischeck) = aggregations.plan(
             reader,
             &heaprel,
-            self.config.solve_mvcc,
+            self.config.solve_mvcc(),
             limits,
             visibility_stats.clone(),
         );
@@ -407,7 +481,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("wrong type for query_bytes")
             .expect("missing query_bytes value");
         let segment_ids = state_manager
-            .slice::<(SegmentId, NumDeletedDocs)>(4)
+            .slice::<SegmentDeletedDocs>(4)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
         let ambulkdelete_epoch = state_manager
@@ -562,7 +636,7 @@ pub fn execute_aggregate(
         let segment_ids = reader
             .segment_readers()
             .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
         // Publish the bitmap claim table for the worker pool: rebuild the
         // leader's bitmap into this scan's own DSA area, prepare one iterator
@@ -574,7 +648,8 @@ pub fn execute_aggregate(
             if consumers == 0 {
                 return None;
             }
-            let segments: Vec<SegmentId> = segment_ids.iter().map(|(id, _)| *id).collect();
+            let segments: Vec<SegmentId> =
+                segment_ids.iter().map(|entry| entry.segment_id()).collect();
             let handle = bitmap_exec.shared_source(consumers, &segments)?;
             if let Some(cell) = query.bitmap_cell()
                 && let Some(source) = bitmap_exec.source()
@@ -692,13 +767,9 @@ pub fn execute_aggregate(
             let segment_ids = reader
                 .segment_readers()
                 .iter()
-                .map(|r| (r.segment_id(), r.num_deleted_docs()))
+                .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
                 .collect::<Vec<_>>();
-            let mut state = State {
-                mutex: Spinlock::default(),
-                nlaunched: 1,
-                remaining_segments: segment_ids.len(),
-            };
+            let mut state = State::new(1, segment_ids.len());
             let mut worker = ParallelAggregationWorker::new_local(
                 agg_req.clone(),
                 query,
@@ -1106,7 +1177,7 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::postgres::heap::VisibilityChecker;
+    use crate::postgres::heap::{VisibilityChecker, VisibilityMask};
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
     use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
@@ -1145,12 +1216,6 @@ pub mod mvcc_collector {
                     Vec::new()
                 },
                 visibility_buffer: Vec::with_capacity(capacity),
-                filtered_doc_buffer: Vec::with_capacity(capacity),
-                filtered_score_buffer: if requires_scoring {
-                    Vec::with_capacity(capacity)
-                } else {
-                    Vec::new()
-                },
                 requires_scoring,
             })
         }
@@ -1189,10 +1254,6 @@ pub mod mvcc_collector {
         // Entry i records whether doc_buffer[i] is visible to the query snapshot.
         visibility_buffer: Vec<bool>,
 
-        // Outgoing buffers
-        filtered_doc_buffer: Vec<DocId>,
-        filtered_score_buffer: Vec<Score>,
-
         requires_scoring: bool,
     }
     unsafe impl<C: SegmentCollector> Send for MVCCFilterSegmentCollector<C> {}
@@ -1210,40 +1271,46 @@ pub mod mvcc_collector {
                 .as_ref()
                 .expect("buffered docs need visibility checks")
                 .lock();
-            self.visibility_buffer.resize(self.doc_buffer.len(), false);
-            vischeck.check_segment_docs_mask(
+            let mask = vischeck.check_segment_docs_mask(
                 self.segment_ord,
                 &self.doc_buffer,
                 &mut self.visibility_buffer,
             );
             drop(vischeck);
 
-            // Filter visible docs.
-            self.filtered_doc_buffer.clear();
-            if self.requires_scoring {
-                self.filtered_score_buffer.clear();
-            }
-
-            for (i, &visible) in self.visibility_buffer.iter().enumerate() {
-                if visible {
-                    self.filtered_doc_buffer.push(self.doc_buffer[i]);
+            match mask {
+                VisibilityMask::All { .. } => {
+                    // Forward directly without filtering when all buffered docs are visible.
                     if self.requires_scoring {
-                        self.filtered_score_buffer.push(self.score_buffer[i]);
+                        for (&doc, &score) in self.doc_buffer.iter().zip(self.score_buffer.iter()) {
+                            self.inner.collect(doc, score);
+                        }
+                    } else {
+                        self.inner.collect_block(&self.doc_buffer);
                     }
                 }
-            }
-
-            // Pass to inner collector
-            if self.requires_scoring {
-                for (doc, score) in self
-                    .filtered_doc_buffer
-                    .iter()
-                    .zip(self.filtered_score_buffer.iter())
-                {
-                    self.inner.collect(*doc, *score);
+                VisibilityMask::Some(mask) => {
+                    // In-place compaction of visible docs.
+                    let mut write_idx = 0;
+                    for (read_idx, &is_vis) in mask.iter().enumerate() {
+                        if is_vis {
+                            self.doc_buffer[write_idx] = self.doc_buffer[read_idx];
+                            if self.requires_scoring {
+                                self.score_buffer[write_idx] = self.score_buffer[read_idx];
+                            }
+                            write_idx += 1;
+                        }
+                    }
+                    self.doc_buffer.truncate(write_idx);
+                    if self.requires_scoring {
+                        self.score_buffer.truncate(write_idx);
+                        for (&doc, &score) in self.doc_buffer.iter().zip(self.score_buffer.iter()) {
+                            self.inner.collect(doc, score);
+                        }
+                    } else if !self.doc_buffer.is_empty() {
+                        self.inner.collect_block(&self.doc_buffer);
+                    }
                 }
-            } else if !self.filtered_doc_buffer.is_empty() {
-                self.inner.collect_block(&self.filtered_doc_buffer);
             }
 
             self.doc_buffer.clear();
@@ -1292,5 +1359,68 @@ pub mod mvcc_collector {
             self.flush();
             self.inner.harvest()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn segment_deleted_docs_round_trips() {
+        let id = SegmentId::generate_random();
+        let entry = SegmentDeletedDocs::new(id, 42);
+
+        assert_eq!(entry.segment_id(), id);
+        assert_eq!(entry.deleted_docs, 42);
+    }
+
+    #[test]
+    fn segment_deleted_docs_bytes_match_fields() {
+        let entry = SegmentDeletedDocs {
+            segment_id_bytes: [1; 16],
+            deleted_docs: 99,
+        };
+        let bytes = bytemuck::bytes_of(&entry);
+        assert_eq!(bytes.len(), size_of::<SegmentDeletedDocs>());
+        assert_eq!(&bytes[..16], &[1u8; 16]);
+    }
+
+    #[test]
+    fn config_solve_mvcc_accessor() {
+        let mut config: Config = bytemuck::Zeroable::zeroed();
+        assert!(!config.solve_mvcc());
+        config.solve_mvcc = 1;
+        assert!(config.solve_mvcc());
+        config.solve_mvcc = 2;
+        assert!(config.solve_mvcc());
+    }
+
+    #[test]
+    fn config_collect_visibility_stats_accessor() {
+        let mut config: Config = bytemuck::Zeroable::zeroed();
+        assert!(!config.collect_visibility_stats());
+        config.collect_visibility_stats = 1;
+        assert!(config.collect_visibility_stats());
+        config.collect_visibility_stats = 2;
+        assert!(config.collect_visibility_stats());
+    }
+
+    #[test]
+    fn config_zeroed_has_no_uninit_padding() {
+        let config: Config = bytemuck::Zeroable::zeroed();
+        let bytes = bytemuck::bytes_of(&config);
+        assert_eq!(bytes[4..8], [0; 4]);
+        assert_eq!(bytes[18..24], [0; 6]);
+        assert_eq!(bytes[36..40], [0; 4]);
+        assert_eq!(bytes.len(), 40);
+    }
+
+    #[test]
+    fn state_zeroed_has_no_uninit_padding() {
+        let state: State = bytemuck::Zeroable::zeroed();
+        let bytes = bytemuck::bytes_of(&state);
+        assert_eq!(bytes[4..8], [0; 4]);
+        assert_eq!(bytes.len(), 24);
     }
 }

@@ -17,12 +17,27 @@ runs:
   steps:
     - name: Preserve SQL Files
       shell: bash
+      env:
+        INPUTS_PRIOR_PG_SEARCH_VERSION: ${{ inputs.prior_pg_search_version }}
       run: |
         SQL_DIR="$(mktemp -d)"
+        PRIOR="${INPUTS_PRIOR_PG_SEARCH_VERSION#v}"
         for case_dir in "${GITHUB_ACTION_PATH}"/*; do
-          [ -d "$case_dir" ] && cp -R "$case_dir" "$SQL_DIR/"
+          [ -d "$case_dir" ] || continue
+          # These fixtures require pre-0.26 tokenizer behavior or vector storage.
+          # Keep them on the pinned older rows; newer releases cannot build them.
+          case "$(basename "$case_dir")" in
+            regex_tokenizers|key_field_tokenizers|vector_storage)
+              if [ "$(printf '%s\n%s\n' '0.26.0' "$PRIOR" | sort -V | head -n 1)" = '0.26.0' ]; then
+                echo "Skipping $(basename "$case_dir"): requires a release before 0.26.0"
+                continue
+              fi
+              ;;
+          esac
+          cp -R "$case_dir" "$SQL_DIR/"
         done
         echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"
+        echo "UPGRADE_CI_HELPERS_REF=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
         # Preserve standalone helper SQL too: `git checkout <prior version>` below
         # replaces this action's directory with the prior version's contents,
@@ -224,8 +239,8 @@ runs:
         fi
         echo "Upgraded schema matches a fresh install."
 
-    # We test each BM25 index after the upgrade to test for version compatibility.
-    - name: Test BM25 Index
+    # We test each ParadeDB index after the upgrade to test for version compatibility.
+    - name: Test ParadeDB Index
       working-directory: pg_search/
       shell: bash
       env:
@@ -248,6 +263,13 @@ runs:
         export DATABASE_URL=postgresql://$(whoami)"@localhost:288${INPUTS_PG_VERSION}/postgres"
         export PG_CONFIG="/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config"
         RUST_BACKTRACE=1 cargo test --jobs $(nproc)
+
+    # An early failure can leave the checkout on an old release without current
+    # diagnostic scripts or local actions needed by post-job cache cleanup.
+    - name: Restore CI Helpers
+      if: always()
+      shell: bash
+      run: git restore --source="$UPGRADE_CI_HELPERS_REF" -- .github
 
     - name: Print the Postgres Logs
       if: always()

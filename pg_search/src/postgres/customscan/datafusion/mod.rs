@@ -26,6 +26,7 @@
 //! Future phases of the dedup work will move the shared session-builder helpers
 //! and the `RelNode` family of relation-tree types into this module as well.
 
+use arrow_array::{Array, UInt64Array};
 use datafusion::common::ScalarValue;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::function::AccumulatorArgs;
@@ -40,6 +41,7 @@ pub mod memory;
 pub mod numeric_agg;
 pub mod spill;
 pub mod timestamp_to_date;
+pub mod topk_agg;
 pub mod translator;
 
 /// All pg_search aggregate UDAFs, registered into SessionState so plans referencing
@@ -51,6 +53,7 @@ pub fn all_pg_search_udafs() -> Vec<Arc<AggregateUDF>> {
         numeric_agg::numeric_bytes_sum_udaf(),
         numeric_agg::numeric_bytes_avg_udaf(),
         cardinality_agg::tantivy_cardinality_udaf(),
+        topk_agg::topk_as_agg_udaf(),
     ]
 }
 
@@ -93,4 +96,13 @@ pub(crate) fn reject_distinct(args: &AccumulatorArgs, name: &str) -> Result<()> 
         )));
     }
     Ok(())
+}
+
+pub(crate) fn fill_nulls_u64(arr: Arc<dyn Array>, fill: u64) -> Result<Arc<dyn Array>> {
+    use datafusion::arrow::compute::{is_not_null, kernels::zip::zip};
+    if arr.null_count() == 0 {
+        return Ok(arr);
+    }
+    let filled = zip(&is_not_null(&arr)?, &arr, &UInt64Array::new_scalar(fill))?;
+    Ok(filled)
 }

@@ -46,6 +46,7 @@ use crate::postgres::customscan::pullup::{
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
+    has_leaky_heap_filter,
 };
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::node::NodeExt;
@@ -95,7 +96,7 @@ impl JoinAggSource {
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| match &f.field {
-                WhichFastField::Score | WhichFastField::Junk(_) => None,
+                WhichFastField::Score(_) | WhichFastField::Junk(_) => None,
                 _ => Some(f.field.name()),
             })
     }
@@ -581,6 +582,19 @@ unsafe fn build_scan_node(
                 return Err("query does not imply the partial index predicate".into());
             }
             classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
+
+            // SECURITY: nothing runs above this scan, so a leaky filter would run before RLS.
+            if has_leaky_heap_filter(root, rel, rti, bm25_index, &classified.search_ri) {
+                pgrx::debug1!(
+                    "agg-on-join: declining RTI {} ({}); a WHERE predicate must be \
+                     evaluated after row-level security policies",
+                    rti,
+                    source.alias.as_deref().unwrap_or("unknown"),
+                );
+                return Err(
+                    "a WHERE predicate must be evaluated after row-level security policies".into(),
+                );
+            }
         }
     }
 
@@ -1526,8 +1540,8 @@ impl FilterExpr {
                         .targetlist()
                         .group_columns
                         .iter()
-                        .find(|gc| gc.plan_position == pp && gc.attno == attno)
-                        .map(|gc| Self::GroupRef(gc.field_name.clone())),
+                        .position(|gc| gc.plan_position == pp && gc.attno == attno)
+                        .map(Self::GroupRef),
                 }
             }
             pg_sys::NodeTag::T_Const => {

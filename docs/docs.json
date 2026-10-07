@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.25.11",
+        "version": "v0.26.0",
         "tabs": [
           {
             "tab": "Start",
@@ -55,7 +55,8 @@
                       "reference/indexing/create-index",
                       "reference/indexing/indexing-partial",
                       "reference/indexing/columnar",
-                      "reference/indexing/partition-by"
+                      "reference/indexing/partition-by",
+                      "reference/indexing/faster-bm25-queries"
                     ]
                   },
                   {
@@ -324,26 +325,33 @@
                 "pages": [
                   "project/changelog",
                   {
-                    "group": "v0.25",
+                    "group": "v0.26",
                     "pages": [
-                      "project/changelog/0.25.11",
-                      "project/changelog/0.25.10",
-                      "project/changelog/0.25.9",
-                      "project/changelog/0.25.8",
-                      "project/changelog/0.25.7",
-                      "project/changelog/0.25.6",
-                      "project/changelog/0.25.5",
-                      "project/changelog/0.25.4",
-                      "project/changelog/0.25.3",
-                      "project/changelog/0.25.2",
-                      "project/changelog/0.25.1",
-                      "project/changelog/0.25.0"
+                      "project/changelog/0.26.0"
                     ],
                     "expanded": false
                   },
                   {
                     "group": "Older",
                     "pages": [
+                      {
+                        "group": "v0.25",
+                        "pages": [
+                          "project/changelog/0.25.11",
+                          "project/changelog/0.25.10",
+                          "project/changelog/0.25.9",
+                          "project/changelog/0.25.8",
+                          "project/changelog/0.25.7",
+                          "project/changelog/0.25.6",
+                          "project/changelog/0.25.5",
+                          "project/changelog/0.25.4",
+                          "project/changelog/0.25.3",
+                          "project/changelog/0.25.2",
+                          "project/changelog/0.25.1",
+                          "project/changelog/0.25.0"
+                        ],
+                        "expanded": false
+                      },
                       {
                         "group": "v0.24",
                         "pages": [

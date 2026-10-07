@@ -81,6 +81,10 @@ impl HeldInterrupts {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body is a single decrement
+// of `InterruptHoldoffCount` that cannot raise, and skipping it could only leave interrupts held:
+// `errfinish` zeroes the count for a Postgres ERROR, but nothing does for a panic caught on the
+// Rust side.
 impl Drop for HeldInterrupts {
     fn drop(&mut self) {
         // `errfinish` zeroes the count before a caught Postgres ERROR unwinds through

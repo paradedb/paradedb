@@ -71,7 +71,8 @@ impl RangePartitioning {
     /// rule reads it from here.
     pub const NULL_PARTITION: usize = 0;
 
-    /// Returns the logical bounds as a range query, including the NULL clause where needed.
+    /// Returns the rows of `partition` as a query. The first partition keeps its NULLs by
+    /// excluding the keys at or above its upper edge; every other partition is a plain range.
     ///
     /// **Consumer Caveats**:
     /// - A row whose partition field is NULL will be deterministically routed to
@@ -81,13 +82,29 @@ impl RangePartitioning {
         let Some(range) = self.partition_range(partition) else {
             return SearchQueryInput::All;
         };
+        // The NULLs and the values below `upper` are the rows that are not at or above it.
+        // Excluding that range lets the base query drive the scan; a union with a NULL clause
+        // would walk every document of the segment.
+        if range.includes_nulls()
+            && let Some((Bound::Unbounded, upper)) = range.values()
+            && let Some(at_or_above) = match upper {
+                Bound::Excluded(value) => Some(Bound::Included(value.clone())),
+                Bound::Included(value) => Some(Bound::Excluded(value.clone())),
+                Bound::Unbounded => None,
+            }
+        {
+            return self.all_except(Query::Range {
+                lower_bound: at_or_above,
+                upper_bound: Bound::Unbounded,
+            });
+        }
         let range_query = range
             .values()
             .map(|(lower, upper)| SearchQueryInput::FieldedQuery {
                 field: self.partition_by.clone(),
                 query: if matches!((lower, upper), (Bound::Unbounded, Bound::Unbounded)) {
-                    // After a NULL split, this partition contains every non-NULL value.
-                    // The range compiler requires at least one finite bound.
+                    // After a NULL split, this partition contains every non-NULL value. Two
+                    // unbounded bounds compile to a match-all, which would take the NULLs too.
                     Query::Exists
                 } else {
                     Query::Range {
@@ -96,16 +113,9 @@ impl RangePartitioning {
                     }
                 },
             });
-        let null_query = range.includes_nulls().then(|| SearchQueryInput::Boolean {
-            // A pure-negative Boolean matches nothing. All supplies the positive clause.
-            must: vec![SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![SearchQueryInput::FieldedQuery {
-                field: self.partition_by.clone(),
-                query: Query::Exists,
-            }],
-            minimum_should_match: None,
-        });
+        let null_query = range
+            .includes_nulls()
+            .then(|| self.all_except(Query::Exists));
         match (range_query, null_query) {
             (Some(range_query), Some(null_query)) => SearchQueryInput::Boolean {
                 must: vec![],
@@ -115,6 +125,20 @@ impl RangePartitioning {
             },
             (Some(query), None) | (None, Some(query)) => query,
             (None, None) => SearchQueryInput::Empty,
+        }
+    }
+
+    /// Every row except the ones `query` matches on the partition field. A pure-negative
+    /// Boolean matches nothing, so `All` supplies the positive clause.
+    fn all_except(&self, query: Query) -> SearchQueryInput {
+        SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![SearchQueryInput::FieldedQuery {
+                field: self.partition_by.clone(),
+                query,
+            }],
+            minimum_should_match: None,
         }
     }
 

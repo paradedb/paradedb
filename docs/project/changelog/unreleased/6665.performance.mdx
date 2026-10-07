@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Join Scan now lazily fetches row `ctid`s during visibility checks and projection. For blocks marked all-visible in PostgreSQL's visibility map, index fast-field `ctid` lookups are avoided entirely, reading significantly fewer buffers in queries that filter or sort before projecting rows (#6665).

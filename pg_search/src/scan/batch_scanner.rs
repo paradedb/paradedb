@@ -20,7 +20,7 @@ use crate::index::fast_fields_helper::{
     ords_to_bytes_array, ords_to_string_array,
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
-use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::heap::{VisibilityChecker, VisibilityCtids, VisibilityMask};
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{
     Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, RecordBatchOptions, UInt64Array,
@@ -102,7 +102,7 @@ fn ensure_column_fetched(
                 }
             });
         }
-        WhichFastField::Score
+        WhichFastField::Score(_)
         | WhichFastField::Ctid
         | WhichFastField::TableOid
         | WhichFastField::Junk(_)
@@ -158,6 +158,7 @@ pub struct Scanner {
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
     visibility_results: Vec<Option<u64>>,
+    visibility_mask: Vec<bool>,
     /// When true, visibility checking is deferred to VisibilityFilterExec.
     /// Packed DocAddresses are emitted instead of real ctids.
     defer_visibility: bool,
@@ -168,6 +169,7 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
+    pub(crate) score_threshold_pushed: bool,
     score_threshold: Option<Score>,
     tagged_queries: Vec<TaggedMatchQuery>,
     current_segment_ord: Option<SegmentOrdinal>,
@@ -307,10 +309,12 @@ impl Scanner {
             which_fast_fields,
             table_oid,
             visibility_results: Vec::new(),
+            visibility_mask: Vec::new(),
             defer_visibility,
             fetch_ordinals_in_scan,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
+            score_threshold_pushed: false,
             score_threshold: None,
             tagged_queries: Vec::new(),
             current_segment_ord: None,
@@ -395,6 +399,7 @@ impl Scanner {
             let segment_ord = scorer_iter.segment_ord();
             if can_pushdown && let Some(threshold) = self.score_threshold {
                 scorer_iter.set_threshold(threshold);
+                self.score_threshold_pushed = true;
             }
 
             // Collect a batch of ids/scores for this segment.
@@ -444,14 +449,10 @@ impl Scanner {
             }
         }
 
-        if self
-            .which_fast_fields
-            .iter()
-            .any(|ff| matches!(ff, WhichFastField::Score))
-        {
+        if self.which_fast_fields.iter().any(|ff| ff.is_score()) {
             let scores_array = Arc::new(Float32Array::from(scores)) as ArrayRef;
             for (idx, ff) in self.which_fast_fields.iter().enumerate() {
-                if matches!(ff, WhichFastField::Score) {
+                if ff.is_score() {
                     memoized_columns[idx] = Some(scores_array.clone());
                 }
             }
@@ -521,78 +522,13 @@ impl Scanner {
             self.pre_filter_rows_pruned += before - ids.len();
         }
 
-        // Batch lookup the ctids and visibility check them.
-        // When defer_visibility is true, we skip visibility checking entirely —
-        // VisibilityFilterExec will handle it in batch after the join.
-        // When the segment is all-visible (determined via `for_segment`), per-row visibility
-        // checks and compaction are skipped; CTIDs are only fetched from fast fields if
-        // `WhichFastField::Ctid` is explicitly requested.
-        // Otherwise, `check_segment_docs` is run to filter invisible rows and build `ctids_array`.
-        let ctids_array: Option<ArrayRef> = if self.defer_visibility {
-            // defer_visibility=true always uses DeferredCtid, never WhichFastField::Ctid.
-            // A physical Ctid column in this path indicates a planning bug.
-            debug_assert!(
-                !self
-                    .which_fast_fields
-                    .iter()
-                    .any(|f| matches!(f, WhichFastField::Ctid)),
-                "defer_visibility=true but WhichFastField::Ctid is present — planning bug"
-            );
-            // No real ctid lookup needed.
-            None
-        } else {
-            if visibility.ffhelper().is_none() {
-                visibility.set_ffhelper(Arc::clone(ffhelper));
-            }
-
-            let need_ctid = self
-                .which_fast_fields
-                .iter()
-                .any(|f| matches!(f, WhichFastField::Ctid));
-
-            if let Some(checker) = visibility
-                .for_segment(segment_ord)
-                .expect("failed to check segment visibility")
-            {
-                // Filter out invisible rows and resolve ctids.
-                self.visibility_results.resize(ids.len(), None);
-                checker.check_segment_docs(segment_ord, &ids, &mut self.visibility_results);
-
-                let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
-                let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
-                for maybe_visible_ctid in self.visibility_results.drain(..) {
-                    if let Some(visible_ctid) = maybe_visible_ctid {
-                        visibility_mask_builder.append_value(true);
-                        ctids_builder.append_value(visible_ctid);
-                    } else {
-                        visibility_mask_builder.append_value(false);
-                    }
-                }
-                // Then filter the remaining columns using the mask.
-                compact_with_mask(
-                    &mut ids,
-                    &mut memoized_columns,
-                    &visibility_mask_builder.finish(),
-                );
-                Some(Arc::new(ctids_builder.finish()) as ArrayRef)
-            } else {
-                // Segment is all visible: skip visibility checks and compaction.
-                if need_ctid {
-                    let mut ctids_scratch = std::mem::take(&mut self.visibility_results);
-                    ctids_scratch.resize(ids.len(), None);
-                    ffhelper.ctid(segment_ord).as_u64s(&ids, &mut ctids_scratch);
-                    let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
-                    for ctid in ctids_scratch.drain(..) {
-                        ctids_builder
-                            .append_value(ctid.expect("ctid must be present for valid doc"));
-                    }
-                    self.visibility_results = ctids_scratch;
-                    Some(Arc::new(ctids_builder.finish()) as ArrayRef)
-                } else {
-                    None
-                }
-            }
-        };
+        let ctids_array = self.fetch_ctids(
+            ffhelper,
+            visibility,
+            segment_ord,
+            &mut ids,
+            &mut memoized_columns,
+        );
 
         // Pre-fetch any eager named columns that weren't already fetched by pre-filters,
         // plus the deferred columns whose ordinals are fetched here rather than above.
@@ -617,7 +553,7 @@ impl Scanner {
             .enumerate()
             .map(|(ff_index, which_ff)| match which_ff {
                 WhichFastField::Ctid => Some(ctids_array.clone().unwrap()),
-                WhichFastField::Score => Some(memoized_columns[ff_index].clone().unwrap()),
+                WhichFastField::Score(_) => Some(memoized_columns[ff_index].clone().unwrap()),
                 WhichFastField::TableOid => {
                     let mut builder = arrow_array::builder::UInt32Builder::with_capacity(ids.len());
                     for _ in 0..ids.len() {
@@ -718,7 +654,10 @@ impl Scanner {
                 // ordinals were already read, by a pre-filter or because the column is
                 // fetched in the scan, in which case it leaves as packed ordinals (State 1).
                 WhichFastField::DeferredCtid(_) => Some(Arc::new(
-                    crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
+                    crate::scan::deferred_encode::pack_deferred_ctid_doc_addresses(
+                        segment_ord,
+                        &ids,
+                    ),
                 ) as ArrayRef),
                 WhichFastField::Named {
                     delivery: FieldDelivery::Deferred,
@@ -756,5 +695,70 @@ impl Scanner {
             num_rows: ids.len(),
             fields,
         })
+    }
+
+    /// Checks visibility and fetches the `ctid` column if needed, compacting `ids`
+    /// and `memoized_columns` in-place when invisible rows are encountered.
+    fn fetch_ctids(
+        &mut self,
+        ffhelper: &Arc<FFHelper>,
+        visibility: &mut VisibilityChecker,
+        segment_ord: SegmentOrdinal,
+        ids: &mut Vec<DocId>,
+        memoized_columns: &mut [Option<ArrayRef>],
+    ) -> Option<ArrayRef> {
+        if self.defer_visibility {
+            // defer_visibility=true always uses DeferredCtid, never WhichFastField::Ctid.
+            // A physical Ctid column in this path indicates a planning bug.
+            debug_assert!(
+                !self
+                    .which_fast_fields
+                    .iter()
+                    .any(|f| matches!(f, WhichFastField::Ctid)),
+                "defer_visibility=true but WhichFastField::Ctid is present — planning bug"
+            );
+            // No real ctid lookup needed.
+            return None;
+        }
+
+        if visibility.ffhelper().is_none() {
+            visibility.set_ffhelper(Arc::clone(ffhelper));
+        }
+
+        let needs_ctid = self
+            .which_fast_fields
+            .iter()
+            .any(|f| matches!(f, WhichFastField::Ctid));
+
+        if needs_ctid {
+            let ctids =
+                visibility.check_segment_docs(segment_ord, ids, &mut self.visibility_results);
+
+            let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
+            for ctid in ctids.iter_visible() {
+                ctids_builder.append_value(ctid);
+            }
+
+            if let VisibilityCtids::Some(ctids_slice) = ctids {
+                let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
+                for maybe_visible_ctid in ctids_slice {
+                    visibility_mask_builder.append_value(maybe_visible_ctid.is_some());
+                }
+                compact_with_mask(ids, memoized_columns, &visibility_mask_builder.finish());
+            }
+            Some(Arc::new(ctids_builder.finish()) as ArrayRef)
+        } else {
+            let mask =
+                visibility.check_segment_docs_mask(segment_ord, ids, &mut self.visibility_mask);
+
+            if let VisibilityMask::Some(mask) = mask {
+                let mut mask_builder = BooleanBufferBuilder::new(ids.len());
+                mask_builder.append_slice(mask);
+                let mask = BooleanArray::new(mask_builder.finish(), None);
+
+                compact_with_mask(ids, memoized_columns, &mask);
+            }
+            None
+        }
     }
 }

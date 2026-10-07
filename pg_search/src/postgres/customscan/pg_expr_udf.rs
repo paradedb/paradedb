@@ -129,18 +129,13 @@ struct PgExprState {
 unsafe impl Send for PgExprState {}
 unsafe impl Sync for PgExprState {}
 
-impl Drop for PgExprState {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            return;
-        }
-        unsafe {
-            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
-            pg_sys::FreeExprContext(self.econtext, true);
-            pg_sys::FreeExecutorState(self.estate);
-        }
+crate::impl_safe_drop!(PgExprState, |self| {
+    unsafe {
+        pg_sys::ExecDropSingleTupleTableSlot(self.slot);
+        pg_sys::FreeExprContext(self.econtext, true);
+        pg_sys::FreeExecutorState(self.estate);
     }
-}
+});
 
 impl PgExprUdf {
     fn default_return_type() -> DataType {

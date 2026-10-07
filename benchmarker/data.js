@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791378706239,
+  "lastUpdate": 1791381387218,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -8450,6 +8450,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 606.87,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "29a0d3d5de8ba2b87dba27f6e3c4bb7605c73e9f",
+          "message": "fix: invalidate typmod caches on subtransaction abort (#6566)\n\n# Ticket(s) Closed\n\nNone.\n\n## What\n\nFix tokenizer settings surviving in the backend's typmod caches after\n`ROLLBACK TO SAVEPOINT`. Retrying index creation now persists the\nsettings again, so the committed index works in new connections.\n\n## Why\n\nCreating an index with new tokenizer options inserts a row into\n`paradedb._typmod_cache` and caches its ID and parsed settings. Rolling\nback to a savepoint removes the row, but the caches only handled\nfull-transaction aborts. A retry could reuse the removed ID and commit\nan index that worked in the original connection but failed after\nreconnecting because its tokenizer settings were missing.\n\n## How\n\n- Record each entry added to either cache (options-to-ID and\nID-to-settings) with the ID of the subtransaction it was added in.\n- On a subtransaction abort (`ROLLBACK TO SAVEPOINT`, or an error caught\nby a PL/pgSQL `EXCEPTION` block), remove the entries whose\nsubtransaction ID is at or above the aborting one. Subtransaction IDs\nonly grow within a transaction, so these are the entries of the aborting\nsubtransaction and of the subtransactions started inside it, released or\nnot. Postgres frees SPI tuple tables with the same comparison in\n`AtEOSubXact_SPI`.\n- Entries added before the savepoint, in a savepoint released before it,\nor by earlier transactions have a smaller ID or are not recorded, and\nstay cached. `RELEASE SAVEPOINT` needs no handling.\n- On a full-transaction abort, remove every entry the transaction added,\nas the caches did before. On commit, keep the entries and forget the\nrecords.\n- Record an entry whether index creation inserted the settings row or\nfound it in the table, because a row it finds can also belong to the\nsubtransaction being rolled back.\n- Register the callbacks once per transaction, when it adds its first\nentry, and reset the registration at commit or abort. Cache hits do not\nregister callbacks.\n- The cleanup callbacks only remove in-memory entries and do not execute\nSQL.\n\n## Tests\n\nAdded eleven integration cases in `tests/tests/typmod_subtransaction.rs`\ncovering ordinary, nested, and repeated savepoint rollbacks;\nfull-transaction rollback; a rollback of a savepoint that inserted the\nsettings row itself; independent load-cache invalidation; callback\nregistration across transactions; index queries from fresh connections;\nand that a rollback keeps entries cached before it, both from earlier\ntransactions and from the same transaction before the savepoint,\nincluding entries from a released sibling savepoint.\n\nEach piece of the fix was reverted on its own to confirm a test depends\non it:\n\n| Reverted | Result |\n| --- | --- |\n| Subtransaction-abort callback | Five savepoint cases fail; the\nfull-transaction control passes |\n| Recording an entry when the settings row was found rather than\ninserted | `retry_index_after_rollback_of_found_row` fails |\n\nClearing both caches on every abort instead fails the keep-cached cases.\n\nLocal validation on PostgreSQL 18.1:\n\n- 17 integration tests passed across `typmod_subtransaction`,\n`typmod_reentrant`, `typmod_terminate`, `basescan_cancel`, and\n`mpp_cancel`.\n- Build, formatting, Clippy, Rustdoc, unused-dependency, and Cargo.toml\nformatting checks passed.\n- A retry after an error caught by a PL/pgSQL `EXCEPTION` block was\nchecked by hand in `psql`: the settings row is persisted and the index\nworks from a new connection.\n\nMinimal reproduction in `psql`, using a fresh database:\n\n```sql\nCREATE EXTENSION IF NOT EXISTS pg_search CASCADE;\nCREATE TABLE typmod_savepoint_repro (id integer PRIMARY KEY, body text);\nINSERT INTO typmod_savepoint_repro VALUES (1, 'hello world');\n\nBEGIN;\nSAVEPOINT attempt;\nCREATE INDEX typmod_savepoint_repro_idx ON typmod_savepoint_repro\nUSING paradedb (id, (body::pdb.simple('alias=savepoint_body')));\nROLLBACK TO SAVEPOINT attempt;\n\nCREATE INDEX typmod_savepoint_repro_idx ON typmod_savepoint_repro\nUSING paradedb (id, (body::pdb.simple('alias=savepoint_body')));\nCOMMIT;\n\n-- Before: 0. After: 1.\nSELECT count(*) FROM paradedb._typmod_cache\nWHERE typmod = ARRAY['alias=savepoint_body'];\n\n\\connect\n-- Before: missing tokenizer settings error. After: 1.\nSELECT count(*) FROM typmod_savepoint_repro WHERE id @@@ pdb.all();\n```",
+          "timestamp": "2026-10-07T17:58:05+05:30",
+          "tree_id": "91c8712088836da3744edbfabe86c4157c73182e",
+          "url": "https://github.com/paradedb/paradedb/commit/29a0d3d5de8ba2b87dba27f6e3c4bb7605c73e9f"
+        },
+        "date": 1791381384003,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 16.229,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 200.401,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 52.78,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 236.408,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 19.418,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 168.188,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 28.001,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 222.557,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 36.549,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 610.543,
             "unit": "ms"
           }
         ]

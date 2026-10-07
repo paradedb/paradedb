@@ -4,10 +4,10 @@
 -- Exercises:
 -- 1. Two-table range co-partitioning where both tables share partition split points.
 -- 2. Three-table join where a bridge table (posts) declares multiple partition keys
---    (partition_by = 'user_id,topic_id'). Demonstrates prioritizing the largest tables
+--    (partition_by = 'user_id,topic_id'). Demonstrates evaluating the lower leaf join
 --    (users and posts) on user_id in Stage 1 (0 shuffles), and range-repartitioning the
 --    intermediate stream into Stage 2 to join against topics's native range partitions
---    because Tier 2 recognizes posts is already committed to another key (1 shuffle total).
+--    because posts is already committed to another key (1 shuffle total).
 -- 3. Three-table aggregation over range-partitioned tables.
 -- 4. Asymmetric join where only the larger table is range partitioned (1 shuffle).
 -- 5. Asymmetric join where the smaller table is NOT stamped to avoid shuffling the larger table.
@@ -15,15 +15,19 @@
 -- 7. Two-table range co-partitioned SEMI join (IN subquery).
 -- 8. Co-partitioned SEMI, ANTI, outer, FULL and MARK joins run task-locally like inner joins.
 -- 9. A null-aware anti join (NOT IN) keeps its broadcast: one NULL key empties the result.
+-- 10. Three-table join prioritizing lower join over upper join.
+-- 11. Broadcast-aware join deferral across three tables (0 network shuffles).
+-- 12. Broadcast-aware join deferral with asymmetric unpartitioned dimension table.
 --
 -- Note on hash_join_single_partition_threshold[_rows] GUCs:
 -- In production, DataFusion defaults to broadcasting (CollectLeft) tables below
 -- 131,072 rows / 1MB. For physical co-partitioning (Scenario 1), RangeCoPartitionedJoinRule
 -- flips CollectLeft to Partitioned automatically because a 0-shuffle local join beats
--- broadcast. For non-co-partitioned or asymmetric joins (Scenarios 2, 4, 5, 6), setting these
+-- broadcast. For non-co-partitioned or asymmetric joins (Scenarios 2, 4, 5, 6, 10), setting these
 -- thresholds to 0 simulates large tables exceeding the broadcast threshold, forcing
 -- PartitionMode::Partitioned to exercise range-partitioning adaptation under DataFusion
--- PR #24600 and PR #24766.
+-- PR #24600 and PR #24766. In Scenarios 11 and 12, setting threshold_rows to 50 simulates an intermediate
+-- scale where topics or categories is broadcast-eligible while posts and users exceed the threshold.
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -156,13 +160,13 @@ LIMIT 5;
 -- =====================================================================
 -- Scenario 2: Three-table join with multi-field partition_by on bridge
 --
--- RangePartitioningRule prioritizes the largest tables (users and posts),
+-- RangePartitioningRule prioritizes the lower leaf join (users and posts),
 -- co-partitioning them on user_id in Stage 1 (0 shuffles).
 --
--- The outer join then joins the intermediate stream (u JOIN p) with topics (10 rows)
--- on topic_id. Because posts is already committed to user_id in Tier 1, the intermediate
+-- The upper join then joins the intermediate stream (u JOIN p) with topics (10 rows)
+-- on topic_id. Because posts is already committed to user_id, the intermediate
 -- stream cannot be partition-aligned on topic_id and must be repartitioned anyway.
--- Tier 2 recognizes this and stamps topics with range split points on topic_id even though
+-- RangePartitioningRule recognizes this and stamps topics with range split points on topic_id even though
 -- topics (10 rows) < posts (300 rows).
 --
 -- In production, if topics has < 131,072 rows, DataFusion's JoinSelection would
@@ -233,7 +237,7 @@ ORDER BY t.topic_name;
 -- posts.topic_id = categories.category_id.
 --
 -- posts declares partition_by = 'user_id,topic_id', while categories has no
--- partition_by. Because posts (300 rows) > categories (10 rows), Tier 2 of
+-- partition_by. Because posts (300 rows) > categories (10 rows),
 -- RangePartitioningRule stamps posts with range split points on topic_id.
 --
 -- Because categories is unpartitioned, this join is NOT physically co-partitioned,
@@ -279,8 +283,8 @@ RESET paradedb.hash_join_single_partition_threshold;
 -- posts.post_id = topics.topic_id.
 --
 -- topics declares partition_by = 'topic_id', but posts has no partition key
--- on post_id. Because topics (10 rows) < posts (300 rows), Tier 2 refuses
--- to stamp topics with range split points because it is the smaller table.
+-- on post_id. Because topics (10 rows) < posts (300 rows), RangePartitioningRule
+-- does not stamp topics with range split points because it is the smaller table.
 -- Neither table is range-partitioned.
 --
 -- Setting the threshold GUCs to 0 forces PartitionMode::Partitioned (simulating
@@ -288,7 +292,7 @@ RESET paradedb.hash_join_single_partition_threshold;
 -- neither side has range split points, DataFusion inserts standard Hash repartitions
 -- on both sides (2 network shuffles).
 --
--- This demonstrates the benefit of Tier 2 refusal: if topics had been stamped,
+-- This demonstrates the benefit of not stamping the smaller table: if topics had been stamped,
 -- DataFusion PR #24600 would have selected topics as the reference child and
 -- range-shuffled the 300-row posts table across the network to match the 10-row
 -- topics table. By not stamping topics, we avoid the 1-sided shuffle of the larger
@@ -400,9 +404,8 @@ RESET paradedb.hash_join_single_partition_threshold;
 -- Scenario 7: Two-table range co-partitioned SEMI join (IN subquery)
 --
 -- Both sides (users: 100 rows, posts: 300 rows) share split points on user_id.
--- An IN subquery pulls up to a SEMI join. We expect either 0-shuffle
--- task-local co-partitioning (mode=Partitioned), or for only one side to be
--- range-partitioned if broadcast.
+-- An IN subquery pulls up to a SEMI join. RangeCoPartitionedJoinRule recognizes
+-- physical co-partitioning and flips mode to Partitioned (0-shuffle task-local join).
 -- =====================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -528,6 +531,9 @@ LIMIT 5;
 -- One NULL user_id makes every NOT IN comparison UNKNOWN, so the query
 -- returns no rows. The task holding the NULL is the only one that could
 -- see it, so this join must stay mode=CollectLeft.
+--
+-- Additionally, the IN subquery's table u is broadcast and therefore is not
+-- range-partitioned, avoiding wasteful partitioning of broadcast inputs.
 -- =====================================================================
 
 INSERT INTO mpp_rp_users (user_id, user_name) VALUES (NULL, 'nobody');
@@ -552,6 +558,153 @@ SELECT count(*) FROM (
     ORDER BY p.post_id
     LIMIT 1000
 ) sub;
+
+-- =====================================================================
+-- Scenario 10: Three-table join prioritizing lower join over upper join
+--
+-- mpp_rp_topics (10 rows), mpp_rp_posts (300 rows, partition_by = 'user_id,topic_id'),
+-- and mpp_rp_users (100 rows, partition_by = 'user_id').
+--
+-- Query join tree: (topics JOIN posts) JOIN users.
+-- Lower join: topics JOIN posts ON topics.topic_id = posts.topic_id (10 and 300 rows).
+-- Upper join: (topics JOIN posts) JOIN users ON posts.user_id = users.user_id (100 rows for users).
+--
+-- Even though the upper join on user_id involves larger row counts (min(100, 300) = 100 > 10),
+-- RangePartitioningRule evaluates candidate joins bottom-up following the join tree. This ensures posts
+-- co-partitions with topics on topic_id in Stage 1 without network shuffling.
+--
+-- At the upper join, users is stamped on user_id because posts was committed to topic_id.
+-- This allows users to remain local in Stage 2 (0 shuffles) while the Stage 1 stream adapts
+-- to it via range repartitioning (1 shuffle total).
+-- =====================================================================
+
+DELETE FROM mpp_rp_users WHERE user_id IS NULL;
+
+SET paradedb.hash_join_single_partition_threshold_rows = 0;
+SET paradedb.hash_join_single_partition_threshold = 0;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT t.topic_name, p.title, u.user_name
+FROM mpp_rp_topics t
+JOIN mpp_rp_posts p ON t.topic_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY t.topic_id, p.post_id
+LIMIT 5;
+
+SELECT t.topic_name, p.title, u.user_name
+FROM mpp_rp_topics t
+JOIN mpp_rp_posts p ON t.topic_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY t.topic_id, p.post_id
+LIMIT 5;
+
+RESET paradedb.hash_join_single_partition_threshold_rows;
+RESET paradedb.hash_join_single_partition_threshold;
+
+-- =====================================================================
+-- Scenario 11: Broadcast-aware join deferral across three tables.
+--
+-- In a multi-table join tree (topics JOIN posts) JOIN users:
+-- - topics has 10 rows (below broadcast threshold 50).
+-- - users has 100 rows (above broadcast threshold 50).
+-- - posts has 300 rows (above broadcast threshold 50) and declares 'user_id,topic_id'.
+--
+-- Direct leaf join topics JOIN posts would normally co-partition on topic_id in Stage 1.
+-- However, because topics is broadcast-eligible and posts has another non-broadcast candidate
+-- (users on user_id), RangePartitioningRule defers committing (topics, posts).
+--
+-- Consequently:
+-- 1. posts and users co-partition on user_id in Stage 2 with 0 network shuffles.
+-- 2. topics broadcasts (CollectLeft) to posts without constraining posts's partitioning.
+-- Result: 0 network shuffles between posts and users, matching optimal broadcast-join behavior.
+-- =====================================================================
+
+SET paradedb.hash_join_single_partition_threshold_rows = 50;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT t.topic_name, p.title, u.user_name
+FROM mpp_rp_topics t
+JOIN mpp_rp_posts p ON t.topic_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY t.topic_id, p.post_id
+LIMIT 5;
+
+SELECT t.topic_name, p.title, u.user_name
+FROM mpp_rp_topics t
+JOIN mpp_rp_posts p ON t.topic_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY t.topic_id, p.post_id
+LIMIT 5;
+
+-- =====================================================================
+-- Scenario 12: Broadcast-aware join deferral with asymmetric unpartitioned dimension table.
+--
+-- Similar to Scenario 11, but mpp_rp_categories has NO partition_by key declared.
+-- In a multi-table join tree (categories JOIN posts) JOIN users:
+-- - categories has 10 rows (below broadcast threshold 50) and no partition_by.
+-- - users has 100 rows (above broadcast threshold 50).
+-- - posts has 300 rows (above broadcast threshold 50) and declares 'user_id,topic_id'.
+--
+-- Part A exercises the query under default thresholds. Even without downstream non-broadcast
+-- candidates, the asymmetric join (categories JOIN posts) does not stamp posts on topic_id
+-- because categories is broadcast-eligible. This leaves posts uncommitted so it can physically
+-- co-partition with users on user_id (0 network shuffles).
+--
+-- Part B sets threshold_rows = 50, where categories is broadcast-eligible while users and posts
+-- exceed the threshold. Because categories is broadcast-eligible and posts has another
+-- non-broadcast candidate (users on user_id), RangePartitioningRule defers committing
+-- (categories, posts) even though the join is asymmetric.
+--
+-- Consequently, in both cases:
+-- 1. posts and users co-partition on user_id in Stage 2 with 0 network shuffles.
+-- 2. categories broadcasts (CollectLeft) to posts in Stage 1 without constraining posts's partitioning.
+-- Result: 0 network shuffles between posts and users, matching optimal broadcast-join behavior.
+-- =====================================================================
+-- Part A: Under default thresholds (all tables below default broadcast threshold).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.category_name, p.title, u.user_name
+FROM mpp_rp_categories c
+JOIN mpp_rp_posts p ON c.category_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY c.category_id, p.post_id
+LIMIT 5;
+
+SELECT c.category_name, p.title, u.user_name
+FROM mpp_rp_categories c
+JOIN mpp_rp_posts p ON c.category_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY c.category_id, p.post_id
+LIMIT 5;
+
+-- Part B: Under threshold_rows = 50, where categories is broadcast-eligible while
+-- users and posts exceed the threshold. Broadcast deferral ensures posts and users
+-- co-partition on user_id in Stage 2 with 0 network shuffles.
+SET paradedb.hash_join_single_partition_threshold_rows = 50;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.category_name, p.title, u.user_name
+FROM mpp_rp_categories c
+JOIN mpp_rp_posts p ON c.category_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY c.category_id, p.post_id
+LIMIT 5;
+
+SELECT c.category_name, p.title, u.user_name
+FROM mpp_rp_categories c
+JOIN mpp_rp_posts p ON c.category_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY c.category_id, p.post_id
+LIMIT 5;
+
+RESET paradedb.hash_join_single_partition_threshold_rows;
 
 -- =====================================================================
 -- Cleanup

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+A search query whose heap filter compares a column to a parameter (`lib = $2` in a generic plan, or a nested-loop parameter from a `LATERAL` join) no longer crashes the backend or fails with `unrecognized node type` when the scan returns `paradedb.score()` or `paradedb.snippet()`, when an aggregate has a `FILTER` clause, or when `EXPLAIN ANALYZE` prints a wrapped aggregate (#6492).

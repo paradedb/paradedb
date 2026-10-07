@@ -91,6 +91,7 @@ use crate::postgres::customscan::{
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::search_operator_relations;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
     filter_implied_predicates, is_unnest_func, missing_partial_index_predicate,
@@ -131,10 +132,11 @@ impl BaseScan {
         let executor_scan_init_ns =
             std::mem::take(&mut state.custom_state_mut().executor_scan_init_ns);
         let planstate = state.planstate();
-        let expr_context = state.runtime_context;
+        let runtime_context = state.custom_state().runtime_context;
         state
             .custom_state_mut()
-            .prepare_query_for_execution(planstate, expr_context);
+            .prepare_query_for_execution(planstate, runtime_context);
+        let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
         // Open the index
         let indexrel = state
@@ -328,6 +330,22 @@ impl BaseScan {
         let allow_without_operator =
             gucs::enable_custom_scan_without_operator() || query_has_window_agg_functions(root);
 
+        // The quals the planner left may show no operator although the query applied one to
+        // this relation, because the planner simplified it away or it sits in a join clause.
+        // The record taken at planner-hook time then tells that the query asked for this scan.
+        // The quals stay the first signal. The record keeps only direct table references, so an
+        // operator written against a view, subquery or CTE column reaches here only through them.
+        if quals.is_some()
+            && !state.uses_our_operator
+            && !allow_without_operator
+            && search_operator_relations::applies_to(root, rti)
+        {
+            state.uses_our_operator = true;
+            if !join_clauses_contain_search_predicate(builder.args().rel) {
+                warn_search_operator_simplified_away(builder.args().rte());
+            }
+        }
+
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
         if quals.is_none() {
@@ -446,6 +464,22 @@ impl BaseScan {
 
         quals.clone()
     }
+}
+
+/// True if a join clause of `rel` carries a search predicate.
+unsafe fn join_clauses_contain_search_predicate(rel: *mut pg_sys::RelOptInfo) -> bool {
+    PgList::<pg_sys::RestrictInfo>::from_pg((*rel).joininfo)
+        .iter_ptr()
+        .any(|ri| search_operator_relations::contains_search_predicate((*ri).clause.cast()))
+}
+
+fn warn_search_operator_simplified_away(rte: &pg_sys::RangeTblEntry) {
+    BaseScan::add_planner_warning(
+        "BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and \
+         `pdb.snippet` only reflect the remaining predicates. \
+         To disable this warning: SET paradedb.planner_warnings = 'off'",
+        search_operator_relations::rte_alias(rte),
+    );
 }
 
 /// Check if the query's target list contains window_agg() function calls
@@ -836,7 +870,17 @@ impl CustomScan for BaseScan {
             // Check if the query has window aggregates (pdb.agg() or window_agg())
             let has_window_aggs = query_has_window_agg_functions(builder.args().root);
 
-            if matches!(ri_type, RestrictInfoType::None) && !has_window_aggs {
+            // No restriction may be all the planner left of a WHERE clause it folded away
+            // (`body @@@ 'q' OR TRUE`). The query still asked for this scan, which then covers
+            // every row as it does for `pdb.all()`.
+            let whole_where_folded_away = matches!(ri_type, RestrictInfoType::None)
+                && !has_window_aggs
+                && search_operator_relations::applies_to(builder.args().root, builder.args().rti);
+
+            if matches!(ri_type, RestrictInfoType::None)
+                && !has_window_aggs
+                && !whole_where_folded_away
+            {
                 // this relation has no restrictions (WHERE clause predicates) and no window aggregates,
                 // so there's no need for us to do anything
                 return None;
@@ -928,6 +972,10 @@ impl CustomScan for BaseScan {
             let quals = match quals {
                 Some(q) => q,
                 None if has_window_aggs => Qual::All,
+                None if whole_where_folded_away => {
+                    warn_search_operator_simplified_away(builder.args().rte());
+                    Qual::All
+                }
                 None => return None,
             };
 
@@ -1872,7 +1920,6 @@ impl CustomScan for BaseScan {
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
-            let planstate = state.planstate();
 
             pg_sys::ExecInitScanTupleSlot(
                 estate,
@@ -1902,10 +1949,8 @@ impl CustomScan for BaseScan {
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
 
-            state
-                .custom_state_mut()
-                .init_expr_context(estate, planstate);
-            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+            let custom_state = state.custom_state_mut();
+            custom_state.runtime_context = custom_state.init_expr_context(estate);
         }
         let begin_ns = begin_start.elapsed().as_nanos() as u64;
         let custom_state = state.custom_state_mut();

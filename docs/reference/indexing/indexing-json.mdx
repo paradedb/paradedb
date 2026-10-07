@@ -10,8 +10,7 @@ For example, consider the following statement where `metadata` is `JSONB`:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, metadata)
-WITH (key_field='id');
+USING paradedb (id, metadata);
 ```
 
 ```ts Drizzle
@@ -32,7 +31,6 @@ with connection.schema_editor() as schema_editor:
                 "id": {},
                 "metadata": {},
             },
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -47,7 +45,6 @@ idx = Index(
     indexing.ParadeDBField(MockItem.id),
     indexing.ParadeDBField(MockItem.metadata_),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -61,7 +58,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     id: {},
     metadata: {}
   },
-  key_field: :id,
   name: :search_idx
 )
 ```
@@ -87,8 +83,7 @@ By default, all text sub-fields of a JSON object use the same tokenizer. The tok
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (metadata::pdb.ngram(2,3)))
-WITH (key_field='id');
+USING paradedb (id, (metadata::pdb.ngram(2,3)));
 ```
 
 ```ts Drizzle
@@ -117,7 +112,6 @@ with connection.schema_editor() as schema_editor:
                     "tokenizer": Tokenizer.ngram(2, 3),
                 },
             },
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -135,7 +129,6 @@ idx = Index(
         tokenizer=tokenizer.ngram(2, 3),
     ),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -149,7 +142,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     id: {},
     metadata: { tokenizer: ParadeDB::Tokenizer.ngram(2, 3) }
   },
-  key_field: :id,
   name: :search_idx
 )
 ```
@@ -168,8 +160,7 @@ within a larger JSON:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, ((metadata->>'color')::pdb.ngram(2,3)))
-WITH (key_field='id');
+USING paradedb (id, ((metadata->>'color')::pdb.ngram(2,3)));
 ```
 
 ```ts Drizzle
@@ -205,7 +196,6 @@ with connection.schema_editor() as schema_editor:
                     },
                 },
             },
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -223,7 +213,6 @@ idx = Index(
         tokenizer=tokenizer.ngram(2, 3),
     ),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -237,7 +226,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     id: {},
     "metadata->>'color'" => { tokenizer: ParadeDB::Tokenizer.ngram(2, 3) }
   },
-  key_field: :id,
   name: :search_idx
 )
 ```

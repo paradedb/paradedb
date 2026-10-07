@@ -253,228 +253,329 @@ LIMIT 5;
 ```
 
 ```ts Drizzle
-import { sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/pg-core";
+import { search } from "@paradedb/drizzle-paradedb";
 
-await db.execute(sql`
-WITH order_search AS (
-  SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
-  FROM (
-    SELECT order_id, pdb.score(order_id) AS score
-    FROM orders
-    WHERE customer_name ||| 'Johnson'
-    ORDER BY pdb.score(order_id) DESC
-    LIMIT 20
-  )
-),
-product_search AS (
-  SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
-  FROM (
-    SELECT id, pdb.score(id) AS score
-    FROM mock_items
-    WHERE description ||| 'running shoes'
-    ORDER BY pdb.score(id) DESC
-    LIMIT 20
-  ) m
-  JOIN orders o ON o.product_id = m.id
-),
-rrf AS (
-  SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
-  UNION ALL
-  SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
-)
-SELECT
-  o.order_id,
-  o.customer_name,
-  m.description,
-  sum(rrf.s) AS score
-FROM rrf
-JOIN orders o USING (order_id)
-JOIN mock_items m ON o.product_id = m.id
-GROUP BY o.order_id, o.customer_name, m.description
-ORDER BY score DESC, o.order_id
-LIMIT 5;
-`);
+const orderHits = db
+  .select({
+    orderId: orders.orderId,
+    score: search.score(orders.orderId).as("score"),
+  })
+  .from(orders)
+  .where(search.matchAny(orders.customerName, "Johnson"))
+  .orderBy(desc(search.score(orders.orderId)))
+  .limit(20)
+  .as("order_hits");
+
+const productHits = db
+  .select({ id: mockItems.id, score: search.score(mockItems.id).as("score") })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(20)
+  .as("product_hits");
+
+const orderSearch = db.$with("order_search").as(
+  db
+    .select({
+      orderId: orderHits.orderId,
+      rank: sql`rank() over (order by ${orderHits.score} desc)`.as("rank"),
+    })
+    .from(orderHits),
+);
+
+const productSearch = db.$with("product_search").as(
+  db
+    .select({
+      orderId: orders.orderId,
+      rank: sql`rank() over (order by ${productHits.score} desc)`.as("rank"),
+    })
+    .from(productHits)
+    .innerJoin(orders, eq(orders.productId, productHits.id)),
+);
+
+const weighted = db.$with("weighted").as(
+  unionAll(
+    db
+      .select({
+        orderId: orderSearch.orderId,
+        weight: sql`1.0 / (60 + ${orderSearch.rank})`.as("weight"),
+      })
+      .from(orderSearch),
+    db
+      .select({
+        orderId: productSearch.orderId,
+        weight: sql`1.0 / (60 + ${productSearch.rank})`.as("weight"),
+      })
+      .from(productSearch),
+  ),
+);
+
+const fused = db.$with("fused").as(
+  db
+    .select({
+      orderId: weighted.orderId,
+      score: sql`sum(${weighted.weight})`.mapWith(Number).as("score"),
+    })
+    .from(weighted)
+    .groupBy(weighted.orderId),
+);
+
+const results = await db
+  .with(orderSearch, productSearch, weighted, fused)
+  .select({
+    orderId: orders.orderId,
+    customerName: orders.customerName,
+    description: mockItems.description,
+    score: fused.score,
+  })
+  .from(fused)
+  .innerJoin(orders, eq(orders.orderId, fused.orderId))
+  .innerJoin(mockItems, eq(mockItems.id, orders.productId))
+  .orderBy(desc(fused.score), orders.orderId)
+  .limit(5);
 ```
 
 ```python Django
-from django.db import connection
+from django.db.models import F, FloatField, Sum, Value, Window
+from django.db.models.expressions import ExpressionWrapper
+from django.db.models.functions import Cast, Rank
+from django_cte import CTE, with_cte
+from paradedb import MatchAny, ParadeDB, Score
 
-with connection.cursor() as cursor:
-    cursor.execute("""
-        WITH order_search AS (
-          SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
-          FROM (
-            SELECT order_id, pdb.score(order_id) AS score
-            FROM orders
-            WHERE customer_name ||| 'Johnson'
-            ORDER BY pdb.score(order_id) DESC
-            LIMIT 20
-          )
-        ),
-        product_search AS (
-          SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
-          FROM (
-            SELECT id, pdb.score(id) AS score
-            FROM mock_items
-            WHERE description ||| 'running shoes'
-            ORDER BY pdb.score(id) DESC
-            LIMIT 20
-          ) m
-          JOIN orders o ON o.product_id = m.id
-        ),
-        rrf AS (
-          SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
-          UNION ALL
-          SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
-        )
-        SELECT
-          o.order_id,
-          o.customer_name,
-          m.description,
-          sum(rrf.s) AS score
-        FROM rrf
-        JOIN orders o USING (order_id)
-        JOIN mock_items m ON o.product_id = m.id
-        GROUP BY o.order_id, o.customer_name, m.description
-        ORDER BY score DESC, o.order_id
-        LIMIT 5;
-    """)
-    results = cursor.fetchall()
+order_hits = CTE(
+    Order.objects.filter(customer_name=ParadeDB(MatchAny("Johnson")))
+    .annotate(score=Score())
+    .order_by("-score")
+    .values("order_id", "score")[:20],
+    name="order_hits",
+)
+product_hits = CTE(
+    MockItem.objects.filter(description=ParadeDB(MatchAny("running shoes")))
+    .annotate(score=Score())
+    .order_by("-score")
+    .values("id", "score")[:20],
+    name="product_hits",
+)
+
+order_search = CTE(
+    order_hits.queryset()
+    .annotate(rank=Window(Rank(), order_by=order_hits.col.score.desc()))
+    .values("order_id", "rank"),
+    name="order_search",
+)
+product_search = CTE(
+    product_hits.join(Order, product_id=product_hits.col.id)
+    .annotate(rank=Window(Rank(), order_by=product_hits.col.score.desc()))
+    .values("order_id", "rank"),
+    name="product_search",
+)
+
+weight = ExpressionWrapper(
+    Value(1.0) / (Value(60.0) + Cast(F("rank"), FloatField())),
+    output_field=FloatField(),
+)
+weighted = CTE(
+    order_search.queryset().annotate(weight=weight).values("order_id", "weight")
+    .union(
+        product_search.queryset().annotate(weight=weight).values("order_id", "weight"),
+        all=True,
+    ),
+    name="weighted",
+)
+fused = CTE(
+    weighted.queryset().values("order_id").annotate(score=Sum("weight")),
+    name="fused",
+)
+
+results = list(with_cte(
+    order_hits, product_hits, order_search, product_search, weighted, fused,
+    select=fused.join(Order, order_id=fused.col.order_id)
+    .annotate(score=fused.col.score, description=F("product__description"))
+    .values("order_id", "customer_name", "description", "score")
+    .order_by("-score", "order_id")[:5],
+))
 ```
 
 ```python SQLAlchemy
-with engine.begin() as conn:
-    results = conn.exec_driver_sql("""
-        WITH order_search AS (
-          SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
-          FROM (
-            SELECT order_id, pdb.score(order_id) AS score
-            FROM orders
-            WHERE customer_name ||| 'Johnson'
-            ORDER BY pdb.score(order_id) DESC
-            LIMIT 20
-          )
-        ),
-        product_search AS (
-          SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
-          FROM (
-            SELECT id, pdb.score(id) AS score
-            FROM mock_items
-            WHERE description ||| 'running shoes'
-            ORDER BY pdb.score(id) DESC
-            LIMIT 20
-          ) m
-          JOIN orders o ON o.product_id = m.id
-        ),
-        rrf AS (
-          SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
-          UNION ALL
-          SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
-        )
-        SELECT
-          o.order_id,
-          o.customer_name,
-          m.description,
-          sum(rrf.s) AS score
-        FROM rrf
-        JOIN orders o USING (order_id)
-        JOIN mock_items m ON o.product_id = m.id
-        GROUP BY o.order_id, o.customer_name, m.description
-        ORDER BY score DESC, o.order_id
-        LIMIT 5;
-    """).all()
+from sqlalchemy import func, select, union_all
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+order_hits = (
+    select(Order.order_id, pdb.score(Order.order_id).label("score"))
+    .where(search.match_any(Order.customer_name, "Johnson"))
+    .order_by(pdb.score(Order.order_id).desc())
+    .limit(20)
+    .subquery("order_hits")
+)
+product_hits = (
+    select(MockItem.id, pdb.score(MockItem.id).label("score"))
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(pdb.score(MockItem.id).desc())
+    .limit(20)
+    .subquery("product_hits")
+)
+
+order_search = select(
+    order_hits.c.order_id,
+    func.rank().over(order_by=order_hits.c.score.desc()).label("rank"),
+).cte("order_search")
+product_search = (
+    select(
+        Order.order_id,
+        func.rank().over(order_by=product_hits.c.score.desc()).label("rank"),
+    )
+    .join_from(product_hits, Order, Order.product_id == product_hits.c.id)
+    .cte("product_search")
+)
+weighted = union_all(
+    select(order_search.c.order_id, (1.0 / (60 + order_search.c.rank)).label("weight")),
+    select(product_search.c.order_id, (1.0 / (60 + product_search.c.rank)).label("weight")),
+).cte("weighted")
+fused = (
+    select(weighted.c.order_id, func.sum(weighted.c.weight).label("score"))
+    .group_by(weighted.c.order_id)
+    .cte("fused")
+)
+stmt = (
+    select(Order.order_id, Order.customer_name, MockItem.description, fused.c.score)
+    .join_from(fused, Order, Order.order_id == fused.c.order_id)
+    .join(MockItem, MockItem.id == Order.product_id)
+    .order_by(fused.c.score.desc(), Order.order_id)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    results = session.execute(stmt).all()
 ```
 
 ```ruby Rails
-results = ActiveRecord::Base.connection.exec_query(<<~SQL)
-  WITH order_search AS (
-    SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
-    FROM (
-      SELECT order_id, pdb.score(order_id) AS score
-      FROM orders
-      WHERE customer_name ||| 'Johnson'
-      ORDER BY pdb.score(order_id) DESC
-      LIMIT 20
-    )
-  ),
-  product_search AS (
-    SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
-    FROM (
-      SELECT id, pdb.score(id) AS score
-      FROM mock_items
-      WHERE description ||| 'running shoes'
-      ORDER BY pdb.score(id) DESC
-      LIMIT 20
-    ) m
-    JOIN orders o ON o.product_id = m.id
-  ),
-  rrf AS (
-    SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
-    UNION ALL
-    SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
-  )
-  SELECT
-    o.order_id,
-    o.customer_name,
-    m.description,
-    sum(rrf.s) AS score
-  FROM rrf
-  JOIN orders o USING (order_id)
-  JOIN mock_items m ON o.product_id = m.id
-  GROUP BY o.order_id, o.customer_name, m.description
-  ORDER BY score DESC, o.order_id
-  LIMIT 5;
-SQL
+orders = Order.arel_table
+products = MockItem.arel_table
+order_score = Arel::Nodes::NamedFunction.new("pdb.score", [orders[:order_id]])
+product_score = Arel::Nodes::NamedFunction.new("pdb.score", [products[:id]])
+
+order_hits = Order.search(:customer_name).match_any("Johnson")
+                  .select(orders[:order_id], order_score.as("score"))
+                  .order(order_score.desc).limit(20)
+product_hits = MockItem.search(:description).match_any("running shoes")
+                      .select(products[:id], product_score.as("score"))
+                      .order(product_score.desc).limit(20)
+
+order_hits_table = Arel::Table.new(:order_hits)
+product_hits_table = Arel::Table.new(:product_hits)
+order_rank = Arel::Nodes::NamedFunction.new("RANK", [])
+                   .over(Arel::Nodes::Window.new.order(order_hits_table[:score].desc))
+product_rank = Arel::Nodes::NamedFunction.new("RANK", [])
+                     .over(Arel::Nodes::Window.new.order(product_hits_table[:score].desc))
+
+order_search = Order.from("order_hits")
+                    .select(order_hits_table[:order_id], order_rank.as("rank"))
+product_search = Order.from("product_hits")
+                      .joins(product_hits_table.join(orders)
+                        .on(orders[:product_id].eq(product_hits_table[:id])).join_sources)
+                      .select(orders[:order_id], product_rank.as("rank"))
+
+# An array of relations in `with` produces UNION ALL.
+weighted = [
+  Order.from("order_search")
+       .select("order_search.order_id", "1.0 / (60 + order_search.rank) AS weight"),
+  Order.from("product_search")
+       .select("product_search.order_id", "1.0 / (60 + product_search.rank) AS weight")
+]
+weighted_table = Arel::Table.new(:weighted)
+fused = Order.from("weighted")
+             .select(weighted_table[:order_id], weighted_table[:weight].sum.as("score"))
+             .group(weighted_table[:order_id])
+fused_table = Arel::Table.new(:fused)
+
+results = Order.with(order_hits: order_hits, product_hits: product_hits,
+                     order_search: order_search, product_search: product_search,
+                     weighted: weighted, fused: fused)
+               .joins(orders.join(fused_table)
+                 .on(orders[:order_id].eq(fused_table[:order_id])).join_sources)
+               .joins(orders.join(products)
+                 .on(products[:id].eq(orders[:product_id])).join_sources)
+               .select(orders[:order_id], orders[:customer_name],
+                       products[:description], fused_table[:score])
+               .order(fused_table[:score].desc, orders[:order_id])
+               .limit(5).to_a
 ```
 
 ```cs EF Core
-await dbContext.Database.OpenConnectionAsync();
-await using var command = dbContext.Database.GetDbConnection().CreateCommand();
-command.CommandText = """
-    WITH order_search AS (
-      SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
-      FROM (
-        SELECT order_id, pdb.score(order_id) AS score
-        FROM orders
-        WHERE customer_name ||| 'Johnson'
-        ORDER BY pdb.score(order_id) DESC
-        LIMIT 20
-      )
-    ),
-    product_search AS (
-      SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
-      FROM (
-        SELECT id, pdb.score(id) AS score
-        FROM mock_items
-        WHERE description ||| 'running shoes'
-        ORDER BY pdb.score(id) DESC
-        LIMIT 20
-      ) m
-      JOIN orders o ON o.product_id = m.id
-    ),
-    rrf AS (
-      SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
-      UNION ALL
-      SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
-    )
-    SELECT
-      o.order_id,
-      o.customer_name,
-      m.description,
-      sum(rrf.s) AS score
-    FROM rrf
-    JOIN orders o USING (order_id)
-    JOIN mock_items m ON o.product_id = m.id
-    GROUP BY o.order_id, o.customer_name, m.description
-    ORDER BY score DESC, o.order_id
-    LIMIT 5;
-    """;
-await using var reader = await command.ExecuteReaderAsync();
-while (await reader.ReadAsync())
-    Console.WriteLine(reader.GetValue(0));
+var orderHits = await dbContext.Orders
+    .Where(order => EF.Functions.MatchAny(order.CustomerName, "Johnson"))
+    .OrderByDescending(order => EF.Functions.Score(order.OrderId))
+    .Take(20)
+    .Select(order => new { order.OrderId, Score = EF.Functions.Score(order.OrderId) })
+    .ToListAsync();
+
+var productHits = await dbContext.MockItems
+    .Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .OrderByDescending(item => EF.Functions.Score(item.Id))
+    .Take(20)
+    .Select(item => new { item.Id, Score = EF.Functions.Score(item.Id) })
+    .ToListAsync();
+
+// Retrieve orders for the 20 candidate products, then attach their product scores.
+var productIds = productHits.Select(product => product.Id).ToArray();
+var matchingOrders = await dbContext.Orders
+    .Where(order => productIds.Contains(order.ProductId))
+    .Select(order => new { order.OrderId, order.ProductId })
+    .ToListAsync();
+var productOrders =
+    from product in productHits
+    join order in matchingOrders on product.Id equals order.ProductId
+    select new { order.OrderId, product.Score };
+
+// EF Core/Npgsql has no RANK() query API. Preserve SQL RANK's tie handling in C#.
+IEnumerable<(int OrderId, double Weight)> RankWeights(
+    IEnumerable<(int OrderId, float Score)> hits)
+{
+    float? previousScore = null;
+    int rank = 0, position = 0;
+    foreach (var hit in hits.OrderByDescending(hit => hit.Score))
+    {
+        position++;
+        if (previousScore != hit.Score) rank = position;
+        previousScore = hit.Score;
+        yield return (hit.OrderId, 1.0 / (60 + rank));
+    }
+}
+
+var fused = RankWeights(orderHits.Select(hit => (hit.OrderId, hit.Score)))
+    .Concat(RankWeights(productOrders.Select(hit => (hit.OrderId, hit.Score))))
+    .GroupBy(hit => hit.OrderId)
+    .Select(group => new { OrderId = group.Key, Score = group.Sum(hit => hit.Weight) })
+    .OrderByDescending(hit => hit.Score)
+    .ThenBy(hit => hit.OrderId)
+    .Take(5)
+    .ToList();
+
+var orderIds = fused.Select(hit => hit.OrderId).ToArray();
+var details = await (
+    from order in dbContext.Orders
+    join item in dbContext.MockItems on order.ProductId equals item.Id
+    where orderIds.Contains(order.OrderId)
+    select new { order.OrderId, order.CustomerName, item.Description }
+).ToDictionaryAsync(order => order.OrderId);
+
+var results = fused.Select(hit => new {
+    hit.OrderId,
+    details[hit.OrderId].CustomerName,
+    details[hit.OrderId].Description,
+    hit.Score,
+}).ToList();
 ```
 
 </CodeGroup>
+
+The EF Core example runs the candidate searches and retrieves matching orders in
+Postgres, then attaches product scores and computes ranks and fusion in C#. The other examples execute the
+entire fusion query in Postgres. Limiting products to 20 does not limit the
+number of matching orders; products can have many orders.
 
 ## Deterministic Sorting
 

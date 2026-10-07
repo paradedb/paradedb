@@ -2785,6 +2785,7 @@ mod tests {
                 calls.load(Relaxed),
                 usize::from(expected_included > 0) + usize::from(expected_partial > 0)
             );
+            actual
         };
 
         // Fixture ids 1..=20 over two NOT NULL segments holding 1..=10 and 11..=20.
@@ -2861,24 +2862,40 @@ mod tests {
         // included and searches without the partition filter: all three rows belong to it.
         // With the edge inside the segment, partition 0 keeps the NULL row and drops the value
         // above the edge. Partition 1 does not own NULLs, so the same segment stays partially
-        // included and the filter excludes the NULL row.
-        for (split, partition, expected_all, included, partial) in
-            [(21, 0, 3, 1, 0), (15, 0, 2, 0, 1), (5, 1, 2, 0, 1)]
-        {
+        // included and the filter excludes the NULL row. The three paths share the bounds, so
+        // the rows are pinned by value and not only by count.
+        let value_column = reader.searcher().segment_readers()[0]
+            .fast_fields()
+            .i64("value")
+            .unwrap();
+        for (split, partition, included, partial, expected_values) in [
+            (21, 0, 1, 0, vec![None, Some(10), Some(20)]),
+            (15, 0, 0, 1, vec![None, Some(10)]),
+            (5, 1, 0, 1, vec![Some(10), Some(20)]),
+        ] {
             let partitioning = RangePartitioning {
                 partition_by: FieldName::from("value"),
                 split_points: vec![PdbOwnedValue::I64(split)],
             };
             for scoring in [false, true] {
-                check(
+                let hits = check(
                     &index_rel,
                     &SearchQueryInput::All,
                     scoring,
                     &partitioning,
                     partition,
-                    expected_all,
+                    expected_values.len(),
                     included,
                     partial,
+                );
+                let mut actual_values: Vec<Option<i64>> = hits
+                    .keys()
+                    .map(|(_, doc)| value_column.first(*doc))
+                    .collect();
+                actual_values.sort();
+                assert_eq!(
+                    actual_values, expected_values,
+                    "split={split}, partition={partition}, scoring={scoring}"
                 );
             }
         }

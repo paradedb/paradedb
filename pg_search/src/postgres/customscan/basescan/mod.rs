@@ -1197,9 +1197,14 @@ impl CustomScan for BaseScan {
                 let path_drive_cost = match reason {
                     WorkerDecisionReason::BlockWandPrunable => None,
                     WorkerDecisionReason::SortedPerSegment => {
-                        // An unresolved sorted predicate may scan the whole relation. Costing only
-                        // LIMIT rows would let generic plans undercut costed custom plans.
-                        table.reltuples().map(|rows| rows as u64)
+                        // Use the expensive-query heuristic for an unresolved predicate, with
+                        // at least a full scan of work that LIMIT cannot discount.
+                        table.reltuples().map(|rows| {
+                            (rows as f64
+                                * PARAMETERIZED_SELECTIVITY
+                                * crate::gucs::expensive_query_cost_factor())
+                            .max(rows as f64) as u64
+                        })
                     }
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited

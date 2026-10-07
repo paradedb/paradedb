@@ -720,7 +720,10 @@ fn parameterized_topk_retains_scan_cost(mut conn: PgConnection, #[case] workers:
     let parsed_cost = total_cost(&parsed_plan);
     let startup_cost = root_plan(&parsed_plan)["Startup Cost"].as_f64().unwrap();
     let (scan_cost,): (f64,) = "SELECT reltuples::float8 * current_setting('cpu_index_tuple_cost')::float8 FROM pg_class WHERE oid = 'topk_desc_many_segs'::regclass".fetch_one(&mut conn);
-    assert!(startup_cost >= scan_cost / (workers + 1) as f64);
+    let (cost_factor,): (f64,) =
+        "SELECT current_setting('paradedb.expensive_query_cost_factor')::float8"
+            .fetch_one(&mut conn);
+    assert!(startup_cost >= scan_cost * (0.1 * cost_factor).max(1.0) / (workers + 1) as f64);
     let bound_cost = total_cost(&explain(
         &mut conn,
         r#"EXECUTE bound_topk(pdb.parse('"rare token"', lenient => true))"#,

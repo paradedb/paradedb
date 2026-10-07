@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["schemabot"]
 members = [
   "benchmarks",
   "dst",

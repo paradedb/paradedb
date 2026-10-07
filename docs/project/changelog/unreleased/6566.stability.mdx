@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Retrying index creation after a rolled-back subtransaction, such as a PL/pgSQL `EXCEPTION` block or a `ROLLBACK TO SAVEPOINT`, now persists its tokenizer settings correctly, so the committed index remains usable from new connections.

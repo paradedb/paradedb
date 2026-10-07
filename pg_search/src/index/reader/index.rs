@@ -46,6 +46,7 @@ use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
+use crate::query::estimate::QueryEstimate;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::pdb_query::pdb;
 use crate::query::segment_pruning::SegmentPruner;
@@ -841,7 +842,7 @@ impl SearchIndexReader {
             });
         }
         let pruning_query = uses_partition_field.then(|| search_query_input.clone());
-        let estimate_from_statistics = crate::query::estimate::supports(&search_query_input);
+        let estimate_from_statistics = search_query_input.supports_statistics_estimation();
         let query = search_query_input
             .into_tantivy_query(
                 &schema,
@@ -1924,8 +1925,9 @@ impl SearchIndexReader {
         };
         let (count, mut cost) = self
             .estimate_from_statistics
-            .then(|| crate::query::estimate::estimate_docs(self.query.as_ref(), largest_reader))
+            .then(|| self.query.estimate_docs(largest_reader).ok().flatten())
             .flatten()
+            .map(|estimate| (estimate.live_docs(largest_reader), estimate.cost))
             .unwrap_or_else(|| {
                 let weight = self.weight();
                 let mut scorer = weight
@@ -2060,7 +2062,7 @@ impl SearchIndexReader {
             .expect("should have at least one segment reader");
 
         let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
-        let estimate_from_statistics = crate::query::estimate::supports(&query_tree.query);
+        let estimate_from_statistics = query_tree.query.supports_statistics_estimation();
         self.estimate_node_recursive(
             query_tree,
             largest_reader,
@@ -2078,8 +2080,6 @@ impl SearchIndexReader {
         parser: &QueryParserCtor,
         estimate_from_statistics: bool,
     ) {
-        use crate::query::SearchQueryInput;
-
         // First, recursively estimate all children
         for child in node.children_mut() {
             self.estimate_node_recursive(
@@ -2124,12 +2124,12 @@ impl SearchIndexReader {
             .expect("converting query for estimation should not fail");
 
         if estimate_from_statistics
-            && let Some((count, _)) =
-                crate::query::estimate::estimate_docs(tantivy_query.as_ref(), largest_reader)
+            && let Ok(Some(estimate)) = tantivy_query.estimate_docs(largest_reader)
         {
-            node.set_estimate(
-                scale_largest_segment_estimate(count, segment_doc_proportion) as usize,
-            );
+            node.set_estimate(scale_largest_segment_estimate(
+                estimate.live_docs(largest_reader),
+                segment_doc_proportion,
+            ) as usize);
             return;
         }
 

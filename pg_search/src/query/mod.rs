@@ -382,6 +382,38 @@ impl SearchQueryInput {
         }
     }
 
+    pub(crate) fn supports_statistics_estimation(&self) -> bool {
+        match self {
+            Self::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => must
+                .iter()
+                .chain(should)
+                .chain(must_not)
+                .all(Self::supports_statistics_estimation),
+            Self::WithIndex { query, .. } => query.supports_statistics_estimation(),
+            Self::FieldedQuery { query, .. } => matches!(
+                query,
+                pdb::Query::Term { .. }
+                    | pdb::Query::Match {
+                        distance: None | Some(0),
+                        ..
+                    }
+                    | pdb::Query::MatchArray {
+                        distance: None | Some(0),
+                        ..
+                    }
+                    | pdb::Query::Phrase { .. }
+                    | pdb::Query::PhraseArray { .. }
+                    | pdb::Query::TokenizedPhrase { .. }
+            ),
+            _ => false,
+        }
+    }
+
     pub fn need_scores(&self) -> bool {
         match self {
             SearchQueryInput::Boolean {

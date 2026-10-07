@@ -171,6 +171,7 @@
         #legend-popover.visible { opacity: 1; }
         #legend-popover .lp-label { font: 600 0.75rem/1.4 'Inter', sans-serif; color: var(--text); margin-bottom: 0.25rem; }
     </style>
+    <script src="resolve-sql-extras.js"></script>
 </head>
 <body>
 <div class="container">
@@ -715,6 +716,7 @@ async function init() {
     try {
         const res = await fetch('data.js');
         eval(await res.text());
+        await resolveSqlExtras(window.BENCHMARK_DATA);
         Chart.register(ChartZoom);
 
         allRawData = window.BENCHMARK_DATA?.entries || {};

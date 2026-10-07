@@ -265,10 +265,6 @@ impl BaseScanState {
         }
     }
 
-    pub fn has_postgres_expressions(&mut self) -> bool {
-        self.base_search_query_input.has_postgres_expressions()
-    }
-
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
         self.need_scores

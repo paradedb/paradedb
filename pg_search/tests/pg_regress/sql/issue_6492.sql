@@ -120,9 +120,48 @@ DEALLOCATE scored;
 DEALLOCATE snippets;
 DEALLOCATE filtered;
 DEALLOCATE wrapped;
-DROP FUNCTION issue_6492_explain_analyze;
 DROP FUNCTION issue_6492_wrapped_summary;
 RESET plan_cache_mode;
+
+-- A rescan solves the query again. A nested-loop parameter in the heap filter is
+-- enough: the inner scan runs once per outer row, and each run must drop the
+-- previous solved query before solving the next one.
+SELECT * FROM issue_6492_explain_analyze($$
+SELECT l.lib, count(x.id) AS total, count(x.snippet) AS snippets,
+       count(*) FILTER (WHERE x.score > 0) AS scored
+FROM (VALUES ('lib1'), ('nolib'), ('lib3')) l(lib)
+LEFT JOIN LATERAL (
+    SELECT id, paradedb.snippet(body) AS snippet, paradedb.score(id) AS score
+    FROM issue_6492 WHERE body @@@ 'contrato' AND issue_6492.lib = l.lib
+    OFFSET 0
+) x ON true
+GROUP BY l.lib ORDER BY l.lib$$);
+
+SELECT l.lib, count(x.id) AS total, count(x.snippet) AS snippets,
+       count(*) FILTER (WHERE x.score > 0) AS scored
+FROM (VALUES ('lib1'), ('nolib'), ('lib3')) l(lib)
+LEFT JOIN LATERAL (
+    SELECT id, paradedb.snippet(body) AS snippet, paradedb.score(id) AS score
+    FROM issue_6492 WHERE body @@@ 'contrato' AND issue_6492.lib = l.lib
+    OFFSET 0
+) x ON true
+GROUP BY l.lib ORDER BY l.lib;
+
+-- the same for the Aggregate Scan's FILTER solves
+SELECT * FROM issue_6492_explain_analyze($$
+SELECT l.lib, x.total, x.contrato
+FROM (VALUES ('lib1'), ('nolib'), ('lib3')) l(lib)
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE body @@@ 'contrato') AS contrato
+    FROM issue_6492 WHERE body @@@ 'servicos OR prestacao' AND issue_6492.lib = l.lib
+) x ORDER BY l.lib$$);
+
+SELECT l.lib, x.total, x.contrato
+FROM (VALUES ('lib1'), ('nolib'), ('lib3')) l(lib)
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE body @@@ 'contrato') AS contrato
+    FROM issue_6492 WHERE body @@@ 'servicos OR prestacao' AND issue_6492.lib = l.lib
+) x ORDER BY l.lib;
 
 -- The same with a parallel scan: each process solves the query once and reads it
 -- for every segment it claims. Without workers, the leader claims them all.
@@ -136,6 +175,8 @@ SELECT g,
               || md5(g::text) || ' ', 1 + g % 8),
        'lib' || (g % 5)
 FROM generate_series(1501, 3000) g;
+
+SELECT count(*) > 1 AS several_segments FROM paradedb.index_info('issue_6492_parallel_idx');
 
 SET max_parallel_workers_per_gather = 2;
 SET parallel_setup_cost = 0;
@@ -151,6 +192,8 @@ SELECT count(*) AS total, count(paradedb.snippet(body)) AS snippets,
 FROM issue_6492_parallel WHERE body @@@ $1 AND lib = $2;
 
 SET plan_cache_mode = force_generic_plan;
+-- the scan line only: the worker count follows the segment count
+SELECT * FROM issue_6492_explain_analyze($$EXECUTE parallel_snippets('contrato', 'lib1')$$);
 EXECUTE parallel_snippets('contrato', 'lib1');
 EXECUTE parallel_snippets('contrato', 'lib3');
 
@@ -160,6 +203,7 @@ EXECUTE parallel_snippets('contrato', 'lib1');
 EXECUTE parallel_snippets('contrato', 'lib3');
 
 DEALLOCATE parallel_snippets;
+DROP FUNCTION issue_6492_explain_analyze;
 RESET plan_cache_mode;
 RESET parallel_setup_cost;
 RESET parallel_tuple_cost;

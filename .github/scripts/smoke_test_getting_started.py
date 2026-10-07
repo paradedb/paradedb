@@ -246,6 +246,9 @@ def setup_rails(cwd, env):
     env["GEM_HOME"] = str(cwd / "gems")
     env["GEM_PATH"] = env["GEM_HOME"]
     env["PATH"] = str(cwd / "gems/bin") + os.pathsep + env["PATH"]
+    # A fresh GEM_HOME needs its own bundle executable, even when Ruby ships
+    # Bundler as a default gem without a launcher on the runner PATH.
+    run(["gem", "install", "bundler", "--no-document"], cwd, env)
     run(["gem", "install", "rails", "--version", "~> 8.1", "--no-document"], cwd, env)
     shell(block("rails", "bash", 0), cwd, env)
     app = cwd / "paradedb"

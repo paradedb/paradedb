@@ -1,12 +1,13 @@
 [package]
 name = "schemabot"
-version = "0.1.0"
-edition = "2021"
-license = "AGPL-3.0"
+description = "Schema diff and migration validation for pg_search"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
 publish = false
 
-# Keep CI tooling independent of the extension dependency graph and base revision.
-[workspace]
+[lints]
+workspace = true
 
 [dependencies]
 pg_query = "=6.2.1"

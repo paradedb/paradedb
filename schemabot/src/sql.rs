@@ -86,3 +86,51 @@ pub fn read(path: &str) -> Result<Vec<ParsedStatement>, String> {
     let content = std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
     parse(&content).map_err(|error| format!("{path}: {error}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ignores_formatting_comments_and_type_aliases() {
+        assert_eq!(
+            parse("CREATE TABLE t(x integer)").unwrap()[0].comparison,
+            parse("-- header\n create table t (x int);").unwrap()[0].comparison,
+        );
+    }
+
+    #[test]
+    fn preserves_sql_bodies_and_string_contents() {
+        let sql =
+            "CREATE FUNCTION f() RETURNS text LANGUAGE sql AS $$SELECT 'a;b -- /* text */'$$;";
+        let parsed = parse(sql).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].source, sql.trim_end_matches(';'));
+        assert_ne!(
+            parsed[0].comparison,
+            parse(&sql.replace("a;b", "a;c")).unwrap()[0].comparison
+        );
+    }
+
+    #[test]
+    fn accepts_only_the_initial_psql_extension_guard() {
+        assert_eq!(parse("\\echo Use \"ALTER EXTENSION x UPDATE\" to load this file. \\quit\nCREATE TABLE t(x int);").unwrap()[0].comparison, parse("CREATE TABLE t(x int)").unwrap()[0].comparison);
+        assert!(parse("SELECT 1;\n\\quit").is_err());
+    }
+
+    #[test]
+    fn normalizes_function_options_and_replace() {
+        assert_eq!(
+            parse("CREATE OR REPLACE FUNCTION f() RETURNS integer IMMUTABLE LANGUAGE sql AS $$SELECT 1$$").unwrap()[0].comparison,
+            parse("CREATE FUNCTION f() RETURNS int LANGUAGE sql IMMUTABLE AS $$SELECT 1$$").unwrap()[0].comparison,
+        );
+    }
+
+    #[test]
+    fn tablespace_paths_are_not_position_metadata() {
+        assert_ne!(
+            parse("CREATE TABLESPACE ts LOCATION '/mnt/one'").unwrap()[0].comparison,
+            parse("CREATE TABLESPACE ts LOCATION '/mnt/two'").unwrap()[0].comparison
+        );
+    }
+}

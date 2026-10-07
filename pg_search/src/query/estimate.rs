@@ -128,7 +128,7 @@ impl QueryEstimate for BooleanQuery {
             };
             match occur {
                 Occur::Must => {
-                    required.push(child.matches / total);
+                    required.push(child.matches);
                     required_cost =
                         Some(required_cost.map_or(child.cost, |cost| cost.min(child.cost)));
                 }
@@ -140,10 +140,11 @@ impl QueryEstimate for BooleanQuery {
             }
         }
         required.sort_unstable_by(f64::total_cmp);
-        let mut exponent = 1.0;
-        let mut required_fraction = 1.0;
-        for fraction in required {
-            required_fraction *= fraction.powf(exponent);
+        let mut required = required.into_iter();
+        let mut required_matches = required.next().unwrap_or(total);
+        let mut exponent = 0.5;
+        for matches in required {
+            required_matches *= (matches / total).powf(exponent);
             exponent *= 0.5;
         }
         let minimum = self
@@ -167,7 +168,7 @@ impl QueryEstimate for BooleanQuery {
             probabilities[minimum]
         };
         Ok(Some(Estimate {
-            matches: (required_fraction * optional_fraction * excluded).clamp(0.0, 1.0) * total,
+            matches: (required_matches * (optional_fraction * excluded)).clamp(0.0, total),
             cost: required_cost.unwrap_or(optional_cost),
         }))
     }
@@ -186,7 +187,7 @@ impl QueryEstimate for EmptyQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tantivy::query::RegexQuery;
+    use tantivy::query::{QueryClone, RegexQuery};
     use tantivy::schema::{IndexRecordOption, Schema, TEXT};
     use tantivy::{Index, TantivyDocument, Term, doc};
 
@@ -213,6 +214,18 @@ mod tests {
         let estimate = query.estimate_docs(segment).unwrap().unwrap();
         assert_eq!(estimate.live_docs(segment), 7);
         assert_eq!(estimate.cost, 7);
+        for clauses in [
+            vec![query.box_clone(), Box::new(AllQuery)],
+            vec![Box::new(AllQuery), query.box_clone()],
+        ] {
+            let estimate = BooleanQuery::intersection(clauses)
+                .estimate_docs(segment)
+                .unwrap()
+                .unwrap();
+            assert_eq!(estimate.matches, 7.0);
+            assert_eq!(estimate.live_docs(segment), 7);
+            assert_eq!(estimate.cost, 7);
+        }
 
         writer.delete_term(Term::from_field_text(field, "common"));
         writer.commit().unwrap();

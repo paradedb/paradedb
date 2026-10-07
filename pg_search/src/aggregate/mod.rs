@@ -77,10 +77,10 @@ pub enum AggregateRequest {
 
 impl AggregateRequest {
     /// Estimates the number of logical operations needed to aggregate each matching document.
-    /// Each operation, such as updating a running sum, gets the same cost regardless
-    /// of its complexity or how many values the document contains. The caller multiplies
-    /// this count by estimated matching documents and cpu_operator_cost.
-    fn updates_per_doc(&self) -> Option<usize> {
+    /// Each collector update counts as one operation; string cardinality also includes
+    /// sorting its distinct values. The caller multiplies this count by estimated matching
+    /// documents and cpu_operator_cost. Value multiplicity is not included.
+    fn updates_per_doc(&self, reader: &SearchIndexReader) -> Option<usize> {
         let mut updates_per_doc = 0;
         match self {
             AggregateRequest::Sql(clause) => {
@@ -98,13 +98,13 @@ impl AggregateRequest {
                     updates_per_doc += if matches!(aggregate, AggregateType::CountAny { .. }) {
                         1
                     } else {
-                        count_tantivy_collectors(&aggregate.clone().into())?
+                        tantivy_updates_per_doc(&aggregate.clone().into(), reader)?
                     };
                 }
             }
             AggregateRequest::Json(aggregations) => {
                 for aggregation in aggregations.values() {
-                    updates_per_doc += count_tantivy_collectors(aggregation)?;
+                    updates_per_doc += tantivy_updates_per_doc(aggregation, reader)?;
                 }
             }
         }
@@ -112,15 +112,32 @@ impl AggregateRequest {
     }
 }
 
-fn count_tantivy_collectors(aggregation: &Aggregation) -> Option<usize> {
+fn tantivy_updates_per_doc(aggregation: &Aggregation, reader: &SearchIndexReader) -> Option<usize> {
     if matches!(aggregation.agg, AggregationVariants::Filter(_)) {
         return None;
     }
-    let mut collectors = 1;
-    for child in aggregation.sub_aggregation.values() {
-        collectors += count_tantivy_collectors(child)?;
+    let mut updates = 1;
+    if let AggregationVariants::Cardinality(cardinality) = &aggregation.agg
+        && reader
+            .schema()
+            .search_field(&cardinality.field)
+            .is_some_and(|field| field.is_text())
+    {
+        // String cardinality sorts distinct term IDs before resolving and hashing them.
+        // Without distinct-value statistics, allow one value per document in the largest
+        // segment: sorting N values adds ceil(log2(N)) comparisons per value.
+        let segment_docs = reader
+            .segment_readers()
+            .iter()
+            .map(|segment| segment.max_doc())
+            .max()
+            .unwrap_or(0);
+        updates += (segment_docs.max(1) as f64).log2().ceil() as usize;
     }
-    Some(collectors)
+    for child in aggregation.sub_aggregation.values() {
+        updates += tantivy_updates_per_doc(child, reader)?;
+    }
+    Some(updates)
 }
 
 impl TryInto<Aggregations> for AggregateRequest {
@@ -719,7 +736,7 @@ pub fn execute_aggregate(
                     .min(pg_sys::max_parallel_workers as usize)
                     .min(pg_sys::max_worker_processes as usize),
             )
-            && let Some(updates_per_doc) = agg_req.updates_per_doc()
+            && let Some(updates_per_doc) = agg_req.updates_per_doc(&reader)
             && let (selectivity, Some(cost)) = estimate_selectivity_and_cost(index, query.clone())
         {
             let total_rows = RowEstimate::from_reltuples(

@@ -790,9 +790,11 @@ async fn test_background_merge_terminate_during_sync_replication() -> Result<()>
     conn.execute("CREATE EXTENSION pg_search CASCADE").await?;
     conn.execute("CREATE TABLE merge_die (id bigint, body text)")
         .await?;
+    // Seal segments during each insert instead of letting this small fixture remain
+    // in mutable segments, which would not fill the configured background layers.
     conn.execute(
         "CREATE INDEX merge_die_idx ON merge_die USING paradedb (id, body) \
-         WITH (layer_sizes = '0', background_layer_sizes = '0', target_segment_count = 1)",
+         WITH (layer_sizes = '0', background_layer_sizes = '0', target_segment_count = 1, mutable_segment_rows = 1)",
     )
     .await?;
     for _ in 0..12 {

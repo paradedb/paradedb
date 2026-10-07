@@ -1,0 +1,59 @@
+name: Build ParadeDB Image
+description: Build ParadeDB Docker image with pg_search compiled from source
+
+inputs:
+  ref:
+    description: "pg_search commit/ref to build"
+    required: true
+  base_image:
+    description: "Base ParadeDB image"
+    required: false
+    default: "paradedb/paradedb:latest-pg18"
+  image_tag:
+    description: "Tag for the built image"
+    required: false
+    default: "paradedb-source:ci"
+  cache_scope:
+    description: "Scope for GHA cache"
+    required: false
+    default: "benchmarker-source-pg18-arm64"
+
+outputs:
+  short_commit:
+    description: "Short commit SHA of pg_search ref"
+    value: ${{ steps.commit_info.outputs.short_commit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout pg_search Source at ref=${{ inputs.ref }}
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.ref }}
+        path: pg_search_source
+        persist-credentials: false
+        fetch-depth: 0
+
+    - name: Configure RunsOn Caching
+      uses: runs-on/action@v2
+
+    - name: Derive Short Commit
+      id: commit_info
+      shell: bash
+      working-directory: pg_search_source
+      run: echo "short_commit=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Set Up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Build ParadeDB image from source
+      uses: docker/build-push-action@v7
+      with:
+        context: pg_search_source
+        file: docker/Dockerfile.source
+        build-args: BASE_IMAGE=${{ inputs.base_image }}
+        pull: true
+        load: true
+        tags: ${{ inputs.image_tag }}
+        cache-from: type=gha,scope=${{ inputs.cache_scope }}
+        cache-to: type=gha,mode=max,scope=${{ inputs.cache_scope }}

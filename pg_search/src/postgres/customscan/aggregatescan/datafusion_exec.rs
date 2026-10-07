@@ -34,7 +34,9 @@ use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
-use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
+use crate::postgres::customscan::aggregatescan::privdat::{
+    CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
+};
 use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
@@ -44,24 +46,23 @@ use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
     build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
 };
-use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::customscan::joinscan::build::{
     JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
 };
-use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
+use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
-use datafusion::common::{DataFusionError, NullHandling, Result, ScalarValue};
+use datafusion::common::{Column, DataFusionError, NullHandling, Result, ScalarValue};
 use datafusion::functions::core::expr_fn::coalesce;
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
-    array_agg, avg, bool_and, bool_or, count, max, min, stddev, stddev_pop, sum, var_pop,
-    var_sample,
+    array_agg, avg, bool_and, bool_or, count, first_value, max, min, stddev, stddev_pop, sum,
+    var_pop, var_sample,
 };
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
@@ -84,6 +85,8 @@ pub struct JoinAggregatePlan {
     pub logical: datafusion::logical_expr::LogicalPlan,
     /// Per `targetlist.group_columns` entry, its DataFusion output column.
     pub group_df_indices: Vec<usize>,
+    /// The number of DataFusion grouping columns. The aggregates follow them.
+    pub num_group_exprs: usize,
     /// Set when the query carries `pdb.agg()` calls.
     pub pdb_plan: Option<PdbAggPlan>,
     /// `HAVING` of a scalar `pdb.agg()` query, applied to the assembled root row
@@ -120,6 +123,18 @@ pub async fn build_join_aggregate_plan(
     )
     .await?;
 
+    // A row value column reads the row with the lowest ctids in its group. One
+    // order for all of them makes them read the same row, which matters when an
+    // expression above uses more than one. With an order, `first_value` also has
+    // a groups accumulator, which keeps its state small enough to spill.
+    let row_order: Vec<Sort> = df
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| CtidColumn::try_from(field.name().as_str()).is_ok())
+        .map(|field| col(field.name()).sort(true, false))
+        .collect();
+
     // Step 2: Build GROUP BY expressions
     // DataFusion deduplicates grouping expressions that resolve to the same
     // column name (e.g. metadata.brand). We must track which DataFusion output
@@ -127,8 +142,20 @@ pub async fn build_join_aggregate_plan(
     let mut group_exprs = Vec::new();
     let mut field_to_df_idx = crate::api::HashMap::default();
     let mut group_df_indices = Vec::with_capacity(targetlist.group_columns.len());
+    // A row value column is an aggregate, so its index is known after them.
+    let mut row_values = Vec::new();
 
-    for gc in &targetlist.group_columns {
+    for (gc_idx, gc) in targetlist.group_columns.iter().enumerate() {
+        if gc.row_value {
+            // PostgreSQL's Agg node reads such a column from one row of the group.
+            let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+            row_values.push((
+                gc_idx,
+                first_value(column, row_order.clone()).alias(targetlist.row_value_name(gc_idx)),
+            ));
+            group_df_indices.push(usize::MAX);
+            continue;
+        }
         // Dedup key by (plan_position, field_name, transform): plan_position is the
         // unique source identity; field_name distinguishes columns within
         // a source, transform distinguishes different transformations of the same column.
@@ -155,6 +182,12 @@ pub async fn build_join_aggregate_plan(
             std::collections::hash_map::Entry::Occupied(o) => *o.get(),
         };
         group_df_indices.push(df_idx);
+    }
+
+    // With no key to group on, a GROUP BY query has one group when a row
+    // matches and none when no row does. A constant key gives that.
+    if targetlist.has_group_by && group_exprs.is_empty() {
+        group_exprs.push(lit(true).alias(targetlist.one_group_key()));
     }
 
     // Step 3: Build aggregate expressions. `pdb.agg()` entries contribute no
@@ -269,16 +302,22 @@ pub async fn build_join_aggregate_plan(
                 None => agg_expr,
             };
             // Alias for stable reference
-            Ok(Some(agg_expr.alias(format!("agg_{}", i))))
+            Ok(Some(agg_expr.alias(targetlist.aggregate_name(i))))
         })
         .filter_map(Result::transpose)
         .collect::<Result<Vec<Expr>>>()?;
+    let num_group_exprs = group_exprs.len();
+    let mut agg_exprs = agg_exprs;
+    for (gc_idx, expr) in row_values {
+        group_df_indices[gc_idx] = num_group_exprs + agg_exprs.len();
+        agg_exprs.push(expr);
+    }
 
     let having_expr = having_filter
         .map(|having| {
             let having_ctx = FilterExprExecContext {
                 targetlist: Some(targetlist),
-                plan: None,
+                plan: Some(plan),
             };
             having.to_datafusion(&having_ctx).ok_or_else(|| {
                 DataFusionError::Internal(
@@ -307,7 +346,28 @@ pub async fn build_join_aggregate_plan(
             plan,
         )?,
         None => {
-            let df = df.aggregate(group_exprs, agg_exprs)?;
+            // Deliberately *not* `DataFrame::aggregate`: that hardcodes
+            // `add_implicit_group_by_exprs(true)`, which appends every column
+            // functionally determined by the group key to the group expression
+            // list (MySQL-style `SELECT col ... GROUP BY pk`). If any scanned
+            // columns are unique or functionally dependent, that expansion would
+            // widen the group key behind our back and invalidate
+            // `group_df_indices` - the aggregate columns would no longer start
+            // where `project_aggregate_row_to_slot` expects them, and the
+            // projection would silently read a grouping column as an aggregate
+            // result.
+            //
+            // Postgres has already validated and fully enumerated the GROUP BY
+            // clause by the time we get here, so the implicit expansion has
+            // nothing to add. Functional dependencies still reach the optimizer
+            // via the plan schema; only the group-key rewrite is suppressed.
+            let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
+            let (state, plan) = df.into_parts();
+            let aggregated = LogicalPlanBuilder::from(plan)
+                .with_options(options)
+                .aggregate(group_exprs, agg_exprs)?
+                .build()?;
+            let df = DataFrame::new(state, aggregated);
             match having_expr {
                 Some(expr) => df.filter(expr)?,
                 None => df,
@@ -321,8 +381,8 @@ pub async fn build_join_aggregate_plan(
     // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
     // bounded TopK heap.
     if let Some(topk) = topk {
-        let sort_col_name = topk.sort_target.resolve_sort_col_name(targetlist, plan);
-        let sort_expr = datafusion::prelude::col(&sort_col_name)
+        let sort_column = topk.sort_target.resolve_sort_column(targetlist, plan);
+        let sort_expr = Expr::Column(sort_column)
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         df = df.sort(vec![sort_expr])?;
         df = df.limit(0, Some(topk.k))?;
@@ -331,6 +391,7 @@ pub async fn build_join_aggregate_plan(
     Ok(JoinAggregatePlan {
         logical: optimize_logical_plan(df)?,
         group_df_indices,
+        num_group_exprs,
         pdb_plan,
         pdb_root_having,
     })
@@ -383,8 +444,9 @@ fn build_pdb_aggregate_plan(
             }
         })
         .collect();
-
-    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(true);
+    // Suppress implicit group-by widening (matching `build_join_aggregate_plan`),
+    // so functionally dependent columns are not appended to the group key.
+    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
     if array_keys.is_empty() {
         return LogicalPlanBuilder::from(input)
             .with_options(options)
@@ -933,7 +995,7 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 /// Context for the **exec phase** — translating a [`FilterExpr`] IR into a
 /// DataFusion [`Expr`].
 ///
-/// HAVING provides `targetlist` for resolving `AggRef`/`GroupRef`;
+/// HAVING provides `targetlist` and `plan` for resolving `AggRef`/`GroupRef`;
 /// FILTER provides `plan` (a `RelNode` tree) for resolving `ColumnRef`.
 ///
 /// This is distinct from the build-phase context in `datafusion_build.rs`,
@@ -954,12 +1016,20 @@ impl FilterExpr {
             FilterExpr::AggRef(idx) => {
                 let tl = ctx.targetlist?;
                 if *idx < tl.aggregates.len() {
-                    Some(datafusion::prelude::col(format!("agg_{}", idx)))
+                    Some(Expr::Column(Column::new_unqualified(
+                        tl.aggregate_name(*idx),
+                    )))
                 } else {
                     None
                 }
             }
-            FilterExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
+            FilterExpr::GroupRef(idx) => {
+                let tl = ctx.targetlist?;
+                let plan = ctx.plan?;
+                (*idx < tl.group_columns.len()).then(|| {
+                    Expr::Column(TopKSortTarget::GroupColumn(*idx).resolve_sort_column(tl, plan))
+                })
+            }
             FilterExpr::ColumnRef {
                 plan_position,
                 field_name,
@@ -1128,11 +1198,15 @@ async fn build_source_df(
             required_early.insert(col);
         }
     }
+    let display_alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
+
+    provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
     provider.configure_deferred_outputs(&required_early, crate::scan::VisibilityMode::Eager);
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
-    // Select fields AND ensure CTID and Score are aliased consistently with JoinScan
+    // Select fields AND ensure CTID is aliased consistently with JoinScan
     let mut exprs = Vec::new();
     for df_field in df.schema().fields().iter() {
         let name = df_field.name();
@@ -1140,7 +1214,6 @@ async fn build_source_df(
             Some(WhichFastField::Ctid) => {
                 make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
             }
-            Some(WhichFastField::Score) => make_col(alias.as_str(), SCORE_COL_NAME),
             _ => make_col(alias.as_str(), name),
         };
         exprs.push(expr);

@@ -223,6 +223,31 @@ impl SearchFieldType {
             SearchFieldType::Vector(..) => arrow_schema::DataType::BinaryView,
         }
     }
+
+    /// Whether values of this type are stored in a bytes column, so a deferred
+    /// term ordinal resolves against the bytes dictionary rather than the string one.
+    pub fn is_bytes_storage(&self) -> bool {
+        matches!(
+            self,
+            SearchFieldType::NumericBytes(..) | SearchFieldType::Vector(..)
+        )
+    }
+
+    /// Whether values of this type are stored in a dictionary-backed column.
+    /// Only these carry term ordinals, so only these can have their decoding deferred.
+    pub fn is_dictionary_storage(&self) -> bool {
+        self.is_bytes_storage()
+            || matches!(
+                self,
+                SearchFieldType::Text(_)
+                    | SearchFieldType::Tokenized(..)
+                    | SearchFieldType::Uuid(_)
+                    | SearchFieldType::Inet(_)
+                    | SearchFieldType::Ltree(_)
+                    | SearchFieldType::Json(_)
+                    | SearchFieldType::Range(_)
+            )
+    }
 }
 
 /// Derive the SearchFieldType from the tantivy schema, using PostgreSQL metadata for OID/scale.
@@ -904,6 +929,24 @@ impl SearchField {
                         == SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()))
             })
             .unwrap_or(false)
+    }
+
+    /// Whether this field's `.stats` min/max order the way query values compare, so a
+    /// comparison against them can prove a segment holds no matching value. `is_sortable` does
+    /// not advertise IP fields, but their fast-field and query representations are both
+    /// `IpAddr` and share the ordering `.stats` records.
+    pub fn stats_order_matches_values(&self) -> bool {
+        self.is_raw_sortable()
+            || (matches!(self.field_type, SearchFieldType::Inet(_)) && self.is_fast())
+    }
+
+    /// Whether `.stats` describe this field's indexed terms. Statistics hold whole columnar
+    /// values, which are the terms only when no tokenizer splits them, so analyzed text fails
+    /// open. Gated on the Tantivy field type because uuid columns also accept `text_fields`
+    /// tokenizer configurations.
+    pub fn stats_describe_terms(&self) -> bool {
+        self.stats_order_matches_values()
+            && (!matches!(self.field_entry.field_type(), FieldType::Str(_)) || self.is_keyword())
     }
 
     #[allow(deprecated)]

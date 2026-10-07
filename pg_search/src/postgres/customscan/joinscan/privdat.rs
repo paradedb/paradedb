@@ -26,8 +26,6 @@ use serde::{Deserialize, Serialize};
 
 use super::window_func::WindowAggIndex;
 
-pub const SCORE_COL_NAME: &str = "pdb.score()";
-
 /// Describes how a single output column of the JoinScan CustomScan is produced.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OutputColumnInfo {

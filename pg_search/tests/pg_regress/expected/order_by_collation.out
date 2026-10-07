@@ -367,32 +367,35 @@ FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY GROUPING SETS ((name_c), ());
 ERROR:  Cannot execute pdb.agg: GROUPING SETS are not supported
-\echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined'
-Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined
+\echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan reads the key from a row'
+Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan reads the key from a row
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, COUNT(*)
 FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
-WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disable this warning: SET paradedb.planner_warnings = 'off' (table: collation_test)
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   ->  Custom Scan (ParadeDB Base Scan) on collation_test
-         Table: collation_test
-         Index: collation_test_idx
-         Exec Method: ColumnarExecState
-         Columnar: name_c
-         Scores: false
-         Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: collation_test_idx (collation_test)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(collation_test_0.name_c) ORDER BY [collation_test_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
+     :   ProjectionExec: expr=[ctid@0 as ctid_0, name_c@1 as name_c]
+     :     CooperativeExec
+     :       PgSearchScan: table=collation_test, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
 (9 rows)
 
 SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
 WHERE name_c = 'apple' AND id @@@ paradedb.all()
 GROUP BY name_c;
-ERROR:  Cannot execute pdb.agg: could not verify GROUP BY semantics
+ name_c |      agg       
+--------+----------------
+ apple  | {"value": 1.0}
+(1 row)
+
 \echo 'Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined'
 Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined
 SET enable_sort TO off;
@@ -631,8 +634,8 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description ||| 'wireless'
 ORDER BY p.name_c
 LIMIT 5;
-                                                                                                                                   QUERY PLAN                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                    QUERY PLAN                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER s
    Join Cond: p.id = s.product_id
@@ -641,13 +644,14 @@ LIMIT 5;
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[name_c@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   TantivyDecodeExec: decode=[name_c]
-     :     SegmentedTopKExec: expr=[name_c@1 ASC NULLS LAST], k=5, visibility_checks=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, name_c@2, ctid_1@3]
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, fetch=[name_c], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(14 rows)
+     :     SegmentedTopKExec: expr=[name_c@1 ASC NULLS LAST], k=5
+     :       VisibilityFilterExec: tables=[p, s]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, name_c@2, ctid_1@3]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, fetch=[name_c], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(15 rows)
 
 \echo 'Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)'
 Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)
@@ -686,8 +690,8 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER s
    Join Cond: p.id = s.product_id
@@ -697,13 +701,12 @@ LIMIT 5;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(15 rows)
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(14 rows)
 
 RESET paradedb.enable_join_custom_scan;
 -- =============================================================================

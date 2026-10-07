@@ -902,7 +902,7 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 (8 rows)
 
 -- Test 7.2: EXPLAIN ANALYZE VERBOSE (planning + execution)
-EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
+EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, BUFFERS ON, SUMMARY OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items (actual rows=1.00 loops=1)
@@ -913,13 +913,20 @@ EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM rec
    Heap Fetches: 1
    Virtual Tuples: 0
    Invisible Tuples: 0
+   Buffer Hits:
+     Total: 20
+     Columnar Fields: 2
+     Heap: 1
+     Metadata: 13
+     Postings: 2
+     Term Dictionary: 2
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
-   Buffers: shared hit=23
+   Buffers: shared hit=20
  Planning:
-   Buffers: shared hit=45
-(14 rows)
+   Buffers: shared hit=41
+(21 rows)
 
 -- Test 7.3: Verify EXPLAIN without VERBOSE does NOT show estimates
 EXPLAIN (COSTS OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';

@@ -47,9 +47,11 @@ use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
-    field_type_for_pullup, get_attno_by_name, resolve_fast_field,
+    field_type_for_pullup, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+};
 use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
@@ -174,6 +176,12 @@ pub(super) unsafe fn collect_join_sources_base_rel(
 
         classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 
+        // SECURITY: lifted SubPlans (e.g. an RLS policy) become joins above this scan, so a
+        // leaky filter in it would run first.
+        if has_leaky_heap_filter(root, rel, rti, &bm25_index, &classified.search_ri) {
+            return None;
+        }
+
         if !classified.search_ri.is_empty() {
             let context = PlannerContext::from_planner(root);
             let mut state = QualExtractState::default();
@@ -213,7 +221,8 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         return None;
     };
     current_node = node;
-    current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys);
+    // Same for OR-nested SubPlans, which may be RLS policies.
+    current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys)?;
 
     Some(CollectedJoinRel::new(current_node, all_keys))
 }
@@ -411,20 +420,20 @@ pub unsafe fn wrap_with_semi_anti(
 /// SubPlan (`col IS NULL OR col IN (SELECT ...)` style). The LeftMark join
 /// produces all left rows plus a boolean "mark" column; the Filter then keeps
 /// rows where `mark = true OR col IS NULL` (or the inverted form for NOT IN).
+///
+/// Returns `None` if any SubPlan can't be lowered, rather than dropping its predicate.
 unsafe fn wrap_with_mark_filter(
     mut current_node: RelNode,
     or_subplans: Vec<OrSubPlanExtraction>,
     all_keys: &mut Vec<JoinKeyPair>,
-) -> RelNode {
+) -> Option<RelNode> {
     for or_ext in or_subplans {
         let inner_rel = find_final_rel(or_ext.inner_root);
         if inner_rel.is_null() {
-            continue;
+            return None;
         }
 
-        let Some(inner_collected) = collect_join_sources(or_ext.inner_root, inner_rel) else {
-            continue;
-        };
+        let inner_collected = collect_join_sources(or_ext.inner_root, inner_rel)?;
         let inner_node = inner_collected.plan;
         let inner_keys = inner_collected.join_keys;
 
@@ -473,7 +482,7 @@ unsafe fn wrap_with_mark_filter(
         current_node = RelNode::Filter(Box::new(filter_node));
     }
 
-    current_node
+    Some(current_node)
 }
 
 /// Recursively reconstructs the intermediate relational tree from standard PostgreSQL join paths.
@@ -1275,12 +1284,8 @@ fn numeric_bytes_layouts_differ(
     inner_ff: &WhichFastField,
     inner_ir: &PgSearchRelation,
 ) -> bool {
-    let is_numeric_bytes = |ff: &WhichFastField| {
-        matches!(
-            ff,
-            WhichFastField::Named(_, SearchFieldType::NumericBytes(..))
-        )
-    };
+    let is_numeric_bytes =
+        |ff: &WhichFastField| matches!(ff.field_type(), Some(SearchFieldType::NumericBytes(..)));
     is_numeric_bytes(outer_ff)
         && is_numeric_bytes(inner_ff)
         && outer_ir
@@ -1786,13 +1791,8 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
         return;
     }
     let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&indexrel)
-        && let Some(search_field) = schema.search_field(field_name)
-    {
-        side.scan_info.add_field(
-            attno,
-            WhichFastField::Array(field_name.to_string(), search_field.field_type()),
-        );
+    if let Some(field) = resolve_fast_field_by_name(field_name, &indexrel) {
+        side.scan_info.add_field(attno, field);
     }
 }
 
@@ -1836,7 +1836,7 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
     source.scan_info.add_field_by_name(
         synthetic_attno,
-        WhichFastField::Named(field_name.to_string(), field_type),
+        WhichFastField::eager(field_name.to_string(), field_type),
     );
     Ok(())
 }
@@ -2590,7 +2590,7 @@ pub(crate) fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sys::Inde
 /// Returns the RTI of the ordering base relation if found.
 pub(super) fn ensure_score_bubbling(source: &mut JoinSource) -> Option<pg_sys::Index> {
     source.scan_info.score_needed = true;
-    source.scan_info.add_field(0, WhichFastField::Score);
+    source.scan_info.add_field(0, WhichFastField::score());
     Some(source.scan_info.heap_rti)
 }
 

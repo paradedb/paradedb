@@ -1,6 +1,6 @@
 ---
 title: How to Tune ParadeDB
-description: Settings for better read and write performance
+description: Tune PostgreSQL settings for better read and write performance
 canonical: https://www.paradedb.com/docs/operate/performance-tuning/overview
 ---
 
@@ -14,7 +14,7 @@ These settings can be changed in several ways:
 
 1. By editing the `postgresql.conf` file and restarting Postgres. This makes the setting permanent for all sessions. `postgresql.conf`
    accepts ParadeDB's custom `paradedb.*` settings.
-2. By running `SET`. This temporarily changes the setting for the current session. Note that Postgres does not allow all `postgresql.conf` settings to be changed with `SET`.
+2. By running `SET`. This temporarily changes the setting for the current session. Note that Postgres does not allow all `postgresql.conf` settings to be changed with `SET`. For example:
 
 ```sql
 SET maintenance_work_mem = '8GB'
@@ -38,7 +38,7 @@ max_parallel_maintenance_workers = '2'        # CPUs / 2, at least 2, at most 8
 # End ParadeDB tuning recommendations
 ```
 
-To disable auto-tuning, set `PDB_TUNE=false` when you first run the container:
+To disable auto-tuning, set `PDB_TUNE=false` when you first run the ParadeDB Docker container:
 
 ```bash
 docker run \
@@ -50,9 +50,9 @@ docker run \
     -d paradedb/paradedb:latest
 ```
 
-## CloudNativePG
+## Kubernetes
 
-If ParadeDB is deployed with [CloudNativePG](/operate/deploy/self-hosted/kubernetes), configure these settings under `cluster.postgresql.parameters` in your `values.yaml` file. Parameter values must be strings. For example:
+If ParadeDB is deployed in Kubernetes with [CloudNativePG](/operate/deploy/self-hosted/kubernetes), configure these settings under `cluster.postgresql.parameters` in your `values.yaml` file. Parameter values must be strings. For example:
 
 ```yaml values.yaml
 cluster:

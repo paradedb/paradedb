@@ -54,6 +54,24 @@ fn get_mode_str(mode: ConvertMode) -> &'static str {
     }
 }
 
+impl std::str::FromStr for ConvertMode {
+    type Err = String;
+
+    /// Parses a `chinese_convert` typmod/expression value shared by every tokenizer
+    /// that supports Chinese conversion (currently `pdb.jieba` and `pdb.chinese_compatible`).
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "t2s" => Ok(ConvertMode::T2S),
+            "s2t" => Ok(ConvertMode::S2T),
+            "tw2s" => Ok(ConvertMode::TW2S),
+            "tw2sp" => Ok(ConvertMode::TW2SP),
+            "s2tw" => Ok(ConvertMode::S2TW),
+            "s2twp" => Ok(ConvertMode::S2TWP),
+            other => Err(format!("unknown chinese convert mode: {other}")),
+        }
+    }
+}
+
 /// Chinese Traditional/Simplified Conversion Tokenizer Wrapper
 ///
 /// Converts the entire text **before tokenization** to ensure proper word segmentation

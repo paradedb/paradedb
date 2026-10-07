@@ -101,6 +101,14 @@ struct BenchmarkArgs {
     #[arg(long, default_value_t = true, num_args = 1)]
     vacuum: bool,
 
+    /// Whether to run dirty MVCC variants for queries marked sensitive.
+    #[arg(long, default_value_t = true, num_args = 1)]
+    dirty: bool,
+
+    /// Fraction of data to dirty (e.g. 0.005 for 0.5% dirty / 99.5% visible).
+    #[arg(long, default_value_t = 0.005)]
+    dirty_fraction: f64,
+
     /// Skip index creation (and the after-create-index hook). Assumes the index already exists;
     /// useful for iterating on queries against an already-indexed database.
     #[arg(long, default_value_t = false)]
@@ -277,6 +285,13 @@ struct QueryResult {
     query_type: String,
     query: String,
     results: QueryRunResults,
+}
+
+#[derive(Clone)]
+struct BenchmarkQuery {
+    query_type: String,
+    query: String,
+    is_mvcc_sensitive: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -669,22 +684,23 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
 
     // Parse the query file: resolve its `{{ param }}` references (per-query probes/ef_search scaled
     // by dataset_size), then split into the `SET` statements (operating point, applied to the
-    // session) and the single kNN query. A file may hold multiple variants (the benchmark runs all
-    // of them -- see benchmark_queries); recall measures only the FIRST variant (the one the
-    // benchmark labels with the bare file stem), so later variants' queries and SETs don't leak in.
-    // Splitting on `;` handles the inline `SET ...; SELECT ...` compound the harness uses. The query
-    // is run verbatim per held-out vector, so it must order by current_setting('cohere.qvec') --
-    // that lets recall vary the vector without changing the query (and thus its plan).
-    let raw_statements = queries(Path::new(&query_file));
-    let params =
-        resolve_template_params(&mut conn, &args.dataset, Some(&args.size), &raw_statements)
-            .await?;
-    let first_variant = raw_statements
-        .first()
-        .with_context(|| format!("Query file {query_file} is empty"))?;
-    let (set_statements, knn_query) =
-        split_operating_point(&substitute_vars(first_variant, &params)?)
-            .with_context(|| format!("Query file {query_file} has no query to score"))?;
+    // session) and the single kNN query. Splitting on `;` handles the inline `SET ...; SELECT ...`
+    // compound the harness uses. The query is run verbatim per held-out vector, so it must order by
+    // current_setting('cohere.qvec') -- that lets recall vary the vector without changing the query
+    // (and thus its plan).
+    let raw_query = single_query(Path::new(&query_file));
+    if raw_query.is_empty() {
+        bail!("Query file {query_file} is empty");
+    }
+    let params = resolve_template_params(
+        &mut conn,
+        &args.dataset,
+        Some(&args.size),
+        std::slice::from_ref(&raw_query),
+    )
+    .await?;
+    let (set_statements, knn_query) = split_operating_point(&substitute_vars(&raw_query, &params)?)
+        .with_context(|| format!("Query file {query_file} has no query to score"))?;
     if !knn_query.contains(&format!("current_setting('{QVEC_GUC}')")) {
         bail!(
             "Query file {query_file} does not order by current_setting('{QVEC_GUC}'); recall cannot \
@@ -1009,8 +1025,8 @@ struct SweepSummaryRow {
 async fn expand_sweeps(
     conn: &mut PgConnection,
     args: &BenchmarkArgs,
-    parsed: Vec<(String, String)>,
-) -> anyhow::Result<(Vec<(String, String)>, Vec<SweepSummaryRow>)> {
+    parsed: Vec<BenchmarkQuery>,
+) -> anyhow::Result<(Vec<BenchmarkQuery>, Vec<SweepSummaryRow>)> {
     let (config, _) = load_dataset_config(&format!("datasets/{}/config.toml", args.dataset))?;
     if config.sweeps.is_empty() {
         return Ok((parsed, Vec::new()));
@@ -1022,38 +1038,53 @@ async fn expand_sweeps(
 
     let mut expanded = Vec::new();
     let mut summary = Vec::new();
-    for (query_type, query) in parsed {
-        // Only a file's first variant is labeled with the bare stem, so later variants (which
-        // recall does not score) never match a sweep.
-        let Some(sweep) = config.sweep_for(&args.index, &query_type) else {
-            expanded.push((query_type, query));
+    for query_item in parsed {
+        // Queries not declared in config [sweeps] (e.g. exact pre-filter baselines) pass through
+        // unmodified.
+        let Some(sweep) = config.sweep_for(&args.index, &query_item.query_type) else {
+            expanded.push(query_item);
             continue;
         };
 
         println!(
-            "Sweeping {query_type} over {} ({} values)",
+            "Sweeping {} over {} ({} values)",
+            query_item.query_type,
             sweep.param,
             sweep.values.len()
         );
-        let points = sweep_query(conn, args, &config, size, &query_type, &query, sweep).await?;
+        let points = sweep_query(
+            conn,
+            args,
+            &config,
+            size,
+            &query_item.query_type,
+            &query_item.query,
+            sweep,
+        )
+        .await?;
         for selected in select_points(&points) {
             if !selected.reached {
                 println!(
-                    "  WARNING: no measured value reached {:.0}% recall for {query_type}; \
+                    "  WARNING: no measured value reached {:.0}% recall for {}; \
                      reporting the cheapest point with best measured recall ({:.4}).",
                     selected.target * 100.0,
+                    query_item.query_type,
                     selected.recall
                 );
             }
             summary.push(SweepSummaryRow {
-                query: query_type.clone(),
+                query: query_item.query_type.clone(),
                 label: selected.label,
                 param: sweep.param.clone(),
                 value: selected.value,
                 recall: selected.recall,
                 reached: selected.reached,
             });
-            expanded.push((format!("{query_type}@{}", selected.label), selected.query));
+            expanded.push(BenchmarkQuery {
+                query_type: format!("{}@{}", query_item.query_type, selected.label),
+                query: selected.query,
+                is_mvcc_sensitive: query_item.is_mvcc_sensitive,
+            });
         }
     }
     Ok((expanded, summary))
@@ -1115,6 +1146,145 @@ fn load_parquet_into(url: &str, table: &str, source: &str) -> anyhow::Result<()>
     Ok(())
 }
 
+fn format_percent(pct: f64) -> String {
+    if (pct.round() - pct).abs() < 1e-6 {
+        format!("{pct:.0}")
+    } else {
+        format!("{pct:.1}")
+    }
+}
+
+async fn process_dirty_sql(
+    conn: &mut PgConnection,
+    args: &BenchmarkArgs,
+    visible_label: &str,
+) -> anyhow::Result<()> {
+    let dirty_sql = format!("datasets/{}/dirty.sql", args.dataset);
+    if !Path::new(&dirty_sql).exists() {
+        bail!(
+            "Dataset '{}' has queries marked with -- @mvcc_sensitive, but no dirtying script found at '{}'",
+            args.dataset,
+            dirty_sql
+        );
+    }
+
+    let dirty_pct = args.dirty_fraction * 100.0;
+    let dirty_pct_str = format_percent(dirty_pct);
+    let modulus = (1.0 / args.dirty_fraction).round().max(1.0) as u64;
+
+    println!(
+        "Dirtying tables ({dirty_pct_str}% dirty / {visible_label}% visible, 1 tuple per {modulus} blocks)..."
+    );
+    let statements = queries(Path::new(&dirty_sql));
+
+    let mut vars = HashMap::new();
+    vars.insert("dirty_pct".to_string(), dirty_pct_str);
+    vars.insert(
+        "dirty_fraction".to_string(),
+        args.dirty_fraction.to_string(),
+    );
+    vars.insert("dirty_modulus".to_string(), modulus.to_string());
+    vars.insert("visible_pct".to_string(), visible_label.to_string());
+    if let Some(size) = args.size.as_deref() {
+        vars.insert("dataset_size".to_string(), dataset_rows(size)?.to_string());
+    }
+
+    let skip: HashSet<String> = vars.keys().cloned().collect();
+    let dataset_params = resolve_template_params_except(
+        conn,
+        &args.dataset,
+        args.size.as_deref(),
+        &statements,
+        &skip,
+    )
+    .await?;
+    vars.extend(dataset_params);
+
+    for statement in statements {
+        let statement = substitute_vars(&statement, &vars)?;
+        let start = std::time::Instant::now();
+        let rows_affected = sqlx::query(AssertSqlSafe(statement.as_str()))
+            .execute(&mut *conn)
+            .await
+            .with_context(|| {
+                let preview: String = statement.chars().take(60).collect();
+                format!("Failed to run dirty statement: {preview}")
+            })?
+            .rows_affected();
+        let preview: String = statement
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("")
+            .chars()
+            .take(50)
+            .collect();
+        println!(
+            "  Executed '{preview}' in {:.2?} ({rows_affected} rows modified)",
+            start.elapsed()
+        );
+    }
+
+    sqlx::raw_sql("CHECKPOINT;")
+        .execute(conn)
+        .await
+        .with_context(|| "Failed to execute checkpoint after dirtying tables.")?;
+
+    Ok(())
+}
+
+async fn execute_benchmark_query(
+    conn: &mut PgConnection,
+    args: &BenchmarkArgs,
+    query_type: &str,
+    query: &str,
+    query_vectors: &[String],
+) -> anyhow::Result<Option<QueryResult>> {
+    if args.clear_caches
+        && let Err(err) = clear_caches(conn).await
+    {
+        panic!("Failed to clear caches before query: {err}");
+    }
+
+    sqlx::raw_sql("CHECKPOINT;")
+        .execute(conn)
+        .await
+        .with_context(|| "Failed to execute checkpoint.")?;
+
+    println!("Query Type: {query_type}\nQuery: {query}");
+    // Exact pre-filter baselines are fixed reference plans, never a swept operating point,
+    // so nothing builds a percentile series from them. Sampling one once per held-out vector
+    // costs hours at 10m rows to produce a distribution no series reads. They still read the
+    // vector GUC, so they get the vectors and just do not iterate them.
+    let sample_per_vector = !query_type.contains("exact_prefilter");
+    let result = execute_query_multiple_times(
+        &args.url,
+        query_type,
+        query,
+        args.runs,
+        args.fail_on_error,
+        query_vectors,
+        sample_per_vector,
+    )
+    .await?;
+    match result {
+        Some(query_results) => {
+            println!(
+                "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
+                query_results.cold, query_results.samples, query_results.num_results
+            );
+            Ok(Some(QueryResult {
+                query_type: query_type.to_string(),
+                query: query.to_string(),
+                results: query_results,
+            }))
+        }
+        None => {
+            println!("Skipped (query error)\n");
+            Ok(None)
+        }
+    }
+}
+
 async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>> {
     let mut utility_conn = PgConnection::connect(&args.url)
         .await
@@ -1152,29 +1322,10 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             format!("datasets/{}/queries", args.dataset)
         }
     };
-    let query_paths: anyhow::Result<Vec<Option<_>>> = std::fs::read_dir(queries_dir)
-        .with_context(|| "Failed to read queries directory")?
-        .map(|entry| {
-            let entry = entry.with_context(|| "Failed to read directory entry")?;
-            let path = entry.path();
-
-            if path.extension().and_then(|s| s.to_str()) != Some("sql") {
-                // Not a query file.
-                return Ok(None);
-            }
-            Ok(Some(path))
-        })
-        .collect();
-    let mut query_paths: Vec<_> = query_paths?.into_iter().flatten().collect();
-    query_paths.sort_unstable();
-
-    // Parse each query file once (reused below for execution). Resolve their `{{ param }}` references
+    // Parse each query once (reused below for execution). Resolve their `{{ param }}` references
     // (e.g. per-query probes/ef_search scaled by dataset_size) from config.toml [params], the same
     // templating used for index DDL.
-    let parsed_queries: Vec<(String, String)> = query_paths
-        .iter()
-        .flat_map(|p| benchmark_queries(p))
-        .collect();
+    let parsed_queries = load_benchmark_queries(Path::new(&queries_dir))?;
     // Expand any query declaring a sweep into one entry per recall target, measured against the
     // index just built. Swept entries come back fully substituted; the rest still hold `{{ }}`
     // references and are resolved below.
@@ -1188,7 +1339,7 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             query_vectors.len()
         );
     }
-    let query_stmts: Vec<String> = parsed_queries.iter().map(|(_, q)| q.clone()).collect();
+    let query_stmts: Vec<String> = parsed_queries.iter().map(|q| q.query.clone()).collect();
     let query_params = resolve_template_params(
         &mut utility_conn,
         &args.dataset,
@@ -1198,51 +1349,51 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     .await?;
 
     let mut results = Vec::new();
-    for (query_type, query) in parsed_queries {
-        let query = substitute_vars(&query, &query_params)?;
-        if args.clear_caches
-            && let Err(err) = clear_caches(&mut utility_conn).await
-        {
-            panic!("Failed to clear caches before query: {err}");
-        }
-
-        sqlx::raw_sql("CHECKPOINT;")
-            .execute(&mut utility_conn)
-            .await
-            .with_context(|| "Failed to execute checkpoint.")?;
-
-        println!("Query Type: {query_type}\nQuery: {query}");
-        // Alternatives are fixed reference plans -- the exact pre-filter, say -- never a swept
-        // operating point, so nothing builds a percentile series from them. Sampling one once per
-        // held-out vector costs hours at 10m rows to produce a distribution no series reads. They
-        // still read the vector GUC, so they get the vectors and just do not iterate them.
-        let result = execute_query_multiple_times(
-            &args.url,
-            &query_type,
+    for query_item in &parsed_queries {
+        let query = substitute_vars(&query_item.query, &query_params)?;
+        if let Some(res) = execute_benchmark_query(
+            &mut utility_conn,
+            args,
+            &query_item.query_type,
             &query,
-            args.runs,
-            args.fail_on_error,
             &query_vectors,
-            !is_alternative(&query_type),
         )
-        .await?;
-        match result {
-            Some(query_results) => {
-                println!(
-                    "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
-                    query_results.cold, query_results.samples, query_results.num_results
-                );
-                results.push(QueryResult {
-                    query_type,
-                    query,
-                    results: query_results,
-                });
-            }
-            None => {
-                println!("Skipped (query error)\n");
+        .await?
+        {
+            results.push(res);
+        }
+    }
+
+    let sensitive_queries: Vec<_> = parsed_queries
+        .iter()
+        .filter(|q| q.is_mvcc_sensitive)
+        .collect();
+
+    if args.dirty && !sensitive_queries.is_empty() && args.dirty_fraction > 0.0 {
+        let visible_pct = (1.0 - args.dirty_fraction) * 100.0;
+        let visible_pct_str = format_percent(visible_pct);
+
+        process_dirty_sql(&mut utility_conn, args, &visible_pct_str).await?;
+
+        for query_item in sensitive_queries {
+            let query = substitute_vars(&query_item.query, &query_params)?;
+            let dirty_query_type =
+                format!("{} ({}% visible)", query_item.query_type, visible_pct_str);
+            if let Some(res) = execute_benchmark_query(
+                &mut utility_conn,
+                args,
+                &dirty_query_type,
+                &query,
+                &query_vectors,
+            )
+            .await?
+            {
+                results.push(res);
             }
         }
     }
+
+    results.sort_by(|a, b| a.query_type.cmp(&b.query_type));
 
     if let Some(size) = args.size.as_deref() {
         write_sweep_summary(size, &sweep_summary, &results)?;
@@ -1328,6 +1479,8 @@ async fn write_test_info_csv(args: &BenchmarkArgs) -> anyhow::Result<()> {
     writeln!(file, "Dataset Rows,{}", root_table_row_count(args).await?)?;
     writeln!(file, "Prewarm,{}", args.prewarm)?;
     writeln!(file, "Vacuum,{}", args.vacuum)?;
+    writeln!(file, "Dirty,{}", args.dirty)?;
+    writeln!(file, "Dirty Fraction,{}", args.dirty_fraction)?;
 
     let mut conn = PgConnection::connect(&args.url)
         .await
@@ -1447,6 +1600,12 @@ async fn write_test_info(file: &mut File, args: &BenchmarkArgs) -> anyhow::Resul
     )?;
     writeln!(file, "| Prewarm     | {} |", args.prewarm)?;
     writeln!(file, "| Vacuum      | {} |", args.vacuum)?;
+    writeln!(
+        file,
+        "| Dirty       | {} ({}% visible) |",
+        args.dirty,
+        format_percent((1.0 - args.dirty_fraction) * 100.0)
+    )?;
 
     let mut conn = PgConnection::connect(&args.url)
         .await
@@ -1736,10 +1895,43 @@ fn write_benchmark_results_md(
 ///
 /// Return a Vec of the query strings contained in the given file path.
 ///
+/// Strip line comments and flatten a SQL statement onto one line, but keep the interior of
+/// dollar-quoted ($$...$$) blocks verbatim (e.g. a TOML index `options` that needs its newlines).
+/// Splitting on `$$` alternates outside/inside (even = outside, odd = inside); flatten only the outside.
+fn parse_sql_statement(statement: &str) -> String {
+    statement
+        .split("$$")
+        .enumerate()
+        .map(|(i, seg)| {
+            if i % 2 == 1 {
+                seg.to_owned()
+            } else {
+                seg.split('\n')
+                    .map(|line| line.split("--").next().unwrap().trim())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("$$")
+        .trim()
+        .to_owned()
+}
+
+/// Parse a single query file, which may contain session GUC SET statements followed by the query.
+fn single_query(file: &Path) -> String {
+    let content = std::fs::read_to_string(file)
+        .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
+    parse_sql_statement(&content)
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_owned()
+}
+
 /// Strips comments and flattens each query onto a single line.
 ///
 /// Will only split on semicolons with trailing newlines, which allows for applying GUCs to queries.
-///
 fn queries(file: &Path) -> Vec<String> {
     let content = std::fs::read_to_string(file)
         .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
@@ -1747,27 +1939,7 @@ fn queries(file: &Path) -> Vec<String> {
     content
         .split(";\n")
         .filter_map(|query| {
-            // Strip line comments and flatten each statement onto one line, but keep the interior of
-            // dollar-quoted ($$...$$) blocks verbatim (e.g. a TOML index `options` that needs its
-            // newlines). Splitting on `$$` alternates outside/inside (even = outside, odd = inside);
-            // flatten only the outside. Files without `$$` are a single segment, unchanged.
-            let query = query
-                .split("$$")
-                .enumerate()
-                .map(|(i, seg)| {
-                    if i % 2 == 1 {
-                        seg.to_owned()
-                    } else {
-                        seg.split('\n')
-                            .map(|line| line.split("--").next().unwrap().trim())
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("$$")
-                .trim()
-                .to_owned();
+            let query = parse_sql_statement(query);
             if query.is_empty() { None } else { Some(query) }
         })
         .collect()
@@ -1788,34 +1960,111 @@ fn reads_query_vector(query: &str) -> bool {
     query.contains(&format!("current_setting('{QVEC_GUC}')"))
 }
 
-/// Suffix given to a query file's second and later statements. Doubles as the dashboard's
-/// chart-grouping separator, so alternatives plot alongside the statement they vary.
-const ALTERNATIVE_MARKER: &str = " - alternative ";
-
-/// Whether `query_type` names a non-first statement of its file.
-fn is_alternative(query_type: &str) -> bool {
-    query_type.contains(ALTERNATIVE_MARKER)
+fn is_file_mvcc_sensitive(content: &str) -> bool {
+    content
+        .lines()
+        .any(|line| line.trim().starts_with("-- @mvcc_sensitive"))
 }
 
-fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
-    let query_type = file
-        .file_stem()
-        .unwrap_or_else(|| panic!("Failed to get file stem for `{}`", file.display()))
-        .to_string_lossy()
-        .into_owned();
+/// Load all benchmark queries from `queries_dir`.
+///
+/// Queries can be structured in two ways:
+/// 1. A nested directory `queries/{query_name}/` containing one or more `*.sql` variant files
+///    (e.g. `postgres.sql`, `hash_partitioned.sql`, `range_partitioned.sql`) alongside optional
+///    documentation like `README.md`. When multiple variants exist, each is labeled
+///    `{query_name} - {variant_stem}`. When a single variant exists, it is labeled `{query_name}`.
+/// 2. A flat `queries/{query_name}.sql` file, supported for single queries or legacy files.
+///    If a directory of the same stem exists, the directory takes precedence over the flat file.
+fn load_benchmark_queries(queries_dir: &Path) -> anyhow::Result<Vec<BenchmarkQuery>> {
+    let mut entries: Vec<_> = std::fs::read_dir(queries_dir)
+        .with_context(|| {
+            format!(
+                "Failed to read queries directory `{}`",
+                queries_dir.display()
+            )
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .with_context(|| "Failed to read directory entry")?;
+    entries.sort_by_key(|e| e.path());
 
-    queries(file)
-        .into_iter()
-        .enumerate()
-        .map(|(idx, query)| {
-            let query_type = if idx == 0 {
-                query_type.clone()
-            } else {
-                format!("{query_type}{ALTERNATIVE_MARKER}{idx}")
-            };
-            (query_type, query)
-        })
-        .collect()
+    let mut queries = Vec::new();
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            let query_name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+
+            let mut sql_files: Vec<_> = std::fs::read_dir(&path)
+                .with_context(|| format!("Failed to read query directory `{}`", path.display()))?
+                .collect::<Result<Vec<_>, _>>()
+                .with_context(|| "Failed to read directory entry")?
+                .into_iter()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("sql"))
+                .collect();
+            sql_files.sort_unstable();
+
+            let multi_variants = sql_files.len() > 1;
+            for sql_path in sql_files {
+                let stem = sql_path.file_stem().unwrap_or_default().to_string_lossy();
+                let query_type = if multi_variants {
+                    format!("{query_name} - {stem}")
+                } else if stem == "default" || stem == "query" || stem == query_name {
+                    query_name.clone()
+                } else {
+                    format!("{query_name} - {stem}")
+                };
+
+                let content = std::fs::read_to_string(&sql_path)
+                    .unwrap_or_else(|e| panic!("Failed to read file `{sql_path:?}`: {e}"));
+                let is_mvcc_sensitive = is_file_mvcc_sensitive(&content);
+                let query = parse_sql_statement(&content)
+                    .trim()
+                    .trim_end_matches(';')
+                    .trim()
+                    .to_owned();
+                if query.is_empty() {
+                    bail!("Query file `{}` is empty", sql_path.display());
+                }
+                queries.push(BenchmarkQuery {
+                    query_type,
+                    query,
+                    is_mvcc_sensitive,
+                });
+            }
+        } else if path.extension().and_then(|s| s.to_str()) == Some("sql") {
+            // If a directory with the same stem exists, the directory supersedes this file.
+            if path.with_extension("").is_dir() {
+                continue;
+            }
+            let query_type = path
+                .file_stem()
+                .unwrap_or_else(|| panic!("Failed to get file stem for `{}`", path.display()))
+                .to_string_lossy()
+                .into_owned();
+            let content = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("Failed to read file `{path:?}`: {e}"));
+            let is_mvcc_sensitive = is_file_mvcc_sensitive(&content);
+            let query = parse_sql_statement(&content)
+                .trim()
+                .trim_end_matches(';')
+                .trim()
+                .to_owned();
+            if query.is_empty() {
+                bail!("Query file `{}` is empty", path.display());
+            }
+            queries.push(BenchmarkQuery {
+                query_type,
+                query,
+                is_mvcc_sensitive,
+            });
+        }
+    }
+
+    Ok(queries)
 }
 
 async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str) -> anyhow::Result<()> {
@@ -1934,7 +2183,11 @@ async fn execute_query_multiple_times(
     let mut window = Window::new(3);
     let mut results = QueryRunResults::default();
 
-    let measured_query = query.split(";").last().unwrap().trim();
+    let measured_query = query
+        .split(';')
+        .map(str::trim)
+        .rfind(|s| !s.is_empty())
+        .unwrap();
     // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
     // query
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
@@ -2367,29 +2620,8 @@ mod tests {
         );
     }
 
-    /// The marker is produced in one place and matched in another; a rename that touched only one
-    /// would silently restore the 100x sampling cost on reference plans.
-    #[test]
-    fn only_non_first_statements_count_as_alternatives() {
-        let file_stem = "knn_top10_10pct";
-        let named: Vec<String> = (0..3)
-            .map(|idx| {
-                if idx == 0 {
-                    file_stem.to_owned()
-                } else {
-                    format!("{file_stem}{ALTERNATIVE_MARKER}{idx}")
-                }
-            })
-            .collect();
-
-        assert!(!is_alternative(&named[0]));
-        assert!(named[1..].iter().all(|n| is_alternative(n)));
-        // A swept operating point is still the file's first statement.
-        assert!(!is_alternative(&format!("{file_stem}@r95")));
-    }
-
-    /// Passing an alternative an empty vector slice to stop it sampling per vector tripped this
-    /// precondition and failed the whole run: the query still reads the GUC. Availability and
+    /// Passing a non-sampled query an empty vector slice to stop it sampling per vector tripped
+    /// this precondition and failed the whole run: the query still reads the GUC. Availability and
     /// sampling mode are separate concerns, and only the former belongs here.
     #[test]
     fn binding_precondition_tracks_availability_not_sampling_mode() {
@@ -2400,7 +2632,7 @@ mod tests {
         assert!(!reads_query_vector("SELECT count(*) FROM t"));
 
         // Whether this is a swept point or a reference plan changes nothing about the precondition.
-        for query_type in ["knn_top10_10pct@r95", "knn_top10_10pct - alternative 1"] {
+        for query_type in ["knn_top10_10pct@r95", "knn_top10_10pct_exact_prefilter"] {
             assert!(reads_query_vector(&knn), "{query_type}");
         }
     }
@@ -2420,5 +2652,84 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn parse_sql_statement_strips_comments_and_preserves_dollar_quotes() {
+        let sql = r#"
+-- Line comment 1
+SET work_mem TO '4GB'; -- Inline comment
+SET paradedb.options = $$
+multiline
+options
+$$;
+SELECT * FROM table;
+"#;
+        assert_eq!(
+            parse_sql_statement(sql),
+            "SET work_mem TO '4GB'; SET paradedb.options =$$\nmultiline\noptions\n$$; SELECT * FROM table;"
+        );
+    }
+
+    #[test]
+    fn detects_mvcc_sensitive_annotation() {
+        assert!(is_file_mvcc_sensitive("-- @mvcc_sensitive\nSELECT 1;"));
+        assert!(is_file_mvcc_sensitive(
+            "-- Some comment\n  -- @mvcc_sensitive\nSELECT 1;"
+        ));
+        assert!(!is_file_mvcc_sensitive("-- Just a normal query\nSELECT 1;"));
+    }
+
+    #[test]
+    fn parses_dirty_cli_args() {
+        let cli = Cli::try_parse_from([
+            "benchmarks",
+            "benchmark",
+            "--url",
+            "postgresql://localhost/postgres",
+            "--index",
+            "bm25",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Benchmark(args) => {
+                assert!(args.dirty);
+                assert_eq!(args.dirty_fraction, 0.005);
+            }
+            _ => panic!("Expected Commands::Benchmark"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "benchmarks",
+            "benchmark",
+            "--url",
+            "postgresql://localhost/postgres",
+            "--index",
+            "bm25",
+            "--dirty",
+            "false",
+            "--dirty-fraction",
+            "0.10",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Benchmark(args) => {
+                assert!(!args.dirty);
+                assert_eq!(args.dirty_fraction, 0.10);
+            }
+            _ => panic!("Expected Commands::Benchmark"),
+        }
+    }
+
+    #[test]
+    fn formats_percent_cleanly() {
+        assert_eq!(format_percent(99.5), "99.5");
+        assert_eq!(format_percent(95.0), "95");
+        assert_eq!(format_percent(99.0), "99");
+        assert_eq!(format_percent(0.5), "0.5");
+        assert_eq!(format_percent(0.0), "0");
+        assert_eq!(format_percent(100.0), "100");
     }
 }

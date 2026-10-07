@@ -291,7 +291,7 @@ WHERE description === 'cardiology'
    Index: providers_paradedb
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"gender","value":"female"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
    ->  Bitmap Index Scan on providers_location
          Index Cond: (location <@ '<(50,50),5>'::circle)
 (8 rows)
@@ -906,6 +906,7 @@ ORDER BY id LIMIT 5;
 SELECT count(*) AS rls_like_count FROM (
     SELECT id FROM providers
     WHERE description === 'cardiology' AND specialty LIKE 'specialty13%') q;
+WARNING:  Aggregate Scan not used: WHERE clause has a predicate that must be evaluated after row-level security policies. To disable this warning: SET paradedb.planner_warnings = 'off' (table: providers)
  rls_like_count 
 ----------------
             200
@@ -1110,7 +1111,7 @@ WHERE description === 'cardiology'
    Index: providers_paradedb
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(location <@ '<(20,20),3>'::circle)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(location <@ '<(80,80),3>'::circle)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}}]}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
    ->  BitmapOr
          ->  Bitmap Index Scan on providers_location
                Index Cond: (location <@ '<(20,20),3>'::circle)

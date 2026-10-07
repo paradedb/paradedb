@@ -4,7 +4,7 @@ We use a single branch, `main`, for our development. Features are built on separ
 
 ParadeDB uses a **fragment-based workflow** for release artifacts:
 
-- PRs that introduce user-facing changes add a changelog fragment to `docs/changelog/unreleased/<PR>.<category>.mdx`.
+- PRs that introduce user-facing changes add a changelog fragment to `docs/project/changelog/unreleased/<PR>.<category>.mdx`.
 - PRs that modify extension DDL/schema add a SQL migration fragment to `pg_search/sql/unreleased/<PR>.<description>.sql`.
 - Fragments can declare dependencies using `-- depends-on: <PR>` in their SQL comments. When assembling migrations, fragments are topologically sorted based on these dependencies.
 
@@ -50,7 +50,7 @@ To publish a minor release from `main`:
 2. Click **Run workflow**, select `main` as the release branch, and provide the target `version` (e.g. `0.26.0`).
 3. Click **Run workflow** to start the job.
 4. The workflow will automatically:
-   - Run `scripts/release.sh all` to assemble `pg_search/sql/unreleased/*.sql` into `pg_search--<prev>--<version>.sql`, assemble `docs/changelog/unreleased/*.mdx` into `docs/changelog/<version>.mdx`, register the release in `docs/docs.json`, and remove the consumed fragments.
+   - Run `scripts/release.sh all` to assemble `pg_search/sql/unreleased/*.sql` into `pg_search--<prev>--<version>.sql`, assemble `docs/project/changelog/unreleased/*.mdx` into `docs/project/changelog/<version>.mdx`, register the release in `docs/docs.json`, and remove the consumed fragments.
    - Bump `workspace.package.version` in `Cargo.toml` and synchronize `Cargo.lock`.
    - Open a manual approval issue for `@pg_search-maintainers` displaying the release details and rendered changelog.
    - Upon approval (by commenting `approved` on the issue), commit and push the release commit to `main`.
@@ -78,7 +78,7 @@ To publish a patch release from a stable branch:
 1. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml).
 2. Click **Run workflow**, select the stable branch (e.g. `0.25.x`) as the release branch, and provide the patch `version` (e.g. `0.25.5`).
 3. The workflow will automatically:
-   - Assemble the unreleased fragments present on the stable branch into `pg_search--<prev>--<version>.sql` and `docs/changelog/<version>.mdx`.
+   - Assemble the unreleased fragments present on the stable branch into `pg_search--<prev>--<version>.sql` and `docs/project/changelog/<version>.mdx`.
    - Bump `Cargo.toml` and synchronize `Cargo.lock` on the stable branch.
    - Open a manual approval issue for `@pg_search-maintainers` displaying the release details and rendered changelog.
    - Upon approval (by commenting `approved` on the issue), commit, tag `v<version>`, and publish the GitHub release.

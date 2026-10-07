@@ -35,7 +35,7 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | `paradedb.enable_join_custom_scan`             | `on`          | user    | Enables the join custom scan, which pushes eligible joins into the ParadeDB executor.                                      |
 | `paradedb.enable_custom_scan_without_operator` | `off`         | user    | Allows custom scans without a ParadeDB search operator when the whole `WHERE` clause can push down.                        |
 | `paradedb.enable_filter_pushdown`              | `on`          | user    | Allows non-indexed predicates to use heap filtering after the ParadeDB scan.                                               |
-| `paradedb.enable_range_partitioned_join`       | `off`         | user    | Enables range co-partitioned joins and asymmetric range alignment for MPP joins on indexes configured with `partition_by`. |
+| `paradedb.enable_range_partitioned_join`       | `on`          | user    | Enables range co-partitioned joins and asymmetric range alignment for MPP joins on indexes configured with `partition_by`. |
 | `paradedb.enable_heuristic_selectivity`        | `on`          | user    | Uses cheap planner selectivity estimates for expensive fuzzy, regex, and range query shapes.                               |
 | `paradedb.per_tuple_cost`                      | `100000000.0` | user    | Planner cost multiplier that discourages using ParadeDB operators outside a supported index plan.                          |
 | `paradedb.explain_recursive_estimates`         | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                     |
@@ -73,6 +73,7 @@ These settings affect vector queries over `pgvector`'s `vector` type. See [Index
 | `paradedb.vector_cluster_max_probe`     | `0.02`          | user    | Maximum fraction of each segment's vector clusters that a vector `ORDER BY` query may probe. |
 | `paradedb.vector_clustering_threshold`  | `500`           | user    | Segment document-count threshold at which merged vector storage switches from flat to IVF.   |
 | `paradedb.vector_fixed_probe_cost_rows` | Tantivy default | user    | Fixed per-probe cost used by the IVF probe-budget model; mainly for testing and calibration. |
+| `paradedb.vector_stats`                 | `off`           | user    | Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`; for diagnostics.   |
 
 ## Parallel Execution
 

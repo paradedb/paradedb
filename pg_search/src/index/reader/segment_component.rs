@@ -17,7 +17,7 @@
 
 use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::FileEntry;
+use crate::postgres::storage::block::{FileEntry, LinkedList, bm25_max_free_space};
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
@@ -31,22 +31,39 @@ use tantivy::directory::OwnedBytes;
 pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     entry: FileEntry,
-    component: Option<tantivy::index::SegmentComponent>,
 }
 
 impl SegmentComponentReader {
+    /// Opens a finalized, immutable segment component for reading.
+    ///
+    /// Endpoint reads (e.g. footers or headers) are resolved directly via the header
+    /// page, avoiding block list lookups.
     pub unsafe fn new(
         indexrel: &PgSearchRelation,
         entry: FileEntry,
-        component: Option<tantivy::index::SegmentComponent>,
+        io_stats: Option<io_stats::ComponentStats>,
     ) -> Self {
-        let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+        let mut block_list =
+            LinkedBytesList::open(indexrel, entry.starting_block).with_length(entry.total_bytes);
+        block_list.bman_mut().set_io_stats(io_stats);
 
-        Self {
-            block_list,
-            entry,
-            component,
-        }
+        Self { block_list, entry }
+    }
+
+    /// Opens an uncommitted segment component whose file length may still be in flux.
+    ///
+    /// Used for in-flight files before `finalize_and_write()` has executed. Endpoint
+    /// optimizations are disabled because the header page does not yet have a valid
+    /// `last_blockno`.
+    pub unsafe fn new_uncommitted(
+        indexrel: &PgSearchRelation,
+        entry: FileEntry,
+        io_stats: Option<io_stats::ComponentStats>,
+    ) -> Self {
+        let mut block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+        block_list.bman_mut().set_io_stats(io_stats);
+
+        Self { block_list, entry }
     }
 
     fn read_bytes_raw(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
@@ -62,18 +79,15 @@ impl SegmentComponentReader {
 
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
-        match &self.component {
-            Some(component) => io_stats::record(component, || self.read_bytes_raw(range)),
-            None => self.read_bytes_raw(range),
-        }
+        self.read_bytes_raw(range)
     }
 
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {
-        let read = || Ok(unsafe { self.block_list.get_byte(offset) });
-        match &self.component {
-            Some(component) => io_stats::record(component, read),
-            None => read(),
-        }
+        Ok(unsafe { self.block_list.get_byte(offset) })
+    }
+
+    fn storage_block_len(&self) -> Option<usize> {
+        Some(bm25_max_free_space())
     }
 }
 
@@ -105,29 +119,42 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
-        let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
-        let segment = format!("{}.term", uuid::Uuid::new_v4());
-        let path = Path::new(segment.as_str());
+        let page_size = bm25_max_free_space();
+        for len in [
+            0,
+            1,
+            page_size - 1,
+            page_size,
+            page_size + 1,
+            2 * page_size,
+            100_000,
+        ] {
+            let bytes: Vec<u8> = (1..=255).cycle().take(len).collect();
+            let segment = format!("{}.term", uuid::Uuid::new_v4());
+            let path = Path::new(segment.as_str());
+            let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
+            writer.write_all(&bytes).unwrap();
+            let file_entry = writer.file_entry();
+            writer.terminate().unwrap();
 
-        let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
-        writer.write_all(&bytes).unwrap();
-        let file_entry = writer.file_entry();
-        writer.terminate().unwrap();
-
-        let reader = SegmentComponentReader::new(&indexrel, file_entry, None);
-
-        assert_eq!(reader.len(), 100_000);
-        assert_eq!(
-            reader.read_bytes(99_998..100_000).unwrap().as_ref(),
-            &bytes[99_998..100_000]
-        );
-        assert_eq!(
-            reader.read_bytes(99_999..100_001).unwrap().as_ref(),
-            &bytes[99_999..100_000]
-        );
-        assert_eq!(
-            reader.read_bytes(0..100_000).unwrap().as_ref(),
-            &bytes[0..100_000]
-        );
+            for finalized in [false, true] {
+                let reader = if finalized {
+                    SegmentComponentReader::new(&indexrel, file_entry, None)
+                } else {
+                    SegmentComponentReader::new_uncommitted(&indexrel, file_entry, None)
+                };
+                assert_eq!(reader.storage_block_len(), Some(page_size));
+                assert_eq!(reader.len(), len);
+                let tail = len.saturating_sub(24);
+                assert_eq!(
+                    reader.read_bytes(tail..len + 1).unwrap().as_ref(),
+                    &bytes[tail..]
+                );
+                for offset in (0..len).step_by(page_size.saturating_sub(1)).rev() {
+                    assert_eq!(reader.read_byte(offset).unwrap(), bytes[offset]);
+                }
+                assert_eq!(reader.read_bytes(0..len).unwrap().as_ref(), bytes);
+            }
+        }
     }
 }

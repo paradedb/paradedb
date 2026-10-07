@@ -399,7 +399,7 @@ WHERE (description ||| 'laptop' OR description ||| 'shoes');
    Index: df_fallback_products_idx
    Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: COUNT(*), SUM(price)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null,"none_if_no_match":true}}}
+     Aggregate Definition: {"0":{"filter":"*"},"1":{"sum":{"field":"price","missing":null,"none_if_no_match":true}}}
 (6 rows)
 
 SELECT COUNT(*), SUM(price)

@@ -782,12 +782,9 @@ pub(crate) fn pdb_metric_call(
         PdbStat::Count => (count_udaf(), vec![column]),
         // NUMERIC takes the decimal accumulator the SQL aggregates use; the
         // assembler decodes its blob.
-        PdbStat::Sum if field.field_type.is_numeric() => match field.field_type {
-            SearchFieldType::Numeric64(_, scale) => {
-                (numeric64_sum_udaf(), vec![column, lit(scale as i32)])
-            }
-            _ => (numeric_bytes_sum_udaf(), vec![column]),
-        },
+        PdbStat::Sum if field.field_type.is_numeric() => {
+            numeric_sum_func_with_args(column, &field.field_type)
+        }
         PdbStat::Sum => (sum_udaf(), vec![as_f64(column)]),
         PdbStat::Min => (min_udaf(), vec![column]),
         PdbStat::Max => (max_udaf(), vec![column]),
@@ -825,13 +822,21 @@ fn pdb_metric_expr(
 /// by storage. The `Numeric64` UDAFs take the scale as a plan literal so it
 /// survives plan serialization for parallel and MPP execution; decimal-bytes
 /// values are self-describing.
-fn numeric_sum(col: Expr, field_type: &SearchFieldType) -> Expr {
+fn numeric_sum_func_with_args(
+    col: Expr,
+    field_type: &SearchFieldType,
+) -> (Arc<AggregateUDF>, Vec<Expr>) {
     match field_type {
         SearchFieldType::Numeric64(_, scale) => {
-            numeric64_sum_udaf().call(vec![col, lit(*scale as i32)])
+            (numeric64_sum_udaf(), vec![col, lit(*scale as i32)])
         }
-        _ => numeric_bytes_sum_udaf().call(vec![col]),
+        _ => (numeric_bytes_sum_udaf(), vec![col]),
     }
+}
+
+fn numeric_sum(col: Expr, field_type: &SearchFieldType) -> Expr {
+    let (udf, args) = numeric_sum_func_with_args(col, field_type);
+    udf.call(args)
 }
 
 /// `AVG` over a NUMERIC column; see [`numeric_sum`].

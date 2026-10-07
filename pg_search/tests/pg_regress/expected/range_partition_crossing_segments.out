@@ -37,10 +37,15 @@ WITH (partition_by = 'id, owner_user_id', target_segment_count = 8);
 WARNING:  only 0 parallel workers were available for index build
 -- One more segment whose keys span every partition and include NULLs, so it
 -- crosses every edge and its NULL rows must reach the first partition only.
+-- Its last rows sit on the split points the plans below print, so a key
+-- equal to an edge is seen by one task and not by two.
 SET paradedb.global_mutable_segment_rows TO 0;
 INSERT INTO rpx_posts (owner_user_id, owner_name, title)
 SELECT o, 'user_' || lpad(o::text, 4, '0'), 'error without owner ' || g
-FROM generate_series(1, 400) g, LATERAL (SELECT CASE WHEN g % 4 = 0 THEN NULL ELSE 1 + ((g * 7919) % 4000) END AS o) owner;
+FROM generate_series(1, 400) g, LATERAL (SELECT CASE WHEN g % 4 = 0 THEN NULL ELSE 1 + ((g * 7919) % 4000) END AS o) owner
+UNION ALL
+SELECT o, 'user_' || lpad(o::text, 4, '0'), 'error at edge ' || o
+FROM unnest(ARRAY[1228, 1754, 1233, 1750]) AS o;
 RESET paradedb.global_mutable_segment_rows;
 ANALYZE rpx_users;
 ANALYZE rpx_posts;
@@ -51,7 +56,7 @@ FROM rpx_posts p LEFT JOIN rpx_users u ON u.id = p.owner_user_id AND u.id @@@ pd
 WHERE p.title ||| 'error';
  total | orphans 
 -------+---------
-  5733 |     100
+  5737 |     100
 (1 row)
 
 SELECT count(*) AS owner_join_rows
@@ -59,7 +64,17 @@ FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
  owner_join_rows 
 -----------------
-            5633
+            5637
+(1 row)
+
+-- The rows whose key is a split point, counted by the task that owns the edge.
+SELECT count(*) FILTER (WHERE p.owner_user_id = 1228) AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_user_id = 1754) AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+ at_first_edge | at_second_edge 
+---------------+----------------
+             6 |              2
 (1 row)
 
 SELECT p.id, pdb.score(p.id) AS score
@@ -67,14 +82,14 @@ FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error without owner'
 ORDER BY p.id DESC
 LIMIT 6;
-  id   | score  
--------+--------
- 16399 | 7.0799
- 16398 | 7.0799
- 16397 | 7.0799
- 16395 | 7.0799
- 16394 | 7.0799
- 16393 | 7.0799
+  id   |   score   
+-------+-----------
+ 16404 | 0.8775968
+ 16403 | 0.8775968
+ 16402 | 0.8775968
+ 16401 | 0.8775968
+ 16399 | 7.0803504
+ 16398 | 7.0803504
 (6 rows)
 
 SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
@@ -82,16 +97,16 @@ FROM rpx_posts p LEFT JOIN rpx_users u ON u.id = p.owner_user_id AND u.id @@@ pd
 WHERE p.title ||| 'error without owner'
 ORDER BY pdb.score(p.id) DESC, p.id
 LIMIT 8;
-  id   | score  | orphan 
--------+--------+--------
- 16001 | 7.0799 | f
- 16002 | 7.0799 | f
- 16003 | 7.0799 | f
- 16004 | 7.0799 | t
- 16005 | 7.0799 | f
- 16006 | 7.0799 | f
- 16007 | 7.0799 | f
- 16008 | 7.0799 | t
+  id   |   score   | orphan 
+-------+-----------+--------
+ 16001 | 7.0803504 | f
+ 16002 | 7.0803504 | f
+ 16003 | 7.0803504 | f
+ 16004 | 7.0803504 | t
+ 16005 | 7.0803504 | f
+ 16006 | 7.0803504 | f
+ 16007 | 7.0803504 | f
+ 16008 | 7.0803504 | t
 (8 rows)
 
 -- =====================================================================
@@ -135,7 +150,7 @@ FROM rpx_posts p LEFT JOIN rpx_users u ON u.id = p.owner_user_id AND u.id @@@ pd
 WHERE p.title ||| 'error';
  total | orphans 
 -------+---------
-  5733 |     100
+  5737 |     100
 (1 row)
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -174,7 +189,48 @@ FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
  owner_join_rows 
 -----------------
-            5633
+            5637
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) FILTER (WHERE p.owner_user_id = 1228) AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_user_id = 1754) AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+                                                                                                                                                                    QUERY PLAN                                                                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*) FILTER (WHERE (p.owner_user_id = 1228))), (count(*) FILTER (WHERE (p.owner_user_id = 1754)))
+   Backend: DataFusion
+   Indexes: rpx_users_idx (u), rpx_posts_idx (p)
+   Aggregates: COUNT(*), COUNT(*)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) FILTER (WHERE p_1.owner_user_id = Int64(1228)) as agg_0, count(1) FILTER (WHERE p_1.owner_user_id = Int64(1754)) as agg_1]
+     : │   CoalescePartitionsExec
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) FILTER (WHERE p_1.owner_user_id = Int64(1228)) as agg_0, count(1) FILTER (WHERE p_1.owner_user_id = Int64(1754)) as agg_1]
+     :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, owner_user_id@0)], projection=[owner_user_id@1]
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1228), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1228..1754), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1754..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[-∞..1228), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=6}, partition=owner_user_id[1228..1754), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[1754..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   └──────────────────────────────────────────────────
+(23 rows)
+
+SELECT count(*) FILTER (WHERE p.owner_user_id = 1228) AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_user_id = 1754) AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+ at_first_edge | at_second_edge 
+---------------+----------------
+             6 |              2
 (1 row)
 
 -- Scored, with a Top K on another column.
@@ -218,14 +274,14 @@ FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error without owner'
 ORDER BY p.id DESC
 LIMIT 6;
-  id   | score  
--------+--------
- 16399 | 7.0799
- 16398 | 7.0799
- 16397 | 7.0799
- 16395 | 7.0799
- 16394 | 7.0799
- 16393 | 7.0799
+  id   |   score   
+-------+-----------
+ 16404 | 0.8775968
+ 16403 | 0.8775968
+ 16402 | 0.8775968
+ 16401 | 0.8775968
+ 16399 | 7.0803504
+ 16398 | 7.0803504
 (6 rows)
 
 -- Top K by score. The rows without an owner are in the first partition only.
@@ -269,16 +325,16 @@ FROM rpx_posts p LEFT JOIN rpx_users u ON u.id = p.owner_user_id AND u.id @@@ pd
 WHERE p.title ||| 'error without owner'
 ORDER BY pdb.score(p.id) DESC, p.id
 LIMIT 8;
-  id   | score  | orphan 
--------+--------+--------
- 16001 | 7.0799 | f
- 16002 | 7.0799 | f
- 16003 | 7.0799 | f
- 16004 | 7.0799 | t
- 16005 | 7.0799 | f
- 16006 | 7.0799 | f
- 16007 | 7.0799 | f
- 16008 | 7.0799 | t
+  id   |   score   | orphan 
+-------+-----------+--------
+ 16001 | 7.0803504 | f
+ 16002 | 7.0803504 | f
+ 16003 | 7.0803504 | f
+ 16004 | 7.0803504 | t
+ 16005 | 7.0803504 | f
+ 16006 | 7.0803504 | f
+ 16007 | 7.0803504 | f
+ 16008 | 7.0803504 | t
 (8 rows)
 
 -- =====================================================================
@@ -298,7 +354,16 @@ FROM rpx_posts p LEFT JOIN rpx_users u ON u.display_name = p.owner_name AND u.id
 WHERE p.title ||| 'error';
  total | orphans 
 -------+---------
-  5733 |     100
+  5737 |     100
+(1 row)
+
+SELECT count(*) FILTER (WHERE p.owner_name = 'user_1233') AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_name = 'user_1750') AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.display_name = p.owner_name
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+ at_first_edge | at_second_edge 
+---------------+----------------
+             4 |              5
 (1 row)
 
 SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
@@ -306,16 +371,16 @@ FROM rpx_posts p LEFT JOIN rpx_users u ON u.display_name = p.owner_name AND u.id
 WHERE p.title ||| 'error without owner'
 ORDER BY pdb.score(p.id) DESC, p.id
 LIMIT 8;
-  id   | score  | orphan 
--------+--------+--------
- 16001 | 7.0799 | f
- 16002 | 7.0799 | f
- 16003 | 7.0799 | f
- 16004 | 7.0799 | t
- 16005 | 7.0799 | f
- 16006 | 7.0799 | f
- 16007 | 7.0799 | f
- 16008 | 7.0799 | t
+  id   |   score   | orphan 
+-------+-----------+--------
+ 16001 | 7.0803504 | f
+ 16002 | 7.0803504 | f
+ 16003 | 7.0803504 | f
+ 16004 | 7.0803504 | t
+ 16005 | 7.0803504 | f
+ 16006 | 7.0803504 | f
+ 16007 | 7.0803504 | f
+ 16008 | 7.0803504 | t
 (8 rows)
 
 SET max_parallel_workers_per_gather TO 3;
@@ -340,13 +405,13 @@ WHERE p.title ||| 'error';
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
      :   │   HashJoinExec: mode=Partitioned, join_type=Right, on=[(display_name@1, owner_name@0)], projection=[id@0]
      :   │     DistributedLeafExec:
-     :   │       t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=display_name[-∞.."user_1232"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │       t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1232".."user_1750"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=display_name[-∞.."user_1233"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1233".."user_1750"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=display_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │     DistributedLeafExec:
-     :   │       t0: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name[-∞.."user_1232"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │       t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=5}, partition=owner_name["user_1232".."user_1750"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │       t2: PgSearchScan: table=p, segments={partial=2, included=2, pruned=4}, partition=owner_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t0: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name[-∞.."user_1233"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t1: PgSearchScan: table=p, segments={partial=2, included=0, pruned=6}, partition=owner_name["user_1233".."user_1750"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
 (23 rows)
 
@@ -355,7 +420,48 @@ FROM rpx_posts p LEFT JOIN rpx_users u ON u.display_name = p.owner_name AND u.id
 WHERE p.title ||| 'error';
  total | orphans 
 -------+---------
-  5733 |     100
+  5737 |     100
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) FILTER (WHERE p.owner_name = 'user_1233') AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_name = 'user_1750') AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.display_name = p.owner_name
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+                                                                                                                                                                          QUERY PLAN                                                                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*) FILTER (WHERE (p.owner_name = 'user_1233'::text))), (count(*) FILTER (WHERE (p.owner_name = 'user_1750'::text)))
+   Backend: DataFusion
+   Indexes: rpx_users_idx (u), rpx_posts_idx (p)
+   Aggregates: COUNT(*), COUNT(*)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) FILTER (WHERE p_1.owner_name = Utf8View("user_1233")) as agg_0, count(1) FILTER (WHERE p_1.owner_name = Utf8View("user_1750")) as agg_1]
+     : │   CoalescePartitionsExec
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) FILTER (WHERE p_1.owner_name = Utf8View("user_1233")) as agg_0, count(1) FILTER (WHERE p_1.owner_name = Utf8View("user_1750")) as agg_1]
+     :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(display_name@0, owner_name@0)], projection=[owner_name@1]
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=display_name[-∞.."user_1233"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1233".."user_1750"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=display_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name[-∞.."user_1233"), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t1: PgSearchScan: table=p, segments={partial=2, included=0, pruned=6}, partition=owner_name["user_1233".."user_1750"), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name["user_1750"..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   └──────────────────────────────────────────────────
+(23 rows)
+
+SELECT count(*) FILTER (WHERE p.owner_name = 'user_1233') AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_name = 'user_1750') AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.display_name = p.owner_name
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+ at_first_edge | at_second_edge 
+---------------+----------------
+             4 |              5
 (1 row)
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -383,13 +489,13 @@ LIMIT 8;
      :   │   VisibilityFilterExec: tables=[p]
      :   │     HashJoinExec: mode=Partitioned, join_type=Right, on=[(display_name@0, owner_name@2)], projection=[pdb.score(p)@2, ctid_0@3, id@5, id@1]
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=display_name[-∞.."user_1232"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1232".."user_1750"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=display_name[-∞.."user_1233"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1233".."user_1750"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │         t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=display_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name[-∞.."user_1232"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=5}, partition=owner_name["user_1232".."user_1750"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t2: PgSearchScan: table=p, segments={partial=2, included=2, pruned=4}, partition=owner_name["user_1750"..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t0: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name[-∞.."user_1233"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=2, included=0, pruned=6}, partition=owner_name["user_1233".."user_1750"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name["user_1750"..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
 (25 rows)
 
@@ -398,16 +504,16 @@ FROM rpx_posts p LEFT JOIN rpx_users u ON u.display_name = p.owner_name AND u.id
 WHERE p.title ||| 'error without owner'
 ORDER BY pdb.score(p.id) DESC, p.id
 LIMIT 8;
-  id   | score  | orphan 
--------+--------+--------
- 16001 | 7.0799 | f
- 16002 | 7.0799 | f
- 16003 | 7.0799 | f
- 16004 | 7.0799 | t
- 16005 | 7.0799 | f
- 16006 | 7.0799 | f
- 16007 | 7.0799 | f
- 16008 | 7.0799 | t
+  id   |   score   | orphan 
+-------+-----------+--------
+ 16001 | 7.0803504 | f
+ 16002 | 7.0803504 | f
+ 16003 | 7.0803504 | f
+ 16004 | 7.0803504 | t
+ 16005 | 7.0803504 | f
+ 16006 | 7.0803504 | f
+ 16007 | 7.0803504 | f
+ 16008 | 7.0803504 | t
 (8 rows)
 
 DROP TABLE rpx_posts;

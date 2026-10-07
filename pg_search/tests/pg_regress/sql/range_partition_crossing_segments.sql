@@ -41,10 +41,15 @@ WITH (partition_by = 'id, owner_user_id', target_segment_count = 8);
 
 -- One more segment whose keys span every partition and include NULLs, so it
 -- crosses every edge and its NULL rows must reach the first partition only.
+-- Its last rows sit on the split points the plans below print, so a key
+-- equal to an edge is seen by one task and not by two.
 SET paradedb.global_mutable_segment_rows TO 0;
 INSERT INTO rpx_posts (owner_user_id, owner_name, title)
 SELECT o, 'user_' || lpad(o::text, 4, '0'), 'error without owner ' || g
-FROM generate_series(1, 400) g, LATERAL (SELECT CASE WHEN g % 4 = 0 THEN NULL ELSE 1 + ((g * 7919) % 4000) END AS o) owner;
+FROM generate_series(1, 400) g, LATERAL (SELECT CASE WHEN g % 4 = 0 THEN NULL ELSE 1 + ((g * 7919) % 4000) END AS o) owner
+UNION ALL
+SELECT o, 'user_' || lpad(o::text, 4, '0'), 'error at edge ' || o
+FROM unnest(ARRAY[1228, 1754, 1233, 1750]) AS o;
 RESET paradedb.global_mutable_segment_rows;
 
 ANALYZE rpx_users;
@@ -58,6 +63,12 @@ FROM rpx_posts p LEFT JOIN rpx_users u ON u.id = p.owner_user_id AND u.id @@@ pd
 WHERE p.title ||| 'error';
 
 SELECT count(*) AS owner_join_rows
+FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+
+-- The rows whose key is a split point, counted by the task that owns the edge.
+SELECT count(*) FILTER (WHERE p.owner_user_id = 1228) AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_user_id = 1754) AS at_second_edge
 FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
@@ -95,6 +106,17 @@ FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
 SELECT count(*) AS owner_join_rows
+FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) FILTER (WHERE p.owner_user_id = 1228) AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_user_id = 1754) AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+
+SELECT count(*) FILTER (WHERE p.owner_user_id = 1228) AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_user_id = 1754) AS at_second_edge
 FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
@@ -143,6 +165,11 @@ SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
 FROM rpx_posts p LEFT JOIN rpx_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
 WHERE p.title ||| 'error';
 
+SELECT count(*) FILTER (WHERE p.owner_name = 'user_1233') AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_name = 'user_1750') AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.display_name = p.owner_name
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+
 SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
 FROM rpx_posts p LEFT JOIN rpx_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
 WHERE p.title ||| 'error without owner'
@@ -159,6 +186,17 @@ WHERE p.title ||| 'error';
 SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
 FROM rpx_posts p LEFT JOIN rpx_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
 WHERE p.title ||| 'error';
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) FILTER (WHERE p.owner_name = 'user_1233') AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_name = 'user_1750') AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.display_name = p.owner_name
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
+
+SELECT count(*) FILTER (WHERE p.owner_name = 'user_1233') AS at_first_edge,
+       count(*) FILTER (WHERE p.owner_name = 'user_1750') AS at_second_edge
+FROM rpx_users u JOIN rpx_posts p ON u.display_name = p.owner_name
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan

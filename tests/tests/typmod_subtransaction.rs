@@ -194,7 +194,7 @@ async fn prepared_transactions_cleaned_up_on_failure(
 }
 
 /// `PREPARE TRANSACTION` needs `max_prepared_transactions > 0`, which Postgres disables by
-/// default. CI enables it, so a local cluster without it skips the prepared cases only.
+/// default. Citus raises it in CI, so a local cluster without it skips the prepared cases only.
 async fn prepared_transactions_enabled(conn: &mut PgConnection) -> Result<bool> {
     let max_prepared: String = sqlx::query_scalar("SHOW max_prepared_transactions")
         .fetch_one(conn)

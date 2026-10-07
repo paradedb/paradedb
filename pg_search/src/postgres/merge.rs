@@ -389,14 +389,21 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
 #[pg_guard]
 #[unsafe(no_mangle)]
 unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
+    // Bind the PostgreSQL symbol directly: pg_sys::die is a Rust FFI wrapper, not a
+    // C signal callback, and its FFI guard must not run inside a signal handler.
+    unsafe extern "C-unwind" {
+        #[link_name = "die"]
+        fn merge_worker_sigterm(signal: i32);
+    }
+
     // This one-shot worker does not poll pgrx's ShutdownRequestPending flag. In particular,
     // CommitTransactionCommand can wait for synchronous replication after the merge returns;
     // that wait only responds to ProcDiePending. Use PostgreSQL's backend handler so a fast
     // shutdown can cancel that wait, release the worker's locks, and finish shutting down.
     #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-    pg_sys::pqsignal(pg_sys::SIGTERM as i32, Some(pg_sys::die));
+    pg_sys::pqsignal(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
     #[cfg(feature = "pg18")]
-    pg_sys::pqsignal_be(pg_sys::SIGTERM as i32, Some(pg_sys::die));
+    pg_sys::pqsignal_be(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
     // attach_signal_handlers unblocks signals, so install SIGTERM first.
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP);
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);

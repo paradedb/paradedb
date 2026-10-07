@@ -1,6 +1,6 @@
 [package]
 name = "schemabot"
-description = "Schema diff and migration validation for pg_search"
+description = "A schema diff and migration validation tool for PostgreSQL"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }

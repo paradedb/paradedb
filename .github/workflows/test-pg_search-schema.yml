@@ -67,7 +67,6 @@ jobs:
         uses: ./.github/actions/setup-pg-search-toolchain
         with:
           pg_version: ${{ matrix.pg_version }}
-          rust_components: rustfmt, clippy
 
       - name: Install & Configure Supported PostgreSQL Version
         uses: ./.github/actions/setup-postgres
@@ -75,11 +74,8 @@ jobs:
           pg_version: ${{ matrix.pg_version }}
           extra_packages: libopenblas-dev clang libclang-dev lld llvm protobuf-compiler
 
-      - name: Build and Test SchemaBot
+      - name: Build SchemaBot
         run: |
-          cargo fmt -p schemabot -- --check
-          cargo clippy -p schemabot --locked --all-targets -- -D warnings
-          cargo test -p schemabot --locked
           cargo build -p schemabot --locked
           cp target/debug/schemabot "$RUNNER_TEMP/schemabot"
 

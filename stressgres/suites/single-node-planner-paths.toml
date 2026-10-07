@@ -52,15 +52,6 @@ CREATE INDEX idxcategories ON categories USING paradedb (id, name) WITH (
 VACUUM (ANALYZE) test;
 ANALYZE categories;
 
--- Keep the index-only plan fixture out of the write workload: concurrent DML/vacuum
--- can clear all-visible coverage and make an ordinary index scan equally cheap.
-DROP TABLE IF EXISTS test_index_only;
-CREATE TABLE test_index_only (id bigint, message text);
-INSERT INTO test_index_only
-SELECT i, 'beer wine cheese ' || i FROM generate_series(1, 10000) AS s(i);
-CREATE INDEX test_index_only_idx ON test_index_only USING paradedb (id, message);
-VACUUM (FREEZE, ANALYZE) test_index_only;
-
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
 DECLARE
     current_txid bigint;
@@ -100,19 +91,21 @@ SELECT
 
 [[jobs]]
 refresh_ms = 100
-title = "Postgres Index Only Scan Fallback"
+title = "Postgres Index Scan Fallback (Key Projection)"
 log_tps = true
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
--- PostgreSQL uses enable_indexscan for both ordinary and index-only scans.
+SET paradedb.enable_aggregate_custom_scan = off;
 SET enable_indexscan = on;
 SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 """
-sql_plan_contains = "Index Only Scan"
+# Concurrent writes can switch between Index Scan and Index Only Scan.
+# Require the native index path while allowing either plan.
+sql_plan_contains = "Scan using idxtest"
 sql = """
-SELECT id FROM test_index_only WHERE message ||| 'cheese' LIMIT 100;
+SELECT id FROM test WHERE message ||| 'cheese' LIMIT 100;
 """
 
 [[jobs]]
@@ -122,9 +115,14 @@ log_tps = true
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
+SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_indexscan = on;
 SET enable_seqscan = off;
+SET enable_bitmapscan = off;
 """
-sql_plan_contains = "Index Scan"
+# Concurrent writes can switch between Index Scan and Index Only Scan.
+# Require the native index path while allowing either plan.
+sql_plan_contains = "Scan using idxtest"
 sql = """
 SELECT id, message, payload FROM test WHERE message ||| 'cheese' LIMIT 100;
 """

@@ -38,6 +38,9 @@ SELECT
     jsonb_build_object('color', (ARRAY['red', 'blue'])[(g % 2) + 1])
 FROM generate_series(1, 120) g;
 
+INSERT INTO pinned_key_items (account_id, region, kind)
+SELECT 0, 1, 'b' FROM generate_series(1, 9);
+
 CREATE INDEX pinned_key_items_idx ON pinned_key_items
 USING paradedb (
     id, account_id, region, (kind::pdb.literal), (code::pdb.literal),

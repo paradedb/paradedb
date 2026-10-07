@@ -16,7 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use tantivy::SegmentReader;
-use tantivy::query::{BooleanQuery, EmptyQuery, Occur, PhraseQuery, Query, TermQuery};
+use tantivy::query::{
+    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, EmptyQuery, Occur, PhraseQuery, Query,
+    TermQuery,
+};
 
 pub(crate) trait QueryEstimate {
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>>;
@@ -30,7 +33,7 @@ pub(crate) struct Estimate {
 impl Estimate {
     pub(crate) fn live_docs(&self, reader: &SegmentReader) -> u64 {
         let live_fraction = reader.num_docs() as f64 / reader.max_doc().max(1) as f64;
-        (self.matches * live_fraction).ceil() as u64
+        ((self.matches * live_fraction).ceil() as u64).min(reader.num_docs() as u64)
     }
 }
 
@@ -43,8 +46,34 @@ impl QueryEstimate for dyn Query {
                 }
             )*};
         }
-        estimate_as! { TermQuery, PhraseQuery, BooleanQuery, EmptyQuery }
+        estimate_as! {
+            AllQuery, TermQuery, PhraseQuery, BooleanQuery, EmptyQuery, ConstScoreQuery, BoostQuery
+        }
+        if let Some(query) = self.downcast_ref::<ConstScoreQuery<AllQuery>>() {
+            return query.query().estimate_docs(reader);
+        }
         Ok(None)
+    }
+}
+
+impl QueryEstimate for AllQuery {
+    fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        Ok(Some(Estimate {
+            matches: reader.max_doc() as f64,
+            cost: reader.max_doc() as u64,
+        }))
+    }
+}
+
+impl QueryEstimate for ConstScoreQuery {
+    fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        self.query().estimate_docs(reader)
+    }
+}
+
+impl QueryEstimate for BoostQuery {
+    fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        self.query().estimate_docs(reader)
     }
 }
 
@@ -150,7 +179,7 @@ impl QueryEstimate for EmptyQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tantivy::query::{AllQuery, RegexQuery};
+    use tantivy::query::RegexQuery;
     use tantivy::schema::{IndexRecordOption, Schema, TEXT};
     use tantivy::{Index, TantivyDocument, Term, doc};
 
@@ -167,7 +196,8 @@ mod tests {
             writer.add_document(doc!(field => value)).unwrap();
         }
         writer.commit().unwrap();
-        let searcher = index.reader().unwrap().searcher();
+        let reader = index.reader().unwrap();
+        let searcher = reader.searcher();
         let query = TermQuery::new(
             Term::from_field_text(field, "rare"),
             IndexRecordOption::Basic,
@@ -176,6 +206,15 @@ mod tests {
         let estimate = query.estimate_docs(segment).unwrap().unwrap();
         assert_eq!(estimate.live_docs(segment), 7);
         assert_eq!(estimate.cost, 7);
+
+        writer.delete_term(Term::from_field_text(field, "common"));
+        writer.commit().unwrap();
+        reader.reload().unwrap();
+        let searcher = reader.searcher();
+        let segment = searcher.segment_reader(0);
+        let estimate = AllQuery.estimate_docs(segment).unwrap().unwrap();
+        assert_eq!(estimate.live_docs(segment), 7);
+        assert_eq!(estimate.cost, 100);
     }
 
     #[test]
@@ -273,7 +312,18 @@ mod tests {
             Box::new(RegexQuery::from_pattern("b.*", field).unwrap()),
         ]);
         assert_eq!(estimate(&mixed, segment), None);
-        assert_eq!(estimate(&AllQuery, segment), None);
+        assert_eq!(estimate(&AllQuery, segment), Some((64, 64)));
+        assert_eq!(
+            estimate(&ConstScoreQuery::new(AllQuery, 0.0), segment),
+            Some((64, 64))
+        );
+        assert_eq!(
+            count(&BooleanQuery::intersection(vec![
+                Box::new(AllQuery),
+                term("alpha")
+            ])),
+            32
+        );
         assert_eq!(estimate(&EmptyQuery, segment), Some((0, 0)));
 
         writer.delete_term(Term::from_field_text(field, "gamma"));
@@ -282,6 +332,7 @@ mod tests {
         let searcher = reader.searcher();
         let segment = searcher.segment_reader(0);
         assert_eq!(segment.num_docs(), 32);
+        assert_eq!(estimate(&AllQuery, segment), Some((32, 64)));
         assert_eq!(estimate(term("alpha").as_ref(), segment), Some((16, 32)));
     }
 }

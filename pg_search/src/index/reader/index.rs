@@ -2471,10 +2471,43 @@ mod tests {
             minimum_should_match: None,
         };
         for (query, expected) in [
+            (SearchQueryInput::All, 10),
+            (SearchQueryInput::from_unfielded(pdb::Query::All), 10),
+            (
+                SearchQueryInput::FieldedQuery {
+                    field: "title".into(),
+                    query: pdb::Query::All,
+                },
+                10,
+            ),
             (term.clone(), 10),
             (match_query.clone(), 10),
             (phrase.clone(), 1),
+            (
+                SearchQueryInput::FieldedQuery {
+                    field: "title".into(),
+                    query: pdb::Query::ScoreAdjusted {
+                        query: Box::new(pdb::Query::ScoreAdjusted {
+                            query: Box::new(pdb::Query::TokenizedPhrase {
+                                phrase: "silver dragon".into(),
+                                slop: None,
+                            }),
+                            score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
+                        }),
+                        score: Some(pdb::ScoreAdjustStyle::Const(0.0)),
+                    },
+                },
+                1,
+            ),
             (term_query("title", "absent"), 0),
+            (
+                boolean(vec![SearchQueryInput::All, term.clone()], vec![], vec![]),
+                10,
+            ),
+            (
+                boolean(vec![SearchQueryInput::All], vec![], vec![term.clone()]),
+                0,
+            ),
             (
                 boolean(vec![term.clone(), phrase.clone()], vec![], vec![]),
                 1,
@@ -2506,29 +2539,44 @@ mod tests {
                 1,
             ),
         ] {
-            let reader = SearchIndexReader::open(
-                &index,
+            for query in [
                 query.clone(),
-                false,
-                MvccSatisfies::LargestSegment,
-            )
-            .unwrap();
-            assert!(reader.estimate_from_statistics, "{query:?}");
-            let estimate = reader.estimate_docs(RowEstimate::Known(10));
-            assert_eq!(estimate.matching_docs, expected, "{query:?}");
-            assert_eq!(
-                reader
-                    .build_query_tree_with_estimates(query.clone())
-                    .unwrap()
-                    .estimated_docs,
-                Some(expected),
-                "{query:?}"
-            );
-            assert_eq!(
-                reader.estimate_docs(RowEstimate::Known(100)).matching_docs,
-                expected * 10
-            );
-            assert_eq!(reader.estimate_docs(RowEstimate::Unknown).total_docs, 10);
+                SearchQueryInput::Boost {
+                    query: Box::new(query.clone()),
+                    factor: 2.0,
+                },
+                SearchQueryInput::ConstScore {
+                    query: Box::new(SearchQueryInput::Boost {
+                        query: Box::new(query),
+                        factor: 2.0,
+                    }),
+                    score: 0.0,
+                },
+            ] {
+                let reader = SearchIndexReader::open(
+                    &index,
+                    query.clone(),
+                    false,
+                    MvccSatisfies::LargestSegment,
+                )
+                .unwrap();
+                assert!(reader.estimate_from_statistics, "{query:?}");
+                let estimate = reader.estimate_docs(RowEstimate::Known(10));
+                assert_eq!(estimate.matching_docs, expected, "{query:?}");
+                assert_eq!(
+                    reader
+                        .build_query_tree_with_estimates(query.clone())
+                        .unwrap()
+                        .estimated_docs,
+                    Some(expected),
+                    "{query:?}"
+                );
+                assert_eq!(
+                    reader.estimate_docs(RowEstimate::Known(100)).matching_docs,
+                    expected * 10
+                );
+                assert_eq!(reader.estimate_docs(RowEstimate::Unknown).total_docs, 10);
+            }
         }
 
         let mut fuzzy_match = match_query;
@@ -2542,7 +2590,6 @@ mod tests {
         for unsupported in [
             range_query("id", 1, 5),
             fuzzy_match,
-            SearchQueryInput::All,
             SearchQueryInput::Parse {
                 query_string: "title:silver".into(),
                 lenient: None,
@@ -2554,13 +2601,26 @@ mod tests {
                     pattern: "sil.*".into(),
                 },
             },
-            SearchQueryInput::Boost {
-                query: Box::new(term.clone()),
-                factor: 2.0,
+            SearchQueryInput::FieldedQuery {
+                field: "title".into(),
+                query: pdb::Query::ScoreAdjusted {
+                    query: Box::new(pdb::Query::Regex {
+                        pattern: "sil.*".into(),
+                    }),
+                    score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
+                },
             },
         ] {
             for query in [
                 unsupported.clone(),
+                SearchQueryInput::Boost {
+                    query: Box::new(unsupported.clone()),
+                    factor: 2.0,
+                },
+                SearchQueryInput::ConstScore {
+                    query: Box::new(unsupported.clone()),
+                    score: 0.0,
+                },
                 boolean(vec![phrase.clone(), unsupported.clone()], vec![], vec![]),
                 boolean(vec![], vec![term.clone(), unsupported.clone()], vec![]),
                 boolean(vec![term.clone()], vec![], vec![unsupported]),

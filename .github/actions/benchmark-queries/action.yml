@@ -86,7 +86,7 @@ runs:
       with:
         name: query-benchmark-${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}-${{ github.run_attempt }}
         path: benchmarks/results.json
-        retention-days: 30
+        retention-days: 1 # Fallback if publishing fails
         if-no-files-found: warn
 
     - name: Print the Postgres Logs

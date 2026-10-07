@@ -28,27 +28,45 @@ indexing.paradedbIndex("search_idx").on(arrayDemo.id, arrayDemo.categories);
 
 ```python Django
 from django.db import connection
+from paradedb.indexes import ParadeDBIndex
 
-with connection.cursor() as cursor:
-    cursor.execute("""
-        CREATE INDEX search_idx ON array_demo
-        USING paradedb (id, categories);
-    """)
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        ArrayDemo,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "categories": {},
+            },
+            name="search_idx",
+        ),
+    )
 ```
 
 ```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(ArrayDemo.id),
+    indexing.ParadeDBField(ArrayDemo.categories),
+    postgresql_using="paradedb",
+)
+
 with engine.begin() as conn:
-    conn.exec_driver_sql("""
-        CREATE INDEX search_idx ON array_demo
-        USING paradedb (id, categories);
-    """)
+    idx.create(conn)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.execute(<<~SQL)
-  CREATE INDEX search_idx ON array_demo
-  USING paradedb (id, categories);
-SQL
+ActiveRecord::Base.connection.add_paradedb_index(
+  :array_demo,
+  fields: {
+    id: {},
+    categories: {}
+  },
+  name: :search_idx
+)
 ```
 
 ```cs EF Core
@@ -94,27 +112,46 @@ indexing
 
 ```python Django
 from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+from paradedb.search import Tokenizer
 
-with connection.cursor() as cursor:
-    cursor.execute("""
-        CREATE INDEX search_idx ON array_demo
-        USING paradedb (id, (categories::pdb.literal));
-    """)
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        ArrayDemo,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "categories": {"tokenizer": Tokenizer.literal()},
+            },
+            name="search_idx",
+        ),
+    )
 ```
 
 ```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing, tokenizer
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(ArrayDemo.id),
+    indexing.ParadeDBField(ArrayDemo.categories, tokenizer=tokenizer.literal()),
+    postgresql_using="paradedb",
+)
+
 with engine.begin() as conn:
-    conn.exec_driver_sql("""
-        CREATE INDEX search_idx ON array_demo
-        USING paradedb (id, (categories::pdb.literal));
-    """)
+    idx.create(conn)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.execute(<<~SQL)
-  CREATE INDEX search_idx ON array_demo
-  USING paradedb (id, (categories::pdb.literal));
-SQL
+ActiveRecord::Base.connection.add_paradedb_index(
+  :array_demo,
+  fields: {
+    id: {},
+    categories: { tokenizer: ParadeDB::Tokenizer.literal() }
+  },
+  name: :search_idx
+)
 ```
 
 ```cs EF Core

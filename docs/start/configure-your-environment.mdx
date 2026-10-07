@@ -55,7 +55,7 @@ To get started, create a TypeScript project with [Drizzle](https://orm.drizzle.t
 ```bash
 npm init -y
 npm pkg set type=module
-npm install drizzle-orm@1.0.0-rc.4 postgres @paradedb/drizzle-paradedb@0.5.0 tsx
+npm install drizzle-orm@1.0.0-rc.4 postgres @paradedb/drizzle-paradedb@0.6.0 tsx
 ```
 
 Create a `db.ts` file with your database connection and a schema for ParadeDB's built-in test table:
@@ -144,7 +144,7 @@ To start you'll need a [Django](https://www.djangoproject.com/) project with [Ps
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install django psycopg django-paradedb==0.13.0
+pip install django psycopg django-paradedb==0.14.0
 python3 -m django startproject myproject .
 python3 manage.py startapp myapp
 ```
@@ -233,7 +233,7 @@ To get started, install [SQLAlchemy](https://www.sqlalchemy.org/), [Alembic](htt
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install sqlalchemy psycopg alembic sqlalchemy-paradedb==0.11.0
+pip install sqlalchemy psycopg alembic sqlalchemy-paradedb==0.12.0
 ```
 
 Initialize Alembic:
@@ -413,7 +413,7 @@ cd paradedb
 Add the [rails-paradedb](https://rubygems.org/gems/rails-paradedb) gem to your `Gemfile`:
 
 ```ruby Gemfile
-gem "rails-paradedb", "0.12.0", require: "parade_db"
+gem "rails-paradedb", "0.13.0", require: "parade_db"
 ```
 
 Then install it:
@@ -493,7 +493,7 @@ dotnet new tool-manifest
 dotnet tool install dotnet-ef
 dotnet add package Microsoft.EntityFrameworkCore.Design
 dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
-dotnet add package ParadeDB.EntityFrameworkCore --version 0.3.0
+dotnet add package ParadeDB.EntityFrameworkCore --version 0.4.0
 ```
 
 <Note>

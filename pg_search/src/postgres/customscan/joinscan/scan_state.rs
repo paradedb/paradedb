@@ -80,7 +80,6 @@ use crate::postgres::customscan::datafusion::translator::{
     make_source_score_col, make_source_unnested_col, translate_pg_node_string,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, PrivateData};
-use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
@@ -456,28 +455,6 @@ impl JoinScanState {
 impl CustomScanState for JoinScanState {
     fn init_exec_method(&mut self, _cstate: *mut pg_sys::CustomScanState) {
         // No special initialization needed for the plain exec method
-    }
-}
-
-impl SolvePostgresExpressions for JoinScanState {
-    fn init_search_query_input(&mut self) {
-        self.join_clause = self
-            .base_join_clause
-            .as_ref()
-            .expect("runtime expression solving requires a pristine JoinScan clause")
-            .clone();
-    }
-    fn has_postgres_expressions(&mut self) -> bool {
-        self.join_clause.has_postgres_expressions()
-    }
-    fn has_parameters(&mut self) -> bool {
-        self.join_clause.has_parameters()
-    }
-    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        self.join_clause.init_postgres_expressions(planstate);
-    }
-    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.join_clause.solve_postgres_expressions(expr_context);
     }
 }
 

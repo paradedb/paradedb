@@ -187,12 +187,14 @@ title = "Postgres Index Scan Fallback"
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
+SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_indexscan = on;
 SET enable_seqscan = off;
-SELECT assert_plan_contains(
-    $q$ SELECT id, message, old_message FROM test WHERE message ||| 'bread' LIMIT 25 $q$,
-    'Index Scan'
-);
+SET enable_bitmapscan = off;
 """
+# Concurrent writes can switch between Index Scan and Index Only Scan.
+# Require the native index path while allowing either plan.
+sql_plan_contains = "Scan using idxtest"
 sql = """
 SELECT id, message, old_message FROM test WHERE message ||| 'bread' LIMIT 25;
 """

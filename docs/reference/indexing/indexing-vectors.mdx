@@ -26,8 +26,7 @@ In this example, `embedding` is added to the ParadeDB index with cosine similari
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (key_field='id');
+USING paradedb (id, description, category, embedding vector_cosine_ops);
 ```
 
 ```ts Drizzle
@@ -60,7 +59,6 @@ with connection.schema_editor() as schema_editor:
                 "category": {},
                 "embedding": {"metric": "cosine"},
             },
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -77,7 +75,6 @@ idx = Index(
     indexing.ParadeDBField(MockItem.category),
     indexing.VectorField(MockItem.embedding, metric="cosine"),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -93,7 +90,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     category: {},
     embedding: { metric: :cosine }
   },
-  key_field: :id,
   name: :search_idx
 )
 ```
@@ -179,7 +175,7 @@ WITH (training_sample_ratio=0.32, max_leaf_size=100);
   default samples 32% of the vectors. Larger samples can improve centroid
   quality at the cost of a slower, more memory-intensive build.
 </ParamField>
-<ParamField body="max_leaf_size" default={100}>
+<ParamField body="max_leaf_size" default={200}>
   The maximum number of sampled training vectors in a leaf of the hierarchical
   clustering tree. Must be an integer between `1` and `2147483647`. Smaller
   values generally produce more centroids and smaller clusters; the actual

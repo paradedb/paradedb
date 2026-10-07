@@ -696,3 +696,66 @@ fn phrase_cost_covers_the_list_it_drives(mut conn: PgConnection) {
          estimate is standing in for the list the scan reads"
     );
 }
+
+#[rstest]
+#[case::serial(0)]
+#[case::parallel(2)]
+fn parameterized_topk_retains_scan_cost(mut conn: PgConnection, #[case] workers: u32) {
+    set_scaled_costs(&mut conn);
+    format!("SET max_parallel_workers_per_gather = {workers};").execute(&mut conn);
+    setup_many_segments(&mut conn);
+
+    r#"
+    PREPARE parsed_topk(text) AS
+    SELECT id FROM topk_desc_many_segs WHERE body @@@ pdb.parse($1, lenient => true)
+    ORDER BY paradedb.score(id) DESC LIMIT 10;
+    PREPARE bound_topk(pdb.query) AS
+    SELECT id FROM topk_desc_many_segs WHERE body @@@ $1
+    ORDER BY paradedb.score(id) DESC LIMIT 10;
+    SET plan_cache_mode = force_generic_plan;
+    "#
+    .execute(&mut conn);
+
+    let parsed_plan = explain(&mut conn, r#"EXECUTE parsed_topk('"rare token"')"#);
+    let parsed_cost = total_cost(&parsed_plan);
+    let startup_cost = root_plan(&parsed_plan)["Startup Cost"].as_f64().unwrap();
+    let (scan_cost,): (f64,) = "SELECT reltuples::float8 * current_setting('cpu_index_tuple_cost')::float8 FROM pg_class WHERE oid = 'topk_desc_many_segs'::regclass".fetch_one(&mut conn);
+    assert!(startup_cost >= scan_cost / (workers + 1) as f64);
+    let bound_cost = total_cost(&explain(
+        &mut conn,
+        r#"EXECUTE bound_topk(pdb.parse('"rare token"', lenient => true))"#,
+    ));
+    assert!((parsed_cost - bound_cost).abs() < 0.01);
+
+    "SET plan_cache_mode = force_custom_plan;".execute(&mut conn);
+    let full_scan_cost = total_cost(&explain(
+        &mut conn,
+        "SELECT id FROM topk_desc_many_segs WHERE id @@@ pdb.all()
+         ORDER BY paradedb.score(id) ASC LIMIT 10",
+    ));
+    assert!(parsed_cost >= full_scan_cost * 0.99);
+    let custom_cost = total_cost(&explain(
+        &mut conn,
+        r#"EXECUTE parsed_topk('"rare token"')"#,
+    ));
+    assert!(
+        parsed_cost > custom_cost,
+        "unknown scan ({parsed_cost}) must include work instead of undercutting a rare phrase ({custom_cost})"
+    );
+
+    r#"
+    DEALLOCATE parsed_topk;
+    SET plan_cache_mode = auto;
+    PREPARE parsed_topk(text) AS
+    SELECT id FROM topk_desc_many_segs WHERE body @@@ pdb.parse($1, lenient => true)
+    ORDER BY paradedb.score(id) DESC LIMIT 10;
+    "#
+    .execute(&mut conn);
+    for _ in 0..20 {
+        r#"EXECUTE parsed_topk('"rare token"')"#.execute(&mut conn);
+    }
+    let (generic, custom): (i64, i64) =
+        "SELECT generic_plans, custom_plans FROM pg_prepared_statements WHERE name = 'parsed_topk'"
+            .fetch_one(&mut conn);
+    assert_eq!((generic, custom), (0, 20));
+}

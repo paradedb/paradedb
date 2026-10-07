@@ -9,12 +9,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "schemabot/**"
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-pg_search-schema.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "rust-toolchain.toml"
+      - "schemabot/**"
   workflow_dispatch:
 
 concurrency:
@@ -35,7 +35,7 @@ jobs:
       - family=c7g+c8g
       - cpu=8
       - ram=16
-      - image=ubuntu24-full-arm64
+      - image=ubuntu26-full-arm64
       - extras=s3-cache
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
     defaults:

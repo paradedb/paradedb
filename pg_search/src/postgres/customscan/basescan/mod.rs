@@ -330,9 +330,10 @@ impl BaseScan {
             gucs::enable_custom_scan_without_operator() || query_has_window_agg_functions(root);
 
         // The quals the planner left may show no operator although the query applied one to
-        // this relation: it simplified the operator away, or it sits in a join clause. The
-        // record taken at planner-hook time is the signal that the query asked for this scan,
-        // consulted only when the quals themselves don't carry it.
+        // this relation, because the planner simplified it away or it sits in a join clause.
+        // The record taken at planner-hook time then tells that the query asked for this scan.
+        // The quals stay the first signal. The record keeps only direct table references, so an
+        // operator written against a view, subquery or CTE column reaches here only through them.
         if quals.is_some()
             && !state.uses_our_operator
             && !allow_without_operator

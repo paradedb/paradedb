@@ -403,6 +403,8 @@ pub struct JoinScanState {
     /// here rather than solely in `ParallelScanState`.
     pub spilled: Arc<std::sync::atomic::AtomicBool>,
 
+    /// The memory context that the cached window agg data lives in. Cleared on reset.
+    pub window_agg_ctx: Option<pg_sys::MemoryContext>,
     /// The cache of pdb.agg() window function json datums
     pub window_agg_datums: RefCell<HashMap<WindowAggIndex, Option<pg_sys::Datum>>>,
 }
@@ -427,7 +429,12 @@ impl JoinScanState {
         self.batch_index = 0;
         self.physical_plan = None;
         self.output_batch_col_indices.clear();
+
         self.window_agg_datums.get_mut().clear();
+        if let Some(ctx) = self.window_agg_ctx {
+            unsafe { pg_sys::MemoryContextReset(ctx) };
+        }
+
         self.launch_timing = None;
         self.stream_built_at = None;
         // base_join_clause is only populated (in create_custom_scan_state) when the plan

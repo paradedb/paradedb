@@ -1531,6 +1531,17 @@ impl CustomScan for JoinScan {
                 pg_sys::ExecAssignExprContext(estate, planstate);
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+
+                // Assign child memory context for window aggs
+                let window_agg_ctx = pg_sys::AllocSetContextCreateExtended(
+                    (*estate).es_query_cxt,
+                    c"ParadeDB Join Scan window aggs".as_ptr(),
+                    pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+                );
+                assert!(state.custom_state_mut().window_agg_ctx.is_none());
+                state.custom_state_mut().window_agg_ctx = Some(window_agg_ctx);
             }
             // MPP: mark one launch attempt for the first exec call. The existing logical plan is
             // resolved and rebaked at execution time before it is deserialized to build the
@@ -2696,11 +2707,17 @@ impl JoinScan {
                     *nulls.add(i) = is_null;
                 }
                 privdat::OutputColumnInfo::WindowAgg { agg_index } => {
+                    // use the canonical index for cases of duplicate definitions
+                    let agg_index = state
+                        .custom_state()
+                        .join_clause
+                        .window_aggs
+                        .canonical_index(*agg_index);
                     let window_agg = state
                         .custom_state()
                         .join_clause
                         .window_aggs
-                        .get(*agg_index)
+                        .get(agg_index)
                         .expect("A window agg output column should always have a valid index");
                     let Some(col_idx) = state
                         .custom_state()
@@ -2736,20 +2753,35 @@ impl JoinScan {
                             debug_assert_single_document(agg_col.as_ref());
                             let mut window_agg_datums =
                                 state.custom_state().window_agg_datums.borrow_mut();
-                            match window_agg_datums.get(agg_index) {
+                            match window_agg_datums.get(&agg_index) {
                                 Some(d) => Ok(*d),
                                 None => {
-                                    // Reused for every row of the scan: allocate in the
-                                    // per-query context, not whatever context is current
-                                    // when this row is built.
-                                    let datum = PgMemoryContexts::For(
-                                        (*state.csstate.ss.ps.state).es_query_cxt,
-                                    )
-                                    .switch_to(|_| {
-                                        json_document_to_datum(agg_col.as_ref(), row_idx)
+                                    // Reused for every row of the scan: allocate in the window agg
+                                    // context so we can clear it between scans. Do the conversion
+                                    // in a scratch context so the intermediates get dropped
+                                    // immediately.
+                                    let ctx = state
+                                        .custom_state()
+                                        .window_agg_ctx
+                                        .expect("should have been initialized in begin_scan");
+                                    let tmp_ctx = pg_sys::AllocSetContextCreateExtended(
+                                        ctx,
+                                        c"ParadeDB Join Scan pdb.agg scratch".as_ptr(),
+                                        pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+                                        pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+                                        pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+                                    );
+                                    let datum = PgMemoryContexts::For(tmp_ctx).switch_to(|_| {
+                                        let datum =
+                                            json_document_to_datum(agg_col.as_ref(), row_idx)?;
+                                        Ok(datum.map(|d| {
+                                            PgMemoryContexts::For(ctx)
+                                                .switch_to(|_| pg_sys::datumCopy(d, false, -1))
+                                        }))
                                     });
+                                    pg_sys::MemoryContextDelete(tmp_ctx);
                                     if let Ok(d) = datum {
-                                        window_agg_datums.insert(*agg_index, d);
+                                        window_agg_datums.insert(agg_index, d);
                                     }
                                     datum
                                 }

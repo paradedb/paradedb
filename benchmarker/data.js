@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791398226452,
+  "lastUpdate": 1791400961104,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9118,6 +9118,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 19.94,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1ee2d9d664a007b1f4170c0477eea183ed1e6362",
+          "message": "test: accept native index scan plans under concurrent writes (#6709)\n\nConcurrent writes change heap visibility and can make PostgreSQL choose\neither Index Scan or Index Only Scan. Requiring Index Only Scan made a\nvalid planner choice fail the Stressgres workload.\n\nKeep fallback queries on the existing mutable tables and standardize all\nthree community suites on `sql_plan_contains = \"Scan using idxtest\"`,\nmatching enterprise's physical workload convention. Enable native index\nscans, disable custom and aggregate custom scans and competing\nsequential/bitmap paths, and remove the separate immutable fixtures. The\nFSM merge-race suite now uses the runner's plan assertion instead of a\nseparate setup query.\n\nValidation: all suite TOML parsed; all five community and three\ncompanion physical fallback queries executed successfully on PostgreSQL\n18 / pg_search 0.26.0 with index-only scans enabled and disabled.\nVerified the assertion also accepts the plan after updating the workload\ntable. Full Stressgres replication runs remain for CI/Antithesis.",
+          "timestamp": "2026-10-07T11:38:13-07:00",
+          "tree_id": "12535b28ea0875a2cb59ae26c8a54319ad4152e1",
+          "url": "https://github.com/paradedb/paradedb/commit/1ee2d9d664a007b1f4170c0477eea183ed1e6362"
+        },
+        "date": 1791400958009,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.612,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.079,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.54,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 10.078,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 2.014,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.648,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.904,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.399,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 7.025,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.45,
             "unit": "ms"
           }
         ]

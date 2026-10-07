@@ -1,0 +1,13 @@
+[package]
+name = "schemabot"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+publish = false
+
+# Keep CI tooling independent of the extension dependency graph and base revision.
+[workspace]
+
+[dependencies]
+pg_query = "=6.2.1"
+serde_json = "1"

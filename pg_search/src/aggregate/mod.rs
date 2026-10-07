@@ -1377,7 +1377,7 @@ pub mod mvcc_collector {
                 lock.lock()
                     .partition_bitmap_visibility(self.segment_ord, base, mask);
             if visible.iter().any(|word| !word.is_empty()) {
-                self.flush();
+                // Bitmap collection is count-only, so buffered IDs can be counted later.
                 self.inner.collect_bitmap(base, &visible);
             }
             tantivy::DocSetBatch::Bitmap(base, &dirty)
@@ -1387,6 +1387,81 @@ pub mod mvcc_collector {
         fn harvest(mut self) -> Self::Fruit {
             self.flush();
             self.inner.harvest()
+        }
+    }
+    #[cfg(any(test, feature = "pg_test"))]
+    #[pgrx::pg_schema]
+    mod tests {
+        use super::*;
+        use crate::postgres::rel::PgSearchRelation;
+        use pgrx::prelude::*;
+
+        #[derive(Default)]
+        struct BatchCount {
+            count: usize,
+            batches: Vec<usize>,
+        }
+
+        impl SegmentCollector for BatchCount {
+            type Fruit = (usize, Vec<usize>);
+
+            fn collect(&mut self, _: DocId, _: Score) {
+                unreachable!();
+            }
+
+            fn collect_block(&mut self, docs: &[DocId]) {
+                assert!(docs.is_sorted());
+                assert!(docs.iter().all(|doc| doc % 1024 < 3));
+                self.count += docs.len();
+                self.batches.push(docs.len());
+            }
+
+            fn supports_bitmap_collection(&self) -> bool {
+                true
+            }
+
+            fn collect_bitmap(&mut self, _: DocId, mask: &tantivy::DocIdBitmap) {
+                self.count += mask.iter().map(|word| word.len() as usize).sum::<usize>();
+            }
+
+            fn harvest(self) -> Self::Fruit {
+                (self.count, self.batches)
+            }
+        }
+
+        #[pg_test]
+        fn bitmap_collection_preserves_pending_visibility_batches() {
+            Spi::run("CREATE TABLE bitmap_batch_visibility (id int)").unwrap();
+            let oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_batch_visibility'::regclass::oid")
+                    .unwrap()
+                    .unwrap();
+            let relation = PgSearchRelation::open(oid);
+            let checker = VisibilityChecker::with_rel_and_snap(&relation, unsafe {
+                pg_sys::GetActiveSnapshot()
+            })
+            .with_check_visibility(false);
+            let mut collector = MVCCFilterSegmentCollector {
+                inner: BatchCount::default(),
+                lock: Some(MVCCFilterCollector::new(tantivy::collector::Count, checker).lock),
+                segment_ord: 0,
+                doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                score_buffer: Vec::new(),
+                visibility_buffer: Vec::with_capacity(BATCH_SIZE),
+                requires_scoring: false,
+            };
+            let mut visible = [tantivy_common::TinySet::range_greater_or_equal(0); 16];
+            visible[0] = tantivy_common::TinySet::range_greater_or_equal(3);
+            for window in 0..1000 {
+                let base = window * 1024;
+                collector.collect_block(&[base, base + 1, base + 2]);
+                collector.collect_bitmap(base, &visible);
+            }
+            assert_eq!(collector.inner.batches, [2049]);
+            assert_eq!(collector.doc_buffer.len(), 951);
+            let (count, batches) = collector.harvest();
+            assert_eq!(count, 1000 * 1024);
+            assert_eq!(batches, [2049, 951]);
         }
     }
 }

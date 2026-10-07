@@ -56,13 +56,14 @@ use crate::scan::table_provider::PgSearchTableProvider;
 /// 1. When neither table is assigned:
 ///    - If one side is broadcast-eligible and its partner has another non-broadcast co-partition
 ///      candidate downstream, committing is deferred so the partner can co-partition downstream
-///      while the smaller side broadcasts (`CollectLeft`), achieving 0 network shuffles (symmetric
-///      Scenario 11, asymmetric Scenario 12).
+///      while the smaller side broadcasts (`CollectLeft`), achieving 0 network shuffles across
+///      symmetric and asymmetric pairs.
 ///    - Symmetrically partitioned pairs: both tables commit to shared split points
 ///      (0-shuffle task-local co-partitioning).
 ///    - Asymmetric pairs: stamp the partitioned table only if strictly larger than its partner
-///      (`rows > partner_rows`). If smaller, it is not stamped to avoid forcing the larger partner
-///      to shuffle (Scenario 5).
+///      (`rows > partner_rows`) and the unpartitioned partner is not broadcast-eligible.
+///      If smaller, or if the unpartitioned partner is broadcast, it is not stamped to avoid
+///      unnecessary network shuffles or premature key commitments.
 ///
 /// 2. When one table is already assigned and the other is unassigned:
 ///    - If the assigned table is partitioned on this join key: the unassigned table adopts the
@@ -72,7 +73,7 @@ use crate::scan::table_provider::PgSearchTableProvider;
 ///      partner table declared this key in `partition_by` or the unassigned table is strictly larger,
 ///      the unassigned table is stamped with native split points so it stays task-local (0 shuffles)
 ///      while the stream range-adapts (1 shuffle total). Broadcast tables are not partitioned because
-///      they are replicated to all worker tasks and no stream range-adapts to match them (Scenario 9).
+///      they are replicated to all worker tasks and no stream range-adapts to match them.
 ///
 /// 3. When both tables are already assigned:
 ///    - Neither table can change; preserved as-is.
@@ -232,6 +233,12 @@ fn is_broadcast_eligible(provider: &PgSearchTableProvider) -> bool {
 }
 
 /// Returns whether `join_type` allows broadcasting the left side (build side of `HashJoinExec`).
+///
+/// Matches `datafusion_distributed::distributed_planner::insert_broadcast::is_left_broadcast_safe`,
+/// where broadcasting the build side is safe only for join types that do not emit unmatched
+/// build-side rows across tasks.
+///
+/// TODO: Reuse directly if exported by `datafusion-distributed`.
 fn is_left_broadcast_safe(join_type: JoinType) -> bool {
     matches!(
         join_type,
@@ -244,6 +251,8 @@ fn is_left_broadcast_safe(join_type: JoinType) -> bool {
 }
 
 /// Returns whether `join_type` allows broadcasting the right side (by swapping into the build side).
+///
+/// Swapped mirror of `is_left_broadcast_safe` (safe when the right side becomes the build side).
 fn is_right_broadcast_safe(join_type: JoinType) -> bool {
     matches!(
         join_type,
@@ -503,8 +512,11 @@ fn process_join_edge(
                 // to a satisfied reference child, we must never range-partition the smaller side of an asymmetric join.
                 // See DataFusion issue #25302: https://github.com/apache/datafusion/issues/25302
                 (Some(l_field), None) => {
-                    // Asymmetric join: stamp partitioned table if strictly larger (Scenario 4 vs 5)
-                    if l_rows > r_rows
+                    // Asymmetric join: stamp partitioned table if strictly larger than its partner
+                    // and the unpartitioned partner is not broadcast-eligible (which would make stamping
+                    // pointless and prematurely commit the partitioned table to this join key).
+                    if !edge.right_is_broadcast_eligible()
+                        && l_rows > r_rows
                         && let Some(points) =
                             cached_side_split_points(edge.left.prov, l_field, cache)?
                     {
@@ -518,8 +530,11 @@ fn process_join_edge(
                     }
                 }
                 (None, Some(r_field)) => {
-                    // Asymmetric join: stamp partitioned table if strictly larger (Scenario 4 vs 5)
-                    if r_rows > l_rows
+                    // Asymmetric join: stamp partitioned table if strictly larger than its partner
+                    // and the unpartitioned partner is not broadcast-eligible (which would make stamping
+                    // pointless and prematurely commit the partitioned table to this join key).
+                    if !edge.left_is_broadcast_eligible()
+                        && r_rows > l_rows
                         && let Some(points) =
                             cached_side_split_points(edge.right.prov, r_field, cache)?
                     {

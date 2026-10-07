@@ -649,16 +649,42 @@ LIMIT 5;
 -- - users has 100 rows (above broadcast threshold 50).
 -- - posts has 300 rows (above broadcast threshold 50) and declares 'user_id,topic_id'.
 --
--- Because categories is broadcast-eligible and posts has another non-broadcast candidate
--- (users on user_id), RangePartitioningRule defers committing (categories, posts) even though
--- the join is asymmetric.
+-- Part A exercises the query under default thresholds. Even without downstream non-broadcast
+-- candidates, the asymmetric join (categories JOIN posts) does not stamp posts on topic_id
+-- because categories is broadcast-eligible. This leaves posts uncommitted so it can physically
+-- co-partition with users on user_id (0 network shuffles).
 --
--- Consequently:
+-- Part B sets threshold_rows = 50, where categories is broadcast-eligible while users and posts
+-- exceed the threshold. Because categories is broadcast-eligible and posts has another
+-- non-broadcast candidate (users on user_id), RangePartitioningRule defers committing
+-- (categories, posts) even though the join is asymmetric.
+--
+-- Consequently, in both cases:
 -- 1. posts and users co-partition on user_id in Stage 2 with 0 network shuffles.
 -- 2. categories broadcasts (CollectLeft) to posts in Stage 1 without constraining posts's partitioning.
 -- Result: 0 network shuffles between posts and users, matching optimal broadcast-join behavior.
 -- =====================================================================
+-- Part A: Under default thresholds (all tables below default broadcast threshold).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.category_name, p.title, u.user_name
+FROM mpp_rp_categories c
+JOIN mpp_rp_posts p ON c.category_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY c.category_id, p.post_id
+LIMIT 5;
 
+SELECT c.category_name, p.title, u.user_name
+FROM mpp_rp_categories c
+JOIN mpp_rp_posts p ON c.category_id = p.topic_id
+JOIN mpp_rp_users u ON p.user_id = u.user_id
+WHERE p.title @@@ 'post'
+ORDER BY c.category_id, p.post_id
+LIMIT 5;
+
+-- Part B: Under threshold_rows = 50, where categories is broadcast-eligible while
+-- users and posts exceed the threshold. Broadcast deferral ensures posts and users
+-- co-partition on user_id in Stage 2 with 0 network shuffles.
 SET paradedb.hash_join_single_partition_threshold_rows = 50;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

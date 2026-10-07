@@ -146,7 +146,7 @@ This path turns down the following shapes. Because `pdb.agg()` cannot fall back 
 - A `visibility` other than the default
 - A `FILTER (WHERE ...)` clause on the window function
 - `PARTITION BY`, `ORDER BY`, or a frame inside the `OVER` clause
-- `SELECT DISTINCT` with the bare document in the target list. Under `DISTINCT` the document is only accepted inside an expression, such as `pdb.agg(...) OVER () ->> 'value'`
+- `SELECT DISTINCT` with the bare document in the target list, or with the document inside an expression that also reads a column, such as `(pdb.agg(...) OVER () ->> 'value') || p.category`. Under `DISTINCT` the document is only accepted inside an expression that reads no other column, such as `pdb.agg(...) OVER () ->> 'value'`
 
 ### Fallback to Postgres
 

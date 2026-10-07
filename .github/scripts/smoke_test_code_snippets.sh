@@ -117,8 +117,11 @@ python3 "${SCRIPT_DIR}/extract_code_snippets.py"
 
 for target in $ORMS; do
   case "$target" in
-    sql|django|rails|sqlalchemy|drizzle|efcore) ;;
-    *) echo "Unknown snippet target: $target" >&2; exit 1 ;;
+    sql | django | rails | sqlalchemy | drizzle | efcore) ;;
+    *)
+      echo "Unknown snippet target: $target" >&2
+      exit 1
+      ;;
   esac
   if [[ -z "$(find "$VERIFY_DIR/$target" -type f -print -quit)" ]]; then
     echo "No snippets extracted for $target" >&2

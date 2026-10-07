@@ -10,11 +10,11 @@ SELECT id, ip::text
 FROM inet_items
 WHERE id @@@ paradedb.all()
 ORDER BY id;
- id |    ip     
-----+-----------
-  1 | 10.0.0.1
-  2 | 10.0.0.2
-  3 | 10.0.0.2
+ id |     ip      
+----+-------------
+  1 | 10.0.0.1/32
+  2 | 10.0.0.2/32
+  3 | 10.0.0.2/32
 (3 rows)
 
 SET paradedb.enable_aggregate_custom_scan = off;
@@ -23,10 +23,10 @@ FROM inet_items
 WHERE id @@@ paradedb.all()
 GROUP BY ip
 ORDER BY ip;
-    ip     | count 
------------+-------
- 10.0.0.1  |     1
- 10.0.0.2  |     2
+     ip      | count 
+-------------+-------
+ 10.0.0.1/32 |     1
+ 10.0.0.2/32 |     2
 (2 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;

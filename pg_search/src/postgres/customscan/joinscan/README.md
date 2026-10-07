@@ -39,7 +39,7 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 
 [`scan_state.rs`](scan_state.rs) builds a DataFusion logical plan from the `JoinCSClause`, then runs [physical optimization][optimizer-rules]:
 
-1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — coordinates split points across joins for MPP range partitioning, sampling both sides of the join and injecting the merged sample into both `PgSearchTableProvider`s
+1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — coordinates split points across joins for MPP range partitioning bottom-up, evaluating leaf and subplan joins and injecting range split points into `PgSearchTableProvider`s
 2. **`LateMaterializationRule`** — injects [`TantivyDecodeExec`][decode-exec] over [`TantivyFetchExec`][fetch-exec] to defer string materialization. With `paradedb.defer_column_fetch = off` the scan resolves term ordinals itself and only the decode node is injected
 3. **[`RangeCoPartitionedJoinRule`](range_partitioning_rule.rs)** — flips a `CollectLeft` hash join to `Partitioned` mode when both sides declare compatible `Partitioning::Range` layouts (any join type except a null-aware `NOT IN` anti join), so MPP joins partition pairs task-locally instead of broadcasting the build side
 4. **[`DeferredPlacementRule`](../../../scan/deferred_placement_rule.rs)** — decides per column where the fetch and the decode of a deferred string column run: a build side or a fan-out join moves the fetch into the scan, and a fan-out with no bounded consumer above moves the decode there too. `paradedb.defer_column_fetch` and `paradedb.defer_string_decode` override it
@@ -74,7 +74,7 @@ JoinScan does not use DataFusion's standard in-process multithreading. Since Pos
 
 Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizing joins. It assigns logical tasks across PostgreSQL parallel workers based on segment count:
 
-1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../../scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`. When the `RangePartitioningRule` has injected a range sample, the scan instead declares `Partitioning::Range` with the sample's split points, which lets DataFusion treat the two sides of a join as co-partitioned.
+1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../../scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`. When the `RangePartitioningRule` has injected range split points, the scan instead declares `Partitioning::Range` with the split points, which lets DataFusion treat the two sides of a join as co-partitioned.
 2. **Task Estimation**: During MPP planning, [`PgSearchScanTaskEstimator`](../../../scan/execution_plan.rs) intercepts the leaf nodes and requests exactly this `partition_count` number of tasks.
 3. **Execution Routing**: For a viable MPP launch, tasks are assigned round-robin across the workers PostgreSQL attached, and each worker uses `ParallelScanState` to lazily claim segments. A one-task plan does not launch MPP workers and runs serially.
 

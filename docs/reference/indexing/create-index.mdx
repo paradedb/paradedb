@@ -344,7 +344,7 @@ Comparing `blocks_done` to `blocks_total` will provide a good approximation of t
 
 ## Index Partitioning (Beta)
 
-To speed up filtered queries by skipping non-matching segments or accelerate parallel joins between tables, you can configure the `partition_by` option. This example partitions the demo table by `rating`; in a multi-tenant application, use your tenant identifier instead:
+To speed up filtered queries by skipping non-matching segments or accelerate parallel joins between tables, you can configure the `partition_by` option. This example partitions the demo table by `rating`. In a multi-tenant application, use your tenant identifier instead:
 
 <CodeGroup>
 ```sql SQL

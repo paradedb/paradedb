@@ -192,10 +192,10 @@ use datafusion_distributed::shm::MppMesh;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::aggregatescan::datafusion_build;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
-use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::search_operator_relations;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
@@ -928,11 +928,20 @@ impl JoinScan {
         }
 
         let planstate = state.planstate();
-        let expr_context = state.runtime_context;
+        // Solved in `ps_ExprContext`: JoinScan never resets it per row (see `solve_expr.rs`).
+        let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
-        state
-            .custom_state_mut()
-            .prepare_query_for_execution(planstate, expr_context);
+        let custom_state = state.custom_state_mut();
+        custom_state.join_clause = custom_state
+            .base_join_clause
+            .clone()
+            .expect("runtime expression solving requires a pristine JoinScan clause");
+        custom_state
+            .join_clause
+            .init_postgres_expressions(planstate);
+        custom_state
+            .join_clause
+            .solve_postgres_expressions(expr_context);
 
         let bytes = unsafe { Self::rebake_for_mpp(state) };
         // Keep the leader's own execution in sync with what's dispatched to workers:
@@ -1504,7 +1513,6 @@ impl CustomScan for JoinScan {
                 // expressions, and pushed-down predicates may all need it.
                 pg_sys::ExecAssignExprContext(estate, planstate);
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
-                state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
             // MPP: mark one launch attempt for the first exec call. The existing logical plan is
             // resolved and rebaked at execution time before it is deserialized to build the
@@ -1617,7 +1625,7 @@ impl CustomScan for JoinScan {
                 };
 
                 // Raw pointers precomputed so the planning closure below never borrows `state`.
-                let runtime_context = state.runtime_context;
+                let runtime_context = state.csstate.ss.ps.ps_ExprContext;
                 let build_plan =
                     |ctx: &datafusion::prelude::SessionContext| -> Arc<dyn ExecutionPlan> {
                         let logical_plan = deserialize_logical_plan_with_runtime(
@@ -2372,7 +2380,13 @@ impl JoinScan {
 
         // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
         // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
-        if !crate::gucs::enable_custom_scan_without_operator() && !plan.has_search_predicate() {
+        // The planner can simplify the operator out of the quals, so the query as written counts too.
+        if !crate::gucs::enable_custom_scan_without_operator()
+            && !plan.has_search_predicate()
+            && !sources
+                .iter()
+                .any(|source| search_operator_relations::applies_to(root, source.rti))
+        {
             return Err(JoinPathDecline::Quiet);
         }
 

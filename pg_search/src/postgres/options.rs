@@ -74,7 +74,7 @@ pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
-pub(crate) const DEFAULT_MAX_LEAF_SIZE: i32 = 100;
+pub(crate) const DEFAULT_MAX_LEAF_SIZE: i32 = 200;
 pub(crate) const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = 0.32;
 pub(crate) const VECTOR_ROUTER_OPTION: &str = "vector_router";
 

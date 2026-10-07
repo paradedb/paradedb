@@ -70,6 +70,7 @@ mod parallel;
 pub mod pdb_owned_value;
 pub mod planner_warnings;
 pub mod rel;
+pub(crate) mod search_operator_relations;
 pub(crate) mod sequentialscan;
 pub mod storage;
 pub mod tuplesort;

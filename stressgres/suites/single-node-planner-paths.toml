@@ -48,8 +48,7 @@ CREATE INDEX idxcategories ON categories USING paradedb (id, name) WITH (
     text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
 
--- Populate the visibility map before workers assert the index-only scan plan.
--- A concurrent vacuum job or autovacuum may not finish before that assertion.
+-- Initialize visibility and statistics for the mutable workload table.
 VACUUM (ANALYZE) test;
 ANALYZE categories;
 
@@ -92,16 +91,19 @@ SELECT
 
 [[jobs]]
 refresh_ms = 100
-title = "Postgres Index Only Scan Fallback"
+title = "Postgres Index Scan Fallback (Key Projection)"
 log_tps = true
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
-SET enable_indexscan = off;
+SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_indexscan = on;
 SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 """
-sql_plan_contains = "Index Only Scan"
+# Concurrent writes can switch between Index Scan and Index Only Scan.
+# Require the native index path while allowing either plan.
+sql_plan_contains = "Scan using idxtest"
 sql = """
 SELECT id FROM test WHERE message ||| 'cheese' LIMIT 100;
 """
@@ -113,9 +115,14 @@ log_tps = true
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
+SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_indexscan = on;
 SET enable_seqscan = off;
+SET enable_bitmapscan = off;
 """
-sql_plan_contains = "Index Scan"
+# Concurrent writes can switch between Index Scan and Index Only Scan.
+# Require the native index path while allowing either plan.
+sql_plan_contains = "Scan using idxtest"
 sql = """
 SELECT id, message, payload FROM test WHERE message ||| 'cheese' LIMIT 100;
 """

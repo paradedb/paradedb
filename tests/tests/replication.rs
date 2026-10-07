@@ -787,7 +787,7 @@ async fn test_background_merge_terminate_during_sync_replication() -> Result<()>
     );
     let mut conn = primary.connection().await?;
     conn.execute("SET synchronous_commit = off").await?;
-    conn.execute("CREATE EXTENSION pg_search").await?;
+    conn.execute("CREATE EXTENSION pg_search CASCADE").await?;
     conn.execute("CREATE TABLE merge_die (id bigint, body text)")
         .await?;
     conn.execute(

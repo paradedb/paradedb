@@ -80,6 +80,15 @@ runs:
 
         echo "ROWS_LABEL=${SIZE}" >> "$GITHUB_ENV"
 
+    - name: Upload Query Benchmark Results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: query-benchmark-${{ inputs.dataset }}-${{ inputs.index }}-${{ inputs.size }}-${{ github.run_attempt }}
+        path: benchmarks/results.json
+        retention-days: 30
+        if-no-files-found: warn
+
     - name: Print the Postgres Logs
       if: failure()
       shell: bash

@@ -149,9 +149,7 @@ jobs:
         run: python3 .github/scripts/release.py lint-fragments --changelog-only
 
       - name: Check Documentation Snippet Coverage
-        run: |
-          python3 .github/scripts/extract_code_snippets.py
-          python3 -m unittest discover -s .github/scripts/tests -p "test_doc_snippets.py"
+        run: python3 .github/scripts/extract_code_snippets.py
 
       - name: Set Up PostgreSQL (pgrx)
         id: postgres

@@ -26,6 +26,8 @@ from extract_code_snippets import (
     COVERAGE_PATH,
     DOCS_ROOT,
     FENCE_PATTERN,
+    inventory,
+    resolve_coverage,
 )
 
 TEXT = (DOCS_ROOT / "start/configure-your-environment.mdx").read_text()
@@ -324,16 +326,19 @@ def setup_efcore(cwd, env):
 
 def validate_setup_coverage(target):
     """Reject setup inventory entries that the scenario did not actually consume."""
+    _, outside = inventory()
     tab_digests = {
         hashlib.sha256((info + "\n" + body).encode()).hexdigest()
         for info, body in FENCE_PATTERN.findall(TABS[LABELS[target]])
     }
     missing = [
         key
-        for key, entry in json.loads(COVERAGE_PATH.read_text()).items()
+        for key, entry in resolve_coverage(
+            outside, json.loads(COVERAGE_PATH.read_text())
+        ).items()
         if entry["mode"] == "setup"
-        and entry["sha256"] in tab_digests
-        and entry["sha256"] not in CONSUMED_FENCES
+        and outside[key]["sha256"] in tab_digests
+        and outside[key]["sha256"] not in CONSUMED_FENCES
     ]
     if missing:
         raise ValueError(f"Setup fences were not executed: {missing}")

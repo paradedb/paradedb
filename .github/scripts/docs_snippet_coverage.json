@@ -1,1441 +1,205 @@
 {
-  "concepts/architecture.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "3ad111a976ba2bb4cbcca8bd66597520783e026fa1fd934d470cc5d781f739b5"
-  },
-  "concepts/architecture.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "a93296d2eb0ded9f7cc246b424d6e4484b37e2c2eaa7ce3024471adad9376f5d"
-  },
-  "concepts/architecture.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "7ebf59a945e5d8fe7b1d48c4de56b98d501c52a40412fb30c8fd6d37c2a790a9"
-  },
-  "operate/deploy/ci/github-actions.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "f3c514322de0d14016296b063010323dbeb964b07e183535e050fd944253b41f"
-  },
-  "operate/deploy/ci/gitlab-pipelines.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "bd3bd00494e3683a611599cfc304a5dcf6218bd57a9a04c941a92202d2eb46d1"
-  },
-  "operate/deploy/cloud-platforms/digitalocean.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "b11861a9d1d54e2cabd2e008b1e4832780acd36850fcd15baf9d8581d2895740"
-  },
-  "operate/deploy/cloud-platforms/digitalocean.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "9a1101beb7b2a909f5dff3634b404c7ab3a08561b6e26fa409fde98c3be24431"
-  },
-  "operate/deploy/cloud-platforms/digitalocean.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "7685de7376020511c3e35da99436c554bdca8ae832e7541693f2fb090ddaa30c"
-  },
-  "operate/deploy/cloud-platforms/digitalocean.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "7f5cfde567b9f7639e1a779f1133b3598b9590ff6e8921cd5eb6f3c2e79ba502"
-  },
-  "operate/deploy/cloud-platforms/dokku.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "d780e6253d09925467e3fc88822a213c6600401dccf555c4b7329e0d801875ca"
-  },
-  "operate/deploy/cloud-platforms/dokku.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "1025bb5f00c97476d37243e4f855e4fbc5f400825119f25371a44d18cffa5f0c"
-  },
-  "operate/deploy/cloud-platforms/dokku.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "f760a0ce5e2843dce14170d96e53f71537362fb370539a344df2c20945af86c9"
-  },
-  "operate/deploy/cloud-platforms/dokku.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "029899ba7d498c84d358605df6a296e1b15058f94aba66a99f18785a93bc7e30"
-  },
-  "operate/deploy/cloud-platforms/dokku.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "8a44870cf539075e603d70c45ece96789efba5c9cda2f771850bee69518b8fea"
-  },
-  "operate/deploy/cloud-platforms/dokku.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "b57cdd1f4f91c037b0fba7694767d74090c2ec9be47a484569ba79cca21e1a0c"
-  },
-  "operate/deploy/cloud-platforms/fly.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "7ae9c0ab795d8d2423c1483d9a26c800a328a23e3383a724d4f779b0e38e3719"
-  },
-  "operate/deploy/cloud-platforms/fly.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "40cd1d128ad0baa94e08203bb4d08b8d3855bba68c1ed57f5cb8f873a33d5b09"
-  },
-  "operate/deploy/cloud-platforms/fly.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "e106e4f8cb6c30a56151e265356b905f1c4ece81359efed06fe053d303974d8f"
-  },
-  "operate/deploy/cloud-platforms/fly.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "196a2f3c4f6879de5e67410947274ab5640892b687a22e10396d957f666c437e"
-  },
-  "operate/deploy/cloud-platforms/fly.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "883d3c6d6f9bd235c67f8e2fe6df2bc55097b3554371691133b8f9b8489503ad"
-  },
-  "operate/deploy/cloud-platforms/fly.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "ce6808b51c1f1c172add69f0ccbfb3ba95ec26031a16f4ad28cea27fc0cf2b71"
-  },
-  "operate/deploy/cloud-platforms/fly.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "e0551c2da8274ce0d4f1e411f88392ae3b22978487d1823d5bf0901327214cd4"
-  },
-  "operate/deploy/cloud-platforms/railway.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "5d093ec68c348ee9b5f54072234612478d7084156d68aa70fc285366a99bc76d"
-  },
-  "operate/deploy/cloud-platforms/railway.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "06d7fe9601719a9a855d73903260bb67e919b526a223390e90e6a33ef2680fc3"
-  },
-  "operate/deploy/cloud-platforms/render.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "dbc6f3a2db69397661a66a06ef4cfbd2ff6bdcb0042b454d5fc1b5f59ff628b4"
-  },
-  "operate/deploy/cloud-platforms/render.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "d7b6d1c2101a983818f49c63a6c86ffd42be8661d1011b54975ad02b3c617e2e"
-  },
-  "operate/deploy/logical-replication/bootstrapping.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "c6043f331f009660aa4a0fb8759c4c2f593debcc0204ae0196686fe2b7c5439c"
-  },
-  "operate/deploy/logical-replication/bootstrapping.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "ef1925a59f7423296f0d16adfcfb018e33a4329b2d693167ae516c10d68f045c"
-  },
-  "operate/deploy/logical-replication/bootstrapping.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "a04a6508e444779c5f13bf347abd456d924792db07422b37e7f90b4623ea12e0"
-  },
-  "operate/deploy/logical-replication/bootstrapping.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "dd3317b52de2b2857e346d7ca081f25b8862d4052d032d43ab18f26b3498c836"
-  },
-  "operate/deploy/logical-replication/configuration.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "58abbfc3927c43c2a74e5f2ce959322c2036a45a7eba1594bec8f161935bc3f0"
-  },
-  "operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "65067eb9611a96f91d36dea31ac535dfb96475654cde86edcc4847028d186229"
-  },
-  "operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "5a7a0c5fc1382eb779164a1cc5174e4871665c2725ec36cd218eac61930bfbc3"
-  },
-  "operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "00e6b019e3f6e706d633c4014ce2a242b474217920b05ad23fdd10f02970d8b1"
-  },
-  "operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "98ba3409e30d1c38991682e66fc169423ddbede3dce853af8b66da64b87e43ce"
-  },
-  "operate/deploy/logical-replication/multi-database.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "989f6eb297703757a300b08e956ffaf50ee273188a1602edcc0a3160d3181dc6"
-  },
-  "operate/deploy/logical-replication/multi-database.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "300d5837213f775185c2057059586939139b9532066b73fd136fa18c0ac036d7"
-  },
-  "operate/deploy/logical-replication/multi-database.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "18fff10c766f7bd80bdecbb8330c8b6178638c6241f3963e5838777f2c9712e1"
-  },
-  "operate/deploy/logical-replication/multi-database.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "037f547986009278372d13756fdbfb0f719d9c4ea527f5563d259642ab0a5a46"
-  },
-  "operate/deploy/logical-replication/schema-changes.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "ab1f5c464eaec68e3d18a831ba9609cab3b71871dc4a9c072cb6b59dcbe0fe3c"
-  },
-  "operate/deploy/logical-replication/schema-changes.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "521a7d3adabd1cfd65b62e481ef4864b709a5549a37f3430e0154c5a90896c86"
-  },
-  "operate/deploy/self-hosted/extension.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "95c6aa5fde0e3a7f83c5011cf9e6fe55b599bc4b5fc0732aa72bc9d0ee11be57"
-  },
-  "operate/deploy/self-hosted/extension.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "ac83fef00a86cece0261055355a6918ddfedf3c0738275451751f977f080dfe1"
-  },
-  "operate/deploy/self-hosted/extension.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "b7b0b16b93c7971bae4172ae04bc270cdacf3a7212f0e4c82932f07bf3831143"
-  },
-  "operate/deploy/self-hosted/extension.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "37b88a46fd30727298ed7571fdbc35c8a38d062fc5ebafd72f90b9066762d5d7"
-  },
-  "operate/deploy/self-hosted/extension.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "1c08266b7f52b5b975e801a04745dde0bb6ec282cd39d097e2780be23689c4ab"
-  },
-  "operate/deploy/self-hosted/extension.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "906aea60b05399bbb43f4f8cf861b97ddfc156429e9f61b88a3a86bb47d2d944"
-  },
-  "operate/deploy/self-hosted/extension.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "07b873da290096ce98a02421342a0e46b94c57fc316de89cefc5b64ae9ca3011"
-  },
-  "operate/deploy/self-hosted/extension.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "74775d0822a3a5bdf83ef959297ab9a077e8306dffb576f62ce06e3e283c271e"
-  },
-  "operate/deploy/self-hosted/extension.mdx::fence-010": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "8dff0a1ee89f7d418affaec43a5ce26655660da7a354748cbf44fa5c7361228f"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "15e1b106daba9b4bea0c2988ca7bcfc69f5d862a7dec9a808e39cb261d1b2f7d"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "8864b31559f4eb0f5df5a7be057ec503a8ce8d6e3f8f411cc4a9c64b625de4ad"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "597322e0c016233e6d092a1798be0cd9483743be3f826b7821dfecf8e3afe3e7"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "d4fc02937d3c8c0f794ceed6f2451e6024b6f14ec95f6d3cbc19cc2e76c99254"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "0fddf0a1116a681242409214cb469c424fddbbb9a76e584d3d30020f01f21dea"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "594f82db9bda5607457961ce37605d8c44724daf7977814e1e2e432db97e295a"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "754ebb5b80e8fc287adb5f2427804ebe00f4a95510de10523514f17b47e27ffa"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "5eb0d037605bd31d91eb4ff3a9330bfd54813e30949a390fea52e2104e56563b"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-009": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "1790a39e4b00ae3e9d326819f57d0a6e652892465b8821c8de451434cf0db9b8"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-010": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "8864b31559f4eb0f5df5a7be057ec503a8ce8d6e3f8f411cc4a9c64b625de4ad"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-011": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "d5fc9c41a1cc0ddb9af6dcb091bd749609ace742fc32d504760be6f2b51662bd"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-012": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "deb806a4733304a3654e7ca6e655a0ceecda29ce3639a3b968f915908aa46567"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-013": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "e56a4e1895eedc0fa9de8673df3b08d43a4815d2584b375280632e31514535a6"
-  },
-  "operate/deploy/self-hosted/kubernetes.mdx::fence-014": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "fce9c0645f3006ea634f17917f5125c61aa6ef83f9d34ac3b776ed57f476e9e5"
-  },
-  "operate/deploy/upgrading.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "e98d19b1acf3d62583fa37f47bfb94d762bfe577aee7127ade49758cd548607f"
-  },
-  "operate/deploy/upgrading.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "b03f85ad20f6badf2768000e43650c41245c28dea45b35ae2395e5cbfa9523e4"
-  },
-  "operate/deploy/upgrading.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "94b6245ef8854fba0f2c2d73b231ddf0cd75f8fabc2eeda67c15c64041ca3e82"
-  },
-  "operate/deploy/upgrading.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "cd281e1c131031e6d9c3af044a0870a379df29e6e873c4275a8126185343c5b6"
-  },
-  "operate/deploy/upgrading.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "e165c5e24dd7cf44b1986819624738be599de92585a9d7628b1706e6242dac56"
-  },
-  "operate/deploy/upgrading.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "00bc6370bf49f3297ce8f5b504e3daedb023c5aec23bb093e90511103629cf57"
-  },
-  "operate/deploy/upgrading.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "eabc8571e7a48a1a80ef0a35c1a265b22d070c0f0c5dbee958b27cef6d953fb2"
-  },
-  "operate/deploy/upgrading.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "6c4959f07d34b8b9e41fc043b691583d2577f412004927e22730ded7afcd7c38"
-  },
-  "operate/index-maintenance/reindexing.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "7420838231a5cc6da646e7f6904b1044b4c9ce8839c7d25a198dd1bb175f2320"
-  },
-  "operate/index-maintenance/reindexing.mdx::fence-009": {
-    "mode": "sql",
-    "reason": "Execute index maintenance against fresh demo indexes.",
-    "sha256": "b83577a06af995994374b7dea8c9378a753d697eb9d0b3c8929b188015aac49a"
-  },
-  "operate/index-maintenance/reindexing.mdx::fence-010": {
-    "mode": "sql",
-    "reason": "Execute index maintenance against fresh demo indexes.",
-    "sha256": "3d4ab69d992799857402d9aa4ec35981de8c04324e6694d1471f61e0e13ae78b"
-  },
-  "operate/index-maintenance/reindexing.mdx::fence-011": {
-    "mode": "sql",
-    "reason": "Execute index maintenance against fresh demo indexes.",
-    "sha256": "2c8ada9dd6685096d46fedff1c172c80601eda26540e6d0438d7a7c2a0b29857"
-  },
-  "operate/index-maintenance/verify-index.mdx::fence-076": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "9ac55bfdf32deac27a10a62ae0b869fb789616aad31fce0f3933a1d1bb32d8e7"
-  },
-  "operate/performance-tuning/create-index.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "a8d08276bffcad846790d2e812439cdd6bdad44c25c0557ff3848f372a0ca62b"
-  },
-  "operate/performance-tuning/create-index.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "a810174067c6c3b5392f5fb314e50806e75256ecebe2a5feafb0ebb7ade1010e"
-  },
-  "operate/performance-tuning/create-index.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "a2c1d06a8d1a0805b17963ed6e0597ac3eee0274a16fb4794503473eae96309c"
-  },
-  "operate/performance-tuning/overview.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "e16bce8eb44d5d2e637ae12511ad51ffee734a61dc768fd93d6866093eb670d7"
-  },
-  "operate/performance-tuning/overview.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "84e7fa753de7c41fa86de6d2c1d9a5787e3bfb2437b02d52bf41352df30b7c14"
-  },
-  "operate/performance-tuning/overview.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "d06371e728c3eb6c4a499033c3cd7ed1100fb82411340c816739fdec62c17e94"
-  },
-  "operate/performance-tuning/overview.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "cfa5bb4e07014aae0535735dff9e40838b318ceba680eb00452c4a1c6f09ff7b"
-  },
-  "operate/performance-tuning/reads.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "7b0c2057fad613dd40b4f451187ee0e9c9415399988710cb10d027a34ec499b6"
-  },
-  "operate/performance-tuning/reads.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "4775604b6f457f184f19212280123459a41501653fda64ceabcb6a08612391bc"
-  },
-  "operate/performance-tuning/reads.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "c5fae8639cd9cf711f2ccda9d4cfd30970e2e1d46f4eced70ba1885d3b3f0eda"
-  },
-  "operate/performance-tuning/reads.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "00c5860a1a5b44fb87ced1c5ecc4625a01171622ec1a7ebb1ecbdd613052d60e"
-  },
-  "operate/performance-tuning/writes.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "3f301a49b9d05d6a56a48a50480ef9dac550ad50c97ec37b0423d029ddf1ad97"
-  },
-  "operate/performance-tuning/writes.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "75f553b991c5a8af2766753b629e619bc51091620d31b8c09e7a498db4f4ff84"
-  },
-  "operate/performance-tuning/writes.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "2254c77e50f22da9bdb16c19eab659d171f6fc7085fd3ff075f298b780900766"
-  },
-  "operate/performance-tuning/writes.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "0a0bdda59477dce2d6e07b70dbf9013f225a4ca394d3902049cb7ec337bc5d83"
-  },
-  "operate/performance-tuning/writes.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "f01c97b3c06d1d89f83b5336834067834e48f5561e369c88b88653d551f2509a"
-  },
-  "operate/performance-tuning/writes.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "e98dc0ca2479f7e7afa1a33c71903dfddfb24a5dfc05682bfff481333359e27f"
-  },
-  "reference/aggregates/bucket/terms.mdx::fence-014": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "413640dc558b08fa9e5e6404853b88221de57187e0d651e32447855f9c280826"
-  },
-  "reference/aggregates/metrics/average.mdx::fence-008": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "606d3ced62008eac7b2e53ab74eb1e5248d2905aeecc35a468442862a8f7d579"
-  },
-  "reference/aggregates/metrics/average.mdx::fence-009": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "7d0f9d8cb580392e63f27176ee40ada3fe7716f65d845452560bd3f970e91af3"
-  },
-  "reference/aggregates/metrics/average.mdx::fence-010": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "928c3a64e11df5cf3bc11d6f6aec078ce5de4a4206163ce147c7d0f0ca509be6"
-  },
-  "reference/aggregates/metrics/count.mdx::fence-008": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "606d3ced62008eac7b2e53ab74eb1e5248d2905aeecc35a468442862a8f7d579"
-  },
-  "reference/aggregates/metrics/count.mdx::fence-009": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "7c4fdca225e93174d45bbed9beb1dc66d20a6cf0cc74d03ce6230c98f8e9e5dd"
-  },
-  "reference/aggregates/metrics/count.mdx::fence-010": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "cba77acf663fca434cb64c70979c9b891fcce78f27a4ecf0d0c639fae00bfe2e"
-  },
-  "reference/aggregates/metrics/minmax.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "95feb344e13be2a51680abfc976ef23320289650b9e44ffa25557c3d542648c7"
-  },
-  "reference/aggregates/metrics/minmax.mdx::fence-009": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "5860f288a1d92db3fdd026c308413009c3705ddfa9d5bfcf63bd9f9a1586cf70"
-  },
-  "reference/aggregates/metrics/minmax.mdx::fence-010": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "1777555ef6baa171fc35b35b4de084c8e594eb019fd71a6c6577bae4e8fbf5c2"
-  },
-  "reference/aggregates/metrics/minmax.mdx::fence-011": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "08a3b923a8e43e767cba0210e69748c87872ed74cd3f20c81522819c30fb2d06"
-  },
-  "reference/aggregates/metrics/minmax.mdx::fence-013": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "becf7bd91441fa5b58b333c933011586f85e3752e5fa7e55e174f84ea96c41b2"
-  },
-  "reference/aggregates/metrics/minmax.mdx::fence-014": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "cbbb0d8020ca1451fed4462aa947268243822d779b1cba76e5f31be4982c68fc"
-  },
-  "reference/aggregates/metrics/sum.mdx::fence-008": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "606d3ced62008eac7b2e53ab74eb1e5248d2905aeecc35a468442862a8f7d579"
-  },
-  "reference/aggregates/metrics/sum.mdx::fence-009": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "a40a5930e5a6ee3d063c43464186202cf2387a8d915a99d1423d6aae8bdb6f67"
-  },
-  "reference/aggregates/metrics/sum.mdx::fence-010": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "54cb53b364641ad67fe09b9535080c602b713317ddc74e8baf1bf4f142441696"
-  },
-  "reference/aggregates/overview.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "475d3485c91388374282ecf93a55c8ca480d7053a39341ed97749d2c876267ef"
-  },
-  "reference/aggregates/overview.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "9c4e40c253a509d426249f73d1862cdbdab17856e95dd17c72129b47e735f7b2"
-  },
-  "reference/aggregates/overview.mdx::fence-003": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "7ec19ba88e79468e081e6c761500f19a58f5e64562f0096213e7dd537eb76c8a"
-  },
-  "reference/aggregates/overview.mdx::fence-037": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "0d3709124f0346e4d7e6fce712b037e752eb5c26d96fc71a5235251410898876"
-  },
-  "reference/configuration.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Execute the standalone aggregate or session-setting example against the demo fixture.",
-    "sha256": "bea15e91d872753c234651bd96c55106c766c6dba36f931dc69f8e05e3d96b2d"
-  },
-  "reference/configuration.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "5c7934ebb6174a55bcec97efb9353ce6d4910d10723852dd69c4b7d15e210fd2"
-  },
-  "reference/filtering/external-indexes.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Execute the page-local built-in PostgreSQL point/circle fixture; no PostGIS extension is required.",
-    "sha256": "e48339e61ce86ea68e48f5c5ceb03feafb91f07674e4fc09cd3a45b845aa3ab9"
-  },
-  "reference/filtering/external-indexes.mdx::fence-008": {
-    "mode": "sql",
-    "reason": "Execute the page-local built-in PostgreSQL point/circle fixture; no PostGIS extension is required.",
-    "sha256": "1fdd7afc33b69be9bf4ae2e37478aee505d8ca49b2ec7120f7e65620e223f657",
-    "setup": [
-      "reference/filtering/external-indexes.mdx::fence-001"
-    ]
-  },
-  "reference/filtering/external-indexes.mdx::fence-009": {
-    "mode": "sql",
-    "reason": "Execute the page-local built-in PostgreSQL point/circle fixture; no PostGIS extension is required.",
-    "sha256": "c1fbe04676fbfdeda15fde8d625efbb6664b7f9b33da02b272b3282b9abd4869",
-    "setup": [
-      "reference/filtering/external-indexes.mdx::fence-001"
-    ]
-  },
-  "reference/filtering/external-indexes.mdx::fence-010": {
-    "mode": "sql",
-    "reason": "Execute the page-local built-in PostgreSQL point/circle fixture; no PostGIS extension is required.",
-    "sha256": "1fdd7afc33b69be9bf4ae2e37478aee505d8ca49b2ec7120f7e65620e223f657",
-    "setup": [
-      "reference/filtering/external-indexes.mdx::fence-001",
-      "reference/filtering/external-indexes.mdx::fence-009"
-    ]
-  },
-  "reference/filtering/indexed.mdx::fence-007": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "ecb6ced9a561d4cd571122c7da2a442036fcfa0fc370c4f94af6d897c3ff4a31"
-  },
-  "reference/filtering/indexed.mdx::fence-014": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "7a3a8071b7d4300a403d389d864666bc756edc51a048f344da272ac6f9e8a5b5"
-  },
-  "reference/full-text/match.mdx::fence-015": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "4bf45207ccc14db6c92d7907b1d0aee1c83ee4b011cd5ca2a1fc71d4b4bbed23"
-  },
-  "reference/full-text/phrase.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "8d7db0ba81964840f29ec21781a090d662d531b080c6ac77d5628a12d083f745"
-  },
-  "reference/full-text/score.mdx::fence-013": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"
-  },
-  "reference/full-text/score.mdx::fence-020": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "fbf4dacaa0304a85274ea8af3ed4e2329e875cf33b7184b0d233c784a8be5410"
-  },
-  "reference/full-text/score.mdx::fence-021": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "af827f5c3ba0f9b9679eb99ae37e1f98838db75d0f8e83f813a1838be7e8428d"
-  },
-  "reference/full-text/top-k.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "58e614668b82d4bc3419a73563a6a246d43f82d7004be0984065ca2f6f5ad053"
-  },
-  "reference/full-text/top-k.mdx::fence-015": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "3f6b5a884c1d1e31bd0b17c7e888e2e17b4880b8a1f83f695a43df1a1dc27e7c"
-  },
-  "reference/full-text/top-k.mdx::fence-022": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "567721825cd9cdc21e5eb3a9f397f490a6b0cd09dac6df51957a61b492647422"
-  },
-  "reference/full-text/top-k.mdx::fence-023": {
-    "mode": "sql",
-    "reason": "Demonstrates unsupported JSON sorting; require the documented planner warning and reject any other warning.",
-    "sha256": "c0d1c1c2b64325897d25be3a01b85167595fe196d3721c964c767ae6cc6f9faa",
-    "warning": "ORDER BY columns cannot be pushed down to the index"
-  },
-  "reference/full-text/top-k.mdx::fence-024": {
-    "mode": "skip",
-    "reason": "Illustrates an execution-plan limitation, an unsupported query, or a SQL fragment; runnable behavior is covered by the adjacent ORM CodeGroup.",
-    "sha256": "f971fd8bb5b4609798c160c3a663055fd12ee5fe836ea3f75ce46a05cf28af05"
-  },
-  "reference/full-text/top-k.mdx::fence-025": {
-    "mode": "sql",
-    "reason": "Execute the JSON sorting query after its documented expression index, without a planner warning.",
-    "setup": [
-      "reference/full-text/top-k.mdx::fence-024"
-    ],
-    "sha256": "3ec1a024f06b16f132d56fdfb7129369487fcd8b241485f4514061c596c5adbd"
-  },
-  "reference/hybrid/rrf.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Illustrates an execution-plan limitation, an unsupported query, or a SQL fragment; runnable behavior is covered by the adjacent ORM CodeGroup.",
-    "sha256": "f7d8850178e0c2e2398089653f723c2022356835554e9379cabb3541d1d386f8"
-  },
-  "reference/hybrid/rrf.mdx::fence-010": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "925fd4cf677e4beb9b3a8e8e552cc0d702adeeba765e54d58a1544eace8d0a98"
-  },
-  "reference/indexing/create-index.mdx::fence-025": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "4e633b3ed3fabffbfc6b1714d556404f9d7e8b89373a835b68584eee19a5e0cf"
-  },
-  "reference/indexing/faster-bm25-queries.mdx::fence-007": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "f1ff8b13de733ab8399996915f49ab2425895f568135f1ad18d0760ed7b31292"
-  },
-  "reference/indexing/indexing-arrays.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "a53c59e4fcb1fb2d089ecb0717bd8ed7af87f657b0ab4c21a5930359a429d7c5"
-  },
-  "reference/indexing/indexing-arrays.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "b7f546e2d477cd006794004ab8b9ee22cc93725b905d4a418eed3c3c580d1b86"
-  },
-  "reference/indexing/indexing-composite.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Illustrates an execution-plan limitation, an unsupported query, or a SQL fragment; runnable behavior is covered by the adjacent ORM CodeGroup.",
-    "sha256": "3ff0eceda7cb4740a76765662103386f6b32ff5cbb5b6b5f7b987e8921576525"
-  },
-  "reference/indexing/indexing-composite.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Requires the custom composite types defined earlier on this page; ordinary whole-row examples are covered by CodeGroups.",
-    "sha256": "2f77d66bad8f6bf96fbf59ea90174fadf8b6dc9e04d8c72f683cde433f715b42"
-  },
-  "reference/indexing/indexing-composite.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Requires the custom composite types defined earlier on this page; ordinary whole-row examples are covered by CodeGroups.",
-    "sha256": "6537a1157cc9ac7a69cfd124868b1b32101d1a36b372958b646a5582e9a12456"
-  },
-  "reference/indexing/indexing-composite.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Illustrates an execution-plan limitation, an unsupported query, or a SQL fragment; runnable behavior is covered by the adjacent ORM CodeGroup.",
-    "sha256": "3b8be6bfbc1cbaecb130f779b294ef89388ff4ef2cb9d2247a64d71994c8770e"
-  },
-  "reference/indexing/indexing-expressions.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Depends on the preceding custom expression/partial index and illustrates planner behavior; the corresponding runnable index definition is tested in its CodeGroup.",
-    "sha256": "d5d86ea0ddfbafd00c411d16d3b4ec8ffd6a286249251d34dfef816d178b96ad"
-  },
-  "reference/indexing/indexing-expressions.mdx::fence-014": {
-    "mode": "skip",
-    "reason": "Depends on the preceding custom expression/partial index and illustrates planner behavior; the corresponding runnable index definition is tested in its CodeGroup.",
-    "sha256": "b719f69cf5653f8ba750810b497ecb1b9f7343c2b6ac6bfc1b115eeeeb0417cc"
-  },
-  "reference/indexing/indexing-partial.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Depends on the preceding custom expression/partial index and illustrates planner behavior; the corresponding runnable index definition is tested in its CodeGroup.",
-    "sha256": "3ad111a976ba2bb4cbcca8bd66597520783e026fa1fd934d470cc5d781f739b5"
-  },
-  "reference/indexing/indexing-partial.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Depends on the preceding custom expression/partial index and illustrates planner behavior; the corresponding runnable index definition is tested in its CodeGroup.",
-    "sha256": "82e62b73b8e7a2ac809760a9c466633b4428b7b1ff39417b3741e446bf4ee4aa"
-  },
-  "reference/indexing/indexing-vectors.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "7415067b1ac5cfa7d3619a8d3732708b4a0a1d4836dda17547863dd3df81fbde"
-  },
-  "reference/indexing/indexing-vectors.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "da88a18a1c0b35e30f651e7ef2321f9500c42cbf133571579bd7c4f8584e328b"
-  },
-  "reference/indexing/indexing-vectors.mdx::fence-009": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "0f9bee7fa2463459d7eeeddb67f0c76e0e5f2e5b2b4083f343a864e359864685"
-  },
-  "reference/indexing/indexing-vectors.mdx::fence-010": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "eed74cfb4dc23a8d63364bbf14902c4ca6e704536971f4f3ff1ac03b5ea9da01"
-  },
-  "reference/indexing/indexing-vectors.mdx::fence-011": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "7231ff621a4a6331838f2bb0f3eb7ff4c6d27cd18bbee4bc5e4edb00ef4a3e99"
-  },
-  "reference/indexing/indexing-vectors.mdx::fence-012": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "ee41a707745850847ae4901f2eb4416ced2e4dcf70b7ae9de579e1880d8fae39"
-  },
-  "reference/indexing/partition-by.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "5b50fbf20784a60b3e3564089a64a7db33bbd128fd768a6e56ee0e9efb71a978"
-  },
-  "reference/indexing/partition-by.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "b8d44dbb1dfe7d270e33d468d4ac10d5dbe4b9f76219ecd46fd199d426fd9e38"
-  },
-  "reference/joins/overview.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"
-  },
-  "reference/joins/overview.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "db9a4bd591e0dd34478b582d68b7ee1b2a06af6176f16ff2017bb8da0e756db9"
-  },
-  "reference/joins/overview.mdx::fence-004": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "e7c765381c24f9a9cd09ab3b825e3ad0f5e2812bf6bf74c007110a1d92c3d3c8"
-  },
-  "reference/joins/overview.mdx::fence-007": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "107ad2b95a4c62357c23d577971e2648571a165132f869aa2b19f48b9127ef48"
-  },
-  "reference/joins/overview.mdx::fence-010": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "304dada5f0514167f47da22adf5295f9d9aab40429c556944f52d6f710ea953a"
-  },
-  "reference/joins/overview.mdx::fence-013": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "ec955e6fa07f3541b259df926b5109040159a001aa4f79ed1a44d9d733ef7e9c"
-  },
-  "reference/joins/overview.mdx::fence-016": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "e98fe2cff29966d27a72d571ae7d53bf9b0b272424dbc73b13858936d3ce9879"
-  },
-  "reference/joins/overview.mdx::fence-019": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "745d0579bdbcee00515954a6651063c0d1c822dc309bbb3d9573e4288df9c742"
-  },
-  "reference/operators-and-functions.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "fb01b6d07648149412d058fcd464889e4ed69145899ffc14c7e52a5d3c73bc39"
-  },
-  "reference/operators-and-functions.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "1b562ddc2186ca8c3c76912ee1025e00760e8774d101a0fc2deed60f184f01b8"
-  },
-  "reference/operators-and-functions.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "6b3bce2d2ad18f9650347cfb6df27cbf733114415fdfe97c7f88c872e42fe136"
-  },
-  "reference/operators-and-functions.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "7412a943e4dc0470f4db372af70f6e55cdf573aeb54e7f19168940bb093d8ee7"
-  },
-  "reference/operators-and-functions.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "a9f5f162b51beb30438bb7a326a6f7ff56903ba898f844a58fee2d4533f6ab28"
-  },
-  "reference/sharding/citus.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "119d34cf8d929909300bb8d7ae7101e9d5a6bf62b1b3855068ad38091bd74838"
-  },
-  "reference/sharding/citus.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "f07f0f10774921a2ce312f78bc1f5351f24f77aff00b3c043ee0943e3416ede7"
-  },
-  "reference/sharding/citus.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "40d3e3e4f3fe18e4b38d686ba3e90d65c3a535aaafcd0cffd6da4d69805bc778"
-  },
-  "reference/sharding/citus.mdx::fence-005": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "df3d9318d3f16a859ba3ddd46d375a6eb20fe6788c1f36fa3f53d6b8df2b3c84"
-  },
-  "reference/sharding/citus.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "b4c6d691ed42cfd4ed1d2b940efd6da47e277c2ccadb98546b2672ada333ef68"
-  },
-  "reference/token-filters/alphanumeric.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "36341111c113ec7cf762b79d9fdd3e08b6c6717c627e85fa8320b020eeb482c4"
-  },
-  "reference/token-filters/alphanumeric.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "18cfbbe290418bccf0f7755fe82743a7a2d10ce845dcce72f75a9d0df9d5b2bc"
-  },
-  "reference/token-filters/ascii-folding.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "1a6648f577c6f62108bbd99f0b2d15eca450f98c892ab49d99580adfd87c9cfb"
-  },
-  "reference/token-filters/ascii-folding.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "5f4652720536cceba42b1c6b211fc9cecbf982c97ff34a303045168c311b197a"
-  },
-  "reference/token-filters/lowercase.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "ebe35b1df967daefe2c6c501433740a35cc083f746b77e4e93e4d168e39e0c5a"
-  },
-  "reference/token-filters/lowercase.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "9d4dd7b72555e0a2a5b954b15750309d6a76e5c4019f525a537bdcbe70cccd7b"
-  },
-  "reference/token-filters/overview.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "0dc1f976260083dd928a9115db5df78d39827098b87ffd24b111c94ddc011b45"
-  },
-  "reference/token-filters/stemming.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "49b13e27645954cdfd3eaf37e44d11364b0470cbff48bbea5609834f0efddeb9"
-  },
-  "reference/token-filters/stemming.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "e656171be82b86fdc07a670a506617a619099614d733525b15dd408e5a358529"
-  },
-  "reference/token-filters/stopwords.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "c3041c1132b9ee868e647bef407d70e34300b720097e09cce77c26a61125e6c4"
-  },
-  "reference/token-filters/stopwords.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "e01d07d7776f38f08baa9abcb85ce41a6a6966b4e4ac6e9846fa486dc8262047"
-  },
-  "reference/token-filters/stopwords.mdx::fence-003": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "9debfe3a0a291f271ef22c3161304a0924ac6b06ea8d2423e94099b54dd3718b"
-  },
-  "reference/token-filters/stopwords.mdx::fence-005": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "e2223f600b6e664922b78108261b60cc4d0e2ecc5c751e890461af271ad9c49b"
-  },
-  "reference/token-filters/token-length.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "6a94117d99362eb1e08e5d7a936fb392b966ab35708cc2a17603cee38a70cee9"
-  },
-  "reference/token-filters/token-length.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "2299f2393592f82e88a8edfa77e40101befafeac047bd07b0312cce7a4a953e9"
-  },
-  "reference/token-filters/token-length.mdx::fence-003": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "643cb4ffff62c8a1c2386f200560865efc2ab43be43607e101d60d5a3dc8bf2f"
-  },
-  "reference/token-filters/trim.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "50cba390b30416d1a1e80800c8e49b7bbe948fd4a6a84cfe9df9f68484413599"
-  },
-  "reference/token-filters/trim.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "05dc4778c155a5481042a7cf09946e999f800c698f0ce8426fbbabff33744d37"
-  },
-  "reference/tokenizers/available-tokenizers/chinese-compatible.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "87e727d156c0d45eb9d62582ed23b60506b72cd805cac6603dd8b61afc6e791c"
-  },
-  "reference/tokenizers/available-tokenizers/chinese-compatible.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "911db23409ba60ef533a46197c757f69e3c108715812192cb5a8052d4849746f"
-  },
-  "reference/tokenizers/available-tokenizers/edge-ngrams.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "001baea5d9f44a2162cc9a9b15bfb9aaff968649b9c920cd2d4c7f722aacc373"
-  },
-  "reference/tokenizers/available-tokenizers/edge-ngrams.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "70c4d834336082ccf9da0e4ab790cf297bf80709c544f5ec5ce66fc96dfcd151"
-  },
-  "reference/tokenizers/available-tokenizers/edge-ngrams.mdx::fence-004": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "0bac220f8c116b875e49aac13e03599ff11f01c8ef4def3fe1a363faff9ff3a2"
-  },
-  "reference/tokenizers/available-tokenizers/icu.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "aab1fba2823284c195de37e719b3ad41b39519f08dd662e9dd14d9b92eda86c7"
-  },
-  "reference/tokenizers/available-tokenizers/icu.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "1df5aa87bb0e04f6d5af4348a6ebb482aa23046893e82b4762015a28728eb60e"
-  },
-  "reference/tokenizers/available-tokenizers/jieba.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "df1c2efd0e625cf410d078139280b7191ef102cd0208a2a28fbd6b811f407a10"
-  },
-  "reference/tokenizers/available-tokenizers/jieba.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "29f3a73d2736871aa4eadcb749286e8c4aee94087376bea2e17e48a5e8bd608b"
-  },
-  "reference/tokenizers/available-tokenizers/jieba.mdx::fence-004": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "ce26828d092efa761b858724900ca6c73d9c608109f066428f49993436859de7"
-  },
-  "reference/tokenizers/available-tokenizers/jieba.mdx::fence-006": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "6a866a68ecd4f895db4f6c1a70275bb632a12e6a7dd6ab56051a1f8cb05abaa3"
-  },
-  "reference/tokenizers/available-tokenizers/lindera.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run each language-specific Lindera index independently, avoiding duplicate SQL fence overwrite.",
-    "sha256": "3ec0c82a428e239a75c8b2eee9e7d3edee596a865dd8f8fcdd4a061fd967452a"
-  },
-  "reference/tokenizers/available-tokenizers/lindera.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run each language-specific Lindera index independently, avoiding duplicate SQL fence overwrite.",
-    "sha256": "1d2a2b2597b2a412f3cd0df28582bad00108d28bccadd58950355674add652e0"
-  },
-  "reference/tokenizers/available-tokenizers/lindera.mdx::fence-003": {
-    "mode": "sql",
-    "reason": "Run each language-specific Lindera index independently, avoiding duplicate SQL fence overwrite.",
-    "sha256": "b054d0ffa9e55da55647d8c4e13a0442c1c66e1f55ab94ed3598bac1a507a17d"
-  },
-  "reference/tokenizers/available-tokenizers/lindera.mdx::fence-004": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "136c181bb586d3da487328130d30d22494bf8d56338522b6fbc7a92a5cd0b410"
-  },
-  "reference/tokenizers/available-tokenizers/lindera.mdx::fence-006": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "b3c6126490b13282a9494ad439d3d26cbd2ae69bf60a1d2ddf8b19b1761e004b"
-  },
-  "reference/tokenizers/available-tokenizers/lindera.mdx::fence-008": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "e016a7791c1cf1af9ba53a27f52d0be25ecab8396eb482dd65ac49b65ee3f278"
-  },
-  "reference/tokenizers/available-tokenizers/lindera.mdx::fence-010": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "bdc2358decf7b61059dabfb094ef2f3acc38571ea4594151fb743a8479bda8fd"
-  },
-  "reference/tokenizers/available-tokenizers/literal-normalized.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "a07f63d7009312eaa25faa826269493d786f4ed3cf7d34bb7ab47646b8b67698"
-  },
-  "reference/tokenizers/available-tokenizers/literal-normalized.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "484378737eb9d09e66fce91b0f68df0be038db3604afe96a8f981a43a9b61f2f"
-  },
-  "reference/tokenizers/available-tokenizers/literal.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "5477238cc8cd67a479012af5e48880d4a001bff254fa3c9cb382e9ac3cf3dc85"
-  },
-  "reference/tokenizers/available-tokenizers/literal.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "99aa70aec985b314945ad8ab91a48423a505a8465b68d98ad9ba103c2f8f0c11"
-  },
-  "reference/tokenizers/available-tokenizers/ngrams.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "4c51b5d07c31eb181d9e8792215f8ac5e095f12cb9c92a74bfb4e837fbf45729"
-  },
-  "reference/tokenizers/available-tokenizers/ngrams.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "4302827159a2812d66309ab43fa21bbecc1b4d49076329fe2ae7cca2923b2685"
-  },
-  "reference/tokenizers/available-tokenizers/ngrams.mdx::fence-004": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "c1521c2a969afcb8143a29b0ecb7513189d5a31311507b141041d521169d263a"
-  },
-  "reference/tokenizers/available-tokenizers/ngrams.mdx::fence-006": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "12409e36da33a770a20f766dafaa1853671195826bd6629980a451380e26909f"
-  },
-  "reference/tokenizers/available-tokenizers/ngrams.mdx::fence-007": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "fe994273fb63f7d1b98f228cf0a60c083b9ac554bba5c6a21b0107c0cc8f6294"
-  },
-  "reference/tokenizers/available-tokenizers/regex.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "f8fb1f756b6c9b51ac7866748807f347d90afb246484a2194fd011465a8a2fa1"
-  },
-  "reference/tokenizers/available-tokenizers/regex.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "e7f25bc93e6509d60545ec5961f8a2f219b72641c41e9ab302fee5793c7faa9e"
-  },
-  "reference/tokenizers/available-tokenizers/simple.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "5dc6d2f755df288b349d38dcd16c38f153f4f3303ccd667c34a571b78e272496"
-  },
-  "reference/tokenizers/available-tokenizers/simple.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "adee7f0b0bf657460154d83c3cca3c264217532bc638555ebb3a152d6d5b7f94"
-  },
-  "reference/tokenizers/available-tokenizers/source-code.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "f7ae70a5fe8ee632c5352bc2bce531b0da34eab0ffd1bef5f989fa03b004d12a"
-  },
-  "reference/tokenizers/available-tokenizers/source-code.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "16351b748ec31915fe9047e24debf8bb2d320a8d3044ed1cf4b199765cc9feed"
-  },
-  "reference/tokenizers/available-tokenizers/unicode.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "8a41750967dc0877e99d862921efde25bee4971c7fad56a57b8adb051cb1e37b"
-  },
-  "reference/tokenizers/available-tokenizers/unicode.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "8a975e31a99eda71f7502fa16340cc4acfa0be966c2abd089828aa59086847c9"
-  },
-  "reference/tokenizers/available-tokenizers/unicode.mdx::fence-003": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "bccd59e31650de07a3ebf4d2cc9681107fca3676c810781adceb51a5fb111712"
-  },
-  "reference/tokenizers/available-tokenizers/unicode.mdx::fence-005": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "ec9cd966723c851fbf6bad5c23a78de46a2e884ae5c971c1d56bd74c8d803084"
-  },
-  "reference/tokenizers/available-tokenizers/whitespace.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "8d7f352e59bd3edb3cd2b083674574fd43d46503aa1533a5c62336033fa3e1e1"
-  },
-  "reference/tokenizers/available-tokenizers/whitespace.mdx::fence-002": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "a4273be6cbdf2dccb7b2542aed20608040732b1bb06a8fd109f0dd0323baed5a"
-  },
-  "reference/tokenizers/multiple-per-field.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "20920de8acf460b53f602ce596b338774b856bae718e7e0ebb3a2503a0c24e73"
-  },
-  "reference/tokenizers/multiple-per-field.mdx::fence-008": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "0c2c9febc5d08f5683c197996adb99515e991a89c0ed8091881f99a61ea5f6ab"
-  },
-  "reference/tokenizers/overview.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "64121ac0595e5e39385930143343d3fa1b6a4558906f64f842ba9cedd0d4026c"
-  },
-  "reference/tokenizers/overview.mdx::fence-003": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "ea184d476d2f202bf0d41c9179103280d60675f8b24a28e117492ac8fd50703b"
-  },
-  "reference/tokenizers/overview.mdx::fence-005": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "4c51b5d07c31eb181d9e8792215f8ac5e095f12cb9c92a74bfb4e837fbf45729"
-  },
-  "reference/tokenizers/search-tokenizer.mdx::fence-007": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "817c8172b71382d726500c7f5628646309b9dd911c16d6eca5f623b2f6716110"
-  },
-  "reference/tokenizers/search-tokenizer.mdx::fence-008": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "a1398fa6d1f407b9330b4ec27e49993eb5fa15c968eafa1a255874981f5b18c9"
-  },
-  "reference/tokenizers/search-tokenizer.mdx::fence-009": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "e8d01258b33128ac1f6884621f5c076f1ba6987826394b55940f4832db8f1230"
-  },
-  "reference/vector/querying.mdx::fence-019": {
-    "mode": "skip",
-    "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
-    "sha256": "c74f2266a26fddadb0860e18a6c60ca5bf983f17831b849c8bca515d6476a476"
-  },
-  "reference/vector/tuning.mdx::fence-001": {
-    "mode": "sql",
-    "reason": "Run against isolated demo tables and indexes; fail on SQL errors or planner warnings.",
-    "sha256": "03bdc16b930ea32b2b410f74b00884a3660669bb8ab1c8ee1adfd46a8511d42d"
-  },
-  "start/ai-agents.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "a0930f4ee4bbbfd0ad4b4f001ddd60fe62f60e7eebae3b3656e7497c0183fcd5"
-  },
-  "start/configure-your-environment.mdx::fence-001": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "060730a3e65545b3045523a111ed4ec29e754262f8d0251a96508e7dbbf0c7d6"
-  },
-  "start/configure-your-environment.mdx::fence-002": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "8f83fd2c52247706f95766a49d3595267ad521e8753a7a06b723dd56fbe68a96"
-  },
-  "start/configure-your-environment.mdx::fence-004": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "28140f4b015274cdf1bb8c7b8ef68ce6972d2433463826a0d80da887f0dcc928"
-  },
-  "start/configure-your-environment.mdx::fence-005": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "4a606515e512e2ba6f6604162ffbf4866832e93d004d5cc8b951527b70d6fdf2"
-  },
-  "start/configure-your-environment.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Interactive REPL launcher or alternative ASP.NET host fragment; console setup and inner commands run headlessly in the getting-started scenario.",
-    "sha256": "f298ed44f67b43039c9f6a403f0caf46156824dc593c1a64c41eedef67ca49b3"
-  },
-  "start/configure-your-environment.mdx::fence-007": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "1a305cfb842cf70d0be7443816fb7031516d897ea3cd23c1d73b7fd925b72f28"
-  },
-  "start/configure-your-environment.mdx::fence-008": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "8656660626e588ac8e8d12861a24f9875459a1edac802b0e2bd3d71a97285521"
-  },
-  "start/configure-your-environment.mdx::fence-010": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "a27e798eb7c841039201417dd4e5fbf12bd0a66f8ed8f73c91fc5d09ce04ef4f"
-  },
-  "start/configure-your-environment.mdx::fence-011": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "03800651e616aca3bb03ff2307ea741156b42f2096720106044afbe12f60877b"
-  },
-  "start/configure-your-environment.mdx::fence-012": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "caba711a2e6b4acd4c1b9bb7b046ce497e60edfb2f9981e6558a14299bcad0f0"
-  },
-  "start/configure-your-environment.mdx::fence-013": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "fafc27f69e4f7391117fc66b053b9ad3615c10a0a316386e6a74f387e7a58511"
-  },
-  "start/configure-your-environment.mdx::fence-014": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "940cf9a65edfadb5accf3e8fad8225b6fddca965ba3e04c2a4c1ac5600d16224"
-  },
-  "start/configure-your-environment.mdx::fence-015": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "b94d796e35ea2f3aef98c26f1872587a92b0273d5c8147bab622fc1753f6a2c3"
-  },
-  "start/configure-your-environment.mdx::fence-016": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "d5ba62b9dfe461168a8086e865bc820aab6191723a46fa6af360c8e36800aa6d"
-  },
-  "start/configure-your-environment.mdx::fence-018": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "cc15dd8cc14c1a3d50aa78ad7e695f052450a1374e1b4f9987f4240b2070b6d7"
-  },
-  "start/configure-your-environment.mdx::fence-019": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "9a78d3c4cb33e9c72e871ebe01653b86bc85dd32e7535855712c53e80142ff0c"
-  },
-  "start/configure-your-environment.mdx::fence-020": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "73a3b671fe5e14ac002827f1748e35a85c4656c264b17a18d0fc69a3abe8128d"
-  },
-  "start/configure-your-environment.mdx::fence-021": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "561eeb62a423d391afa64180e0c4eb44e20b0d007edfb202a3b47e1ff6027021"
-  },
-  "start/configure-your-environment.mdx::fence-022": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "ecddddb50fc78ba7a233f985357769c98344eda0a9dcfb282be2572eb19dec5b"
-  },
-  "start/configure-your-environment.mdx::fence-023": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "734eb1616bf16c900f06f1f3fc5bc5bee7607e2bdb55d1b86b17ddcf68ab1453"
-  },
-  "start/configure-your-environment.mdx::fence-024": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "a7ed2a88b1bceca9d89958d53cf7f6a00b864346e19e910cba663bf99e97faf0"
-  },
-  "start/configure-your-environment.mdx::fence-025": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "5284f0a915d7be67e391d674d3047db9c1a45d9e2b6a67a5cf19ed071d75ebb4"
-  },
-  "start/configure-your-environment.mdx::fence-026": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "2d83e1d43ecc8a4f5dbd0e62b8ebff7c64ef2803c8d00783e883df8327c62ee8"
-  },
-  "start/configure-your-environment.mdx::fence-027": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "eca4cab4953f2678c573d83a1bd2b24cebc54493c3d0dc1fd46a2d8e186256bb"
-  },
-  "start/configure-your-environment.mdx::fence-028": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "7d0d98f40b5194d59b6595901965863c6d0fafe14b6a96cdc29ba0335cf5af97"
-  },
-  "start/configure-your-environment.mdx::fence-029": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "cde793d403b3fdb0efaa030997152e75fe6c6d6ea09b8e7e4c47cf6dafe25bd5"
-  },
-  "start/configure-your-environment.mdx::fence-030": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "70ce21997fd1bfd269edfcc3a3c35121251f9584107d355f0bf4a0ff0d065f95"
-  },
-  "start/configure-your-environment.mdx::fence-031": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "462182370abe0e375b9518362af9f820986998375f83160c8af4bc833c2bf5f8"
-  },
-  "start/configure-your-environment.mdx::fence-032": {
-    "mode": "skip",
-    "reason": "Interactive REPL launcher or alternative ASP.NET host fragment; console setup and inner commands run headlessly in the getting-started scenario.",
-    "sha256": "34432fbe99ec1f8216d501a12691976a6524dcf76e5729df4fc452997640c989"
-  },
-  "start/configure-your-environment.mdx::fence-033": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "46a1fd3ffc555bbd705e4d40f459c928bcdbea2bcbce1b54f5e4091d6eda3e7e"
-  },
-  "start/configure-your-environment.mdx::fence-034": {
-    "mode": "skip",
-    "reason": "Interactive REPL launcher or alternative ASP.NET host fragment; console setup and inner commands run headlessly in the getting-started scenario.",
-    "sha256": "b0a512c838bec9edc67969cdb6a5ec60f1c9c58115766b945e675ae18c85c2a9"
-  },
-  "start/configure-your-environment.mdx::fence-035": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "cad2d64cca75dca7c29dbf3652272fbc8b660a702a692abff59fb5a414652efe"
-  },
-  "start/configure-your-environment.mdx::fence-036": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "db760f70165b66371c0e3f079f843748f23aac1b351db3babd6a9854c1e38a60"
-  },
-  "start/configure-your-environment.mdx::fence-037": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "e6c5ea722a46fd1340fd4c909f978db66c49fd525048dad70f4305acecc4b50b"
-  },
-  "start/configure-your-environment.mdx::fence-038": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "6f23af095abb3e16b4c9d135de7ab2875f33fa2c89f1a9f657c7a6dc3b9ee2f8"
-  },
-  "start/configure-your-environment.mdx::fence-039": {
-    "mode": "setup",
-    "reason": "Executed by the per-framework getting-started scenario, with documented file and migration insertion points.",
-    "sha256": "1156b95ef4fa7830c1ef152daf5f399ddebae331bae45fe8ad3948df7be9b812"
-  },
-  "start/install.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "b0793d393942d17e39dd486ac5cfa4b8fdd94a1fd90000d3841c25c159c67b12"
-  },
-  "start/install.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "7e59ecbfe7fe278d1650202991162456a9d85874269a86681fb642408dc7d801"
-  },
-  "start/install.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "850848e7c1ab0cb3499732bba7aed9981153007a8dc3aeebf8bb915836035f15"
-  },
-  "start/install.mdx::fence-004": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "57ca651f7c063c6b3e6010f291a5ee73c09555160c8d95a8488f299140c2890b"
-  },
-  "start/install.mdx::fence-006": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "8dff0a1ee89f7d418affaec43a5ce26655660da7a354748cbf44fa5c7361228f"
-  },
-  "start/load-data.mdx::fence-001": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "8a836858cfcfee6002c362533a8401a2582216b6bdae4db05d9890f9e4169c4e"
-  },
-  "start/load-data.mdx::fence-002": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "d56a14d5ba46069ed20c7a1f7079fd24b0971cdbc727e437384e7d1734525e19"
-  },
-  "start/load-data.mdx::fence-003": {
-    "mode": "skip",
-    "reason": "Operational example requires the deployment or administration environment described on this page.",
-    "sha256": "8f7a822efcd4fcc48a03c71ad590d5ca518c23545d10924898bb65b9e2154500"
+  "skips": [
+    {
+      "reason": "Operational example requires the deployment or administration environment described on this page.",
+      "fences": [
+        ["concepts/architecture.mdx::fence-001", "3ad111a976ba2bb4cbcca8bd66597520783e026fa1fd934d470cc5d781f739b5"],
+        ["concepts/architecture.mdx::fence-002", "a93296d2eb0ded9f7cc246b424d6e4484b37e2c2eaa7ce3024471adad9376f5d"],
+        ["concepts/architecture.mdx::fence-003", "7ebf59a945e5d8fe7b1d48c4de56b98d501c52a40412fb30c8fd6d37c2a790a9"],
+        ["operate/deploy/ci/github-actions.mdx::fence-001", "f3c514322de0d14016296b063010323dbeb964b07e183535e050fd944253b41f"],
+        ["operate/deploy/ci/gitlab-pipelines.mdx::fence-001", "bd3bd00494e3683a611599cfc304a5dcf6218bd57a9a04c941a92202d2eb46d1"],
+        ["operate/deploy/cloud-platforms/digitalocean.mdx::fence-001", "b11861a9d1d54e2cabd2e008b1e4832780acd36850fcd15baf9d8581d2895740"],
+        ["operate/deploy/cloud-platforms/digitalocean.mdx::fence-002", "9a1101beb7b2a909f5dff3634b404c7ab3a08561b6e26fa409fde98c3be24431"],
+        ["operate/deploy/cloud-platforms/digitalocean.mdx::fence-003", "7685de7376020511c3e35da99436c554bdca8ae832e7541693f2fb090ddaa30c"],
+        ["operate/deploy/cloud-platforms/digitalocean.mdx::fence-004", "7f5cfde567b9f7639e1a779f1133b3598b9590ff6e8921cd5eb6f3c2e79ba502"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-001", "d780e6253d09925467e3fc88822a213c6600401dccf555c4b7329e0d801875ca"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-002", "1025bb5f00c97476d37243e4f855e4fbc5f400825119f25371a44d18cffa5f0c"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-003", "f760a0ce5e2843dce14170d96e53f71537362fb370539a344df2c20945af86c9"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-004", "029899ba7d498c84d358605df6a296e1b15058f94aba66a99f18785a93bc7e30"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-005", "8a44870cf539075e603d70c45ece96789efba5c9cda2f771850bee69518b8fea"],
+        ["operate/deploy/cloud-platforms/dokku.mdx::fence-006", "b57cdd1f4f91c037b0fba7694767d74090c2ec9be47a484569ba79cca21e1a0c"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-001", "7ae9c0ab795d8d2423c1483d9a26c800a328a23e3383a724d4f779b0e38e3719"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-002", "40cd1d128ad0baa94e08203bb4d08b8d3855bba68c1ed57f5cb8f873a33d5b09"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-003", "e106e4f8cb6c30a56151e265356b905f1c4ece81359efed06fe053d303974d8f"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-005", "196a2f3c4f6879de5e67410947274ab5640892b687a22e10396d957f666c437e"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-006", "883d3c6d6f9bd235c67f8e2fe6df2bc55097b3554371691133b8f9b8489503ad"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-007", "ce6808b51c1f1c172add69f0ccbfb3ba95ec26031a16f4ad28cea27fc0cf2b71"],
+        ["operate/deploy/cloud-platforms/fly.mdx::fence-008", "e0551c2da8274ce0d4f1e411f88392ae3b22978487d1823d5bf0901327214cd4"],
+        ["operate/deploy/cloud-platforms/railway.mdx::fence-001", "5d093ec68c348ee9b5f54072234612478d7084156d68aa70fc285366a99bc76d"],
+        ["operate/deploy/cloud-platforms/railway.mdx::fence-002", "06d7fe9601719a9a855d73903260bb67e919b526a223390e90e6a33ef2680fc3"],
+        ["operate/deploy/cloud-platforms/render.mdx::fence-001", "dbc6f3a2db69397661a66a06ef4cfbd2ff6bdcb0042b454d5fc1b5f59ff628b4"],
+        ["operate/deploy/cloud-platforms/render.mdx::fence-002", "d7b6d1c2101a983818f49c63a6c86ffd42be8661d1011b54975ad02b3c617e2e"],
+        ["operate/deploy/logical-replication/bootstrapping.mdx::fence-001", "c6043f331f009660aa4a0fb8759c4c2f593debcc0204ae0196686fe2b7c5439c"],
+        ["operate/deploy/logical-replication/bootstrapping.mdx::fence-002", "ef1925a59f7423296f0d16adfcfb018e33a4329b2d693167ae516c10d68f045c"],
+        ["operate/deploy/logical-replication/bootstrapping.mdx::fence-003", "a04a6508e444779c5f13bf347abd456d924792db07422b37e7f90b4623ea12e0"],
+        ["operate/deploy/logical-replication/bootstrapping.mdx::fence-004", "dd3317b52de2b2857e346d7ca081f25b8862d4052d032d43ab18f26b3498c836"],
+        ["operate/deploy/logical-replication/configuration.mdx::fence-001", "58abbfc3927c43c2a74e5f2ce959322c2036a45a7eba1594bec8f161935bc3f0"],
+        ["operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-001", "65067eb9611a96f91d36dea31ac535dfb96475654cde86edcc4847028d186229"],
+        ["operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-002", "5a7a0c5fc1382eb779164a1cc5174e4871665c2725ec36cd218eac61930bfbc3"],
+        ["operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-006", "00e6b019e3f6e706d633c4014ce2a242b474217920b05ad23fdd10f02970d8b1"],
+        ["operate/deploy/logical-replication/monitoring-and-troubleshooting.mdx::fence-007", "98ba3409e30d1c38991682e66fc169423ddbede3dce853af8b66da64b87e43ce"],
+        ["operate/deploy/logical-replication/multi-database.mdx::fence-003", "989f6eb297703757a300b08e956ffaf50ee273188a1602edcc0a3160d3181dc6"],
+        ["operate/deploy/logical-replication/multi-database.mdx::fence-004", "300d5837213f775185c2057059586939139b9532066b73fd136fa18c0ac036d7"],
+        ["operate/deploy/logical-replication/multi-database.mdx::fence-005", "18fff10c766f7bd80bdecbb8330c8b6178638c6241f3963e5838777f2c9712e1"],
+        ["operate/deploy/logical-replication/multi-database.mdx::fence-006", "037f547986009278372d13756fdbfb0f719d9c4ea527f5563d259642ab0a5a46"],
+        ["operate/deploy/logical-replication/schema-changes.mdx::fence-001", "ab1f5c464eaec68e3d18a831ba9609cab3b71871dc4a9c072cb6b59dcbe0fe3c"],
+        ["operate/deploy/logical-replication/schema-changes.mdx::fence-002", "521a7d3adabd1cfd65b62e481ef4864b709a5549a37f3430e0154c5a90896c86"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-001", "95c6aa5fde0e3a7f83c5011cf9e6fe55b599bc4b5fc0732aa72bc9d0ee11be57"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-002", "ac83fef00a86cece0261055355a6918ddfedf3c0738275451751f977f080dfe1"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-003", "b7b0b16b93c7971bae4172ae04bc270cdacf3a7212f0e4c82932f07bf3831143"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-004", "37b88a46fd30727298ed7571fdbc35c8a38d062fc5ebafd72f90b9066762d5d7"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-005", "1c08266b7f52b5b975e801a04745dde0bb6ec282cd39d097e2780be23689c4ab"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-006", "906aea60b05399bbb43f4f8cf861b97ddfc156429e9f61b88a3a86bb47d2d944"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-007", "07b873da290096ce98a02421342a0e46b94c57fc316de89cefc5b64ae9ca3011"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-008", "74775d0822a3a5bdf83ef959297ab9a077e8306dffb576f62ce06e3e283c271e"],
+        ["operate/deploy/self-hosted/extension.mdx::fence-010", "8dff0a1ee89f7d418affaec43a5ce26655660da7a354748cbf44fa5c7361228f"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-001", "15e1b106daba9b4bea0c2988ca7bcfc69f5d862a7dec9a808e39cb261d1b2f7d"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-002", "8864b31559f4eb0f5df5a7be057ec503a8ce8d6e3f8f411cc4a9c64b625de4ad"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-003", "597322e0c016233e6d092a1798be0cd9483743be3f826b7821dfecf8e3afe3e7"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-004", "d4fc02937d3c8c0f794ceed6f2451e6024b6f14ec95f6d3cbc19cc2e76c99254"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-005", "0fddf0a1116a681242409214cb469c424fddbbb9a76e584d3d30020f01f21dea"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-006", "594f82db9bda5607457961ce37605d8c44724daf7977814e1e2e432db97e295a"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-007", "754ebb5b80e8fc287adb5f2427804ebe00f4a95510de10523514f17b47e27ffa"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-008", "5eb0d037605bd31d91eb4ff3a9330bfd54813e30949a390fea52e2104e56563b"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-009", "1790a39e4b00ae3e9d326819f57d0a6e652892465b8821c8de451434cf0db9b8"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-010", "8864b31559f4eb0f5df5a7be057ec503a8ce8d6e3f8f411cc4a9c64b625de4ad"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-011", "d5fc9c41a1cc0ddb9af6dcb091bd749609ace742fc32d504760be6f2b51662bd"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-012", "deb806a4733304a3654e7ca6e655a0ceecda29ce3639a3b968f915908aa46567"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-013", "e56a4e1895eedc0fa9de8673df3b08d43a4815d2584b375280632e31514535a6"],
+        ["operate/deploy/self-hosted/kubernetes.mdx::fence-014", "fce9c0645f3006ea634f17917f5125c61aa6ef83f9d34ac3b776ed57f476e9e5"],
+        ["operate/deploy/upgrading.mdx::fence-001", "e98d19b1acf3d62583fa37f47bfb94d762bfe577aee7127ade49758cd548607f"],
+        ["operate/deploy/upgrading.mdx::fence-002", "b03f85ad20f6badf2768000e43650c41245c28dea45b35ae2395e5cbfa9523e4"],
+        ["operate/deploy/upgrading.mdx::fence-003", "94b6245ef8854fba0f2c2d73b231ddf0cd75f8fabc2eeda67c15c64041ca3e82"],
+        ["operate/deploy/upgrading.mdx::fence-004", "cd281e1c131031e6d9c3af044a0870a379df29e6e873c4275a8126185343c5b6"],
+        ["operate/deploy/upgrading.mdx::fence-005", "e165c5e24dd7cf44b1986819624738be599de92585a9d7628b1706e6242dac56"],
+        ["operate/deploy/upgrading.mdx::fence-006", "00bc6370bf49f3297ce8f5b504e3daedb023c5aec23bb093e90511103629cf57"],
+        ["operate/deploy/upgrading.mdx::fence-007", "eabc8571e7a48a1a80ef0a35c1a265b22d070c0f0c5dbee958b27cef6d953fb2"],
+        ["operate/deploy/upgrading.mdx::fence-008", "6c4959f07d34b8b9e41fc043b691583d2577f412004927e22730ded7afcd7c38"],
+        ["operate/index-maintenance/reindexing.mdx::fence-007", "7420838231a5cc6da646e7f6904b1044b4c9ce8839c7d25a198dd1bb175f2320"],
+        ["operate/index-maintenance/verify-index.mdx::fence-076", "9ac55bfdf32deac27a10a62ae0b869fb789616aad31fce0f3933a1d1bb32d8e7"],
+        ["operate/performance-tuning/create-index.mdx::fence-001", "a8d08276bffcad846790d2e812439cdd6bdad44c25c0557ff3848f372a0ca62b"],
+        ["operate/performance-tuning/create-index.mdx::fence-002", "a810174067c6c3b5392f5fb314e50806e75256ecebe2a5feafb0ebb7ade1010e"],
+        ["operate/performance-tuning/create-index.mdx::fence-003", "a2c1d06a8d1a0805b17963ed6e0597ac3eee0274a16fb4794503473eae96309c"],
+        ["operate/performance-tuning/overview.mdx::fence-001", "e16bce8eb44d5d2e637ae12511ad51ffee734a61dc768fd93d6866093eb670d7"],
+        ["operate/performance-tuning/overview.mdx::fence-002", "84e7fa753de7c41fa86de6d2c1d9a5787e3bfb2437b02d52bf41352df30b7c14"],
+        ["operate/performance-tuning/overview.mdx::fence-004", "d06371e728c3eb6c4a499033c3cd7ed1100fb82411340c816739fdec62c17e94"],
+        ["operate/performance-tuning/overview.mdx::fence-005", "cfa5bb4e07014aae0535735dff9e40838b318ceba680eb00452c4a1c6f09ff7b"],
+        ["operate/performance-tuning/reads.mdx::fence-004", "7b0c2057fad613dd40b4f451187ee0e9c9415399988710cb10d027a34ec499b6"],
+        ["operate/performance-tuning/reads.mdx::fence-005", "4775604b6f457f184f19212280123459a41501653fda64ceabcb6a08612391bc"],
+        ["operate/performance-tuning/reads.mdx::fence-006", "c5fae8639cd9cf711f2ccda9d4cfd30970e2e1d46f4eced70ba1885d3b3f0eda"],
+        ["operate/performance-tuning/reads.mdx::fence-007", "00c5860a1a5b44fb87ced1c5ecc4625a01171622ec1a7ebb1ecbdd613052d60e"],
+        ["operate/performance-tuning/writes.mdx::fence-001", "3f301a49b9d05d6a56a48a50480ef9dac550ad50c97ec37b0423d029ddf1ad97"],
+        ["operate/performance-tuning/writes.mdx::fence-002", "75f553b991c5a8af2766753b629e619bc51091620d31b8c09e7a498db4f4ff84"],
+        ["operate/performance-tuning/writes.mdx::fence-003", "2254c77e50f22da9bdb16c19eab659d171f6fc7085fd3ff075f298b780900766"],
+        ["operate/performance-tuning/writes.mdx::fence-004", "0a0bdda59477dce2d6e07b70dbf9013f225a4ca394d3902049cb7ec337bc5d83"],
+        ["operate/performance-tuning/writes.mdx::fence-005", "f01c97b3c06d1d89f83b5336834067834e48f5561e369c88b88653d551f2509a"],
+        ["operate/performance-tuning/writes.mdx::fence-006", "e98dc0ca2479f7e7afa1a33c71903dfddfb24a5dfc05682bfff481333359e27f"],
+        ["reference/indexing/indexing-vectors.mdx::fence-008", "da88a18a1c0b35e30f651e7ef2321f9500c42cbf133571579bd7c4f8584e328b"],
+        ["reference/indexing/indexing-vectors.mdx::fence-009", "0f9bee7fa2463459d7eeeddb67f0c76e0e5f2e5b2b4083f343a864e359864685"],
+        ["reference/indexing/indexing-vectors.mdx::fence-010", "eed74cfb4dc23a8d63364bbf14902c4ca6e704536971f4f3ff1ac03b5ea9da01"],
+        ["reference/indexing/indexing-vectors.mdx::fence-011", "7231ff621a4a6331838f2bb0f3eb7ff4c6d27cd18bbee4bc5e4edb00ef4a3e99"],
+        ["reference/indexing/indexing-vectors.mdx::fence-012", "ee41a707745850847ae4901f2eb4416ced2e4dcf70b7ae9de579e1880d8fae39"],
+        ["reference/sharding/citus.mdx::fence-001", "119d34cf8d929909300bb8d7ae7101e9d5a6bf62b1b3855068ad38091bd74838"],
+        ["start/ai-agents.mdx::fence-001", "a0930f4ee4bbbfd0ad4b4f001ddd60fe62f60e7eebae3b3656e7497c0183fcd5"],
+        ["start/install.mdx::fence-001", "b0793d393942d17e39dd486ac5cfa4b8fdd94a1fd90000d3841c25c159c67b12"],
+        ["start/install.mdx::fence-002", "7e59ecbfe7fe278d1650202991162456a9d85874269a86681fb642408dc7d801"],
+        ["start/install.mdx::fence-003", "850848e7c1ab0cb3499732bba7aed9981153007a8dc3aeebf8bb915836035f15"],
+        ["start/install.mdx::fence-004", "57ca651f7c063c6b3e6010f291a5ee73c09555160c8d95a8488f299140c2890b"],
+        ["start/install.mdx::fence-006", "8dff0a1ee89f7d418affaec43a5ce26655660da7a354748cbf44fa5c7361228f"],
+        ["start/load-data.mdx::fence-001", "8a836858cfcfee6002c362533a8401a2582216b6bdae4db05d9890f9e4169c4e"],
+        ["start/load-data.mdx::fence-002", "d56a14d5ba46069ed20c7a1f7079fd24b0971cdbc727e437384e7d1734525e19"],
+        ["start/load-data.mdx::fence-003", "8f7a822efcd4fcc48a03c71ad590d5ca518c23545d10924898bb65b9e2154500"]
+      ]
+    },
+    {
+      "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
+      "fences": [
+        ["reference/configuration.mdx::fence-002", "5c7934ebb6174a55bcec97efb9353ce6d4910d10723852dd69c4b7d15e210fd2"],
+        ["reference/full-text/match.mdx::fence-015", "4bf45207ccc14db6c92d7907b1d0aee1c83ee4b011cd5ca2a1fc71d4b4bbed23"],
+        ["reference/full-text/phrase.mdx::fence-001", "8d7db0ba81964840f29ec21781a090d662d531b080c6ac77d5628a12d083f745"],
+        ["reference/full-text/score.mdx::fence-013", "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"],
+        ["reference/full-text/score.mdx::fence-021", "af827f5c3ba0f9b9679eb99ae37e1f98838db75d0f8e83f813a1838be7e8428d"],
+        ["reference/full-text/top-k.mdx::fence-007", "58e614668b82d4bc3419a73563a6a246d43f82d7004be0984065ca2f6f5ad053"],
+        ["reference/hybrid/rrf.mdx::fence-010", "925fd4cf677e4beb9b3a8e8e552cc0d702adeeba765e54d58a1544eace8d0a98"],
+        ["reference/indexing/create-index.mdx::fence-025", "4e633b3ed3fabffbfc6b1714d556404f9d7e8b89373a835b68584eee19a5e0cf"],
+        ["reference/indexing/indexing-arrays.mdx::fence-001", "a53c59e4fcb1fb2d089ecb0717bd8ed7af87f657b0ab4c21a5930359a429d7c5"],
+        ["reference/indexing/indexing-arrays.mdx::fence-008", "b7f546e2d477cd006794004ab8b9ee22cc93725b905d4a418eed3c3c580d1b86"],
+        ["reference/indexing/indexing-vectors.mdx::fence-007", "7415067b1ac5cfa7d3619a8d3732708b4a0a1d4836dda17547863dd3df81fbde"],
+        ["reference/indexing/partition-by.mdx::fence-007", "5b50fbf20784a60b3e3564089a64a7db33bbd128fd768a6e56ee0e9efb71a978"],
+        ["reference/indexing/partition-by.mdx::fence-008", "b8d44dbb1dfe7d270e33d468d4ac10d5dbe4b9f76219ecd46fd199d426fd9e38"],
+        ["reference/joins/overview.mdx::fence-001", "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"],
+        ["reference/joins/overview.mdx::fence-002", "db9a4bd591e0dd34478b582d68b7ee1b2a06af6176f16ff2017bb8da0e756db9"],
+        ["reference/operators-and-functions.mdx::fence-003", "6b3bce2d2ad18f9650347cfb6df27cbf733114415fdfe97c7f88c872e42fe136"],
+        ["reference/operators-and-functions.mdx::fence-004", "7412a943e4dc0470f4db372af70f6e55cdf573aeb54e7f19168940bb093d8ee7"],
+        ["reference/operators-and-functions.mdx::fence-005", "a9f5f162b51beb30438bb7a326a6f7ff56903ba898f844a58fee2d4533f6ab28"],
+        ["reference/sharding/citus.mdx::fence-002", "f07f0f10774921a2ce312f78bc1f5351f24f77aff00b3c043ee0943e3416ede7"],
+        ["reference/sharding/citus.mdx::fence-003", "40d3e3e4f3fe18e4b38d686ba3e90d65c3a535aaafcd0cffd6da4d69805bc778"],
+        ["reference/sharding/citus.mdx::fence-005", "df3d9318d3f16a859ba3ddd46d375a6eb20fe6788c1f36fa3f53d6b8df2b3c84"],
+        ["reference/sharding/citus.mdx::fence-006", "b4c6d691ed42cfd4ed1d2b940efd6da47e277c2ccadb98546b2672ada333ef68"],
+        ["reference/tokenizers/available-tokenizers/ngrams.mdx::fence-007", "fe994273fb63f7d1b98f228cf0a60c083b9ac554bba5c6a21b0107c0cc8f6294"],
+        ["reference/tokenizers/search-tokenizer.mdx::fence-008", "a1398fa6d1f407b9330b4ec27e49993eb5fa15c968eafa1a255874981f5b18c9"],
+        ["reference/tokenizers/search-tokenizer.mdx::fence-009", "e8d01258b33128ac1f6884621f5c076f1ba6987826394b55940f4832db8f1230"],
+        ["reference/vector/querying.mdx::fence-019", "c74f2266a26fddadb0860e18a6c60ca5bf983f17831b849c8bca515d6476a476"]
+      ]
+    },
+    {
+      "reason": "Illustrates an execution-plan limitation, an unsupported query, or a SQL fragment; runnable behavior is covered by the adjacent ORM CodeGroup.",
+      "fences": [
+        ["reference/full-text/top-k.mdx::fence-024", "f971fd8bb5b4609798c160c3a663055fd12ee5fe836ea3f75ce46a05cf28af05"],
+        ["reference/hybrid/rrf.mdx::fence-008", "f7d8850178e0c2e2398089653f723c2022356835554e9379cabb3541d1d386f8"],
+        ["reference/indexing/indexing-composite.mdx::fence-001", "3ff0eceda7cb4740a76765662103386f6b32ff5cbb5b6b5f7b987e8921576525"],
+        ["reference/indexing/indexing-composite.mdx::fence-004", "3b8be6bfbc1cbaecb130f779b294ef89388ff4ef2cb9d2247a64d71994c8770e"]
+      ]
+    },
+    {
+      "reason": "Requires the custom composite types defined earlier on this page; ordinary whole-row examples are covered by CodeGroups.",
+      "fences": [
+        ["reference/indexing/indexing-composite.mdx::fence-002", "2f77d66bad8f6bf96fbf59ea90174fadf8b6dc9e04d8c72f683cde433f715b42"],
+        ["reference/indexing/indexing-composite.mdx::fence-003", "6537a1157cc9ac7a69cfd124868b1b32101d1a36b372958b646a5582e9a12456"]
+      ]
+    },
+    {
+      "reason": "Depends on the preceding custom expression/partial index and illustrates planner behavior; the corresponding runnable index definition is tested in its CodeGroup.",
+      "fences": [
+        ["reference/indexing/indexing-expressions.mdx::fence-007", "d5d86ea0ddfbafd00c411d16d3b4ec8ffd6a286249251d34dfef816d178b96ad"],
+        ["reference/indexing/indexing-expressions.mdx::fence-014", "b719f69cf5653f8ba750810b497ecb1b9f7343c2b6ac6bfc1b115eeeeb0417cc"],
+        ["reference/indexing/indexing-partial.mdx::fence-007", "3ad111a976ba2bb4cbcca8bd66597520783e026fa1fd934d470cc5d781f739b5"],
+        ["reference/indexing/indexing-partial.mdx::fence-008", "82e62b73b8e7a2ac809760a9c466633b4428b7b1ff39417b3741e446bf4ee4aa"]
+      ]
+    },
+    {
+      "reason": "Interactive REPL launcher or alternative ASP.NET host fragment; console setup and inner commands run headlessly in the getting-started scenario.",
+      "fences": [
+        ["start/configure-your-environment.mdx::fence-006", "f298ed44f67b43039c9f6a403f0caf46156824dc593c1a64c41eedef67ca49b3"],
+        ["start/configure-your-environment.mdx::fence-032", "34432fbe99ec1f8216d501a12691976a6524dcf76e5729df4fc452997640c989"],
+        ["start/configure-your-environment.mdx::fence-034", "b0a512c838bec9edc67969cdb6a5ec60f1c9c58115766b945e675ae18c85c2a9"]
+      ]
+    }
+  ],
+  "sql": {
+    "reference/filtering/external-indexes.mdx::fence-008": {
+      "setup": [
+        "reference/filtering/external-indexes.mdx::fence-001"
+      ]
+    },
+    "reference/filtering/external-indexes.mdx::fence-009": {
+      "setup": [
+        "reference/filtering/external-indexes.mdx::fence-001"
+      ]
+    },
+    "reference/filtering/external-indexes.mdx::fence-010": {
+      "setup": [
+        "reference/filtering/external-indexes.mdx::fence-001",
+        "reference/filtering/external-indexes.mdx::fence-009"
+      ]
+    },
+    "reference/full-text/top-k.mdx::fence-023": {
+      "warning": "ORDER BY columns cannot be pushed down to the index"
+    },
+    "reference/full-text/top-k.mdx::fence-025": {
+      "setup": [
+        "reference/full-text/top-k.mdx::fence-024"
+      ]
+    }
   }
 }

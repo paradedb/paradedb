@@ -142,30 +142,46 @@ def inventory(docs_root=DOCS_ROOT):
     return groups, outside
 
 
-def validate_coverage(outside, coverage):
-    """Reject unreviewed fences, changed decisions and unknown fixtures."""
-    missing = outside.keys() - coverage.keys()
-    stale = coverage.keys() - outside.keys()
-    if missing or stale:
-        raise ValueError(
-            f"Unclassified snippets: {sorted(missing)}; stale inventory entries: {sorted(stale)}"
-        )
-    for key, entry in coverage.items():
-        if entry.get("mode") not in {"sql", "setup", "skip"}:
-            raise ValueError(f"Invalid coverage mode for {key}")
-        if not entry.get("reason"):
-            raise ValueError(f"Coverage decision needs a reason: {key}")
-        if entry.get("sha256") != outside[key]["sha256"]:
-            raise ValueError(
-                f"Snippet changed; review its coverage decision and digest: {key}"
-            )
-        if entry["mode"] == "setup" and not key.startswith(
-            "start/configure-your-environment.mdx::"
-        ):
-            raise ValueError(f"No setup scenario registered for {key}")
+def skipped_coverage(outside, groups):
+    """Require a reason and unchanged source for each unexecuted exception."""
+    coverage = {}
+    for group in groups:
+        if not group["reason"]:
+            raise ValueError("Skipped snippets need a reason")
+        for key, digest in group["fences"]:
+            if key not in outside or outside[key]["sha256"] != digest:
+                raise ValueError(f"Skipped snippet changed or disappeared: {key}")
+            if key in coverage:
+                raise ValueError(f"Duplicate skipped snippet: {key}")
+            coverage[key] = {"mode": "skip"}
+    return coverage
+
+
+def resolve_coverage(outside, exceptions):
+    """Run ordinary SQL automatically; require reviewed exceptions for other fences.
+
+    Only skips retain digests: editing an unexecuted example requires a new review.
+    Setup fences are checked against the tutorial runner's consumed source blocks.
+    """
+    coverage = skipped_coverage(outside, exceptions["skips"])
+    for key, fence in outside.items():
+        if key in coverage:
+            continue
+        if key.startswith("start/configure-your-environment.mdx::"):
+            mode = "setup"
+        elif fence["info"].split()[0].lower() == "sql":
+            mode = "sql"
+        else:
+            raise ValueError(f"Unclassified non-SQL snippet: {key}")
+        coverage[key] = {"mode": mode}
+    for key, entry in exceptions["sql"].items():
+        if key not in coverage or coverage[key]["mode"] != "sql":
+            raise ValueError(f"Unknown SQL scenario: {key}")
         for dependency in entry.get("setup", []):
             if dependency not in outside:
                 raise ValueError(f"Unknown scenario fixture {dependency} for {key}")
+        coverage[key].update(entry)
+    return coverage
 
 
 def write_standalone_snippets(outputs, outside, coverage):
@@ -205,8 +221,7 @@ def main():
     groups, outside = inventory()
     if not groups:
         raise ValueError("No documentation CodeGroups found")
-    coverage = json.loads(COVERAGE_PATH.read_text())
-    validate_coverage(outside, coverage)
+    coverage = resolve_coverage(outside, json.loads(COVERAGE_PATH.read_text()))
     outputs = {target: OUTPUT_ROOT / target for target in TARGET_SUFFIXES}
     for path in outputs.values():
         shutil.rmtree(path, ignore_errors=True)

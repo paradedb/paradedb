@@ -2130,6 +2130,25 @@ impl SearchIndexReader {
     }
 
     pub fn collect<C: Collector>(&self, collector: C) -> C::Fruit {
+        self.collect_readers(self.candidate_segment_readers(), collector)
+    }
+
+    /// [`Self::collect`] over the given segments only, consumed lazily like
+    /// [`Self::search_segments`]: a parallel participant collects over the segments
+    /// it has claimed and merges with the other participants afterwards.
+    pub fn collect_segments<C: Collector>(
+        &self,
+        segment_ids: impl Iterator<Item = SegmentId>,
+        collector: C,
+    ) -> C::Fruit {
+        self.collect_readers(self.segment_readers_in_segments(segment_ids), collector)
+    }
+
+    fn collect_readers<'a, C: Collector>(
+        &'a self,
+        readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader)>,
+        collector: C,
+    ) -> C::Fruit {
         // Tantivy's `search` validates the collector before any segment is visited; do the same,
         // so a collector over an unknown field fails even when every segment is pruned.
         collector
@@ -2139,11 +2158,7 @@ impl SearchIndexReader {
             .query
             .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("creating a Weight from a Query should not fail");
-        let fruits = self.collect_segment_readers(
-            self.candidate_segment_readers(),
-            &collector,
-            weight.as_ref(),
-        );
+        let fruits = self.collect_segment_readers(readers, &collector, weight.as_ref());
         collector
             .merge_fruits(fruits)
             .expect("search should not fail")

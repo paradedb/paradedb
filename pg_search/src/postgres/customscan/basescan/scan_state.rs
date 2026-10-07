@@ -612,7 +612,10 @@ impl SolvePostgresExpressions for BaseScanState {
             && let Some(handle) = unsafe { (*pstate).bitmap_wait_done() }
             && let Some(bitmap_exec) = self.bitmap_exec.as_mut()
         {
-            cell.fill(unsafe { bitmap_exec.worker_attach_source(handle) });
+            // The owner published one iteration state per participant: slot 0 is its
+            // own, worker `n` takes slot `n + 1`.
+            let slot = unsafe { pg_sys::ParallelWorkerNumber } as u32 + 1;
+            cell.fill(unsafe { bitmap_exec.worker_attach_source(handle, slot) });
         }
         Some(cell)
     }

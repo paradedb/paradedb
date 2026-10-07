@@ -24,20 +24,29 @@
 //!
 //! Serial scans iterate the leader-local TIDBitmap privately (multiple concurrent
 //! private iterators each hold their own position). Parallel scans iterate shared
-//! state: the build owner calls `tbm_prepare_shared_iterate` once per stream and
+//! state: the build owner calls `tbm_prepare_shared_iterate` for every stream and
 //! publishes a claim table in a DSA area; whichever process ends up owning a
-//! segment claims its entry and attaches. Every entry is take-once: a second claim
-//! means a collector broke the one-scorer-per-stream invariant, and errors.
+//! segment claims its entry and attaches. A stream has one live cursor at a time:
+//! a claim while the previous cursor is still open means a collector broke the
+//! one-scorer-per-stream invariant, and errors. Dropping the cursor releases the
+//! stream, because one execution can legitimately build a scorer for the same
+//! segment more than once: TopK queries again with a larger chunk when the first
+//! batch loses rows to visibility, and a window aggregate runs its own search
+//! after the TopK one. Every pass has to probe the same bitmap, since TopK carries
+//! its offset from one query to the next. A private stream rewinds with a fresh
+//! iterator. A shared iteration state cannot rewind, and only the bitmap's
+//! creating backend can mint one, so each participant of a parallel scan gets one
+//! state, minted by the owner at DSM initialization, and drains it once into a
+//! process-local page cache. The bitmap is the same for every stream, so every
+//! cursor of that participant is a position into the cache, and a second pass
+//! replays the pages the first one pulled before pulling more.
 //!
-//! The claim table exists even though the bitmap itself is immutable because of
-//! an asymmetry in PostgreSQL's API: only the TIDBitmap's creating backend can
-//! mint iteration states, and every other participant can only attach to a
-//! pre-minted state by `dsa_pointer`. Segments are checked out dynamically, so
-//! the owner cannot know which process will consume which stream — it pre-mints
-//! all of them and the eventual consumer self-serves from the table. Core's
-//! shared iteration state assumes parallel work-stealing consumption (a
-//! spinlocked position in DSA); here each stream has exactly one consumer, and
-//! the take-once flag is what enforces that.
+//! The claim table exists even though the bitmap itself is immutable because
+//! segments are checked out dynamically: the owner cannot know which process will
+//! consume which stream, so the eventual consumer self-serves from the table.
+//! Core's shared iteration state assumes parallel work-stealing consumption (a
+//! spinlocked position in DSA); here each state has exactly one consumer, and
+//! each stream exactly one live cursor, which the claim flag enforces.
 
 use crate::query::heap_field_filter::TidProbe;
 use pgrx::pg_sys;
@@ -50,8 +59,9 @@ pub struct SharedBitmapHandle {
     pub(crate) area: pg_sys::dsa_handle,
     pub(crate) table: pg_sys::dsa_pointer,
 }
-use std::sync::Mutex;
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::index::SegmentId;
 
 /// Safe over-approximation of MaxHeapTuplesPerPage (which divides BLCKSZ by >= 28
@@ -133,20 +143,142 @@ pub(crate) struct CursorCounters {
     pub(crate) rejected_docs: AtomicU64,
 }
 
-/// One `(consumer, segment)` slot in the shared claim table.
+/// One `(consumer, segment)` stream in the shared claim table.
 #[repr(C)]
 struct SharedEntry {
     consumer_id: u32,
-    claimed: AtomicU32,
+    /// Nonzero while a cursor is open on this stream.
+    live: AtomicU32,
     segment_id: [u8; 16],
-    iterator: pg_sys::dsa_pointer,
 }
 
-/// Header of the claim table allocation; `SharedEntry`s follow contiguously.
+// The slot states follow the entries directly, so the entries must keep them
+// aligned for `dsa_pointer`.
+const _: () = assert!(
+    std::mem::size_of::<SharedEntry>().is_multiple_of(std::mem::align_of::<pg_sys::dsa_pointer>())
+);
+
+/// Header of the claim table allocation: `nentries` `SharedEntry`s follow it, then
+/// `slots` `dsa_pointer`s, one shared iteration state per participant slot.
 #[repr(C)]
 struct SharedHeader {
     nentries: u64,
+    slots: u32,
     counters: CursorCounters,
+}
+
+impl SharedHeader {
+    unsafe fn entries(this: *mut Self) -> *mut SharedEntry {
+        unsafe { this.add(1).cast::<SharedEntry>() }
+    }
+
+    unsafe fn slot_states(this: *mut Self) -> *mut pg_sys::dsa_pointer {
+        unsafe {
+            Self::entries(this)
+                .add((*this).nentries as usize)
+                .cast::<pg_sys::dsa_pointer>()
+        }
+    }
+}
+
+/// One page of a shared bitmap, as a participant pulled it from its slot.
+pub(crate) struct CachedPage {
+    block: u32,
+    lossy: bool,
+    recheck: bool,
+    offsets: Vec<pg_sys::OffsetNumber>,
+}
+
+/// A participant's view of its slot: the iterator it attached, the pages pulled
+/// so far in iteration order, and whether the slot has run out.
+pub(crate) struct SharedPages {
+    iter: *mut pg_sys::TBMSharedIterator,
+    pages: Vec<CachedPage>,
+    drained: bool,
+}
+
+impl SharedPages {
+    /// Pull the next page of the slot into the cache; `false` once the slot is drained.
+    unsafe fn pull(
+        &mut self,
+        area: *mut pg_sys::dsa_area,
+        table: pg_sys::dsa_pointer,
+        slot: u32,
+    ) -> bool {
+        if self.drained {
+            return false;
+        }
+        unsafe {
+            if self.iter.is_null() {
+                let header = pg_sys::dsa_get_address(area, table).cast::<SharedHeader>();
+                let state = *SharedHeader::slot_states(header).add(slot as usize);
+                self.iter = pg_sys::tbm_attach_shared_iterate(area, state);
+            }
+            match self.iterate() {
+                Some(page) => {
+                    self.pages.push(page);
+                    true
+                }
+                None => {
+                    self.drained = true;
+                    false
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "pg18")]
+    unsafe fn iterate(&mut self) -> Option<CachedPage> {
+        unsafe {
+            let mut res = pg_sys::TBMIterateResult::default();
+            if !pg_sys::tbm_shared_iterate(self.iter, &mut res) {
+                return None;
+            }
+            let offsets = if res.lossy {
+                Vec::new()
+            } else {
+                let mut offsets = vec![0; OFFSETS_CAP];
+                let n = pg_sys::tbm_extract_page_tuple(
+                    &mut res,
+                    offsets.as_mut_ptr(),
+                    OFFSETS_CAP as u32,
+                ) as usize;
+                offsets.truncate(n);
+                offsets
+            };
+            Some(CachedPage {
+                block: res.blockno,
+                lossy: res.lossy,
+                recheck: res.recheck,
+                offsets,
+            })
+        }
+    }
+
+    #[cfg(not(feature = "pg18"))]
+    unsafe fn iterate(&mut self) -> Option<CachedPage> {
+        unsafe {
+            let res = pg_sys::tbm_shared_iterate(self.iter);
+            if res.is_null() {
+                return None;
+            }
+            let res = &*res;
+            let lossy = res.ntuples < 0;
+            let offsets = if lossy {
+                Vec::new()
+            } else {
+                let n = (res.ntuples as usize).min(OFFSETS_CAP);
+                // The result struct is reused by the next iterate call; copy out.
+                std::slice::from_raw_parts(res.offsets.as_ptr(), n).to_vec()
+            };
+            Some(CachedPage {
+                block: res.blockno,
+                lossy,
+                recheck: res.recheck,
+                offsets,
+            })
+        }
+    }
 }
 
 /// Where cursors come from. Owned by the scan (behind an `Arc`) and outlives every
@@ -158,10 +290,13 @@ pub(crate) enum BitmapCursorSource {
         claims: Mutex<Vec<(u32, SegmentId)>>,
         counters: Box<CursorCounters>,
     },
-    /// Parallel: shared iterator states claimed from the table in the DSA area.
+    /// Parallel: this participant's slot of the published table in the DSA area,
+    /// and the pages it has pulled from it.
     Shared {
         area: *mut pg_sys::dsa_area,
         table: pg_sys::dsa_pointer,
+        slot: u32,
+        pages: RefCell<SharedPages>,
     },
 }
 
@@ -178,63 +313,99 @@ impl BitmapCursorSource {
         }
     }
 
-    /// Attach a published claim table (workers; the owner uses the same view).
-    pub(crate) fn shared(area: *mut pg_sys::dsa_area, table: pg_sys::dsa_pointer) -> Self {
-        Self::Shared { area, table }
+    /// Attach a published claim table as participant `slot` (the owner is slot 0,
+    /// a parallel worker is its worker number plus one).
+    pub(crate) fn shared(
+        area: *mut pg_sys::dsa_area,
+        table: pg_sys::dsa_pointer,
+        slot: u32,
+    ) -> Self {
+        Self::Shared {
+            area,
+            table,
+            slot,
+            pages: RefCell::new(SharedPages {
+                iter: std::ptr::null_mut(),
+                pages: Vec::new(),
+                drained: false,
+            }),
+        }
     }
 
     /// Claim the `(consumer, segment)` stream and open its cursor.
     ///
-    /// Exactly one scorer may consume each stream. A second claim — or a stream
-    /// absent from the table — means a collector broke the one-scorer-per-stream
-    /// invariant, and raises an execution error rather than silently degrading.
-    pub(crate) unsafe fn claim(&self, consumer_id: u32, segment: SegmentId) -> BitmapCursor {
-        match self {
+    /// One scorer at a time may consume each stream. A claim while the previous
+    /// cursor is still open, or of a stream absent from the table, means a
+    /// collector broke the one-scorer-per-stream invariant, and raises an
+    /// execution error rather than silently degrading. A claim after the previous
+    /// cursor dropped is a new pass over the same bitmap: a private stream opens a
+    /// fresh iterator, a shared stream starts over on this participant's page cache.
+    pub(crate) unsafe fn claim(
+        self: &Arc<Self>,
+        consumer_id: u32,
+        segment: SegmentId,
+    ) -> BitmapCursor {
+        match self.as_ref() {
             Self::Private {
                 tbm,
                 claims,
                 counters,
             } => {
-                let mut claims = claims.lock().unwrap();
-                if claims.contains(&(consumer_id, segment)) {
+                // A cursor dropping during an unwind takes this lock too, so a poisoned
+                // lock is still usable, and the error below is raised with the lock
+                // released rather than poisoning it under a live cursor.
+                let mut claims = claims.lock().unwrap_or_else(PoisonError::into_inner);
+                let claimed = claims.contains(&(consumer_id, segment));
+                if !claimed {
+                    claims.push((consumer_id, segment));
+                }
+                drop(claims);
+                if claimed {
                     pgrx::error!(
                         "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed twice",
                         segment.uuid_string()
                     );
                 }
-                claims.push((consumer_id, segment));
-                unsafe { BitmapCursor::private(*tbm, counters.as_ref() as *const CursorCounters) }
+                let cursor = unsafe {
+                    BitmapCursor::private(*tbm, counters.as_ref() as *const CursorCounters)
+                };
+                cursor.claimed_from(self, StreamClaim::Private(consumer_id, segment))
             }
-            Self::Shared { area, table } => unsafe {
+            Self::Shared { area, table, .. } => unsafe {
                 let header = pg_sys::dsa_get_address(*area, *table).cast::<SharedHeader>();
-                let entries = header.add(1).cast::<SharedEntry>();
-                let nentries = (*header).nentries as usize;
-                for i in 0..nentries {
-                    let entry = &*entries.add(i);
-                    if entry.consumer_id == consumer_id && entry.segment_id == *segment.uuid_bytes()
-                    {
-                        if entry
-                            .claimed
-                            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
-                            .is_err()
-                        {
-                            pgrx::error!(
-                                "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed twice",
-                                segment.uuid_string()
-                            );
-                        }
-                        let iter = pg_sys::tbm_attach_shared_iterate(*area, entry.iterator);
-                        return BitmapCursor::shared(
-                            iter,
-                            &(*header).counters as *const CursorCounters,
-                        );
-                    }
+                let entry = shared_entry(header, consumer_id, segment).unwrap_or_else(|| {
+                    pgrx::error!(
+                        "bitmap intersection stream (consumer {consumer_id}, segment {}) missing from the shared table",
+                        segment.uuid_string()
+                    )
+                });
+                if (*entry)
+                    .live
+                    .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                    .is_err()
+                {
+                    pgrx::error!(
+                        "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed twice",
+                        segment.uuid_string()
+                    );
                 }
-                pgrx::error!(
-                    "bitmap intersection stream (consumer {consumer_id}, segment {}) missing from the shared table",
-                    segment.uuid_string()
-                );
+                let cursor = BitmapCursor::cached(&(*header).counters as *const CursorCounters);
+                cursor.claimed_from(self, StreamClaim::Shared(entry))
             },
+        }
+    }
+
+    /// Release the stream a dropped cursor held, so the next pass can claim it.
+    fn release(&self, claim: StreamClaim) {
+        match (self, claim) {
+            (Self::Private { claims, .. }, StreamClaim::Private(consumer_id, segment)) => {
+                let mut claims = claims.lock().unwrap_or_else(PoisonError::into_inner);
+                claims.retain(|claim| *claim != (consumer_id, segment));
+            }
+            (Self::Shared { .. }, StreamClaim::Shared(entry)) => unsafe {
+                (*entry).live.store(0, Ordering::Release);
+            },
+            _ => unreachable!("a cursor releases the source it was claimed from"),
         }
     }
 
@@ -242,7 +413,7 @@ impl BitmapCursorSource {
     pub(crate) fn counters(&self) -> (u64, u64, u64, u64) {
         let c: &CursorCounters = match self {
             Self::Private { counters, .. } => counters.as_ref(),
-            Self::Shared { area, table } => unsafe {
+            Self::Shared { area, table, .. } => unsafe {
                 let header = pg_sys::dsa_get_address(*area, *table).cast::<SharedHeader>();
                 &(*header).counters
             },
@@ -256,57 +427,89 @@ impl BitmapCursorSource {
     }
 }
 
-/// Build owner only: prepare one shared iteration state per `(consumer, segment)`
-/// stream and publish the claim table into `area`. The TIDBitmap must have been
-/// created over the same `area`.
+/// Build owner only: publish the claim table into `area` with one entry per
+/// `(consumer, segment)` stream and one shared iteration state per participant
+/// slot. The TIDBitmap must have been created over the same `area`.
 pub(crate) unsafe fn publish_shared_table(
     tbm: *mut pg_sys::TIDBitmap,
     area: *mut pg_sys::dsa_area,
     consumers: u32,
     segments: &[SegmentId],
+    slots: u32,
 ) -> pg_sys::dsa_pointer {
+    assert!(slots > 0, "a shared bitmap needs a slot for its owner");
     unsafe {
         let nentries = consumers as usize * segments.len();
-        let size =
-            std::mem::size_of::<SharedHeader>() + nentries * std::mem::size_of::<SharedEntry>();
+        let size = std::mem::size_of::<SharedHeader>()
+            + nentries * std::mem::size_of::<SharedEntry>()
+            + slots as usize * std::mem::size_of::<pg_sys::dsa_pointer>();
         let table = pg_sys::dsa_allocate_extended(area, size, pg_sys::DSA_ALLOC_ZERO as _);
         let header = pg_sys::dsa_get_address(area, table).cast::<SharedHeader>();
         (*header).nentries = nentries as u64;
-        let entries = header.add(1).cast::<SharedEntry>();
+        (*header).slots = slots;
+        let entries = SharedHeader::entries(header);
         let mut i = 0;
         for consumer_id in 0..consumers {
             for segment in segments {
                 let entry = &mut *entries.add(i);
                 entry.consumer_id = consumer_id;
                 entry.segment_id = *segment.uuid_bytes();
-                entry.iterator = pg_sys::tbm_prepare_shared_iterate(tbm);
                 i += 1;
             }
+        }
+        let states = SharedHeader::slot_states(header);
+        for slot in 0..slots as usize {
+            *states.add(slot) = pg_sys::tbm_prepare_shared_iterate(tbm);
         }
         table
     }
 }
 
-/// Build owner only, after all consumers have stopped: free every prepared
+/// The claim table entry for `(consumer, segment)`.
+unsafe fn shared_entry(
+    header: *mut SharedHeader,
+    consumer_id: u32,
+    segment: SegmentId,
+) -> Option<*const SharedEntry> {
+    unsafe {
+        let entries = SharedHeader::entries(header);
+        (0..(*header).nentries as usize)
+            .map(|i| entries.add(i) as *const SharedEntry)
+            .find(|entry| {
+                (**entry).consumer_id == consumer_id
+                    && (**entry).segment_id == *segment.uuid_bytes()
+            })
+    }
+}
+
+/// Build owner only, after all consumers have stopped: free every slot's
 /// iteration state and the claim table itself.
 pub(crate) unsafe fn free_shared_table(area: *mut pg_sys::dsa_area, table: pg_sys::dsa_pointer) {
     unsafe {
         let header = pg_sys::dsa_get_address(area, table).cast::<SharedHeader>();
-        let entries = header.add(1).cast::<SharedEntry>();
-        for i in 0..(*header).nentries as usize {
-            pg_sys::tbm_free_shared_area(area, (*entries.add(i)).iterator);
+        let states = SharedHeader::slot_states(header);
+        for slot in 0..(*header).slots as usize {
+            pg_sys::tbm_free_shared_area(area, *states.add(slot));
         }
         pg_sys::dsa_free(area, table);
     }
 }
 
-/// Version-specific iterator handle.
+/// Where a cursor's pages come from.
 enum CursorIter {
+    /// A private iterator the cursor owns.
     #[cfg(not(feature = "pg18"))]
     Private(*mut pg_sys::TBMIterator),
     #[cfg(feature = "pg18")]
     Private(*mut pg_sys::TBMPrivateIterator),
-    Shared(*mut pg_sys::TBMSharedIterator),
+    /// The next page to read from the source's page cache.
+    Cached { next: usize },
+}
+
+/// What a cursor holds on its source, released when the cursor drops.
+enum StreamClaim {
+    Private(u32, SegmentId),
+    Shared(*const SharedEntry),
 }
 
 /// The current page's decoded state.
@@ -328,6 +531,8 @@ pub(crate) struct BitmapCursor {
     state: PageState,
     offsets: [pg_sys::OffsetNumber; OFFSETS_CAP],
     counters: *const CursorCounters,
+    /// The source and the stream this cursor holds on it, released on drop.
+    claim: Option<(Arc<BitmapCursorSource>, StreamClaim)>,
     #[cfg(debug_assertions)]
     last_ctid: u64,
 }
@@ -347,8 +552,8 @@ impl BitmapCursor {
         }
     }
 
-    fn shared(iter: *mut pg_sys::TBMSharedIterator, counters: *const CursorCounters) -> Self {
-        Self::new(CursorIter::Shared(iter), counters)
+    fn cached(counters: *const CursorCounters) -> Self {
+        Self::new(CursorIter::Cached { next: 0 }, counters)
     }
 
     fn new(iter: CursorIter, counters: *const CursorCounters) -> Self {
@@ -357,9 +562,16 @@ impl BitmapCursor {
             state: PageState::NotStarted,
             offsets: [0; OFFSETS_CAP],
             counters,
+            claim: None,
             #[cfg(debug_assertions)]
             last_ctid: 0,
         }
+    }
+
+    /// Tie the cursor to the stream it claimed, so dropping it releases the stream.
+    fn claimed_from(mut self, source: &Arc<BitmapCursorSource>, claim: StreamClaim) -> Self {
+        self.claim = Some((Arc::clone(source), claim));
+        self
     }
 
     /// Probe one ctid. Ctids must arrive in nondecreasing order (the ctid-sorted
@@ -429,13 +641,52 @@ impl BitmapCursor {
         }
     }
 
-    #[cfg(feature = "pg18")]
     unsafe fn next_page(&mut self) {
+        match self.iter {
+            CursorIter::Private(_) => unsafe { self.next_private_page() },
+            CursorIter::Cached { next } => unsafe { self.next_cached_page(next) },
+        }
+    }
+
+    /// Read page `next` of the source's cache, pulling it from the slot first if
+    /// the cache ends there.
+    unsafe fn next_cached_page(&mut self, next: usize) {
+        let source = Arc::clone(&self.claim.as_ref().expect("a cached cursor has a source").0);
+        let BitmapCursorSource::Shared {
+            area,
+            table,
+            slot,
+            pages,
+        } = source.as_ref()
+        else {
+            unreachable!("a cached cursor comes from a shared source");
+        };
+        let mut pages = pages.borrow_mut();
+        if next == pages.pages.len() && !unsafe { pages.pull(*area, *table, *slot) } {
+            self.state = PageState::Exhausted;
+            return;
+        }
+        let page = &pages.pages[next];
+        let noffsets = page.offsets.len();
+        self.offsets[..noffsets].copy_from_slice(&page.offsets);
+        unsafe { self.count_page(page.lossy, page.recheck) };
+        self.state = PageState::Page {
+            block: page.block,
+            lossy: page.lossy,
+            recheck: page.recheck,
+            noffsets,
+            pos: 0,
+        };
+        self.iter = CursorIter::Cached { next: next + 1 };
+    }
+
+    #[cfg(feature = "pg18")]
+    unsafe fn next_private_page(&mut self) {
         unsafe {
             let mut res = pg_sys::TBMIterateResult::default();
             let more = match &mut self.iter {
                 CursorIter::Private(iter) => pg_sys::tbm_private_iterate(*iter, &mut res),
-                CursorIter::Shared(iter) => pg_sys::tbm_shared_iterate(*iter, &mut res),
+                CursorIter::Cached { .. } => unreachable!(),
             };
             if !more {
                 self.state = PageState::Exhausted;
@@ -462,10 +713,10 @@ impl BitmapCursor {
     }
 
     #[cfg(not(feature = "pg18"))]
-    unsafe fn next_page(&mut self) {
+    unsafe fn next_private_page(&mut self) {
         let res = match &mut self.iter {
             CursorIter::Private(iter) => unsafe { pg_sys::tbm_iterate(*iter) },
-            CursorIter::Shared(iter) => unsafe { pg_sys::tbm_shared_iterate(*iter) },
+            CursorIter::Cached { .. } => unreachable!(),
         };
         if res.is_null() {
             self.state = PageState::Exhausted;
@@ -501,7 +752,21 @@ crate::impl_safe_drop!(BitmapCursor, |self| {
             CursorIter::Private(iter) => pg_sys::tbm_end_iterate(iter),
             #[cfg(feature = "pg18")]
             CursorIter::Private(iter) => pg_sys::tbm_end_private_iterate(iter),
-            CursorIter::Shared(iter) => pg_sys::tbm_end_shared_iterate(iter),
+            CursorIter::Cached { .. } => {}
+        }
+        if let Some((source, claim)) = self.claim.take() {
+            source.release(claim);
+        }
+    }
+});
+
+// The attached slot iterator is this process's own allocation, ended once the
+// last cursor is gone with the source.
+crate::impl_safe_drop!(BitmapCursorSource, |self| {
+    if let Self::Shared { pages, .. } = self {
+        let iter = pages.get_mut().iter;
+        if !iter.is_null() {
+            unsafe { pg_sys::tbm_end_shared_iterate(iter) };
         }
     }
 });

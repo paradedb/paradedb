@@ -362,3 +362,345 @@ fn global_window_aggregates_over_pruned_anti_join(
 
     Ok(())
 }
+
+// `pdb.agg() OVER ()` over a join. products carry a category (three values and
+// NULL) indexed under its own name and under an alias, a NUMERIC price, a
+// timestamp, an array (NULL or empty for some) and a JSON document; reviews a
+// reviewer, a boolean and an integer score. The aggregate scan computes the same document over the same
+// join without the LIMIT, so it is the oracle.
+fn setup_pdb_agg(conn: &mut PgConnection) {
+    r#"
+    SET paradedb.enable_custom_scan = on;
+    SET paradedb.enable_join_custom_scan = on;
+    SET paradedb.enable_aggregate_custom_scan = on;
+    SET max_parallel_workers_per_gather = 0;
+
+    DROP TABLE IF EXISTS wjp_products;
+    DROP TABLE IF EXISTS wjp_reviews;
+    CREATE TABLE wjp_products (
+        id int PRIMARY KEY,
+        description text,
+        category text,
+        price numeric(10, 2),
+        created_at timestamp,
+        tags text[],
+        metadata jsonb
+    );
+    CREATE TABLE wjp_reviews (
+        id bigint PRIMARY KEY,
+        product_id bigint,
+        score int,
+        reviewer text,
+        verified boolean
+    );
+
+    INSERT INTO wjp_products
+    SELECT g,
+           CASE WHEN g % 2 = 1 THEN 'sturdy laptop' ELSE 'flimsy tablet' END,
+           (ARRAY['office', 'gaming', 'travel', NULL])[1 + (g % 4)],
+           (g * 0.25)::numeric(10, 2),
+           '2026-01-01'::timestamp + (g % 3) * interval '1 day',
+           CASE g % 7
+               WHEN 0 THEN NULL
+               WHEN 1 THEN ARRAY[]::text[]
+               ELSE ARRAY['tag_' || (g % 2), 'tag_' || (g % 3)]
+           END,
+           jsonb_build_object('color', (ARRAY['red', 'blue', 'green'])[1 + (g % 3)])
+    FROM generate_series(1, 1000) g;
+    INSERT INTO wjp_reviews
+    SELECT g, ((g - 1) % 1000) + 1, g % 5, 'reviewer_' || (g % 7), g % 3 = 0
+    FROM generate_series(1, 2000) g;
+
+    CREATE INDEX wjp_products_bm25 ON wjp_products
+    USING paradedb (
+        id,
+        (description::pdb.unicode_words),
+        (category::pdb.literal),
+        (category::pdb.literal('alias=category_exact')),
+        price,
+        created_at,
+        (tags::pdb.literal),
+        (metadata::pdb.literal)
+    );
+    CREATE INDEX wjp_reviews_bm25 ON wjp_reviews
+    USING paradedb (id, product_id, score, (reviewer::pdb.literal), verified);
+    ANALYZE wjp_products;
+    ANALYZE wjp_reviews;
+    "#
+    .execute(conn);
+}
+
+const PDB_AGG_JOIN: &str = r#"
+    FROM wjp_products p
+    JOIN wjp_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+"#;
+
+/// The document the aggregate scan computes for `spec` over the join.
+fn aggregate_scan_document(conn: &mut PgConnection, spec: &str) -> serde_json::Value {
+    let (document,) =
+        format!("SELECT pdb.agg('{spec}') {PDB_AGG_JOIN}").fetch_one::<(serde_json::Value,)>(conn);
+    document
+}
+
+/// One `pdb_agg(` call per distinct spec, in the JoinScan's Top-K aggregate
+/// node beside `topk_as_agg`.
+fn assert_pdb_aggs_in_topk_agg(plan: &str, distinct_specs: usize) {
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    assert!(!plan.contains("WindowAgg "), "{plan}");
+    let aggregate = plan
+        .lines()
+        .find(|line| line.contains("AggregateExec"))
+        .unwrap_or_else(|| panic!("no AggregateExec in plan:\n{plan}"));
+    assert!(
+        aggregate.contains("topk_as_agg(") && aggregate.contains("as window_agg_"),
+        "{aggregate}"
+    );
+    assert_eq!(plan.matches("pdb_agg(").count(), distinct_specs, "{plan}");
+}
+
+#[rstest]
+#[case::avg(r#"{"avg": {"field": "score"}}"#)]
+#[case::avg_with_missing(r#"{"avg": {"field": "score", "missing": 10}}"#)]
+#[case::numeric_sum(r#"{"sum": {"field": "price"}}"#)]
+#[case::datetime_max(r#"{"max": {"field": "created_at"}}"#)]
+#[case::cardinality(r#"{"cardinality": {"field": "reviewer"}}"#)]
+#[case::terms_with_null_bucket(r#"{"terms": {"field": "category"}}"#)]
+#[case::terms_with_missing(r#"{"terms": {"field": "category", "missing": "none"}}"#)]
+#[case::terms_on_bool(r#"{"terms": {"field": "verified"}}"#)]
+#[case::terms_on_datetime(r#"{"terms": {"field": "created_at"}}"#)]
+#[case::terms_on_numeric(r#"{"terms": {"field": "price", "size": 3}}"#)]
+#[case::terms_on_aliased_field(r#"{"terms": {"field": "category_exact"}}"#)]
+#[case::terms_on_json_sub_field(r#"{"terms": {"field": "metadata.color"}}"#)]
+#[case::terms_ordered_by_metric(
+    r#"{"terms": {"field": "reviewer", "size": 3, "order": {"top": "desc"}},
+        "aggs": {"top": {"max": {"field": "price"}}}}"#
+)]
+#[case::nested_terms(
+    r#"{"terms": {"field": "category"},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}},
+            "reviewers": {
+                "terms": {"field": "reviewer", "size": 2},
+                "aggs": {
+                    "scores": {"cardinality": {"field": "score"}},
+                    "revenue": {"sum": {"field": "price"}}
+                }
+            }
+        }}"#
+)]
+// An array key: a row is in the bucket of each of its elements, and a NULL or
+// empty array puts it in the NULL bucket, or the `missing` one.
+#[case::terms_on_array(r#"{"terms": {"field": "tags"}}"#)]
+#[case::terms_on_array_with_missing(r#"{"terms": {"field": "tags", "missing": "untagged"}}"#)]
+// The root and the scalar level see each row once while the array level sees
+// it per element, in both nestings.
+#[case::array_terms_under_scalar_terms(
+    r#"{"terms": {"field": "category"},
+        "aggs": {
+            "tags": {
+                "terms": {"field": "tags"},
+                "aggs": {"reviewers": {"cardinality": {"field": "reviewer"}}}
+            }
+        }}"#
+)]
+#[case::scalar_terms_under_array_terms(
+    r#"{"terms": {"field": "tags"},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}},
+            "categories": {"terms": {"field": "category"}}
+        }}"#
+)]
+fn pdb_agg_window_matches_aggregate_scan(mut conn: PgConnection, #[case] spec: &str) {
+    setup_pdb_agg(&mut conn);
+
+    let query =
+        format!("SELECT r.id, pdb.agg('{spec}') OVER () {PDB_AGG_JOIN} ORDER BY r.id DESC LIMIT 3");
+    assert_pdb_aggs_in_topk_agg(&explain(&mut conn, &query), 1);
+
+    let expected = aggregate_scan_document(&mut conn, spec);
+    let rows: Vec<(i64, serde_json::Value)> = query.fetch(&mut conn);
+    assert_eq!(
+        rows,
+        vec![
+            (1999, expected.clone()),
+            (1997, expected.clone()),
+            (1995, expected)
+        ]
+    );
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PdbAggShape {
+    /// Several entries in one target list: each spec is one aggregate, a spec
+    /// written twice is computed once, and a SQL window aggregate sits beside
+    /// them in the target list.
+    SeveralEntries,
+    /// The document as an input of a target list expression.
+    InExpressions,
+    /// The aggregate covers the whole join, not the rows the OFFSET and LIMIT
+    /// keep.
+    Offset,
+    /// No row survives the join, so none carries a document.
+    NoRows,
+    /// DISTINCT with the document inside an expression. Its value is the same
+    /// on every row, so the entry stays out of the DISTINCT key and is computed
+    /// after the Top-K aggregate. Each product has two reviews, so DISTINCT
+    /// halves the join while the aggregate still covers all of it.
+    Distinct,
+    /// A DISTINCT target list of document expressions alone: every row is one
+    /// group.
+    DistinctDocumentsOnly,
+}
+
+#[rstest]
+#[case::several_entries(PdbAggShape::SeveralEntries)]
+#[case::in_expressions(PdbAggShape::InExpressions)]
+#[case::offset(PdbAggShape::Offset)]
+#[case::no_rows(PdbAggShape::NoRows)]
+#[case::distinct(PdbAggShape::Distinct)]
+#[case::distinct_documents_only(PdbAggShape::DistinctDocumentsOnly)]
+fn pdb_agg_window_query_shapes(mut conn: PgConnection, #[case] shape: PdbAggShape) {
+    setup_pdb_agg(&mut conn);
+
+    const AVG: &str = r#"{"avg": {"field": "score"}}"#;
+    const TERMS: &str = r#"{"terms": {"field": "category"}}"#;
+
+    match shape {
+        PdbAggShape::SeveralEntries => {
+            let query = format!(
+                r#"
+                SELECT r.id,
+                       pdb.agg('{AVG}') OVER () AS avg_score,
+                       pdb.agg('{TERMS}') OVER () AS categories,
+                       pdb.agg('{AVG}') OVER () AS avg_score_again,
+                       COUNT(*) OVER () AS total_count
+                {PDB_AGG_JOIN}
+                ORDER BY r.id DESC
+                LIMIT 2
+                "#
+            );
+            assert_pdb_aggs_in_topk_agg(&explain(&mut conn, &query), 2);
+
+            let avg = aggregate_scan_document(&mut conn, AVG);
+            let terms = aggregate_scan_document(&mut conn, TERMS);
+            type Row = (
+                i64,
+                serde_json::Value,
+                serde_json::Value,
+                serde_json::Value,
+                i64,
+            );
+            let rows: Vec<Row> = query.fetch(&mut conn);
+            assert_eq!(
+                rows,
+                vec![
+                    (1999, avg.clone(), terms.clone(), avg.clone(), 1000),
+                    (1997, avg.clone(), terms, avg, 1000)
+                ]
+            );
+        }
+        PdbAggShape::InExpressions => {
+            let query = format!(
+                r#"
+                SELECT r.id,
+                       pdb.agg('{AVG}') OVER () ->> 'value' AS avg_text,
+                       (pdb.agg('{AVG}') OVER () -> 'value')::float8 + r.score AS avg_plus_score,
+                       jsonb_array_length(pdb.agg('{TERMS}') OVER () -> 'buckets') AS buckets
+                {PDB_AGG_JOIN}
+                ORDER BY r.id DESC
+                LIMIT 2
+                "#
+            );
+            assert_pdb_aggs_in_topk_agg(&explain(&mut conn, &query), 2);
+
+            // Matched reviews have the odd ids, whose scores cycle 1, 3, 0, 2, 4.
+            let rows: Vec<(i64, String, f64, i32)> = query.fetch(&mut conn);
+            assert_eq!(
+                rows,
+                vec![
+                    (1999, "2.0".to_string(), 6.0, 2),
+                    (1997, "2.0".to_string(), 4.0, 2)
+                ]
+            );
+        }
+        PdbAggShape::Offset => {
+            let spec = r#"{"value_count": {"field": "score"}}"#;
+            let query = format!(
+                "SELECT r.id, pdb.agg('{spec}') OVER () {PDB_AGG_JOIN}
+                 ORDER BY r.id DESC OFFSET 998 LIMIT 5"
+            );
+            assert_pdb_aggs_in_topk_agg(&explain(&mut conn, &query), 1);
+
+            let expected = serde_json::json!({"value": 1000.0});
+            let rows: Vec<(i64, serde_json::Value)> = query.fetch(&mut conn);
+            assert_eq!(rows, vec![(3, expected.clone()), (1, expected)]);
+        }
+        PdbAggShape::NoRows => {
+            let query = format!(
+                r#"
+                SELECT r.id, pdb.agg('{TERMS}') OVER ()
+                FROM wjp_products p
+                JOIN wjp_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'typewriter'
+                ORDER BY r.id DESC
+                LIMIT 2
+                "#
+            );
+            assert_pdb_aggs_in_topk_agg(&explain(&mut conn, &query), 1);
+
+            let rows: Vec<(i64, serde_json::Value)> = query.fetch(&mut conn);
+            assert_eq!(rows, vec![]);
+        }
+        PdbAggShape::Distinct => {
+            let spec = r#"{"value_count": {"field": "score"}}"#;
+            let query = format!(
+                "SELECT DISTINCT p.id, pdb.agg('{spec}') OVER () ->> 'value' AS reviews
+                 {PDB_AGG_JOIN}
+                 ORDER BY p.id DESC LIMIT 2"
+            );
+            assert_pdb_aggs_in_topk_agg(&explain(&mut conn, &query), 1);
+
+            let rows: Vec<(i32, String)> = query.fetch(&mut conn);
+            assert_eq!(
+                rows,
+                vec![(999, "1000.0".to_string()), (997, "1000.0".to_string())]
+            );
+        }
+        PdbAggShape::DistinctDocumentsOnly => {
+            let spec = r#"{"value_count": {"field": "score"}}"#;
+            let query = format!(
+                "SELECT DISTINCT pdb.agg('{spec}') OVER () ->> 'value' AS reviews
+                 {PDB_AGG_JOIN}
+                 LIMIT 3"
+            );
+            assert_pdb_aggs_in_topk_agg(&explain(&mut conn, &query), 1);
+
+            let rows: Vec<(String,)> = query.fetch(&mut conn);
+            assert_eq!(rows, vec![("1000.0".to_string(),)]);
+        }
+    }
+}
+
+/// What the aggregate scan turns down in a spec, JoinScan turns down too, along
+/// with a visibility it cannot honor. Nothing else computes a `pdb.agg()`, so
+/// the query fails.
+#[rstest]
+#[case::unsupported_aggregation(r#"pdb.agg('{"histogram": {"field": "score", "interval": 2}}')"#)]
+#[case::terms_min_doc_count_zero(r#"pdb.agg('{"terms": {"field": "score", "min_doc_count": 0}}')"#)]
+#[case::ambiguous_field(r#"pdb.agg('{"max": {"field": "id"}}')"#)]
+#[case::visibility(r#"pdb.agg('{"avg": {"field": "score"}}', 'raw')"#)]
+fn pdb_agg_window_declines(mut conn: PgConnection, #[case] call: &str) {
+    setup_pdb_agg(&mut conn);
+
+    let query = format!("SELECT r.id, {call} OVER () {PDB_AGG_JOIN} ORDER BY r.id DESC LIMIT 3");
+    let error = query
+        .fetch_result::<(i64, serde_json::Value)>(&mut conn)
+        .expect_err("the query must not run");
+    assert!(
+        error
+            .to_string()
+            .contains("pdb.agg() must be handled by ParadeDB's custom scan"),
+        "{error}"
+    );
+}

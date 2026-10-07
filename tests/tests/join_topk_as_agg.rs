@@ -489,3 +489,65 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
         2,
     );
 }
+
+/// `pdb.agg() OVER ()` is one more aggregate in the Top-K aggregate node. Under
+/// MPP each worker hands its buckets to the leader, which merges the buckets
+/// more than one worker saw. The aggregate scan's document over the same join
+/// is the oracle.
+///
+/// The query has no SQL window aggregate: that one is a window operator beneath
+/// the aggregate node, which then runs on the leader alone.
+#[rstest]
+#[case::serial(Mode::Serial)]
+#[case::mpp(Mode::Mpp)]
+fn pdb_agg_window_in_topk_agg(#[case] mode: Mode, mut conn: PgConnection) {
+    match mode {
+        Mode::Serial => SERIAL_SETUP.execute(&mut conn),
+        Mode::Mpp => MPP_SETUP.execute(&mut conn),
+    }
+    "SET paradedb.enable_aggregate_custom_scan = on".execute(&mut conn);
+    "SET paradedb.joinscan_force_topk_as_agg = off".execute(&mut conn);
+
+    let spec = r#"{
+        "terms": {"field": "rating"},
+        "aggs": {
+            "avg_qty": {"avg": {"field": "qty"}},
+            "quantities": {
+                "terms": {"field": "qty", "size": 3},
+                "aggs": {"ids": {"cardinality": {"field": "t2.id"}}}
+            }
+        }
+    }"#;
+    let join = r#"
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+    "#;
+    let query = format!(
+        r#"
+        SELECT t1.id, t2.id, pdb.agg('{spec}') OVER ()
+        {join}
+        ORDER BY t1.rating DESC NULLS FIRST, t2.qty ASC, t2.id ASC
+        OFFSET 3 LIMIT 10
+        "#
+    );
+
+    let plan: Vec<String> = format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(&mut conn);
+    let plan = plan.join("\n");
+    assert!(plan.contains("Custom Scan (ParadeDB Join Scan)"), "{plan}");
+    if matches!(mode, Mode::Mpp) {
+        let partial = plan
+            .lines()
+            .find(|line| line.contains("AggregateExec: mode=Partial"))
+            .unwrap_or_else(|| panic!("no partial aggregate in plan:\n{plan}"));
+        assert!(partial.contains("pdb_agg("), "{partial}");
+    }
+
+    let (expected,) =
+        format!("SELECT pdb.agg('{spec}') {join}").fetch_one::<(serde_json::Value,)>(&mut conn);
+    let rows: Vec<(i32, i32, serde_json::Value)> = query.fetch(&mut conn);
+    assert_eq!(rows.len(), 10);
+    for (_, _, document) in rows {
+        assert_eq!(document, expected);
+    }
+}

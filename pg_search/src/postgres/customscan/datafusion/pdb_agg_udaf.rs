@@ -117,6 +117,10 @@ pub fn debug_assert_single_document(col: &dyn Array) {
 /// [`request_plan`] leaves these out, so the plan's columns hold none.
 const NO_ROOT_COLUMNS: &str = "a lone request has no SQL group keys or standard aggregates";
 
+fn no_root_columns() -> DataFusionError {
+    DataFusionError::Internal(format!("{PDB_AGG_NAME}: {NO_ROOT_COLUMNS}"))
+}
+
 /// The layout of a lone request: no SQL group keys and no standard aggregates.
 /// The call and its accumulator both derive the argument order from it. The
 /// entry index only identifies a `FILTER`, which this path does not take.
@@ -405,18 +409,16 @@ impl PdbAggAccumulator {
         let fields: Vec<FieldRef> = layout
             .iter()
             .map(|column| match column {
-                PdbAggColumn::GroupingId => Arc::new(Field::new(
+                PdbAggColumn::GroupingId => Ok(Arc::new(Field::new(
                     Aggregate::INTERNAL_GROUPING_ID,
                     DataType::UInt64,
                     false,
-                )),
-                PdbAggColumn::Key(key) => nullable(&self.key_fields[*key]),
-                PdbAggColumn::Metric(metric) => nullable(&self.metrics[*metric].expr.field()),
-                PdbAggColumn::GroupKey(_) | PdbAggColumn::StdAgg(_) => {
-                    pgrx::error!("BUG: {NO_ROOT_COLUMNS}")
-                }
+                ))),
+                PdbAggColumn::Key(key) => Ok(nullable(&self.key_fields[*key])),
+                PdbAggColumn::Metric(metric) => Ok(nullable(&self.metrics[*metric].expr.field())),
+                PdbAggColumn::GroupKey(_) | PdbAggColumn::StdAgg(_) => Err(no_root_columns()),
             })
-            .collect();
+            .collect::<Result<_>>()?;
 
         let grouping_ids: Vec<u64> = (0..self.plan.levels.len())
             .map(|level| self.plan.grouping_id_for_level(level))
@@ -449,7 +451,7 @@ impl PdbAggAccumulator {
                         PdbAggColumn::Key(key) => keys[*key].take(),
                         PdbAggColumn::Metric(metric) => metrics[*metric].take(),
                         PdbAggColumn::GroupKey(_) | PdbAggColumn::StdAgg(_) => {
-                            pgrx::error!("BUG: {NO_ROOT_COLUMNS}")
+                            return Err(no_root_columns());
                         }
                     };
                 column.push(match values {
@@ -458,6 +460,8 @@ impl PdbAggAccumulator {
                     None => new_null_array(field.data_type(), rows),
                 });
             }
+            // Emitted: the keys and accumulators are empty now, as after `state()`.
+            state.num_buckets = 0;
         }
 
         let schema = Arc::new(Schema::new(fields));

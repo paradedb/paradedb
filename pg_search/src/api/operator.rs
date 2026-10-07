@@ -437,10 +437,6 @@ impl SearchPredicate {
         })
     }
 
-    pub(crate) fn lhs(&self) -> *mut pg_sys::Node {
-        self.lhs
-    }
-
     pub(crate) unsafe fn into_opexpr(self) -> *mut pg_sys::OpExpr {
         let operator = pg_sys::make_opclause(
             anyelement_query_input_opoid(),

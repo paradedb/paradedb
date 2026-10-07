@@ -23,14 +23,16 @@ pub mod window_agg;
 fn missing_scan_error(function: &str) -> ! {
     pgrx::pg_sys::panic::ErrorReport::new(
         pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-        format!("`{function}` must be evaluated by a ParadeDB scan"),
+        format!(
+            "`{function}` must be evaluated by a ParadeDB scan. If the query does apply a ParadeDB operator, please report it at https://github.com/paradedb/paradedb/issues/new/choose"
+        ),
         pgrx::function_name!(),
     )
     .set_detail(
-        "The query must apply a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` to the same table, in a shape a ParadeDB scan can run.",
+        "The query must apply a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` to the same table.",
     )
     .set_hint(format!(
-        "Use `EXPLAIN` to check whether a ParadeDB scan evaluates `{function}`, or remove it from the query.",
+        "Use `EXPLAIN` to check whether a ParadeDB scan evaluates `{function}`.",
     ))
     .report(pgrx::PgLogLevel::ERROR);
     unreachable!()

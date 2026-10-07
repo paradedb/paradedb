@@ -770,7 +770,7 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
-ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
+ERROR:  `pdb.score` must be evaluated by a ParadeDB scan. If the query does apply a ParadeDB operator, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test Case 14: Array operations (if supported)
 -- Tests heap filtering with array predicates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

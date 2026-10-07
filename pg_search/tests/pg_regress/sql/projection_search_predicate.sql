@@ -77,24 +77,17 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 
--- Without a score or snippet to compute, PostgreSQL's plan stands as it is.
+-- Without a score or snippet, the scan is one candidate among PostgreSQL's.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 
--- The operator is written against a subquery column or a CTE column.
-SELECT id, pdb.score(id)
-FROM (SELECT * FROM projection_search_predicate) s
-WHERE s.category = 'electronics' OR (s.category = 'electronics' AND s.body === 'keyboard')
-ORDER BY id;
-
-WITH c AS (SELECT * FROM projection_search_predicate)
-SELECT id, pdb.score(id)
-FROM c
-WHERE c.category = 'electronics' OR (c.category = 'electronics' AND c.body === 'keyboard')
-ORDER BY id;
+-- A sibling subquery over the same table, under the same default alias, is not affected.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT (SELECT count(*) FROM projection_search_predicate WHERE body === 'keyboard') AS searched,
+       (SELECT count(*) FROM projection_search_predicate WHERE category = 'electronics') AS plain;
 
 -- The operator is written against one side of a join.
 CREATE TABLE projection_search_predicate_labels (
@@ -102,6 +95,16 @@ CREATE TABLE projection_search_predicate_labels (
     label TEXT
 );
 INSERT INTO projection_search_predicate_labels VALUES (1, 'x'), (2, 'y'), (3, 'z');
+
+-- The score is computed inside a sublink of the SELECT list.
+SELECT l.id,
+       (SELECT pdb.score(p.id)
+        FROM projection_search_predicate p
+        WHERE p.id = l.id
+          AND (p.category = 'electronics' OR (p.category = 'electronics' AND p.body === 'keyboard'))
+       ) AS score
+FROM projection_search_predicate_labels l
+ORDER BY l.id;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, l.label, pdb.score(p.id)

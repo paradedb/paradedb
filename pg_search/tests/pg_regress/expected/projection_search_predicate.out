@@ -173,45 +173,52 @@ WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.sco
   2 | 
 (2 rows)
 
--- Without a score or snippet to compute, PostgreSQL's plan stands as it is.
+-- Without a score or snippet, the scan is one candidate among PostgreSQL's.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id
 FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
+WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: projection_search_predicate)
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id
    Sort Key: projection_search_predicate.id
-   ->  Seq Scan on public.projection_search_predicate
+   ->  Custom Scan (ParadeDB Base Scan) on public.projection_search_predicate
          Output: id
-         Filter: (projection_search_predicate.category = 'electronics'::text)
-(6 rows)
+         Table: projection_search_predicate
+         Index: projection_search_predicate_idx
+         Worker Selection: Row-capped
+         Exec Method: ColumnarExecState
+         Columnar: id
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category = 'electronics'::text)"}]}}
+(13 rows)
 
--- The operator is written against a subquery column or a CTE column.
-SELECT id, pdb.score(id)
-FROM (SELECT * FROM projection_search_predicate) s
-WHERE s.category = 'electronics' OR (s.category = 'electronics' AND s.body === 'keyboard')
-ORDER BY id;
-WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: projection_search_predicate)
- id | score 
-----+-------
-  1 |     0
-  2 |     0
-(2 rows)
-
-WITH c AS (SELECT * FROM projection_search_predicate)
-SELECT id, pdb.score(id)
-FROM c
-WHERE c.category = 'electronics' OR (c.category = 'electronics' AND c.body === 'keyboard')
-ORDER BY id;
-WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: projection_search_predicate)
- id | score 
-----+-------
-  1 |     0
-  2 |     0
-(2 rows)
+-- A sibling subquery over the same table, under the same default alias, is not affected.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT (SELECT count(*) FROM projection_search_predicate WHERE body === 'keyboard') AS searched,
+       (SELECT count(*) FROM projection_search_predicate WHERE category = 'electronics') AS plain;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Result
+   Output: (InitPlan 1).col1, (InitPlan 2).col1
+   InitPlan 1
+     ->  Custom Scan (ParadeDB Aggregate Scan) on public.projection_search_predicate
+           Output: pdb.agg_fn('COUNT(*)'::text)
+           Index: projection_search_predicate_idx
+           Tantivy Query: {"with_index":{"query":{"term":{"field":"body","value":"keyboard"}}}}
+             Applies to Aggregates: COUNT(*)
+             Aggregate Definition: {"0":{"filter":"*"}}
+   InitPlan 2
+     ->  Aggregate
+           Output: count(*)
+           ->  Seq Scan on public.projection_search_predicate
+                 Output: projection_search_predicate.id, projection_search_predicate.body, projection_search_predicate.category
+                 Filter: (projection_search_predicate.category = 'electronics'::text)
+(15 rows)
 
 -- The operator is written against one side of a join.
 CREATE TABLE projection_search_predicate_labels (
@@ -219,6 +226,23 @@ CREATE TABLE projection_search_predicate_labels (
     label TEXT
 );
 INSERT INTO projection_search_predicate_labels VALUES (1, 'x'), (2, 'y'), (3, 'z');
+-- The score is computed inside a sublink of the SELECT list.
+SELECT l.id,
+       (SELECT pdb.score(p.id)
+        FROM projection_search_predicate p
+        WHERE p.id = l.id
+          AND (p.category = 'electronics' OR (p.category = 'electronics' AND p.body === 'keyboard'))
+       ) AS score
+FROM projection_search_predicate_labels l
+ORDER BY l.id;
+WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: p)
+ id | score 
+----+-------
+  1 |     0
+  2 |     0
+  3 |      
+(3 rows)
+
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, l.label, pdb.score(p.id)
 FROM projection_search_predicate p
@@ -337,9 +361,9 @@ SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
 (5 rows)
 
 SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
-ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
-DETAIL:  The query must apply a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` to the same table, in a shape a ParadeDB scan can run.
-HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
+ERROR:  `pdb.score` must be evaluated by a ParadeDB scan. If the query does apply a ParadeDB operator, please report it at https://github.com/paradedb/paradedb/issues/new/choose
+DETAIL:  The query must apply a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` to the same table.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`.
 \echo :SQLSTATE
 0A000
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -354,9 +378,9 @@ SELECT id, pdb.snippet(body) FROM projection_search_predicate ORDER BY id;
 (5 rows)
 
 SELECT id, pdb.snippet(body) FROM projection_search_predicate ORDER BY id;
-ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
-DETAIL:  The query must apply a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` to the same table, in a shape a ParadeDB scan can run.
-HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
+ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan. If the query does apply a ParadeDB operator, please report it at https://github.com/paradedb/paradedb/issues/new/choose
+DETAIL:  The query must apply a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` to the same table.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`.
 -- The whole WHERE clause folds away, so the scan covers every row, as with `pdb.all()`.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.score(id)

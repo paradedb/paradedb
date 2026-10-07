@@ -124,7 +124,12 @@ JOIN authors a ON b.author_id = a.id
 WHERE (a.name ||| 'King' OR b.content ||| 'scoring') AND a.age > 70
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-ERROR:  `paradedb.score` must be evaluated by a ParadeDB scan
+ book_id | author_name  | author_score | book_score 
+---------+--------------+--------------+------------
+       1 | Stephen King |     2.540445 |          0
+       2 | Stephen King |     2.540445 |          0
+(2 rows)
+
 SELECT
     b.id as book_id,
     a.name as author_name,
@@ -151,7 +156,12 @@ JOIN authors a ON b.author_id = a.id
 WHERE (a.name ||| 'King' OR b.content ||| 'scoring') AND a.age > 60
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-ERROR:  `paradedb.score` must be evaluated by a ParadeDB scan
+ book_id | author_name  | author_score | book_score 
+---------+--------------+--------------+------------
+       1 | Stephen King |     2.540445 |          0
+       2 | Stephen King |     2.540445 |          0
+(2 rows)
+
 SELECT
     b.id as book_id,
     a.name as author_name,
@@ -236,7 +246,14 @@ RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name ||| 'Christie' OR b.content ||| 'test') AND a.age > 60
 ORDER BY a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-ERROR:  `paradedb.score` must be evaluated by a ParadeDB scan
+ author_id |   author_name   | author_score | book_score 
+-----------+-----------------+--------------+------------
+         2 | Stephen King    |            1 | 0.45681813
+         2 | Stephen King    |            1 | 0.36441684
+         3 | Agatha Christie |     2.540445 | 0.20612015
+         6 | Sami Bowling    |            1 | 0.35745716
+(4 rows)
+
 -- Test multiple score functions in same query
 -- This tests if score calculation is consistent across multiple score calls
 SELECT

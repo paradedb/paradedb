@@ -27,11 +27,11 @@ use crate::postgres::customscan::builders::custom_path::{
 };
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::customscan::search_operator_relations;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use crate::postgres::node::NodeExt;
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::search_operator_relations;
 use crate::postgres::utils::pg_search_extension_installed;
 use once_cell::sync::Lazy;
 use pgrx::{PgList, PgMemoryContexts, pg_guard, pg_sys};
@@ -474,10 +474,6 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         return result;
     }
 
-    // Taken while the quals are still as written, before the planner can simplify a search
-    // predicate away.
-    let _search_operator_relations = search_operator_relations::capture(parse);
-
     // Check if we should replace window functions and do so if needed
     // This checks the OUTER query level
     if should_replace_window_functions(parse) {
@@ -500,11 +496,16 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 
     // Call the previous planner hook (e.g., Citus) or standard planner
     // PREV_PLANNER_HOOK is defined at module level to ensure proper hook chaining
-    let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
-        prev_hook(parse, query_string, cursor_options, bound_params)
-    } else {
-        pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
-    };
+    //
+    // The relations the query applies a search operator to are recorded while the quals are
+    // still as written, for the scans planned inside this call.
+    let result = search_operator_relations::record_during(parse, || {
+        if let Some(prev_hook) = PREV_PLANNER_HOOK {
+            prev_hook(parse, query_string, cursor_options, bound_params)
+        } else {
+            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
+        }
+    });
 
     // Emit collected warnings
     emit_planner_warnings();

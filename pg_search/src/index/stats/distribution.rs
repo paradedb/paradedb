@@ -27,7 +27,7 @@ use tantivy::directory::CompositeFile;
 use tantivy::directory::CompositeWrite;
 use tantivy::schema::Field;
 
-const VERSION: u8 = 2;
+const VERSION: u8 = 3;
 const MANIFEST_IDX: usize = 2;
 const SAMPLE_DOCS: usize = 2048;
 const MAX_SAMPLE_VALUES: usize = 16384;
@@ -49,8 +49,8 @@ pub(crate) struct ValueFrequency {
     pub(crate) documents: u32,
 }
 
-/// Values use the column's order-preserving encoding; strings use segment-local ordinals.
-#[derive(Debug, Serialize, Deserialize)]
+/// Values use the column's order-preserving encoding; bytes use segment-local ordinals.
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Distribution {
     pub(crate) dictionary: Vec<(u128, Vec<u8>)>,
     pub(crate) present_docs: u32,
@@ -136,8 +136,25 @@ impl Distribution {
             DynamicColumn::DateTime(c) => Self::from_column(c, |v| u128::from(v.to_u64()), None),
             DynamicColumn::IpAddr(c) => Self::from_column(c, u128::from, None),
             DynamicColumn::Str(c) => {
-                Self::from_column(c.ords(), u128::from, Some(c.num_terms() as f64))?
-                    .with_dictionary(|ord, bytes| c.ord_to_bytes(ord, bytes))
+                // EXISTS only needs document presence for strings.
+                let column = c.ords();
+                Some(Self {
+                    present_docs: (0..column.num_docs())
+                        .filter(|&doc| column.index.has_value(doc))
+                        .count() as u32,
+                    sample: Self::sample_docs(column.num_docs())
+                        .into_iter()
+                        .map(|doc| {
+                            column
+                                .index
+                                .has_value(doc)
+                                .then_some(0)
+                                .into_iter()
+                                .collect()
+                        })
+                        .collect(),
+                    ..Self::default()
+                })
             }
             DynamicColumn::Bytes(c) => {
                 Self::from_column(c.ords(), u128::from, Some(c.num_terms() as f64))?
@@ -168,21 +185,26 @@ impl Distribution {
         Some(self)
     }
 
-    /// Scan only during segment serialization. Keep a uniform document sample and an HLL count.
-    fn from_column<T: PartialOrd + Copy + Debug + Send + Sync + 'static>(
-        column: &Column<T>,
-        encode: impl Fn(T) -> u128,
-        known_distinct: Option<f64>,
-    ) -> Option<Self> {
+    fn sample_docs(num_docs: u32) -> Vec<u32> {
         let mut rng = StdRng::seed_from_u64(0x57A75);
-        let mut docs: Vec<u32> = (0..column.num_docs().min(SAMPLE_DOCS as u32)).collect();
-        for doc in SAMPLE_DOCS as u32..column.num_docs() {
+        let mut docs: Vec<u32> = (0..num_docs.min(SAMPLE_DOCS as u32)).collect();
+        for doc in SAMPLE_DOCS as u32..num_docs {
             let slot = rng.random_range(0..=doc) as usize;
             if slot < SAMPLE_DOCS {
                 docs[slot] = doc;
             }
         }
         docs.sort_unstable();
+        docs
+    }
+
+    /// Scan only during segment serialization. Keep a uniform document sample and an HLL count.
+    fn from_column<T: PartialOrd + Copy + Debug + Send + Sync + 'static>(
+        column: &Column<T>,
+        encode: impl Fn(T) -> u128,
+        known_distinct: Option<f64>,
+    ) -> Option<Self> {
+        let docs = Self::sample_docs(column.num_docs());
         let mut distinct = CardinalityCollector::default();
         let mut present_docs = 0;
         let mut sample = Vec::with_capacity(docs.len());
@@ -473,23 +495,34 @@ mod tests {
         for ordinal in 0..manifest.columns.len() {
             let summary = stats.distribution(&manifest, ordinal).unwrap().unwrap();
             assert_eq!(summary.present_docs, 1);
-            assert_eq!(summary.distinct, 1.0);
             assert_eq!(summary.sample.len(), 3);
-            if matches!(
-                tantivy::columnar::ColumnType::try_from_code(manifest.columns[ordinal].1).unwrap(),
-                tantivy::columnar::ColumnType::Str | tantivy::columnar::ColumnType::Bytes
-            ) {
-                assert_eq!(summary.dictionary.len(), 1);
-                assert!(!summary.dictionary[0].1.is_empty());
+            match tantivy::columnar::ColumnType::try_from_code(manifest.columns[ordinal].1).unwrap()
+            {
+                tantivy::columnar::ColumnType::Str => {
+                    assert_eq!(summary.distinct, 0.0);
+                    assert!(summary.dictionary.is_empty());
+                    assert!(summary.common.is_empty());
+                    assert!(summary.histogram.is_empty());
+                }
+                tantivy::columnar::ColumnType::Bytes => {
+                    assert_eq!(summary.distinct, 1.0);
+                    assert_eq!(summary.dictionary.len(), 1);
+                    assert!(!summary.dictionary[0].1.is_empty());
+                }
+                _ => assert_eq!(summary.distinct, 1.0),
             }
         }
     }
 
     #[test]
-    fn distribution_string_dictionary_has_a_byte_budget() {
+    fn distribution_bytes_dictionary_has_a_byte_budget() {
         let mut writer = ColumnarWriter::default();
         for doc in 0..32 {
-            writer.record_str(doc, "text", &format!("{doc:02}{}", "x".repeat(40000)));
+            writer.record_bytes(
+                doc,
+                "text",
+                format!("{doc:02}{}", "x".repeat(40000)).as_bytes(),
+            );
         }
         let mut bytes = Vec::new();
         writer
@@ -498,6 +531,40 @@ mod tests {
         let reader = ColumnarReader::open(bytes).unwrap();
         let column = reader.read_columns("text").unwrap()[0].open().unwrap();
         assert!(Distribution::collect(&column).is_none());
+    }
+
+    #[test]
+    fn distribution_strings_keep_aligned_presence_samples() {
+        let mut writer = ColumnarWriter::default();
+        for doc in 0..4096 {
+            if doc % 3 == 0 {
+                writer.record_str(doc, "text", "apple");
+                writer.record_str(doc, "text", "orange");
+                writer.record_numerical(doc, "number", 0u64);
+            }
+        }
+        let mut bytes = Vec::new();
+        writer
+            .serialize(4096, None, &DEFAULT_CODEC_TYPES, &mut bytes)
+            .unwrap();
+        let reader = ColumnarReader::open(bytes).unwrap();
+        let text = Distribution::collect(&reader.read_columns("text").unwrap()[0].open().unwrap())
+            .unwrap();
+        let number =
+            Distribution::collect(&reader.read_columns("number").unwrap()[0].open().unwrap())
+                .unwrap();
+        assert_eq!(text.present_docs, 1366);
+        assert!(
+            text.sample
+                .iter()
+                .zip(&number.sample)
+                .all(|(text, number)| text.is_empty() == number.is_empty())
+        );
+        assert_eq!(text.sample.len(), SAMPLE_DOCS);
+        assert_eq!(text.distinct, 0.0);
+        assert!(text.dictionary.is_empty());
+        assert!(text.common.is_empty());
+        assert!(text.histogram.is_empty());
     }
 
     #[test]

@@ -796,6 +796,20 @@ impl pdb::Query {
 
             pdb::Query::Regex { .. } | pdb::Query::RegexPhrase { .. } => Some(REGEX_SELECTIVITY),
 
+            pdb::Query::Range {
+                lower_bound,
+                upper_bound,
+            } if matches!(
+                lower_bound,
+                Bound::Included(PdbOwnedValue::Str(_)) | Bound::Excluded(PdbOwnedValue::Str(_))
+            ) || matches!(
+                upper_bound,
+                Bound::Included(PdbOwnedValue::Str(_)) | Bound::Excluded(PdbOwnedValue::Str(_))
+            ) =>
+            {
+                Some(1.0 / 3.0)
+            }
+
             pdb::Query::ScoreAdjusted { query, .. } => query.estimated_selectivity(),
 
             _ => None,

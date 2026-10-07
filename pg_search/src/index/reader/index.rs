@@ -1910,9 +1910,22 @@ impl SearchIndexReader {
     ) -> Option<(f64, f64)> {
         debug_assert!(self.segment_readers().len() <= 1);
         let reader = self.segment_readers().first()?;
-        let query = self.make_query(query, None);
+        let tantivy_query = self.make_query(query, None);
+        if crate::gucs::enable_heuristic_selectivity()
+            && crate::query::estimate::has_string_fast_field_range(
+                tantivy_query.as_ref(),
+                reader.schema(),
+            )
+        {
+            let selectivity = query.selectivity_heuristic();
+            return Some((
+                selectivity,
+                selectivity * crate::gucs::expensive_query_cost_factor(),
+            ));
+        }
         let (matches, work) =
-            crate::query::estimate::estimate_docs(query.as_ref(), reader, planner).ok()??;
+            crate::query::estimate::estimate_docs(tantivy_query.as_ref(), reader, planner)
+                .ok()??;
         let total = f64::from(reader.max_doc()).max(1.0);
         Some((f64::from(matches) / total, work as f64 / total))
     }
@@ -2135,7 +2148,14 @@ impl SearchIndexReader {
             );
             return;
         }
-        if node.query.has_heap_filters() || node.query.has_postgres_expressions() {
+        if node.query.has_heap_filters()
+            || node.query.has_postgres_expressions()
+            || (crate::gucs::enable_heuristic_selectivity()
+                && crate::query::estimate::has_string_fast_field_range(
+                    tantivy_query.as_ref(),
+                    largest_reader.schema(),
+                ))
+        {
             node.set_estimate(
                 (node.query.selectivity_heuristic() * f64::from(largest_reader.num_docs())
                     / segment_doc_proportion)
@@ -2482,6 +2502,87 @@ mod tests {
                 Some(1.0)
             );
         }
+    }
+
+    #[pg_test]
+    fn string_fast_field_ranges_use_heuristics() {
+        Spi::run(
+            "CREATE TABLE string_range_estimate (id bigint PRIMARY KEY, title text);
+             CREATE INDEX string_range_estimate_idx ON string_range_estimate
+             USING paradedb (id, (title::pdb.literal))
+             WITH (target_segment_count = 1, background_layer_sizes = '0');
+             SET LOCAL paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO string_range_estimate SELECT g, 'silver' FROM generate_series(1, 10) g;",
+        )
+        .unwrap();
+        let index = open_index("string_range_estimate_idx");
+        let reader = SearchIndexReader::open_with_context(
+            &index,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Estimation,
+            None,
+            None,
+            true,
+            None,
+        )
+        .unwrap();
+        let range = SearchQueryInput::FieldedQuery {
+            field: "title".into(),
+            query: pdb::Query::Range {
+                lower_bound: Bound::Included(PdbOwnedValue::Str("a".into())),
+                upper_bound: Bound::Excluded(PdbOwnedValue::Str("z".into())),
+            },
+        };
+        let parsed = SearchQueryInput::FieldedQuery {
+            field: "title".into(),
+            query: pdb::Query::ParseWithField {
+                query_string: "[a TO z]".into(),
+                lenient: None,
+                conjunction_mode: None,
+                fuzzy_data: None,
+            },
+        };
+        let wrapped = SearchQueryInput::Boost {
+            query: Box::new(SearchQueryInput::Boolean {
+                must: vec![range.clone(), range_query("id", 1, 5)],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            }),
+            factor: 2.0,
+        };
+        for query in [&range, &parsed, &wrapped] {
+            let selectivity = query.selectivity_heuristic();
+            assert_eq!(
+                reader.estimate_metadata(query, None),
+                Some((
+                    selectivity,
+                    selectivity * crate::gucs::expensive_query_cost_factor()
+                ))
+            );
+        }
+        assert_eq!(
+            reader
+                .estimate_metadata(&range_query("id", 1, 5), None)
+                .unwrap()
+                .0,
+            0.5
+        );
+        assert_eq!(
+            reader
+                .estimate_metadata(&term_query("title", "silver"), None)
+                .unwrap()
+                .0,
+            1.0
+        );
+        let exists = SearchQueryInput::FieldedQuery {
+            field: "title".into(),
+            query: pdb::Query::Exists,
+        };
+        assert_eq!(reader.estimate_metadata(&exists, None).unwrap().0, 1.0);
+        Spi::run("SET LOCAL paradedb.enable_heuristic_selectivity = false").unwrap();
+        assert!(reader.estimate_metadata(&range, None).is_none());
     }
 
     #[pg_test]

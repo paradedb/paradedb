@@ -76,11 +76,12 @@ fn range_fraction(
 }
 
 fn column_name(term: &Term, reader: &SegmentReader) -> String {
-    let name = reader.schema().get_field_name(term.field());
-    match term.get_json_path() {
-        Some(path) => format!("{name}\u{1}{path}"),
-        None => name.to_owned(),
+    let mut key = tantivy_common::JsonPathWriter::default();
+    key.push(reader.schema().get_field_name(term.field()));
+    if let Some(path) = term.get_json_path() {
+        key.push(&path);
     }
+    key.into()
 }
 
 fn term_bound(bound: &Bound<Term>, typ: ColumnType) -> Option<Bound<u128>> {
@@ -140,8 +141,11 @@ pub(super) fn range(
             }
         },
     };
-    let name = column_name(term, ctx.reader);
     let query_type = term.value().json_path_type().unwrap_or(term.typ());
+    if query_type == Type::Str {
+        return Ok(None);
+    }
+    let name = column_name(term, ctx.reader);
     let mut estimates = Vec::new();
     for (ordinal, (column, code)) in ctx.manifest.columns.iter().enumerate() {
         if column != &name {
@@ -154,7 +158,6 @@ pub(super) fn range(
             Type::I64 | Type::U64 | Type::F64 => {
                 matches!(typ, ColumnType::I64 | ColumnType::U64 | ColumnType::F64)
             }
-            Type::Str => typ == ColumnType::Str,
             Type::Bytes => typ == ColumnType::Bytes,
             Type::Bool => typ == ColumnType::Bool,
             Type::Date => typ == ColumnType::DateTime,
@@ -167,7 +170,7 @@ pub(super) fn range(
         let Some(stats) = ctx.distribution(ordinal) else {
             return Ok(None);
         };
-        let (lower, upper) = if matches!(typ, ColumnType::Str | ColumnType::Bytes) {
+        let (lower, upper) = if typ == ColumnType::Bytes {
             let map = |bound: &Bound<Term>, is_lower| match payload_bound(bound) {
                 Bound::Unbounded => Bound::Unbounded,
                 Bound::Included(value) | Bound::Excluded(value) => {

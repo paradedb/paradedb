@@ -27,7 +27,7 @@ use crate::index::stats::{
 };
 use tantivy::SegmentReader;
 use tantivy::query::*;
-use tantivy::schema::{Field, IndexRecordOption, Term, Type};
+use tantivy::schema::{Field, IndexRecordOption, Schema, Term, Type};
 
 /// Estimates queries using pg_search's shared statistics and planner context.
 trait QueryEstimate {
@@ -444,6 +444,44 @@ impl Query for UnresolvedQuery {
     }
 }
 
+pub(crate) fn has_string_fast_field_range(query: &dyn Query, schema: &Schema) -> bool {
+    if let Some(inner) = query.matching_query() {
+        return has_string_fast_field_range(inner, schema);
+    }
+    if let Some(query) = query.downcast_ref::<BooleanQuery>() {
+        return query
+            .clauses()
+            .iter()
+            .any(|(_, child)| has_string_fast_field_range(child.as_ref(), schema));
+    }
+    if let Some(query) = query.downcast_ref::<DisjunctionMaxQuery>() {
+        return query
+            .disjuncts()
+            .iter()
+            .any(|child| has_string_fast_field_range(child.as_ref(), schema));
+    }
+    if let Some(query) = query.downcast_ref::<super::heap_field_filter::HeapFilterQuery>() {
+        return has_string_fast_field_range(query.indexed_query.as_ref(), schema);
+    }
+    if let Some(query) = query.downcast_ref::<super::score::ScoreFilter>() {
+        return has_string_fast_field_range(query.query.as_ref(), schema);
+    }
+    let bounds = if let Some(query) = query.downcast_ref::<RangeQuery>() {
+        query.bounds()
+    } else if let Some(query) = query.downcast_ref::<FastFieldRangeQuery>() {
+        query.bounds()
+    } else {
+        return false;
+    };
+    let term = match bounds {
+        (Bound::Included(term) | Bound::Excluded(term), _)
+        | (_, Bound::Included(term) | Bound::Excluded(term)) => term,
+        _ => return false,
+    };
+    schema.get_field_entry(term.field()).is_fast()
+        && term.value().json_path_type().unwrap_or(term.typ()) == Type::Str
+}
+
 pub(crate) fn estimate_docs(
     query: &dyn Query,
     reader: &SegmentReader,
@@ -789,3 +827,46 @@ fn automaton_prefix(automaton: &impl tantivy_fst::Automaton) -> Vec<u8> {
 }
 
 mod fast_field;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tantivy::schema::{FAST, STRING, TextOptions};
+
+    #[test]
+    fn expensive_ranges_use_resolved_storage_types() {
+        let mut schema = Schema::builder();
+        let text = schema.add_text_field("text", TextOptions::default().set_fast("raw"));
+        let indexed = schema.add_text_field("indexed", STRING);
+        let number = schema.add_u64_field("number", FAST);
+        let bytes = schema.add_bytes_field("bytes", FAST);
+        let json = schema.add_json_field("json", FAST);
+        let schema = schema.build();
+        let mut json_text = Term::from_field_json_path(json, "nested.value", false);
+        json_text.append_type_and_str("apple");
+        let mut json_number = Term::from_field_json_path(json, "nested.value", false);
+        json_number.append_type_and_fast_value(42u64);
+        for (term, expensive) in [
+            (Term::from_field_text(text, "apple"), true),
+            (Term::from_field_text(indexed, "apple"), false),
+            (Term::from_field_u64(number, 42), false),
+            (Term::from_field_bytes(bytes, b"42"), false),
+            (json_text, true),
+            (json_number, false),
+        ] {
+            for bounds in [
+                (Bound::Included(term.clone()), Bound::Unbounded),
+                (Bound::Unbounded, Bound::Excluded(term.clone())),
+            ] {
+                let range = RangeQuery::new(bounds.0.clone(), bounds.1.clone());
+                assert_eq!(has_string_fast_field_range(&range, &schema), expensive);
+                let range = FastFieldRangeQuery::new(bounds.0.clone(), bounds.1.clone());
+                assert_eq!(has_string_fast_field_range(&range, &schema), expensive);
+                let range = InvertedIndexRangeQuery::new(bounds.0, bounds.1);
+                assert!(!has_string_fast_field_range(&range, &schema));
+            }
+        }
+        let unbounded = RangeQuery::new(Bound::Unbounded, Bound::Unbounded);
+        assert!(!has_string_fast_field_range(&unbounded, &schema));
+    }
+}

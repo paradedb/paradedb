@@ -2374,6 +2374,22 @@ unsafe fn aggregate_value_to_datum(
         });
     }
     if uses_doc_count_path(agg_type, aggregate_clause) {
+        if let AggregateType::Count {
+            field,
+            group_key: true,
+            ..
+        } = agg_type
+            && let Some(idx) = aggregate_clause
+                .grouping_columns()
+                .iter()
+                .position(|gc| gc.field_name == *field)
+            && is_null_group_key(&row.group_keys[idx])
+        {
+            return TantivyValue(PdbOwnedValue::U64(0))
+                .try_into_datum(pgrx::PgOid::from(target_typoid))
+                .ok()
+                .flatten();
+        }
         return row
             .doc_count()
             .try_into_datum(pgrx::PgOid::from(target_typoid))
@@ -2507,6 +2523,21 @@ fn decode_safe_cast(
     }
 }
 
+/// True when a group key is the sentinel Tantivy's terms aggregation puts on the bucket of rows
+/// whose column is NULL (handles both MIN and MAX sentinels).
+/// U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
+/// Bool uses string sentinels for both MIN and MAX.
+/// DateTime columns don't have a missing sentinel (NULLs are excluded).
+fn is_null_group_key(key: &TantivyValue) -> bool {
+    match &key.0 {
+        PdbOwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
+        PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
+        PdbOwnedValue::U64(v) => *v == u64::MAX,
+        PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
+        _ => false,
+    }
+}
+
 /// Convert a Tantivy group key to a Postgres datum, handling NULL sentinels
 /// (used for I64/U64/F64/Bool when the aggregator omits a row) and the
 /// datetime decoding path (Tantivy returns ISO-8601 strings; we parse them
@@ -2523,14 +2554,7 @@ unsafe fn group_key_to_datum(
     // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
     // Bool uses string sentinels for both MIN and MAX.
     // DateTime columns don't have a missing sentinel (NULLs are excluded).
-    let is_null_sentinel = match &key.0 {
-        PdbOwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
-        PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
-        PdbOwnedValue::U64(v) => *v == u64::MAX,
-        PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
-        _ => false,
-    };
-    if is_null_sentinel {
+    if is_null_group_key(&key) {
         return None;
     }
 

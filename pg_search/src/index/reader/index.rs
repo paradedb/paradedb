@@ -1117,13 +1117,13 @@ impl SearchIndexReader {
     /// Which of those fields a query matched cannot be read off the index, because term
     /// lookups go through the segment readers and an empty index reports that nothing is
     /// addressed at all. So the fields come from the index settings, and the generator selects
-    /// fragments over the union of their matches. The returned field is the first of them.
+    /// fragments over the union of their matches.
     pub fn snippet_generator(
         &self,
         field_name: impl AsRef<str> + Display,
         query: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
-    ) -> (tantivy::schema::Field, SnippetGenerator) {
+    ) -> SnippetGenerator {
         let named = self.schema.search_field(&field_name);
         if let Some(field) = &named
             && !(field.is_text() || field.is_json())
@@ -1142,21 +1142,20 @@ impl SearchIndexReader {
             .filter(|sibling| !fields.contains(sibling))
             .collect();
         fields.extend(siblings);
-        let Some(&first) = fields.first() else {
+        if fields.is_empty() {
             panic!(
                 "cannot generate snippet for field {field_name} because it was not found in the index"
             )
-        };
+        }
 
-        let generator = SnippetGenerator::create_for_fields(
+        SnippetGenerator::create_for_fields(
             &self.searcher,
             &self.make_query(query, expr_context),
             fields,
         )
         .unwrap_or_else(|err| {
             panic!("failed to create snippet generator for field: {field_name}... {err}")
-        });
-        (first, generator)
+        })
     }
 
     /// Every indexed field whose text comes from the heap column `column`.

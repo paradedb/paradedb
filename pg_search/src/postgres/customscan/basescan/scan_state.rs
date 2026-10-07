@@ -38,6 +38,7 @@ use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::query::tid_bitmap_stream::BitmapCell;
 use crate::query::SearchQueryInput;
+use std::ptr::NonNull;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
@@ -61,6 +62,10 @@ pub struct BaseScanState {
 
     base_search_query_input: SearchQueryInput,
     search_query_input: SearchQueryInput,
+    /// Where `search_query_input` is solved; `None` when the base query has nothing to solve.
+    /// Separate from `ps_ExprContext`, which `exec_custom_scan` resets per row: see the rules in
+    /// `solve_expr.rs`.
+    pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
     pub search_reader: Option<SearchIndexReader>,
 
     pub targetlist_len: usize,
@@ -237,10 +242,6 @@ impl BaseScanState {
             with_aggregates,
             with_segment_info: true,
         }
-    }
-
-    pub fn has_postgres_expressions(&mut self) -> bool {
-        self.base_search_query_input.has_postgres_expressions()
     }
 
     #[inline(always)]
@@ -544,12 +545,14 @@ impl SolvePostgresExpressions for BaseScanState {
         self.search_query_input = self.base_search_query_input.clone();
     }
 
+    // Ask the base query: `init_expr_context` asks in `begin_custom_scan`, before
+    // `init_search_query_input` fills `search_query_input`.
     fn has_postgres_expressions(&mut self) -> bool {
-        self.search_query_input.has_postgres_expressions()
+        self.base_search_query_input.has_postgres_expressions()
     }
 
     fn has_parameters(&mut self) -> bool {
-        self.search_query_input.has_parameters()
+        self.base_search_query_input.has_parameters()
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

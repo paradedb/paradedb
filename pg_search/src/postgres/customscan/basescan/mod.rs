@@ -124,10 +124,11 @@ impl BaseScan {
     ///    transaction snapshot (`MvccSatisfies::Snapshot`).
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
         let planstate = state.planstate();
-        let expr_context = state.runtime_context;
+        let runtime_context = state.custom_state().runtime_context;
         state
             .custom_state_mut()
-            .prepare_query_for_execution(planstate, expr_context);
+            .prepare_query_for_execution(planstate, runtime_context);
+        let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
         // Open the index
         let indexrel = state
@@ -1618,7 +1619,6 @@ impl CustomScan for BaseScan {
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
-            let planstate = state.planstate();
 
             pg_sys::ExecInitScanTupleSlot(
                 estate,
@@ -1647,10 +1647,8 @@ impl CustomScan for BaseScan {
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
 
-            state
-                .custom_state_mut()
-                .init_expr_context(estate, planstate);
-            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+            let custom_state = state.custom_state_mut();
+            custom_state.runtime_context = custom_state.init_expr_context(estate);
         }
     }
 

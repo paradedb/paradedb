@@ -72,6 +72,7 @@ use super::literal_arg;
 
 pub const TOPK_AS_AGG_NAME: &str = "topk_as_agg";
 pub const TOPK_AGG_ROWS_COL_NAME: &str = "__topk";
+pub const TOPK_DISTINCT_EMPTY_PAYLOAD_COL_NAME: &str = "__distinct";
 
 static TOPK_AS_AGG: LazyLock<Arc<AggregateUDF>> =
     LazyLock::new(|| Arc::new(AggregateUDF::from(TopKAgg::new())));

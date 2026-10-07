@@ -40,6 +40,8 @@ pub enum SearchFieldConfig {
         fieldnorms: bool,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pnorms: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        bitmap_postings: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
         #[serde(default)]
@@ -68,6 +70,8 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        bitmap_postings: bool,
         #[serde(default = "default_as_true")]
         expand_dots: bool,
         #[serde(default)]
@@ -479,6 +483,7 @@ impl From<SearchFieldConfig> for TextOptions {
                 indexed,
                 fast,
                 fieldnorms,
+                bitmap_postings,
                 pnorms,
                 tokenizer,
                 record,
@@ -488,6 +493,10 @@ impl From<SearchFieldConfig> for TextOptions {
                 ..
             } => {
                 validate_bm25_indexed(indexed, k1, b);
+                assert!(
+                    !bitmap_postings || indexed,
+                    "bitmap_postings=true requires indexed=true"
+                );
                 assert!(
                     !pnorms || (indexed && fieldnorms),
                     "pnorms=true requires indexed=true and fieldnorms=true"
@@ -499,6 +508,7 @@ impl From<SearchFieldConfig> for TextOptions {
                     let text_field_indexing = TextFieldIndexing::default()
                         .set_index_option(record.into())
                         .set_fieldnorms(fieldnorms)
+                        .set_bitmap_postings(bitmap_postings)
                         .set_pnorms(pnorms)
                         .set_tokenizer(&tokenizer.name());
                     let text_field_indexing = apply_bm25(text_field_indexing, k1, b);
@@ -586,6 +596,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 indexed,
                 fast,
                 fieldnorms,
+                bitmap_postings,
                 expand_dots,
                 tokenizer,
                 record,
@@ -595,6 +606,10 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 ..
             } => {
                 validate_bm25_indexed(indexed, k1, b);
+                assert!(
+                    !bitmap_postings || indexed,
+                    "bitmap_postings=true requires indexed=true"
+                );
                 if fast {
                     json_options = json_options.set_fast(normalizer.name());
                 }
@@ -605,6 +620,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                     let text_field_indexing = TextFieldIndexing::default()
                         .set_index_option(record.into())
                         .set_fieldnorms(fieldnorms)
+                        .set_bitmap_postings(bitmap_postings)
                         .set_tokenizer(&tokenizer.name());
                     let text_field_indexing = apply_bm25(text_field_indexing, k1, b);
                     json_options = json_options.set_indexing_options(text_field_indexing);

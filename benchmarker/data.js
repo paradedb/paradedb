@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791393932172,
+  "lastUpdate": 1791395428937,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -8970,6 +8970,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 19.983,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2b6cfbd7a6d82ce317a9634f7e5a4554ad637cfe",
+          "message": "fix: detect the search operator before PostgreSQL simplifies it away (#6424)\n\nThis PR detects the search operator before PostgreSQL simplifies it\naway, so `pdb.score()` and `pdb.snippet()` keep working on such queries.\n\n## Ticket(s) Closed\n\n- Closes #6417\n\n## What\n\nPostgreSQL reduces `A OR (A AND body @@@ 'q')` to `A` before any scan\nsees the quals, so the base scan found no operator and the projections\nfailed with `Unsupported query shape`. The scan now runs on the\nremaining predicates, `pdb.score()` is `0` and `pdb.snippet()` is empty\nfor every row (as with `pdb.all()`), and a planner warning says why. A\n`WHERE` clause that folds away entirely scans every row. JoinScan and\nAggregateScan take such queries on the same grounds.\n\nThe same signal covers an operator that only survives in a join clause,\nsuch as `(a.bio ||| 'x' OR b.content ||| 'y')` with a restriction on\n`a`. That side now scans on its restriction and scores from the join\npredicate, where it used to error.\n\nThe placeholder error now names the function, states the operator\nrequirement, and always carries the link to report the query, since a\nquery that does apply an operator and still errors is our bug.\n\n## How\n\nThe planner hook records which range table entries the unsimplified\nquery applies a search operator to. When the quals a scan received carry\nno operator, the base, join and aggregate scans consult that record and\ntake it as the signal that the query asked for them. An entry is\nidentified by the parser locations of its `Var`s, since the planner\ncopies entries when it pulls subqueries up or plans them on their own.\nOnly a direct table reference is recorded.\n\n## Tests\n\n`projection_search_predicate` covers the redundant branch for every\nprojection function, through a sublink, a join and a partitioned table,\nunder custom and generic plans, and through JoinScan and AggregateScan,\nplus a sibling subquery over the same table that must stay untouched.\nThe join tests that expected the error now expect rows.\n\nWhile probing this, `pdb.score()` on the non-search alias of a self-join\nturned out to abort the backend on PostgreSQL 18 (#6687). Not addressed\nhere.",
+          "timestamp": "2026-10-07T10:02:49-07:00",
+          "tree_id": "c889ddcb875647b6a9534e8f2515b72cf770c85a",
+          "url": "https://github.com/paradedb/paradedb/commit/2b6cfbd7a6d82ce317a9634f7e5a4554ad637cfe"
+        },
+        "date": 1791395425846,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.617,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.346,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.274,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 9.76,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 2.015,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.48,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.912,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 6.744,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 19.94,
             "unit": "ms"
           }
         ]

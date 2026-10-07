@@ -97,6 +97,23 @@ pub fn json_document_to_datum(
     Ok(pgrx::JsonB(document).into_datum())
 }
 
+/// The callers that convert a document column once and reuse the Datum for every
+/// row rely on the window being `OVER ()`: the column is then a dictionary over a
+/// single value. Catches a column that would hand later rows another row's document.
+pub fn debug_assert_single_document(col: &dyn Array) {
+    if cfg!(debug_assertions) {
+        let documents = match col.data_type() {
+            DataType::Dictionary(..) => col.as_any_dictionary().values().len(),
+            DataType::Null => 0,
+            _ => col.len(),
+        };
+        assert!(
+            documents <= 1,
+            "pdb.agg() document column holds {documents} values; the per-scan cache expects one"
+        );
+    }
+}
+
 /// [`request_plan`] leaves these out, so the plan's columns hold none.
 const NO_ROOT_COLUMNS: &str = "a lone request has no SQL group keys or standard aggregates";
 

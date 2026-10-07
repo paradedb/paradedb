@@ -30,6 +30,8 @@
 //! [`crate::postgres::types_arrow`] — this module is a consumer, not an
 //! implementer of type conversions.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use datafusion::arrow::array::*;
@@ -37,6 +39,8 @@ use datafusion::arrow::datatypes::*;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, Volatility};
 use pgrx::PgMemoryContexts;
+
+use crate::postgres::customscan::datafusion::pdb_agg_udaf::debug_assert_single_document;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
@@ -126,6 +130,7 @@ struct PgExprState {
     estate: *mut pg_sys::EState,
     econtext: *mut pg_sys::ExprContext,
     slot: *mut pg_sys::TupleTableSlot,
+    json_doc_datums: RefCell<HashMap<usize, (pg_sys::Datum, bool)>>,
 }
 
 // SAFETY: PgExprState is only accessed within a single DataFusion partition
@@ -280,11 +285,13 @@ impl PgExprUdf {
                 // SAFETY: expr_node is a valid deserialized+rewritten Node.
                 let expr_state = pg_sys::ExecInitExpr(prepared.as_ptr(), std::ptr::null_mut());
 
+                let json_doc_datums = RefCell::new(HashMap::new());
                 PgExprState {
                     expr_state,
                     estate,
                     econtext,
                     slot,
+                    json_doc_datums,
                 }
             })
         })
@@ -313,7 +320,24 @@ unsafe fn populate_slot(
                 field_type.as_ref(),
                 input_vars[col_idx].type_oid,
             )?,
-            InputDecode::JsonDocument => json_document_value_to_datum(arg, row_idx)?,
+            InputDecode::JsonDocument => {
+                if let ColumnarValue::Array(array) = arg {
+                    debug_assert_single_document(array.as_ref());
+                }
+                let mut cached = pg_state.json_doc_datums.borrow_mut();
+                match cached.get(&col_idx) {
+                    Some(res) => *res,
+                    None => {
+                        // Reused across batches, so it must outlive the current context:
+                        // allocate in this state's own query context, which
+                        // FreeExecutorState releases.
+                        let res = PgMemoryContexts::For((*pg_state.estate).es_query_cxt)
+                            .switch_to(|_| json_document_value_to_datum(arg, row_idx))?;
+                        cached.insert(col_idx, res);
+                        res
+                    }
+                }
+            }
         };
         (*pg_state.slot).tts_values.add(col_idx).write(val);
         (*pg_state.slot).tts_isnull.add(col_idx).write(null);

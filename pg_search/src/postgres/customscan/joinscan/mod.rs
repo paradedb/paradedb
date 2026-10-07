@@ -203,12 +203,12 @@ use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
-use pgrx::{PgList, pg_sys};
+use pgrx::{PgList, PgMemoryContexts, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
 
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
-use super::datafusion::pdb_agg_udaf::json_document_to_datum;
+use super::datafusion::pdb_agg_udaf::{debug_assert_single_document, json_document_to_datum};
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -2629,6 +2629,7 @@ impl JoinScan {
         // Fill the result slot based on the output column mapping
         let datums = (*result_slot).tts_values;
         let nulls = (*result_slot).tts_isnull;
+
         let batch = state.custom_state().current_batch.as_ref()?;
 
         for (i, col_info) in output_columns.iter().enumerate() {
@@ -2732,7 +2733,27 @@ impl JoinScan {
                             )
                         }
                         WindowAggDef::PdbAgg(_) => {
-                            json_document_to_datum(agg_col.as_ref(), row_idx)
+                            debug_assert_single_document(agg_col.as_ref());
+                            let mut window_agg_datums =
+                                state.custom_state().window_agg_datums.borrow_mut();
+                            match window_agg_datums.get(agg_index) {
+                                Some(d) => Ok(*d),
+                                None => {
+                                    // Reused for every row of the scan: allocate in the
+                                    // per-query context, not whatever context is current
+                                    // when this row is built.
+                                    let datum = PgMemoryContexts::For(
+                                        (*state.csstate.ss.ps.state).es_query_cxt,
+                                    )
+                                    .switch_to(|_| {
+                                        json_document_to_datum(agg_col.as_ref(), row_idx)
+                                    });
+                                    if let Ok(d) = datum {
+                                        window_agg_datums.insert(*agg_index, d);
+                                    }
+                                    datum
+                                }
+                            }
                         }
                     };
                     let maybe_datum = match try_maybe_datum {

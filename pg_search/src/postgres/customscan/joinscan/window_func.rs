@@ -197,7 +197,7 @@ impl WindowAgg {
 /// indexes are 1-based, so 0 cannot collide with a source relation.
 pub const WINDOW_SENTINEL_VARNO: pg_sys::Index = 0;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(transparent)]
 pub struct WindowAggIndex(usize);
 impl WindowAggIndex {

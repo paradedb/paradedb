@@ -29,6 +29,7 @@
 //! scanned exactly once while achieving distributed execution.
 //!
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -401,6 +402,9 @@ pub struct JoinScanState {
     /// `DataFusionAggState::spilled` in AggregateScan -- see its doc comment for why this lives
     /// here rather than solely in `ParallelScanState`.
     pub spilled: Arc<std::sync::atomic::AtomicBool>,
+
+    /// The cache of pdb.agg() window function json datums
+    pub window_agg_datums: RefCell<HashMap<WindowAggIndex, Option<pg_sys::Datum>>>,
 }
 
 impl JoinScanState {
@@ -423,6 +427,7 @@ impl JoinScanState {
         self.batch_index = 0;
         self.physical_plan = None;
         self.output_batch_col_indices.clear();
+        self.window_agg_datums.get_mut().clear();
         self.launch_timing = None;
         self.stream_built_at = None;
         // base_join_clause is only populated (in create_custom_scan_state) when the plan

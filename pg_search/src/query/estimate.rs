@@ -39,6 +39,7 @@ impl Estimate {
 
 impl QueryEstimate for dyn Query {
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        // Exact match queries become terms joined by AND or OR, so they use the same estimates.
         macro_rules! estimate_as {
             ($($query:ty),* $(,)?) => {$(
                 if let Some(query) = self.downcast_ref::<$query>() {
@@ -79,6 +80,7 @@ impl QueryEstimate for BoostQuery {
 
 impl QueryEstimate for TermQuery {
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        // The index already stores how many documents contain this term.
         let term = self.term();
         if !reader.schema().get_field_entry(term.field()).is_indexed() {
             return Ok(None);
@@ -93,6 +95,8 @@ impl QueryEstimate for TermQuery {
 
 impl QueryEstimate for PhraseQuery {
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        // Multiply the fraction of documents containing each term, then scale back to a count.
+        // Divide by 10 times the phrase length to roughly account for word order.
         let total = reader.max_doc().max(1) as f64;
         let terms = self.phrase_terms();
         let mut fraction = 1.0;
@@ -102,7 +106,6 @@ impl QueryEstimate for PhraseQuery {
             fraction *= count as f64 / total;
             shortest = shortest.min(count as u64);
         }
-        // Match Tantivy's positional discount and retain the posting-list cost floor.
         let checks = (10 * terms.len()) as f64;
         Ok(Some(Estimate {
             matches: fraction * total / checks,
@@ -113,6 +116,9 @@ impl QueryEstimate for PhraseQuery {
 
 impl QueryEstimate for BooleanQuery {
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        // AND starts with the smallest estimate; each extra condition reduces it less.
+        // OR estimates how many documents match enough conditions.
+        // NOT removes the estimated share of documents matching the excluded conditions.
         if let [(Occur::Must | Occur::Should, child)] = self.clauses() {
             return child.estimate_docs(reader);
         }

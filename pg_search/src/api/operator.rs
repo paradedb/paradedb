@@ -654,7 +654,7 @@ fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
     crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
 }
 
-/// Open a single-segment (`LargestSegment`) reader and estimate matching docs,
+/// Reuse the supplied reader, or open the largest segment, to estimate matching docs,
 /// total docs, and the query's Tantivy `DocSet::cost()` in one pass. The single
 /// source for both `estimate_selectivity` and planner traversal estimates.
 ///
@@ -664,21 +664,28 @@ fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
 fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    reader: Option<&SearchIndexReader>,
 ) -> Option<DocsEstimate> {
     let heap_rel = indexrel
         .heap_relation()
         .expect("indexrel should be an index");
     let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
-    let search_reader = SearchIndexReader::open(
-        indexrel,
-        search_query_input,
-        false,
-        MvccSatisfies::LargestSegment,
-    )
-    .ok()?;
-
-    Some(search_reader.estimate_docs(row_estimate))
+    let opened;
+    let reader = match reader {
+        Some(reader) => reader,
+        None => {
+            opened = SearchIndexReader::open(
+                indexrel,
+                search_query_input,
+                false,
+                MvccSatisfies::LargestSegment,
+            )
+            .ok()?;
+            &opened
+        }
+    };
+    Some(reader.estimate_docs(row_estimate))
 }
 
 /// One index open, both planning answers: selectivity (matching/total docs) and the
@@ -695,6 +702,7 @@ fn open_and_estimate_docs(
 pub(crate) fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    reader: Option<&SearchIndexReader>,
 ) -> (Option<f64>, Option<u64>) {
     if estimate_heuristically(&search_query_input) {
         // #4172 skips opening the index, so derive the work estimate from the same
@@ -710,7 +718,7 @@ pub(crate) fn estimate_selectivity_and_cost(
         return (Some(selectivity), cost);
     }
 
-    let Some(estimate) = open_and_estimate_docs(indexrel, search_query_input) else {
+    let Some(estimate) = open_and_estimate_docs(indexrel, search_query_input, reader) else {
         return (None, None);
     };
 
@@ -724,7 +732,7 @@ pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<f64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).0
+    estimate_selectivity_and_cost(indexrel, search_query_input, None).0
 }
 
 /// The estimated number of heap rows matching `search_query_input`, scaled from the
@@ -737,6 +745,7 @@ pub(crate) fn estimate_selectivity(
 pub(crate) fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    reader: Option<&SearchIndexReader>,
 ) -> Option<u64> {
     if estimate_heuristically(&search_query_input) {
         let selectivity = search_query_input.selectivity_heuristic();
@@ -746,16 +755,17 @@ pub(crate) fn estimate_matching_rows(
             .map(|reltuples| (selectivity * reltuples as f64) as u64);
     }
 
-    open_and_estimate_docs(indexrel, search_query_input)
+    open_and_estimate_docs(indexrel, search_query_input, reader)
         .map(|estimate| estimate.matching_docs as u64)
 }
 
 /// Estimate the query's traversal cost using the shared selectivity/cost estimator.
+/// Returns `None` if the index cannot be opened, or an expensive query has no row estimate.
 pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).1
+    estimate_selectivity_and_cost(indexrel, search_query_input, None).1
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

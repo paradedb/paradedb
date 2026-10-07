@@ -1907,26 +1907,16 @@ impl SearchIndexReader {
     /// 2. The total number of rows in the index (estimated if total_docs is Unknown).
     /// 3. Tantivy's relative cost to drive the configured query's docset.
     ///
-    /// Expects to be called using an index opened with `MvccSatisfies::LargestSegment`, and thus
-    /// to contain exactly 0 or 1 Segment.
+    /// Samples the largest segment and scales its estimates to the whole relation.
     pub fn estimate_docs(&self, total_docs: RowEstimate) -> DocsEstimate {
-        match self.searcher.segment_readers().len() {
-            1 => {}
-            0 => {
-                return DocsEstimate {
-                    matching_docs: 0,
-                    total_docs: 0,
-                    query_cost: 0,
-                };
-            }
-            x => {
-                panic!(
-                    "estimate_docs(): expected an index with only one segment, \
-                    which is assumed to be the largest segment by num_docs. got: {x:?} segments.",
-                );
-            }
-        }
-        let largest_reader = self.searcher.segment_reader(0);
+        let Some(largest_reader) = self.segment_readers().iter().max_by_key(|r| r.num_docs())
+        else {
+            return DocsEstimate {
+                matching_docs: 0,
+                total_docs: 0,
+                query_cost: 0,
+            };
+        };
         let weight = self.weight();
         let mut scorer = weight
             .scorer(largest_reader, 1.0)
@@ -2418,6 +2408,52 @@ mod tests {
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
     };
+
+    #[pg_test]
+    fn aggregate_worker_cost_reuses_reader_and_charges_visibility() {
+        use crate::aggregate::AggregateRequest;
+        use crate::api::MvccVisibility;
+        use crate::postgres::customscan::parallel::aggregate_nworkers;
+        use std::sync::atomic::Ordering;
+
+        let (index, _) = segmented_index_fixture("aggregate_worker_cost", 4, false);
+        Spi::run(
+            "ANALYZE aggregate_worker_cost;
+            SET LOCAL max_parallel_workers_per_gather = 3;
+            SET LOCAL max_parallel_workers = 3;
+            SET LOCAL parallel_leader_participation = on;
+            SET LOCAL parallel_setup_cost = 0.25;
+            SET LOCAL parallel_tuple_cost = 0;
+            SET LOCAL cpu_index_tuple_cost = 0.005;
+            SET LOCAL cpu_operator_cost = 0.0025;
+            SET LOCAL cpu_tuple_cost = 0.01;",
+        )
+        .unwrap();
+        let query = SearchQueryInput::All;
+        let reader = open_snapshot_reader(&index, query.clone(), false);
+        let aggregation = AggregateRequest::Json(
+            serde_json::from_value(serde_json::json!({
+                "count": {"value_count": {"field": "id"}}
+            }))
+            .unwrap(),
+        );
+        let opens = INDEX_COMPONENT_OPENS.load(Ordering::Relaxed);
+        assert_eq!(
+            aggregate_nworkers(&index, &reader, &query, &aggregation, false),
+            0
+        );
+        assert_eq!(
+            aggregate_nworkers(&index, &reader, &query, &aggregation, true),
+            2
+        );
+        assert!(MvccVisibility::Threshold.resolve_filtering(&index, &query, Some(&reader)));
+        assert_eq!(INDEX_COMPONENT_OPENS.load(Ordering::Relaxed), opens);
+        Spi::run("SET LOCAL parallel_setup_cost = 1000000").unwrap();
+        assert_eq!(
+            aggregate_nworkers(&index, &reader, &query, &aggregation, true),
+            0
+        );
+    }
 
     #[pg_test]
     fn collect_ctidset_rebinds_visibility_to_each_reader() {

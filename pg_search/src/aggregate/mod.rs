@@ -19,7 +19,6 @@ mod count_all_collector;
 pub mod exec;
 
 use std::error::Error;
-use std::num::NonZeroUsize;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
@@ -27,7 +26,6 @@ use crate::aggregate::count_all_collector::CountAllCollector;
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::api::operator::estimate_selectivity_and_cost;
 use crate::api::version::VersionInfo;
 use crate::api::{HashSet, MvccVisibility};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
@@ -43,7 +41,7 @@ use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
-use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
+use crate::postgres::customscan::parallel::aggregate_nworkers;
 use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
@@ -52,7 +50,6 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 use crate::query::tid_bitmap_stream::{BitmapCell, BitmapCursorSource};
-use crate::scan::info::RowEstimate;
 use crate::schema::SearchIndexSchema;
 
 use parking_lot::Mutex;
@@ -80,7 +77,7 @@ impl AggregateRequest {
     /// Each collector update counts as one operation; string cardinality also includes
     /// sorting its distinct values. The caller multiplies this count by estimated matching
     /// documents and cpu_operator_cost. Value multiplicity is not included.
-    fn updates_per_doc(&self, reader: &SearchIndexReader) -> Option<usize> {
+    pub(crate) fn updates_per_doc(&self, reader: &SearchIndexReader) -> Option<usize> {
         let mut updates_per_doc = 0;
         match self {
             AggregateRequest::Sql(clause) => {
@@ -621,12 +618,6 @@ pub fn execute_aggregate(
     mut bitmap_exec: Option<&mut BitmapExec>,
     mut visibility_stats: Option<&mut VisibilityStats>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
-    // Resolve `visibility` to a single decision for this execution before anything
-    // branches on it. `threshold` estimates the query's matching row count here
-    // rather than at plan time so that the `paradedb.aggregate()` UDF, which the
-    // planner never sees, resolves the same way as the custom scan paths.
-    let solve_mvcc = visibility.resolve_filtering(index, &query);
-
     if index.created_by_version().stores_datetimes_in_i64() {
         // We need to rewrite date_histogram requests to regular histogram requests because we are
         // no longer storing dates in tantivy's DateTime.
@@ -669,6 +660,8 @@ pub fn execute_aggregate(
             None,
         )?;
 
+        let solve_mvcc = visibility.resolve_filtering(index, &query, Some(&reader));
+
         // Fast path: a bare doc count without MVCC filtering is answerable by
         // `Weight::count` — a stored-doc_freq metadata read for term queries
         // on delete-free segments, a scoreless docset drain otherwise —
@@ -701,74 +694,7 @@ pub fn execute_aggregate(
             return Ok(results);
         }
 
-        // Cap workers by segments/GUCs and account for leader participation. Serial cost is
-        // traversal * cpu_index_tuple_cost + rows * updates_per_doc * cpu_operator_cost.
-        // Use workers when dividing that work among participants saves more than
-        // parallel_setup_cost + workers * parallel_tuple_cost. Unknown estimates keep the initial budget.
-        //
-        // - traversal: estimated work to find matching documents.
-        // - rows: estimated number of matching documents.
-        // - updates_per_doc: estimated aggregation operations for each document.
-        // - cpu_index_tuple_cost: PostgreSQL cost per index entry processed.
-        // - cpu_operator_cost: PostgreSQL cost per operation.
-        // - workers: number of background workers being considered.
-        // - participants: workers plus the leader, if it participates.
-        // - parallel_setup_cost: fixed cost of starting a parallel query.
-        // - parallel_tuple_cost: cost to transfer a result, charged once per worker here.
-        let mut nworkers =
-            (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
-        if nworkers > 0 && pg_sys::parallel_leader_participation {
-            nworkers -= 1;
-        }
-        let mut costable = true;
-        query.visit_ref(&mut |node| {
-            if matches!(
-                node,
-                SearchQueryInput::HeapFilter { .. } | SearchQueryInput::PostgresExpression { .. }
-            ) {
-                costable = false;
-            }
-        });
-        let mut serial_aggregate = false;
-        if costable
-            && let Some(workers) = NonZeroUsize::new(
-                nworkers
-                    .min(pg_sys::max_parallel_workers as usize)
-                    .min(pg_sys::max_worker_processes as usize),
-            )
-            && let Some(updates_per_doc) = agg_req.updates_per_doc(&reader)
-            && let (selectivity, Some(cost)) = estimate_selectivity_and_cost(index, query.clone())
-        {
-            let total_rows = RowEstimate::from_reltuples(
-                index
-                    .heap_relation()
-                    .and_then(|heap| heap.reltuples())
-                    .map(f64::from),
-            );
-            let rows = selectivity
-                .zip(total_rows.known_rows())
-                .map(|(selectivity, rows)| (selectivity * rows).ceil() as u64);
-            if updates_per_doc == 0 || rows.is_some() {
-                let collector_operations = rows.unwrap_or(0) as f64 * updates_per_doc as f64;
-                // TODO: Tune per query using measured collector work, bucket fanout,
-                // and partial-result transfer/merge costs.
-                let work = cost as f64 * pg_sys::cpu_index_tuple_cost
-                    + collector_operations * pg_sys::cpu_operator_cost;
-                let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
-                if !parallel_scan_is_cheaper(
-                    work,
-                    workers,
-                    pg_sys::parallel_leader_participation,
-                    transfer_cost,
-                ) {
-                    nworkers = 0;
-                    serial_aggregate = true;
-                }
-                pgrx::debug1!(
-                    "aggregate traversal cost={cost}, matching rows={rows:?}, collector work={collector_operations}, requested parallel workers={nworkers}"
-                );
-            }
-        }
+        let nworkers = aggregate_nworkers(index, &reader, &query, &agg_req, solve_mvcc);
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
@@ -814,15 +740,13 @@ pub fn execute_aggregate(
             "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
             *std::ptr::addr_of!(pg_sys::parallel_leader_participation)
         );
-        if !serial_aggregate
-            && let Some(mut process) = launch_parallel_process!(
-                ParallelAggregation<ParallelAggregationWorker>,
-                process,
-                WorkerStyle::Query,
-                nworkers,
-                16384
-            )
-        {
+        if let Some(mut process) = launch_parallel_process!(
+            ParallelAggregation<ParallelAggregationWorker>,
+            process,
+            WorkerStyle::Query,
+            nworkers,
+            16384
+        ) {
             // signal our workers with the number of workers actually launched
             // they need this before they can begin checking out the correct segment counts
             let mut nlaunched = process.launched_workers();

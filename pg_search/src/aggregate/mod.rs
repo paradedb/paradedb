@@ -1369,19 +1369,19 @@ pub mod mvcc_collector {
         }
 
         fn collect_bitmap(&mut self, base: DocId, mask: &tantivy::DocIdBitmap) {
-            let all_visible = self.lock.as_ref().is_none_or(|lock| {
-                lock.lock().is_doc_range_all_visible(
-                    self.segment_ord,
-                    base..base.saturating_add(mask.len() as u32 * 64),
-                )
-            });
-            if all_visible {
-                self.flush();
+            let Some(lock) = &self.lock else {
                 self.inner.collect_bitmap(base, mask);
-            } else {
-                tantivy::DocSetBatch::Bitmap(base, mask)
-                    .for_each_doc_block(|docs| self.collect_block(docs));
+                return;
+            };
+            let (visible, dirty) =
+                lock.lock()
+                    .partition_bitmap_visibility(self.segment_ord, base, mask);
+            if visible.iter().any(|word| !word.is_empty()) {
+                self.flush();
+                self.inner.collect_bitmap(base, &visible);
             }
+            tantivy::DocSetBatch::Bitmap(base, &dirty)
+                .for_each_doc_block(|docs| self.collect_block(docs));
         }
 
         fn harvest(mut self) -> Self::Fruit {

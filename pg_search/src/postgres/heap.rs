@@ -770,19 +770,37 @@ impl VisibilityChecker {
         self.segment_checks[&segment_ord].clone()
     }
 
-    pub(crate) fn is_doc_range_all_visible(
+    pub(crate) fn partition_bitmap_visibility(
         &mut self,
         segment_ord: SegmentOrdinal,
-        docs: Range<DocId>,
-    ) -> bool {
-        if docs.is_empty() || !self.check_visibility {
-            return true;
+        base: DocId,
+        mask: &tantivy::DocIdBitmap,
+    ) -> (tantivy::DocIdBitmap, tantivy::DocIdBitmap) {
+        let mut visible = *mask;
+        let mut dirty = [TinySet::EMPTY; 16];
+        if !self.check_visibility {
+            return (visible, dirty);
         }
         let Some(ranges) = self.doc_id_ranges_needing_visibility_checks(segment_ord) else {
-            return false;
+            return (dirty, visible);
         };
-        let idx = ranges.partition_point(|range| range.end <= docs.start);
-        idx == ranges.len() || ranges[idx].start >= docs.end
+        let end = base.saturating_add(mask.len() as u32 * 64);
+        let first = ranges.partition_point(|range| range.end <= base);
+        for range in ranges[first..].iter().take_while(|range| range.start < end) {
+            let start = range.start.max(base) - base;
+            let end = range.end.min(end) - base;
+            for word in start as usize / 64..(end as usize).div_ceil(64) {
+                let lower = start.saturating_sub(word as u32 * 64);
+                let upper = (end - word as u32 * 64).min(64);
+                let bits = TinySet::range_greater_or_equal(lower).intersect(TinySet::deserialize(
+                    (u64::MAX >> (64 - upper)).to_le_bytes(),
+                ));
+                dirty[word] = dirty[word].union(mask[word].intersect(bits));
+                visible[word] =
+                    visible[word].intersect(TinySet::deserialize((!bits.into_u64()).to_le_bytes()));
+            }
+        }
+        (visible, dirty)
     }
 
     /// Checks if a single document is visible under this checker's snapshot.
@@ -1935,7 +1953,7 @@ mod tests {
     use pgrx::prelude::*;
 
     #[pg_test]
-    fn bitmap_window_visibility_proof() {
+    fn bitmap_window_visibility_partition() {
         Spi::run("CREATE TABLE bitmap_visibility_windows (id int)").unwrap();
         let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_visibility_windows'::regclass::oid")
             .unwrap()
@@ -1943,30 +1961,58 @@ mod tests {
         let relation = PgSearchRelation::open(oid);
         let mut checker =
             VisibilityChecker::with_rel_and_snap(&relation, unsafe { pg_sys::GetActiveSnapshot() });
+        let ranges = [10..20, 63..65, 1023..1025, 2048..3072, 4096..4100];
         checker
             .segment_checks
-            .insert(0, Some(Arc::from([1024..2048, 4096..4100])));
-        for (docs, expected) in [
-            (0..1024, true),
-            (1024..2048, false),
-            (2048..3072, true),
-            (3072..4096, true),
-            (4096..5120, false),
-            (5120..6144, true),
-            (1023..1025, false),
-            (2047..2049, false),
-        ] {
-            assert_eq!(
-                checker.is_doc_range_all_visible(0, docs.clone()),
-                expected,
-                "{docs:?}"
-            );
+            .insert(0, Some(Arc::from(ranges.clone())));
+        for base in [0, 1, 63, 64, 1024, 2048, 3072, 4096, 8192] {
+            for stride in [1, 3, 67, 1025] {
+                let mut mask = [TinySet::EMPTY; 16];
+                for bit in (0..1024).step_by(stride) {
+                    mask[bit / 64].insert_mut((bit % 64) as u32);
+                }
+                let (visible, dirty) = checker.partition_bitmap_visibility(0, base, &mask);
+                for bit in 0..1024 {
+                    let doc = base + bit as u32;
+                    let matches = bit % stride == 0;
+                    let needs_check = ranges.iter().any(|range| range.contains(&doc));
+                    let test_bit = 1 << (bit % 64);
+                    assert_eq!(
+                        visible[bit / 64].into_u64() & test_bit != 0,
+                        matches && !needs_check
+                    );
+                    assert_eq!(
+                        dirty[bit / 64].into_u64() & test_bit != 0,
+                        matches && needs_check
+                    );
+                }
+            }
         }
+        let empty = [TinySet::EMPTY; 16];
+        let full = [TinySet::range_greater_or_equal(0); 16];
+        assert_eq!(
+            checker.partition_bitmap_visibility(0, 0, &empty),
+            (empty, empty)
+        );
         checker.segment_checks.insert(1, None);
-        assert!(!checker.is_doc_range_all_visible(1, 0..1024));
+        assert_eq!(
+            checker.partition_bitmap_visibility(1, 0, &full),
+            (empty, full)
+        );
         checker.segment_checks.insert(2, Some(Arc::from([])));
-        assert!(checker.is_doc_range_all_visible(2, 0..1024));
+        assert_eq!(
+            checker.partition_bitmap_visibility(2, 0, &full),
+            (full, empty)
+        );
         Spi::run("SET LOCAL paradedb.enable_visibility_map_shortcuts = off").unwrap();
-        assert!(!checker.is_doc_range_all_visible(0, 0..1024));
+        assert_eq!(
+            checker.partition_bitmap_visibility(0, 0, &full),
+            (empty, full)
+        );
+        checker.check_visibility = false;
+        assert_eq!(
+            checker.partition_bitmap_visibility(0, 0, &full),
+            (full, empty)
+        );
     }
 }

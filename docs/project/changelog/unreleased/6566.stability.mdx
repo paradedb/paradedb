@@ -2,4 +2,4 @@
 header: stability
 ---
 
-Retrying index creation after a savepoint rollback now persists its tokenizer settings correctly, so the committed index remains usable from new connections. This also applies when an inner savepoint is released before an outer savepoint is rolled back.
+Retrying index creation after a rolled-back subtransaction, such as a PL/pgSQL `EXCEPTION` block or a `ROLLBACK TO SAVEPOINT`, now persists its tokenizer settings correctly, so the committed index remains usable from new connections.

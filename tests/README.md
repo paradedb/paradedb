@@ -35,6 +35,8 @@ DATABASE_URL=postgres://USER_NAME@localhost:PORT/pg_search
 
 Some tests also require `PG_CONFIG` to point to the `pg_config` binary for the PostgreSQL installation under test. The logical-replication test requires it, while the dump/restore test is skipped when it is not set.
 
+The typmod subtransaction tests also prepare transactions, which Postgres only allows when `max_prepared_transactions` is set above zero in `postgresql.conf` before the server starts. Those tests are skipped when it is left at its default of zero.
+
 ## Running Tests with pgrx-managed PostgreSQL
 
 If you are using pgrx’s bundled PostgreSQL, follow these steps from the root of the repository:

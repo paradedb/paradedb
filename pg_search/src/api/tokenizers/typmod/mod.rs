@@ -538,6 +538,10 @@ enum AddedEntry {
     Save(Vec<String>),
 }
 
+/// Postgres's `TopSubTransactionId`, which `pg_sys` does not export: the id of the top-level
+/// transaction and the smallest one handed out, since `InvalidSubTransactionId` is `0`.
+const TOP_SUBTRANSACTION_ID: pg_sys::SubTransactionId = 1;
+
 thread_local! {
     static XACT_CALLBACKS_REGISTERED: Cell<bool> = const { Cell::new(false) };
     /// The entries added in the current transaction, each with the subtransaction it was added
@@ -557,7 +561,8 @@ fn remember_added(entry: AddedEntry) {
 ///
 /// Subtransaction ids only grow within a transaction, so these are the entries of `subid` and
 /// of the subtransactions started inside it, released or not. Entries of a savepoint released
-/// before `subid` started have a smaller id and stay.
+/// before `subid` started have a smaller id and stay. [`TOP_SUBTRANSACTION_ID`] removes every
+/// entry of the transaction.
 fn forget_added(subid: pg_sys::SubTransactionId) {
     let removed: Vec<_> = ADDED.with_borrow_mut(|added| {
         added
@@ -591,7 +596,15 @@ fn ensure_xact_callbacks_registered() {
         XACT_CALLBACKS_REGISTERED.set(false);
     });
     register_xact_callback(PgXactCallbackEvent::Abort, || {
-        forget_added(0);
+        forget_added(TOP_SUBTRANSACTION_ID);
+        XACT_CALLBACKS_REGISTERED.set(false);
+    });
+    // A prepared transaction's rows stay invisible until it is committed, maybe by another
+    // backend, and a `ROLLBACK PREPARED` fires neither Commit nor Abort here. pgrx keeps the
+    // callbacks above across a Prepare, so the next transaction registers them a second time,
+    // which is harmless: they are idempotent.
+    register_xact_callback(PgXactCallbackEvent::Prepare, || {
+        forget_added(TOP_SUBTRANSACTION_ID);
         XACT_CALLBACKS_REGISTERED.set(false);
     });
     register_subxact_callback(PgSubXactCallbackEvent::AbortSub, |subid, _| {

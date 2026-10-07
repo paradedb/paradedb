@@ -45,6 +45,7 @@
             flex-grow: 1;
         }
     </style>
+    <script src="resolve-sql-extras.js"></script>
 </head>
 <body class="bg-gray-100 text-gray-800 p-6">
 <div class="max-w-7xl mx-auto">
@@ -435,6 +436,7 @@
             const res = await fetch('data.js');
             const scriptText = await res.text();
             eval(scriptText);
+            await resolveSqlExtras(window.BENCHMARK_DATA);
             Chart.register(ChartZoom);
 
             allRawData = window.BENCHMARK_DATA?.entries || {};

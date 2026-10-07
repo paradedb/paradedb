@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791348969375,
+  "lastUpdate": 1791351658116,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -8302,6 +8302,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 615.782,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27af81dae4375d3e054b6815b72b328139da4585",
+          "message": "perf: Fix plans for range-partitioned three table disjunction (#6669)\n\n## What\n\nUpdate `RangePartitioningRule` to evaluate candidate join edges\nbottom-up following the join tree, with broadcast-aware join deferral,\nwhile avoiding unnecessary partitioning on broadcast inputs.\n\n## Why\n\nWhen joining three or more partitioned tables, `RangePartitioningRule`\npreviously evaluated joins top-down and prioritized candidate pairs\npurely by row count. A join higher in the plan tree could preempt an\ninner join between base leaf tables, preventing base tables from\nco-partitioning locally and causing unnecessary cross-worker data\nshuffles.\n\nAdditionally:\n- A small dimension table joining with a large partitioned table could\nprematurely commit the large table to that join key, even when the large\ntable had a non-broadcast co-partition candidate with another fact table\nand the dimension table could simply broadcast (`CollectLeft`) for 0\nnetwork shuffles.\n- Broadcast inputs were sometimes stamped with range split points when\njoining against a partner committed to another key, generating\nunnecessary partitions and worker tasks for tables that are replicated\nanyway.\n\n## How\n\n- Collect `LogicalPlan::Join` nodes in post-order (bottom-up),\nprocessing candidate edges in the execution order of the join tree.\n- Defer committing a join edge when one side is broadcast-eligible and\nits partner has a non-broadcast co-partition candidate downstream,\nallowing the partner to co-partition downstream while the smaller table\nbroadcasts.\n- Skip stamping unassigned tables in `handle_one_assigned` if they are\nbroadcast-eligible.\n- Track tables by provider `source_idx` rather than column names to\navoid ambiguity across projections and subqueries.\n- Cache persisted split points per index and partition field across each\nrule invocation.\n\n## Tests\n\n- `join_disjunctive_ - range_partitioned` benchmarks run `28%` faster.\n- Added Scenarios 10, 11, and 12 to\n`pg_search/tests/pg_regress/sql/mpp_range_partitioning.sql`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-06T21:12:35-07:00",
+          "tree_id": "6032d9c52c5e7b4a197b124501fbb3f577d1fe44",
+          "url": "https://github.com/paradedb/paradedb/commit/27af81dae4375d3e054b6815b72b328139da4585"
+        },
+        "date": 1791351655077,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 16.038,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 199.89,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 51.442,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 233.595,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 19.452,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 166.103,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 26.885,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 222.517,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 36.551,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 607.994,
             "unit": "ms"
           }
         ]

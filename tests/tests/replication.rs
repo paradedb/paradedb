@@ -770,3 +770,89 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
 
     Ok(())
 }
+
+// A background merger commits using the worker's default synchronous_commit setting.
+// With no synchronous standby, park it in SyncRep and verify SIGTERM releases that wait.
+// This also models the worker that can prevent a CNPG primary from completing fast shutdown.
+#[async_std::test]
+async fn test_background_merge_terminate_during_sync_replication() -> Result<()> {
+    use sqlx::Executor;
+    use std::time::Instant;
+
+    let primary = EphemeralPostgres::new(
+        Some(
+            "shared_preload_libraries = 'pg_search'\nmax_worker_processes = 8\nsynchronous_standby_names = 'missing_standby'",
+        ),
+        None,
+    );
+    let mut conn = primary.connection().await?;
+    conn.execute("SET synchronous_commit = off").await?;
+    conn.execute("CREATE EXTENSION pg_search").await?;
+    conn.execute("CREATE TABLE merge_die (id bigint, body text)")
+        .await?;
+    conn.execute(
+        "CREATE INDEX merge_die_idx ON merge_die USING paradedb (id, body) \
+         WITH (layer_sizes = '0', background_layer_sizes = '0', target_segment_count = 1)",
+    )
+    .await?;
+    for _ in 0..12 {
+        conn.execute(
+            "INSERT INTO merge_die SELECT i, 'beer wine cheese ' || i FROM generate_series(1, 1000) s(i)",
+        ).await?;
+    }
+    conn.execute("ALTER INDEX merge_die_idx SET (background_layer_sizes = '1kb,10kb,64kb')")
+        .await?;
+    conn.execute(
+        "INSERT INTO merge_die SELECT i, 'beer wine cheese ' || i FROM generate_series(1, 1000) s(i)",
+    ).await?;
+
+    let result: Result<()> = async {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let pid = loop {
+            let pid: Option<i32> = sqlx::query_scalar(
+                "SELECT pid FROM pg_stat_activity WHERE backend_type LIKE 'background merger%'
+                 AND wait_event = 'SyncRep' LIMIT 1",
+            )
+            .fetch_optional(&mut conn)
+            .await?;
+            if let Some(pid) = pid {
+                break pid;
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "merge worker never reached SyncRep"
+            );
+            async_std::task::sleep(Duration::from_millis(50)).await;
+        };
+        let signalled: bool = sqlx::query_scalar("SELECT pg_terminate_backend($1)")
+            .bind(pid)
+            .fetch_one(&mut conn)
+            .await?;
+        anyhow::ensure!(signalled, "could not terminate merge worker {pid}");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let alive: bool =
+                sqlx::query_scalar("SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid = $1)")
+                    .bind(pid)
+                    .fetch_one(&mut conn)
+                    .await?;
+            if !alive {
+                break;
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "merge worker {pid} ignored SIGTERM in SyncRep"
+            );
+            async_std::task::sleep(Duration::from_millis(50)).await;
+        }
+        Ok(())
+    }
+    .await;
+
+    // Unstick the old implementation before the ephemeral server's Drop shuts it down.
+    // Do this even when the regression assertion fails.
+    conn.execute("ALTER SYSTEM SET synchronous_standby_names = ''")
+        .await?;
+    conn.execute("SELECT pg_reload_conf()").await?;
+    result
+}

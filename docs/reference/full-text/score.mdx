@@ -252,6 +252,228 @@ ORDER BY score DESC, o.order_id
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { sql } from "drizzle-orm";
+
+await db.execute(sql`
+WITH order_search AS (
+  SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
+  FROM (
+    SELECT order_id, pdb.score(order_id) AS score
+    FROM orders
+    WHERE customer_name ||| 'Johnson'
+    ORDER BY pdb.score(order_id) DESC
+    LIMIT 20
+  )
+),
+product_search AS (
+  SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
+  FROM (
+    SELECT id, pdb.score(id) AS score
+    FROM mock_items
+    WHERE description ||| 'running shoes'
+    ORDER BY pdb.score(id) DESC
+    LIMIT 20
+  ) m
+  JOIN orders o ON o.product_id = m.id
+),
+rrf AS (
+  SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
+  UNION ALL
+  SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
+)
+SELECT
+  o.order_id,
+  o.customer_name,
+  m.description,
+  sum(rrf.s) AS score
+FROM rrf
+JOIN orders o USING (order_id)
+JOIN mock_items m ON o.product_id = m.id
+GROUP BY o.order_id, o.customer_name, m.description
+ORDER BY score DESC, o.order_id
+LIMIT 5;
+`);
+```
+
+```python Django
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute("""
+        WITH order_search AS (
+          SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
+          FROM (
+            SELECT order_id, pdb.score(order_id) AS score
+            FROM orders
+            WHERE customer_name ||| 'Johnson'
+            ORDER BY pdb.score(order_id) DESC
+            LIMIT 20
+          )
+        ),
+        product_search AS (
+          SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
+          FROM (
+            SELECT id, pdb.score(id) AS score
+            FROM mock_items
+            WHERE description ||| 'running shoes'
+            ORDER BY pdb.score(id) DESC
+            LIMIT 20
+          ) m
+          JOIN orders o ON o.product_id = m.id
+        ),
+        rrf AS (
+          SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
+          UNION ALL
+          SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
+        )
+        SELECT
+          o.order_id,
+          o.customer_name,
+          m.description,
+          sum(rrf.s) AS score
+        FROM rrf
+        JOIN orders o USING (order_id)
+        JOIN mock_items m ON o.product_id = m.id
+        GROUP BY o.order_id, o.customer_name, m.description
+        ORDER BY score DESC, o.order_id
+        LIMIT 5;
+    """)
+    results = cursor.fetchall()
+```
+
+```python SQLAlchemy
+with engine.begin() as conn:
+    results = conn.exec_driver_sql("""
+        WITH order_search AS (
+          SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
+          FROM (
+            SELECT order_id, pdb.score(order_id) AS score
+            FROM orders
+            WHERE customer_name ||| 'Johnson'
+            ORDER BY pdb.score(order_id) DESC
+            LIMIT 20
+          )
+        ),
+        product_search AS (
+          SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
+          FROM (
+            SELECT id, pdb.score(id) AS score
+            FROM mock_items
+            WHERE description ||| 'running shoes'
+            ORDER BY pdb.score(id) DESC
+            LIMIT 20
+          ) m
+          JOIN orders o ON o.product_id = m.id
+        ),
+        rrf AS (
+          SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
+          UNION ALL
+          SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
+        )
+        SELECT
+          o.order_id,
+          o.customer_name,
+          m.description,
+          sum(rrf.s) AS score
+        FROM rrf
+        JOIN orders o USING (order_id)
+        JOIN mock_items m ON o.product_id = m.id
+        GROUP BY o.order_id, o.customer_name, m.description
+        ORDER BY score DESC, o.order_id
+        LIMIT 5;
+    """).all()
+```
+
+```ruby Rails
+results = ActiveRecord::Base.connection.exec_query(<<~SQL)
+  WITH order_search AS (
+    SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
+    FROM (
+      SELECT order_id, pdb.score(order_id) AS score
+      FROM orders
+      WHERE customer_name ||| 'Johnson'
+      ORDER BY pdb.score(order_id) DESC
+      LIMIT 20
+    )
+  ),
+  product_search AS (
+    SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
+    FROM (
+      SELECT id, pdb.score(id) AS score
+      FROM mock_items
+      WHERE description ||| 'running shoes'
+      ORDER BY pdb.score(id) DESC
+      LIMIT 20
+    ) m
+    JOIN orders o ON o.product_id = m.id
+  ),
+  rrf AS (
+    SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
+    UNION ALL
+    SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
+  )
+  SELECT
+    o.order_id,
+    o.customer_name,
+    m.description,
+    sum(rrf.s) AS score
+  FROM rrf
+  JOIN orders o USING (order_id)
+  JOIN mock_items m ON o.product_id = m.id
+  GROUP BY o.order_id, o.customer_name, m.description
+  ORDER BY score DESC, o.order_id
+  LIMIT 5;
+SQL
+```
+
+```cs EF Core
+await dbContext.Database.OpenConnectionAsync();
+await using var command = dbContext.Database.GetDbConnection().CreateCommand();
+command.CommandText = """
+    WITH order_search AS (
+      SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
+      FROM (
+        SELECT order_id, pdb.score(order_id) AS score
+        FROM orders
+        WHERE customer_name ||| 'Johnson'
+        ORDER BY pdb.score(order_id) DESC
+        LIMIT 20
+      )
+    ),
+    product_search AS (
+      SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
+      FROM (
+        SELECT id, pdb.score(id) AS score
+        FROM mock_items
+        WHERE description ||| 'running shoes'
+        ORDER BY pdb.score(id) DESC
+        LIMIT 20
+      ) m
+      JOIN orders o ON o.product_id = m.id
+    ),
+    rrf AS (
+      SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
+      UNION ALL
+      SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
+    )
+    SELECT
+      o.order_id,
+      o.customer_name,
+      m.description,
+      sum(rrf.s) AS score
+    FROM rrf
+    JOIN orders o USING (order_id)
+    JOIN mock_items m ON o.product_id = m.id
+    GROUP BY o.order_id, o.customer_name, m.description
+    ORDER BY score DESC, o.order_id
+    LIMIT 5;
+    """;
+await using var reader = await command.ExecuteReaderAsync();
+while (await reader.ReadAsync())
+    Console.WriteLine(reader.GetValue(0));
+```
+
 </CodeGroup>
 
 ## Deterministic Sorting

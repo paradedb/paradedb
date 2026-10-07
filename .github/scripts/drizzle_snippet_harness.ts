@@ -1,3 +1,4 @@
+const docsIndexes: any[] = [];
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -26,17 +27,24 @@ const int4range = pgCustomType({
   },
 });
 
-const mockItems = definePgTable("mock_items", {
-  id: pgInteger("id").primaryKey(),
-  description: pgText("description"),
-  rating: pgInteger("rating"),
-  category: pgVarchar("category", { length: 255 }),
-  inStock: pgBoolean("in_stock"),
-  createdAt: pgTimestamp("created_at"),
-  metadata: pgJsonb("metadata"),
-  weightRange: int4range("weight_range"),
-  embedding: pgVector("embedding", { dimensions: 8 }),
-});
+const mockItems = definePgTable(
+  "mock_items",
+  {
+    id: pgInteger("id").primaryKey(),
+    description: pgText("description"),
+    rating: pgInteger("rating"),
+    category: pgVarchar("category", { length: 255 }),
+    inStock: pgBoolean("in_stock"),
+    createdAt: pgTimestamp("created_at"),
+    metadata: pgJsonb("metadata"),
+    weightRange: int4range("weight_range"),
+    embedding: pgVector("embedding", { dimensions: 8 }),
+  },
+  (table) =>
+    process.env.DOCS_INDEX_TABLE === "mock_items"
+      ? docsIndexes.map((build) => build(table))
+      : [],
+);
 
 const orders = definePgTable("orders", {
   orderId: pgInteger("order_id").primaryKey(),
@@ -44,7 +52,24 @@ const orders = definePgTable("orders", {
   customerName: pgVarchar("customer_name", { length: 255 }).notNull(),
 });
 
-const arrayDemo = definePgTable("array_demo", {
-  id: pgSerial("id").primaryKey(),
-  categories: pgText("categories").array(),
+const arrayDemo = definePgTable(
+  "array_demo",
+  {
+    id: pgSerial("id").primaryKey(),
+    categories: pgText("categories").array(),
+  },
+  (table) =>
+    process.env.DOCS_INDEX_TABLE === "array_demo"
+      ? docsIndexes.map((build) => build(table))
+      : [],
+);
+
+const mockItemsGeo = definePgTable("mock_items_geo", {
+  id: pgInteger("id"),
+  description: pgText("description"),
+  location: pgCustomType({
+    dataType() {
+      return "point";
+    },
+  })("location"),
 });

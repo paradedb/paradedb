@@ -14,6 +14,10 @@ on:
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-paradedb-docs.yml"
       - "docs/**"
+      - "pg_search/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/actions/setup-postgres/**"
   workflow_dispatch:
 
 concurrency:
@@ -144,6 +148,11 @@ jobs:
 
       - name: Lint Changelog Fragments
         run: python3 .github/scripts/release.py lint-fragments --changelog-only
+
+      - name: Check Documentation Snippet Coverage
+        run: |
+          python3 .github/scripts/extract_code_snippets.py
+          python3 -m unittest discover -s .github/scripts/tests -p "test_doc_snippets.py"
 
       - name: Set Up PostgreSQL (pgrx)
         id: postgres

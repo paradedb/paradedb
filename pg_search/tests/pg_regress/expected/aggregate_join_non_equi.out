@@ -40,7 +40,8 @@ INSERT INTO agg_nonequi_products (description, category, price, rating) VALUES
     ('Running shoes breathable', 'sports', 79.99, 4),
     ('Trail running shoes durable', 'sports', 119.99, 3),
     ('Winter jacket insulated', 'clothing', 149.99, 4),
-    ('Rain jacket waterproof', 'clothing', 69.99, 2);
+    ('Rain jacket waterproof', 'clothing', 69.99, 2),
+    ('Desk lamp adjustable', 'home', 39.99, 3);
 INSERT INTO agg_nonequi_promos (description, promo_code, min_price, max_price, min_rating) VALUES
     ('Summer tech discounts', 'electronics', 50.00, 200.00, 4),
     ('Premium electronics gala', 'electronics', 500.00, 2000.00, 4),
@@ -175,11 +176,11 @@ ORDER BY pr.promo_code;
          Aggregates: COUNT(*), SUM(price)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[promo_code@1 as promo_code], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
-           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2, projection=[price@0, promo_code@1]
-           :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+           :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2, projection=[price@3, promo_code@0]
            :     CooperativeExec
            :       PgSearchScan: table=pr, segments=1, eager=[promo_code], visibility=eager, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (15 rows)
 
 SELECT pr.promo_code, COUNT(*), SUM(p.price)
@@ -191,7 +192,7 @@ ORDER BY pr.promo_code;
  promo_code  | count |        sum         
 -------------+-------+--------------------
  all         |     2 |             169.98
- electronics |     5 | 2489.9499999999994
+ electronics |     5 |            2489.95
  sports      |     3 | 289.96999999999997
 (3 rows)
 
@@ -256,11 +257,11 @@ WHERE (p.description ||| 'laptop' OR p.description ||| 'jacket' OR p.description
    Aggregates: COUNT(*), COUNT(id), SUM(price)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, count(pr_1.id) as agg_1, sum(p_0.price) as agg_2]
-     :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@1, promo_code@1)], filter=price@0 > max_price@1, projection=[price@0, id@2]
+     :   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(promo_code@1, category@1)], filter=price@0 > max_price@1, projection=[price@3, id@0]
+     :     CooperativeExec
+     :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
      :     CooperativeExec
      :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :     CooperativeExec
-     :       PgSearchScan: table=pr, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 SELECT COUNT(*), COUNT(pr.id), SUM(p.price)
@@ -409,7 +410,7 @@ ORDER BY pr.promo_code;
  promo_code  | count |        sum         
 -------------+-------+--------------------
  all         |     2 |             169.98
- electronics |     5 | 2489.9499999999994
+ electronics |     5 |            2489.95
  sports      |     3 | 289.96999999999997
 (3 rows)
 

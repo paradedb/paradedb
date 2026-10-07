@@ -84,12 +84,13 @@ def connection_text(text, env):
         "Host=localhost;Port=5432;Database=paradedb;Username=postgres;Password=<PASSWORD>",
         f"Host={host};Port={port};Database={database};Username={user};Password={password}",
     )
+    # Scope Django substitutions to settings keys so module imports stay intact.
     for old, new in (
         ("<PASSWORD>", password),
-        ('"paradedb"', f'"{database}"'),
-        ('"postgres"', f'"{user}"'),
-        ('"localhost"', f'"{host}"'),
-        ('"5432"', f'"{port}"'),
+        ('"NAME": "paradedb"', f'"NAME": "{database}"'),
+        ('"USER": "postgres"', f'"USER": "{user}"'),
+        ('"HOST": "localhost"', f'"HOST": "{host}"'),
+        ('"PORT": "5432"', f'"PORT": "{port}"'),
     ):
         text = text.replace(old, new)
     return text

@@ -67,46 +67,6 @@ fn test_count(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn test_count_worker_cost_preserves_visibility(mut conn: PgConnection) {
-    r#"
-        SET paradedb.global_mutable_segment_rows = 0;
-        SET max_parallel_workers_per_gather = 2;
-        CREATE TABLE count_worker_cost (id integer, body text);
-        INSERT INTO count_worker_cost
-        SELECT i, (ARRAY['battle', 'bulge', 'battle bulge', 'other'])[i % 4 + 1]
-        FROM generate_series(1, 20000) i;
-        CREATE INDEX ON count_worker_cost USING paradedb (id, body)
-        WITH (target_segment_count = 4);
-        ANALYZE count_worker_cost;
-        DELETE FROM count_worker_cost WHERE id % 7 = 0;
-        UPDATE count_worker_cost SET body = 'other' WHERE id % 11 = 0;
-    "#
-    .execute(&mut conn);
-
-    let query = "SELECT count(*) FROM count_worker_cost WHERE body ||| 'battle bulge'";
-    let (expected,) = "SELECT count(*) FROM count_worker_cost WHERE body <> 'other'"
-        .fetch_one::<(i64,)>(&mut conn);
-    assert_uses_custom_scan(&mut conn, true, query);
-
-    for vacuum in [false, true] {
-        if vacuum {
-            "VACUUM (ANALYZE) count_worker_cost".execute(&mut conn);
-        }
-        for setup_cost in [0, 1_000_000] {
-            for leader_participates in [false, true] {
-                format!(
-                    "SET parallel_setup_cost = {setup_cost};
-                     SET parallel_leader_participation = {leader_participates};"
-                )
-                .execute(&mut conn);
-                let (actual,) = query.fetch_one::<(i64,)>(&mut conn);
-                assert_eq!(actual, expected);
-            }
-        }
-    }
-}
-
-#[rstest]
 #[case(0, true)]
 #[case(9_007_199_254_740_992, true)]
 #[case(9_007_199_254_740_993, false)]

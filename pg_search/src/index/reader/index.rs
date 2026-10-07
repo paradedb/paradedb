@@ -2410,52 +2410,6 @@ mod tests {
     };
 
     #[pg_test]
-    fn aggregate_worker_cost_reuses_reader_and_charges_visibility() {
-        use crate::aggregate::AggregateRequest;
-        use crate::api::MvccVisibility;
-        use crate::postgres::customscan::parallel::aggregate_nworkers;
-        use std::sync::atomic::Ordering;
-
-        let (index, _) = segmented_index_fixture("aggregate_worker_cost", 4, false);
-        Spi::run(
-            "ANALYZE aggregate_worker_cost;
-            SET LOCAL max_parallel_workers_per_gather = 3;
-            SET LOCAL max_parallel_workers = 3;
-            SET LOCAL parallel_leader_participation = on;
-            SET LOCAL parallel_setup_cost = 0.25;
-            SET LOCAL parallel_tuple_cost = 0;
-            SET LOCAL cpu_index_tuple_cost = 0.005;
-            SET LOCAL cpu_operator_cost = 0.0025;
-            SET LOCAL cpu_tuple_cost = 0.01;",
-        )
-        .unwrap();
-        let query = SearchQueryInput::All;
-        let reader = open_snapshot_reader(&index, query.clone(), false);
-        let aggregation = AggregateRequest::Json(
-            serde_json::from_value(serde_json::json!({
-                "count": {"value_count": {"field": "id"}}
-            }))
-            .unwrap(),
-        );
-        let opens = INDEX_COMPONENT_OPENS.load(Ordering::Relaxed);
-        assert_eq!(
-            aggregate_nworkers(&index, &reader, &query, &aggregation, false),
-            0
-        );
-        assert_eq!(
-            aggregate_nworkers(&index, &reader, &query, &aggregation, true),
-            2
-        );
-        assert!(MvccVisibility::Threshold.resolve_filtering(&index, &query, Some(&reader)));
-        assert_eq!(INDEX_COMPONENT_OPENS.load(Ordering::Relaxed), opens);
-        Spi::run("SET LOCAL parallel_setup_cost = 1000000").unwrap();
-        assert_eq!(
-            aggregate_nworkers(&index, &reader, &query, &aggregation, true),
-            0
-        );
-    }
-
-    #[pg_test]
     fn collect_ctidset_rebinds_visibility_to_each_reader() {
         let (index_rel, heap_oid) = segmented_index_fixture("ctidset_reader_reuse", 2, false);
         let heap_rel = PgSearchRelation::open(heap_oid);

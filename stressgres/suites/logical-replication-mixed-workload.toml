@@ -96,10 +96,18 @@ CREATE INDEX idxcategories ON categories USING paradedb (id, name) WITH (
     text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
 
--- Populate the subscriber's visibility map before asserting the index-only scan plan.
--- Do not rely on autovacuum finishing before the workload starts.
+-- Initialize the subscriber's visibility and statistics before the workload starts.
 VACUUM (ANALYZE) test;
 ANALYZE categories;
+
+-- Keep the index-only plan fixture out of the write workload: concurrent DML/vacuum
+-- can clear all-visible coverage and make an ordinary index scan equally cheap.
+DROP TABLE IF EXISTS test_index_only;
+CREATE TABLE test_index_only (id bigint, message text);
+INSERT INTO test_index_only
+SELECT i, 'beer wine cheese ' || i FROM generate_series(1, 10000) AS s(i);
+CREATE INDEX test_index_only_idx ON test_index_only USING paradedb (id, message);
+VACUUM (FREEZE, ANALYZE) test_index_only;
 
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
 DECLARE
@@ -214,13 +222,14 @@ title = "Postgres Index Only Scan Fallback"
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan = off;
-SET enable_indexscan = off;
+-- PostgreSQL uses enable_indexscan for both ordinary and index-only scans.
+SET enable_indexscan = on;
 SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 """
 sql_plan_contains = "Index Only Scan"
 sql = """
-SELECT id FROM test WHERE message ||| 'wine' LIMIT 100;
+SELECT id FROM test_index_only WHERE message ||| 'wine' LIMIT 100;
 """
 destinations = ["Subscriber"]
 

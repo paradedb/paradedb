@@ -19,8 +19,7 @@ First, use `CREATE INDEX CONCURRENTLY` to build a new index in the background.
 <CodeGroup>
 ```sql SQL
 CREATE INDEX CONCURRENTLY search_idx_v2
-ON mock_items USING paradedb (id, description, category)
-WITH (key_field = 'id');
+ON mock_items USING paradedb (id, description, category);
 ```
 
 ```ts Drizzle
@@ -45,7 +44,6 @@ with connection.schema_editor(atomic=False) as schema_editor:
                 "description": {},
                 "category": {},
             },
-            key_field="id",
             name="search_idx_v2",
         ),
         concurrently=True,
@@ -62,7 +60,6 @@ idx = Index(
     indexing.ParadeDBField(MockItem.description),
     indexing.ParadeDBField(MockItem.category),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
     postgresql_concurrently=True,
 )
 
@@ -79,7 +76,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     description: {},
     category: {}
   },
-  key_field: :id,
   name: :search_idx_v2,
   concurrently: true
 )

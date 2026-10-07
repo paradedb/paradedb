@@ -69,8 +69,7 @@ SELECT create_distributed_table('articles', 'author_id');
 
 -- Create a ParadeDB index on the distributed table
 CREATE INDEX articles_search_idx ON articles
-USING paradedb (id, title, body)
-WITH (key_field='id');
+USING paradedb (id, title, body);
 
 -- Insert some data
 INSERT INTO articles (author_id, title, body) VALUES

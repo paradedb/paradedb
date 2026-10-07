@@ -18,8 +18,7 @@ enables it for `description`:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.unicode_words('pnorms=true')), category)
-WITH (key_field = 'id');
+USING paradedb (id, (description::pdb.unicode_words('pnorms=true')), category);
 ```
 
 Queries automatically use the setting from the index:

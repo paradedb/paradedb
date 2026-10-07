@@ -14,7 +14,6 @@ The ParadeDB index supports partial indexes using the same syntax as Postgres.
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category)
-WITH (key_field='id')
 WHERE description IS NOT NULL;
 ```
 
@@ -42,7 +41,6 @@ with connection.schema_editor() as schema_editor:
                 "description": {},
                 "category": {},
             },
-            key_field="id",
             name="search_idx",
             condition=Q(description__isnull=False),
         ),
@@ -59,7 +57,6 @@ idx = Index(
     indexing.ParadeDBField(MockItem.description),
     indexing.ParadeDBField(MockItem.category),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
     postgresql_where=MockItem.description.is_not(None),
 )
 
@@ -75,7 +72,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     description: {},
     category: {}
   },
-  key_field: :id,
   name: :search_idx,
   where: "description IS NOT NULL"
 )

@@ -74,7 +74,7 @@ base = (
     .limit(3)
 )
 
-stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=MockItem.id)
+stmt = facets.with_rows(base, agg=facets.value_count(field="id"), field=MockItem.id)
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()

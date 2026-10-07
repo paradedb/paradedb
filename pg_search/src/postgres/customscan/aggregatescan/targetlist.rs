@@ -170,11 +170,17 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 }
 
                 let mut qual_state = QualExtractState::default();
-                let aggregate = unsafe {
+                let mut aggregate = unsafe {
                     AggregateType::try_from(aggref, index, args.root, heap_rti, &mut qual_state)
                 }
                 .map_err(|error| error.to_string())?;
                 uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
+                aggregate.mark_group_key(
+                    &grouping_columns
+                        .iter()
+                        .map(|gc| gc.field_name.as_str())
+                        .collect::<Vec<_>>(),
+                );
 
                 // If we identified a pdb.agg() custom aggregate, we MUST handle it
                 // via AggregateScan regardless of which operator is in the WHERE clause.

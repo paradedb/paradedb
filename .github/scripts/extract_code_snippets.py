@@ -67,6 +67,19 @@ def classify(info):
     return ""
 
 
+def prepare_drizzle_snippet(source):
+    """Capture complete index-builder expressions so the harness can migrate them."""
+    pattern = re.compile(r"^indexing(?=\s*\.paradedbIndex)[\s\S]*?;", re.MULTILINE)
+    return pattern.sub(
+        lambda match: (
+            "docsIndexes.push((docsTable) => "
+            + re.sub(r"\b(?:mockItems|arrayDemo)\.", "docsTable.", match.group()[:-1])
+            + ");"
+        ),
+        source,
+    )
+
+
 def codegroup_name(path, index):
     """Build a stable identity for a page CodeGroup."""
     return path.with_suffix("").as_posix().replace("/", "__") + f"__group-{index:03d}"
@@ -184,6 +197,11 @@ def write_standalone_snippets(outputs, outside, coverage):
 
 def main():
     """Validate coverage and emit snippets for the smoke-test harnesses."""
+    if len(sys.argv) > 1:
+        if len(sys.argv) != 3 or sys.argv[1] != "--prepare-drizzle":
+            raise ValueError("Usage: extract_code_snippets.py [--prepare-drizzle FILE]")
+        print(prepare_drizzle_snippet(Path(sys.argv[2]).read_text(encoding="utf-8")))
+        return 0
     groups, outside = inventory()
     if not groups:
         raise ValueError("No documentation CodeGroups found")

@@ -26,7 +26,8 @@ assert populated data, a known demo row, a valid created index, and the expected
 first query rows. Setup entries fail if their scenario does not consume them.
 
 Drizzle builder snippets are attached to the documented table, passed through
-Drizzle Kit's migration generator, and executed against Postgres. EF Core model
+Drizzle Kit's migration generator, and executed against Postgres. The extractor's
+`--prepare-drizzle FILE` mode captures those builders for the harness. EF Core model
 snippets produce migration operations and execute generated index SQL. Both verify
 that an index was generated and exists in the database. Query examples continue
 to execute against shared demo fixtures; they do not all have result assertions.

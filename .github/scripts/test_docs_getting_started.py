@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Run the documented setup, migration, first index and query in fresh databases.
 
+The individual snippet harnesses supply working connections, models, tables and
+indexes. They can pass even when the documented installation, configuration or
+migrations are broken. This runner covers that gap by executing each tutorial's
+actual setup instructions before checking its first index and query results.
+
 File contents and commands come from the docs, not the shared snippet models.
 Interactive REPL launch commands run headlessly; only connection placeholders,
 settings ellipses and the indicated migration insertion points are substituted.

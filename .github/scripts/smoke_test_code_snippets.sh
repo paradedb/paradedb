@@ -314,7 +314,7 @@ if has_target drizzle; then
       cat <<TS
 // Source: $rel_snippet
 TS
-      python3 "${SCRIPT_DIR}/prepare_drizzle_snippet.py" "$snippet_file"
+      python3 "${SCRIPT_DIR}/extract_code_snippets.py" --prepare-drizzle "$snippet_file"
       cat "${SCRIPT_DIR}/drizzle_index_verification.ts"
       cat <<'TS'
 

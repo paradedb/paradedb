@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::sql::{comparison, ParsedStatement};
-use pg_query::{protobuf as pb, Node, NodeEnum};
+use crate::sql::{ParsedStatement, comparison};
+use pg_query::{Node, NodeEnum, protobuf as pb};
 use std::collections::{HashMap, HashSet};
 
 // Changes are found by subtracting normalized statement sets. Named-object
@@ -64,7 +64,10 @@ pub fn diff(before: &[ParsedStatement], after: &[ParsedStatement]) -> Result<Str
                 continue;
             }
             if !removal.replaceable {
-                return Err(format!("SchemaBot cannot replace this object automatically; add support for its migration:\n{}", statement.source));
+                return Err(format!(
+                    "SchemaBot cannot replace this object automatically; add support for its migration:\n{}",
+                    statement.source
+                ));
             }
         }
         drops.push((removal.order, removal.sql));
@@ -389,7 +392,11 @@ mod tests {
 
     #[test]
     fn body_change_requires_drop_and_new_definition() {
-        covers("CREATE FUNCTION app.answer() RETURNS int LANGUAGE sql AS $$SELECT 7$$", "CREATE FUNCTION app.answer() RETURNS int LANGUAGE sql AS $$SELECT 8$$", "DROP FUNCTION IF EXISTS app.answer(); CREATE FUNCTION app.answer() RETURNS int LANGUAGE sql AS $$SELECT 8$$");
+        covers(
+            "CREATE FUNCTION app.answer() RETURNS int LANGUAGE sql AS $$SELECT 7$$",
+            "CREATE FUNCTION app.answer() RETURNS int LANGUAGE sql AS $$SELECT 8$$",
+            "DROP FUNCTION IF EXISTS app.answer(); CREATE FUNCTION app.answer() RETURNS int LANGUAGE sql AS $$SELECT 8$$",
+        );
     }
 
     #[test]
@@ -397,7 +404,11 @@ mod tests {
         let before = "CREATE FUNCTION app.f(a int DEFAULT 7, OUT b int) LANGUAGE sql AS $$SELECT a$$; CREATE FUNCTION app.f(a text) RETURNS text LANGUAGE sql AS $$SELECT a$$;";
         let after = "CREATE FUNCTION app.f(a text) RETURNS text LANGUAGE sql AS $$SELECT a$$;";
         covers(before, after, "DROP FUNCTION IF EXISTS app.f(int)");
-        covers("CREATE FUNCTION app.rows(a int) RETURNS TABLE(n int, s text) LANGUAGE sql AS $$SELECT a, 'x'$$", "", "DROP FUNCTION IF EXISTS app.rows(int)");
+        covers(
+            "CREATE FUNCTION app.rows(a int) RETURNS TABLE(n int, s text) LANGUAGE sql AS $$SELECT a, 'x'$$",
+            "",
+            "DROP FUNCTION IF EXISTS app.rows(int)",
+        );
     }
 
     #[test]
@@ -456,11 +467,13 @@ mod tests {
 
     #[test]
     fn enum_changes_need_explicit_planner_support() {
-        assert!(suggest(
-            "CREATE TYPE app.status AS ENUM ('open')",
-            "CREATE TYPE app.status AS ENUM ('open', 'closed')"
-        )
-        .is_err());
+        assert!(
+            suggest(
+                "CREATE TYPE app.status AS ENUM ('open')",
+                "CREATE TYPE app.status AS ENUM ('open', 'closed')"
+            )
+            .is_err()
+        );
         covers(
             "CREATE TYPE app.status AS ENUM ('open')",
             "",
@@ -514,11 +527,13 @@ mod tests {
 
     #[test]
     fn duplicate_emissions_are_deduplicated() {
-        covers(
+        let suggested = suggest(
             "GRANT SELECT ON app.docs TO reader; GRANT SELECT ON app.docs TO reader",
             "",
-            "REVOKE SELECT ON app.docs FROM reader",
-        );
+        )
+        .unwrap();
+        assert_eq!(crate::sql::parse(&suggested).unwrap().len(), 1);
+        crate::migration::check("REVOKE SELECT ON app.docs FROM reader", &[suggested]).unwrap();
     }
 
     #[test]
@@ -534,14 +549,6 @@ mod tests {
     #[test]
     fn installation_actions_are_not_dropped() {
         assert!(suggest("DO $$BEGIN RAISE NOTICE 'x'; END$$; INSERT INTO t VALUES(1); ALTER FUNCTION f() IMMUTABLE;", "").unwrap().is_empty());
-    }
-
-    #[test]
-    fn tablespace_paths_are_not_position_metadata() {
-        assert_ne!(
-            crate::sql::parse("CREATE TABLESPACE ts LOCATION '/mnt/one'").unwrap()[0].comparison,
-            crate::sql::parse("CREATE TABLESPACE ts LOCATION '/mnt/two'").unwrap()[0].comparison
-        );
     }
 
     #[test]

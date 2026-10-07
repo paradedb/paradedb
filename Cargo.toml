@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
-exclude = ["schemabot"]
 members = [
   "benchmarks",
   "dst",
   "macros",
   "pg_search",
+  "schemabot",
   "stressgres",
   "tests",
   "tokenizers",

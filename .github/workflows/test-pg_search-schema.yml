@@ -11,6 +11,8 @@ on:
     paths:
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-pg_search-schema.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "rust-toolchain.toml"
@@ -75,11 +77,11 @@ jobs:
 
       - name: Build and Test SchemaBot
         run: |
-          cargo fmt --manifest-path schemabot/Cargo.toml -- --check
-          cargo clippy --manifest-path schemabot/Cargo.toml --locked --all-targets -- -D warnings
-          cargo test --manifest-path schemabot/Cargo.toml --locked
-          cargo build --manifest-path schemabot/Cargo.toml --locked
-          cp schemabot/target/debug/schemabot "$RUNNER_TEMP/schemabot"
+          cargo fmt -p schemabot -- --check
+          cargo clippy -p schemabot --locked --all-targets -- -D warnings
+          cargo test -p schemabot --locked
+          cargo build -p schemabot --locked
+          cp target/debug/schemabot "$RUNNER_TEMP/schemabot"
 
       - name: Save Initial pgrx Version
         env:

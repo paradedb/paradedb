@@ -67,7 +67,7 @@ jobs:
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
-          extra_packages: lld libfontconfig1-dev libopenblas-dev
+          extra_packages: clang libclang-dev lld libfontconfig1-dev libopenblas-dev protobuf-compiler
 
       - name: Run Rustfmt
         run: cargo fmt --all -- --check

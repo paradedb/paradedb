@@ -1,19 +1,18 @@
 # SchemaBot
 
 Repository-local checks for migration fragments against the SQL emitted by
-`cargo pgrx schema`. This standalone Rust workspace keeps CI tooling independent
-of the extension dependency graph and its base revision.
+`cargo pgrx schema`. SchemaBot is a member of the repository Rust workspace.
 
 Requires Rust, a C compiler, libclang, and protoc (on Ubuntu:
 `apt install clang libclang-dev protobuf-compiler`).
 
 ```sh
-cargo test --manifest-path schemabot/Cargo.toml --locked
-cargo build --manifest-path schemabot/Cargo.toml --locked
+cargo test -p schemabot --locked
+cargo build -p schemabot --locked
 cargo pgrx schema -p pg_search pg18 > head.sql
 # Generate base.sql from the base revision with its matching cargo-pgrx version.
-schemabot/target/debug/schemabot diff base.sql head.sql > diff.sql
-schemabot/target/debug/schemabot check diff.sql pg_search/sql/unreleased/123.change.sql
+target/debug/schemabot diff base.sql head.sql > diff.sql
+target/debug/schemabot check diff.sql pg_search/sql/unreleased/123.change.sql
 ```
 
 `diff` compares parsed statements, ignoring source positions and function-option

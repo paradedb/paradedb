@@ -2223,7 +2223,8 @@ impl AggregateScan {
                 )
             })
             .collect();
-        let check = mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q)));
+        let check =
+            mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q, None)));
         let resolved = if check {
             MvccVisibility::Transaction
         } else {

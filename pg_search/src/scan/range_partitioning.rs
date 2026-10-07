@@ -72,7 +72,8 @@ impl RangePartitioning {
     pub const NULL_PARTITION: usize = 0;
 
     /// Returns the rows of `partition` as a query. The first partition keeps its NULLs by
-    /// excluding the keys at or above its upper edge; every other partition is a plain range.
+    /// excluding the keys at or above its upper edge, or every key after a NULL split point.
+    /// Every other partition is a plain range.
     ///
     /// **Consumer Caveats**:
     /// - A row whose partition field is NULL will be deterministically routed to
@@ -82,49 +83,38 @@ impl RangePartitioning {
         let Some(range) = self.partition_range(partition) else {
             return SearchQueryInput::All;
         };
-        // The NULLs and the values below `upper` are the rows that are not at or above it.
-        // Excluding that range lets the base query drive the scan; a union with a NULL clause
-        // would walk every document of the segment.
         if range.includes_nulls()
-            && let Some((Bound::Unbounded, upper)) = range.values()
-            && let Some(at_or_above) = match upper {
-                Bound::Excluded(value) => Some(Bound::Included(value.clone())),
-                Bound::Included(value) => Some(Bound::Excluded(value.clone())),
-                Bound::Unbounded => None,
-            }
+            && let Some((Bound::Unbounded, Bound::Excluded(upper))) = range.values()
         {
+            // The NULLs and the values below `upper` are the rows that are not at or above it.
+            // Excluding that range lets the base query drive the scan. A union with a NULL
+            // clause walks every document of the segment.
             return self.all_except(Query::Range {
-                lower_bound: at_or_above,
+                lower_bound: Bound::Included(upper.clone()),
                 upper_bound: Bound::Unbounded,
             });
         }
-        let range_query = range
-            .values()
-            .map(|(lower, upper)| SearchQueryInput::FieldedQuery {
-                field: self.partition_by.clone(),
-                query: if matches!((lower, upper), (Bound::Unbounded, Bound::Unbounded)) {
-                    // After a NULL split, this partition contains every non-NULL value. Two
-                    // unbounded bounds compile to a match-all, which would take the NULLs too.
-                    Query::Exists
-                } else {
-                    Query::Range {
-                        lower_bound: lower.clone(),
-                        upper_bound: upper.clone(),
-                    }
-                },
-            });
-        let null_query = range
-            .includes_nulls()
-            .then(|| self.all_except(Query::Exists));
-        match (range_query, null_query) {
-            (Some(range_query), Some(null_query)) => SearchQueryInput::Boolean {
-                must: vec![],
-                should: vec![range_query, null_query],
-                must_not: vec![],
-                minimum_should_match: None,
+        let Some((lower, upper)) = range.values() else {
+            // A NULL split point closes the partition. The first keeps only its NULLs, the
+            // others hold no row.
+            return if range.includes_nulls() {
+                self.all_except(Query::Exists)
+            } else {
+                SearchQueryInput::Empty
+            };
+        };
+        SearchQueryInput::FieldedQuery {
+            field: self.partition_by.clone(),
+            query: if matches!((lower, upper), (Bound::Unbounded, Bound::Unbounded)) {
+                // After a NULL split, this partition contains every non-NULL value. Two
+                // unbounded bounds compile to a match-all, which would take the NULLs too.
+                Query::Exists
+            } else {
+                Query::Range {
+                    lower_bound: lower.clone(),
+                    upper_bound: upper.clone(),
+                }
             },
-            (Some(query), None) | (None, Some(query)) => query,
-            (None, None) => SearchQueryInput::Empty,
         }
     }
 

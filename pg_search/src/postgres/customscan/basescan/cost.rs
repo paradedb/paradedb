@@ -45,13 +45,12 @@
 //! index's mutable-segment open cost and phrase `size_hint` under-counts are not modeled.
 
 use super::*;
+pub(super) use crate::postgres::customscan::parallel::parallel_divisor;
+use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
 use serde::{Deserialize, Serialize};
 
 fn cpu_index_tuple_cost() -> f64 {
     unsafe { pg_sys::cpu_index_tuple_cost }
-}
-fn parallel_setup_cost() -> f64 {
-    unsafe { pg_sys::parallel_setup_cost }
 }
 fn parallel_tuple_cost() -> f64 {
     unsafe { pg_sys::parallel_tuple_cost }
@@ -122,16 +121,6 @@ impl WorkerPathPolicy {
             | Self::ParallelOnly { reason, .. }
             | Self::CostedBoth { reason, .. } => reason,
         }
-    }
-}
-
-/// How a parallel scan's work divides: `nworkers`, plus the leader (a full share) when it participates.
-pub(super) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool) -> f64 {
-    let nworkers = nworkers.get();
-    if leader_participates {
-        (nworkers + 1) as f64
-    } else {
-        nworkers as f64
     }
 }
 
@@ -301,11 +290,9 @@ fn cost_test_limited(
 
     // Gather overhead: `parallel_setup_cost` plus per-row transport of the `k` crossing rows (1.05
     // covers Gather-Merge IPC).
-    let divisor = parallel_divisor(nworkers, parallel_leader_participates);
     const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
-    let gather_overhead =
-        parallel_setup_cost() + parallel_tuple_cost() * base_result_rows * GATHER_MERGE_IPC_FACTOR;
-    if work / divisor + gather_overhead < work {
+    let transfer_cost = parallel_tuple_cost() * base_result_rows * GATHER_MERGE_IPC_FACTOR;
+    if parallel_scan_is_cheaper(work, nworkers, parallel_leader_participates, transfer_cost) {
         WorkerPathPolicy::ParallelOnly {
             nworkers,
             reason: WorkerDecisionReason::CostModelLimited,

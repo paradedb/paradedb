@@ -1907,26 +1907,16 @@ impl SearchIndexReader {
     /// 2. The total number of rows in the index (estimated if total_docs is Unknown).
     /// 3. Tantivy's relative cost to drive the configured query's docset.
     ///
-    /// Expects to be called using an index opened with `MvccSatisfies::LargestSegment`, and thus
-    /// to contain exactly 0 or 1 Segment.
+    /// Samples the largest segment and scales its estimates to the whole relation.
     pub fn estimate_docs(&self, total_docs: RowEstimate) -> DocsEstimate {
-        match self.searcher.segment_readers().len() {
-            1 => {}
-            0 => {
-                return DocsEstimate {
-                    matching_docs: 0,
-                    total_docs: 0,
-                    query_cost: 0,
-                };
-            }
-            x => {
-                panic!(
-                    "estimate_docs(): expected an index with only one segment, \
-                    which is assumed to be the largest segment by num_docs. got: {x:?} segments.",
-                );
-            }
-        }
-        let largest_reader = self.searcher.segment_reader(0);
+        let Some(largest_reader) = self.segment_readers().iter().max_by_key(|r| r.num_docs())
+        else {
+            return DocsEstimate {
+                matching_docs: 0,
+                total_docs: 0,
+                query_cost: 0,
+            };
+        };
         let weight = self.weight();
         let mut scorer = weight
             .scorer(largest_reader, 1.0)

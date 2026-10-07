@@ -888,33 +888,29 @@ impl CustomScan for AggregateScan {
             });
         }
 
-        if gucs::explain_recursive_estimates() && explainer.is_verbose() {
+        if explainer.is_analyze() && state.custom_state().parallelism.executed {
             explainer.add_group("Aggregate Parallelism", |explainer| {
-                explainer.add_text("Worker Selection", "segment and worker limits");
-                explainer.add_text("Serial/Parallel Cost Model", "not used");
-                if explainer.is_analyze() {
-                    state.custom_state().parallelism.explain(explainer);
-                } else {
-                    explainer.add_text("Status", "selected at execution time");
-                }
+                state.custom_state().parallelism.explain(explainer);
                 if explainer.is_costs() {
                     let query = state
                         .custom_state()
                         .aggregate_clause
                         .query()
                         .without_heap_filters();
-                    if !query.has_postgres_expressions()
-                        && let Some(work) = crate::api::operator::estimate_query_cost(
-                            state.custom_state().indexrel(),
-                            query,
-                        )
-                    {
+                    let work = (!query.has_postgres_expressions())
+                        .then(|| {
+                            crate::api::operator::estimate_query_cost(
+                                state.custom_state().indexrel(),
+                                query,
+                            )
+                        })
+                        .flatten();
+                    if let Some(work) = work {
                         explainer.add_unsigned_integer("Estimated Query Work", work, None);
-                        explainer.add_text(
-                            "Work Estimate",
-                            "diagnostic docset cost; includes positional posting-list floor",
-                        );
+                    } else {
+                        explainer.add_text("Estimated Query Work", "unknown");
                     }
+                    explainer.add_text("Parallel Threshold", "not applied");
                 }
             });
         }

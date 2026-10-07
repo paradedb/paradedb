@@ -31,6 +31,7 @@ INSERT INTO json_agg_test (metadata, data) VALUES
 -- Create BM25 index
 CREATE INDEX idx_json_agg ON json_agg_test
 USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.unicode_words('columnar=true')));
+ANALYZE json_agg_test;
 
 -- Test simple COUNT with JSON field filter
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

@@ -19,46 +19,14 @@ use crate::postgres::customscan::Explainer;
 
 #[derive(Default)]
 pub struct AggregateParallelism {
-    pub executions: u64,
-    pub segments: usize,
+    pub executed: bool,
     pub workers_requested: usize,
-    pub workers_launched: usize,
-    pub leader_participated: bool,
-    pub max_workers_per_gather: usize,
-    pub max_parallel_workers: usize,
-    pub max_worker_processes: usize,
-    pub reason: &'static str,
+    pub workers_used: usize,
 }
 
 impl AggregateParallelism {
     pub fn explain(&self, explainer: &mut Explainer) {
-        explainer.add_unsigned_integer("Executions", self.executions, None);
-        if self.executions == 0 {
-            explainer.add_text("Status", "not executed");
-            return;
-        }
-        if self.executions > 1 {
-            explainer.add_text("Scope", "last execution");
-        }
-        explainer.add_unsigned_integer("Segments", self.segments as u64, None);
         explainer.add_unsigned_integer("Workers Requested", self.workers_requested as u64, None);
-        explainer.add_unsigned_integer("Workers Launched", self.workers_launched as u64, None);
-        explainer.add_bool("Leader Participated", self.leader_participated);
-        explainer.add_unsigned_integer(
-            "Max Workers Per Gather",
-            self.max_workers_per_gather as u64,
-            None,
-        );
-        explainer.add_unsigned_integer(
-            "Max Parallel Workers",
-            self.max_parallel_workers as u64,
-            None,
-        );
-        explainer.add_unsigned_integer(
-            "Max Worker Processes",
-            self.max_worker_processes as u64,
-            None,
-        );
-        explainer.add_text("Reason", self.reason);
+        explainer.add_unsigned_integer("Workers Used", self.workers_used as u64, None);
     }
 }

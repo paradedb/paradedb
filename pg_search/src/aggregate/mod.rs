@@ -622,10 +622,7 @@ pub fn execute_aggregate(
 ) -> Result<AggregationResults, Box<dyn Error>> {
     if let Some(stats) = parallelism.as_deref_mut() {
         *stats = AggregateParallelism {
-            executions: stats.executions + 1,
-            max_workers_per_gather: unsafe { pg_sys::max_parallel_workers_per_gather as usize },
-            max_parallel_workers: unsafe { pg_sys::max_parallel_workers as usize },
-            max_worker_processes: unsafe { pg_sys::max_worker_processes as usize },
+            executed: true,
             ..Default::default()
         };
     }
@@ -673,10 +670,6 @@ pub fn execute_aggregate(
 
         let solve_mvcc = visibility.resolve_filtering(index, &query, Some(&reader));
 
-        if let Some(stats) = parallelism.as_deref_mut() {
-            stats.segments = reader.segment_readers().len();
-        }
-
         // Fast path: a bare doc count without MVCC filtering is answerable by
         // `Weight::count` — a stored-doc_freq metadata read for term queries
         // on delete-free segments, a scoreless docset drain otherwise —
@@ -684,10 +677,6 @@ pub fn execute_aggregate(
         if !solve_mvcc
             && matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count())
         {
-            if let Some(stats) = parallelism.as_deref_mut() {
-                stats.leader_participated = true;
-                stats.reason = "count fast path";
-            }
             // Serial execution: the scorers claim private cursors.
             if let Some(bitmap_exec) = bitmap_exec.as_deref_mut()
                 && let Some(cell) = query.bitmap_cell()
@@ -757,17 +746,6 @@ pub fn execute_aggregate(
 
         if let Some(stats) = parallelism.as_deref_mut() {
             stats.workers_requested = nworkers;
-            stats.reason = if stats.max_workers_per_gather == 0 {
-                "max_parallel_workers_per_gather is zero"
-            } else if stats.segments == 0 {
-                "no segments"
-            } else if nworkers == 0 {
-                "leader covers available parallel slots"
-            } else if stats.max_parallel_workers == 0 || stats.max_worker_processes == 0 {
-                "parallel worker limit is zero"
-            } else {
-                "segment and worker limits"
-            };
         }
         pgrx::debug1!(
             "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
@@ -783,15 +761,8 @@ pub fn execute_aggregate(
             // signal our workers with the number of workers actually launched
             // they need this before they can begin checking out the correct segment counts
             let mut nlaunched = process.launched_workers();
-            if let Some(stats) = parallelism.as_deref_mut() {
-                stats.workers_launched = nlaunched;
-                stats.leader_participated = pg_sys::parallel_leader_participation;
-                if nlaunched < nworkers
-                    && stats.max_parallel_workers > 0
-                    && stats.max_worker_processes > 0
-                {
-                    stats.reason = "fewer workers launched than requested";
-                }
+            if let Some(stats) = parallelism {
+                stats.workers_used = nlaunched;
             }
             pgrx::debug1!("launched {nlaunched} workers");
             if pg_sys::parallel_leader_participation {
@@ -862,13 +833,6 @@ pub fn execute_aggregate(
                 AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
             )?)
         } else {
-            if let Some(stats) = parallelism {
-                stats.leader_participated = true;
-                if nworkers > 0 && stats.max_parallel_workers > 0 && stats.max_worker_processes > 0
-                {
-                    stats.reason = "parallel launch unavailable";
-                }
-            }
             // couldn't launch any workers, so we just execute the aggregate right here in this backend
             let segment_ids = reader
                 .segment_readers()

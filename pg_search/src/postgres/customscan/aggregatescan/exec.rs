@@ -60,9 +60,7 @@ pub fn aggregation_results_iter(
 
     let planstate = state.planstate();
     let expr_context = state.csstate.ss.ps.ps_ExprContext;
-    // Solve in `runtime_context`: wrapped aggregates reset `ps_ExprContext` for each row, and
-    // EXPLAIN ANALYZE reads the solved query after the last one.
-    let runtime_context = state.runtime_context;
+    let runtime_context = state.custom_state().runtime_context;
 
     state
         .custom_state_mut()

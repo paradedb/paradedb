@@ -116,7 +116,7 @@ impl SolvePostgresExpressions for AggregateType {
     }
 
     /// Does not reset `expr_context`: the aggregate scan resets it once before solving its query
-    /// and every aggregate's `FILTER` in the same pass.
+    /// and every aggregate's `FILTER` in the same pass (rule 2 in `solve_expr.rs`).
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         if let Some(filter) = self.filter_expr_mut() {
             filter.solve_postgres_expressions_no_reset(expr_context);

@@ -30,6 +30,7 @@ pub mod orderby;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::node::NodeExt;
 use crate::postgres::search_operator_relations;
+pub mod parallelism;
 pub mod pdb_agg;
 pub mod privdat;
 pub mod scan_state;
@@ -887,7 +888,37 @@ impl CustomScan for AggregateScan {
             });
         }
 
-        // Add note about recursive cost estimation if GUC is enabled
+        if gucs::explain_recursive_estimates() && explainer.is_verbose() {
+            explainer.add_group("Aggregate Parallelism", |explainer| {
+                explainer.add_text("Worker Selection", "segment and worker limits");
+                explainer.add_text("Serial/Parallel Cost Model", "not used");
+                if explainer.is_analyze() {
+                    state.custom_state().parallelism.explain(explainer);
+                } else {
+                    explainer.add_text("Status", "selected at execution time");
+                }
+                if explainer.is_costs() {
+                    let query = state
+                        .custom_state()
+                        .aggregate_clause
+                        .query()
+                        .without_heap_filters();
+                    if !query.has_postgres_expressions()
+                        && let Some(work) = crate::api::operator::estimate_query_cost(
+                            state.custom_state().indexrel(),
+                            query,
+                        )
+                    {
+                        explainer.add_unsigned_integer("Estimated Query Work", work, None);
+                        explainer.add_text(
+                            "Work Estimate",
+                            "diagnostic docset cost; includes positional posting-list floor",
+                        );
+                    }
+                }
+            });
+        }
+
         if gucs::explain_recursive_estimates() && explainer.is_verbose() {
             explainer.add_text(
                 "Recursive Query Estimates",

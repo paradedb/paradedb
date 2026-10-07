@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791351658116,
+  "lastUpdate": 1791365806108,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -8526,6 +8526,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 20.073,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4e46bb6c438048ebbeea6ad7e02cec3360537a18",
+          "message": "fix: Solve a generic plan's parameters into their own ExprContext (#6692)\n\n## Ticket(s) Closed\n\n- Fixes #6492\n\n## What\n\nWhen a generic plan's search query has parameters, the scan solves them\nonce (`$n` → value) and keeps the solved query for the whole scan. The\nsolved query now lives in its own ExprContext, which is reset only when\nthe query is solved again (on rescan). Before, it lived in the scan's\n`ps_ExprContext`, which BaseScan resets for every scored row and\nAggregateScan reset before each `FILTER` solve.\n\n## Why\n\n`lib` is not in the BM25 index, so `lib = $2` becomes a heap filter.\nSolving rewrites the heap filter's expression with `$2` replaced by a\n`Const`, in the ExprContext's per-tuple memory.\n\n**BaseScan.** The scan resets that memory before every row it returns\nwith `score()` or `snippet()`. Each segment builds its scorer, and with\nit the heap filter, only when the scan reaches it. So segment 2 onward\nreads a freed expression:\n\n```sql\nSET plan_cache_mode = force_generic_plan;\nPREPARE q(text, text) AS\nSELECT id, paradedb.snippet(body), paradedb.score(id)\nFROM t WHERE body @@@ $1 AND lib = $2 ORDER BY id;\nEXECUTE q('contrato', 'lib1');\n```\n```\nserver closed the connection unexpectedly   -- main\nERROR:  unrecognized node type: ...         -- 0.25.x, with score() alone\n```\n\n#6589 stopped the plain `score()` query from failing on `main` by\nbuilding the projection once, but the freed expression is still read.\nAnything that reuses per-tuple memory, like `snippet()`, still crashes.\n\n**AggregateScan.** It solved the main query, then each aggregate's\n`FILTER`, resetting the memory before each one. Every `FILTER` solve\nfreed the main query's solved heap filter:\n\n```sql\nPREPARE a(text, text) AS\nSELECT COUNT(*), COUNT(*) FILTER (WHERE body @@@ 'contrato')\nFROM t WHERE body @@@ $1 AND lib = $2;\nEXECUTE a('servicos', 'lib1');\n```\n```\nERROR:  unrecognized node type: 0\n```\n\nResetting once is not enough on its own. When an aggregate is wrapped in\nan expression, AggregateScan resets `ps_ExprContext`'s per-tuple memory\nfor each row it returns and projects the row there. EXPLAIN ANALYZE then\nserializes the solved query after the last row, reading the freed heap\nfilter:\n\n```sql\nPREPARE w(text, text) AS\nSELECT grp, repeat(COUNT(*)::text, 200)\nFROM t WHERE body @@@ $1 AND lib = $2 GROUP BY grp;\nEXPLAIN ANALYZE EXECUTE w('contrato', 'lib1');\n```\n```\nWARNING:  could not dump unrecognized node type: 909260338   -- main; the number varies, here its bytes are \"2626\", the projected row text\n```\n\nSo AggregateScan solves in its own ExprContext too, not only BaseScan.\n\n**Where it came from.** PostgreSQL's IndexScan has the same need for\n`WHERE col = $1`. It keeps runtime keys in a second ExprContext,\n`iss_RuntimeContext`, because `ExecScan` resets the node's\n`ps_ExprContext` for every row. It resets `iss_RuntimeContext` once per\nrescan, then evaluates all keys. #2192 did the same here, but #3298\nmoved the setup into the shared `init_expr_context` and lost it in two\nways:\n1. The caller stored `ps_ExprContext` instead of the new ExprContext,\nbecause it read it after `init_expr_context` had put `ps_ExprContext`\nback.\n2. For BaseScan, the trait's `has_postgres_expressions` checks\n`search_query_input`, which is still empty at `begin_custom_scan`. So\nthe second ExprContext was never created.\n\n## How\n\n- `init_expr_context` returns `Some(CreateExprContext(estate))` when the\nbase query has something to solve, else `None`. `BaseScanState` and\n`AggregateScanState` (Tantivy path) each keep it in their own\n`runtime_context` field, as IndexScan keeps `iss_RuntimeContext`. There\nis no longer a `runtime_context` on the shared `CustomScanStateWrapper`.\n- Parameter solving uses the scan's `runtime_context`. Heap-filter\nevaluation, snippets and projection use `ps_ExprContext` directly,\npreserving its per-row reset.\n- BaseScan's `has_postgres_expressions` and `has_parameters` read\n`base_search_query_input`, which is set when the scan state is created.\n- AggregateScan resets `runtime_context` once, then solves the main\nquery and every `FILTER` using the existing no-reset helper.\n- JoinScan and the DataFusion aggregate read `ps_ExprContext` directly\nand keep their existing solving: JoinScan solves `JoinCSClause` there\n(it never resets it per row), and the DataFusion aggregate solves each\nsource in its own context in `PgSearchTableProvider::scan`.\n- Dead code removed: the `datafusion_state` branches of\n`AggregateScanState`'s `SolvePostgresExpressions` impl were unreachable\n(the DataFusion path leaves `begin_custom_scan`/`exec_custom_scan`\nbefore reaching the trait), and `DataFusionAggState::base_plan` was only\nread there. `JoinScanState`'s pass-through impl is removed;\n`maybe_solve_and_rebake` calls `JoinCSClause` directly.\n- The rules for which context a query is solved in, which it is\nevaluated in, who resets what, and what a rescan must drop first are the\nmodule doc of `solve_expr.rs`; the scan comments refer to it.\n- The save/replace/restore of `ps_ExprContext` in `init_expr_context` is\ngone. It existed only because `ExecAssignExprContext` writes its new\ncontext into `ps_ExprContext`; `CreateExprContext(estate)` returns it\ndirectly, so the pointer can no longer be read after it was restored\n(the #3298 loss). The `TODO(@mdashti)` about replacing that swap with an\n`ExprContextGuard` goes with it: `ExprContextGuard` uses a standalone\nExprContext, which has no access to the query's parameters\n(`ecxt_param_list_info` is NULL).\n\n**Lifetime.** The solved query remains valid until the next solve or\nexecutor teardown. On rescan, BaseScan clears the previous execution\nresults before solving again and rebinds execution state to the rebuilt\nreader before returning more rows. PostgreSQL owns and frees the extra\nExprContext with the executor state. It is allocated only when runtime\nexpressions or heap-filter parameters need solving.\n\n## Tests\n\n- **New `issue_6492`** (generic plan, several segments, heap filter on a\ncolumn not in the index):\n- On `main`: the `snippet()` query crashes the backend, and both\n`FILTER` executions fail with `unrecognized node type: 0`.\n- A parallel section re-enables two workers (Parallel Base Scan). On its\nown it also crashes `main`, with or without launched workers (the leader\nthen claims every segment). No EXPLAIN is captured there, since the\nworker count follows the segment count, which depends on merges.\n- With this PR: passes, and generic-plan results match custom-plan\nresults, serial and parallel.\n- **Rescan** (no `PREPARE`; a nested-loop parameter from a `LATERAL`\njoin in the heap filter): the inner scan solves once per outer row. One\n`LATERAL` with `score()`/`snippet()` (Base Scan) and one with a `FILTER`\naggregate (Aggregate Scan); both plan shapes are pinned. On `main`, the\nBase Scan query crashes the backend and the Aggregate Scan query fails\nwith `unrecognized node type: 0`.\n- **Parallel section** now asserts that the index has several segments\nand that the scan line reads `Parallel Custom Scan`, so a planner change\nthat drops parallelism cannot pass silently.\n- **Wrapped aggregate + EXPLAIN ANALYZE** (the AggregateScan case above,\ngeneric plan): a new section in `issue_6492`. When AggregateScan solves\nin `ps_ExprContext` (this PR with only that change reverted), it fails\nwith two `could not dump unrecognized node type` warnings; with this PR\nit passes, and its rows match custom plans. Run on PG 18.1 and PG 17.7\nwith the same expected output.\n- **#6492's plan shape on PG 18** (Gather Merge, 2 workers + leader,\nParallel Base Scan, generic plan): 30/30 executions return rows. The\nsame setup on the 0.25.10 release fails on executions 6 to 30 in `auto`\nmode, matching the report.\n\n\n### Validation of the runtime_context reuse\n\nOn PostgreSQL 18.1, the rebuilt extension passed all nine focused\nregression files: `issue_6492`, `issue_3298`, `issue_6582`,\n`uncorrelated-param-solving`, `prepared_statement_score`,\n`prepared_statement_aggregate`, `prepared_statement_parallel`,\n`aggregate_single_table_datafusion`, and `pdb_agg_datafusion`. Query-ID\nreporting was disabled for matching EXPLAIN output; expected files were\nunchanged.\n\nSupplemental local checks asserted four BaseScan loops with distinct\nouter inputs, including an empty result, and compared exact IDs and\nsnippet/positive-score counts against a native reference. A generic\nparallel BaseScan plan launched one worker and returned the expected\nresults for two parameter sets. The installed library's SHA-256 matched\nthe freshly built binary. These supplemental checks were run locally and\nare not new committed regression tests.",
+          "timestamp": "2026-10-07T14:23:00+05:30",
+          "tree_id": "97b82875d228cf88e820483efd3d5684b63ceb9b",
+          "url": "https://github.com/paradedb/paradedb/commit/4e46bb6c438048ebbeea6ad7e02cec3360537a18"
+        },
+        "date": 1791365802917,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.396,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.32,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 9.806,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 1.995,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.415,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.911,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.231,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 6.791,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.124,
             "unit": "ms"
           }
         ]

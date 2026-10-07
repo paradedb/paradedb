@@ -29,6 +29,7 @@ pub mod limit_offset;
 pub mod orderby;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::node::NodeExt;
+use crate::postgres::search_operator_relations;
 pub mod pdb_agg;
 pub mod privdat;
 pub mod scan_state;
@@ -1657,10 +1658,14 @@ impl AggregateScan {
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         let is_join = input_rel.reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL;
+        // The planner can simplify the operator out of the quals, so the query as written counts too.
         if is_join
             && !has_paradedb_agg
             && !gucs::enable_custom_scan_without_operator()
             && !plan.has_search_predicate()
+            && !sources
+                .iter()
+                .any(|source| unsafe { search_operator_relations::applies_to(root, source.rti) })
         {
             return Err(AggregatePathDecline::Quiet);
         }

@@ -146,6 +146,51 @@ FROM projection_search_predicate_parts
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 
+-- JoinScan and AggregateScan take the query on the same grounds.
+CREATE TABLE projection_search_predicate_owners (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER,
+    name TEXT
+);
+INSERT INTO projection_search_predicate_owners VALUES (1, 1, 'ann'), (2, 2, 'bob'), (3, 3, 'cid');
+CREATE INDEX projection_search_predicate_owners_idx
+ON projection_search_predicate_owners USING paradedb (id, product_id, name);
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT p.id, o.name, pdb.score(p.id)
+FROM projection_search_predicate p
+JOIN projection_search_predicate_owners o ON o.product_id = p.id
+WHERE p.category = 'electronics' OR (p.category = 'electronics' AND p.body === 'keyboard')
+ORDER BY p.id
+LIMIT 10;
+SELECT p.id, o.name, pdb.score(p.id)
+FROM projection_search_predicate p
+JOIN projection_search_predicate_owners o ON o.product_id = p.id
+WHERE p.category = 'electronics' OR (p.category = 'electronics' AND p.body === 'keyboard')
+ORDER BY p.id
+LIMIT 10;
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT count(*)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard');
+SELECT count(*)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard');
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT o.product_id, count(*)
+FROM projection_search_predicate p
+JOIN projection_search_predicate_owners o ON o.product_id = p.id
+WHERE p.category = 'electronics' OR (p.category = 'electronics' AND p.body === 'keyboard')
+GROUP BY o.product_id;
+SELECT o.product_id, count(*)
+FROM projection_search_predicate p
+JOIN projection_search_predicate_owners o ON o.product_id = p.id
+WHERE p.category = 'electronics' OR (p.category = 'electronics' AND p.body === 'keyboard')
+GROUP BY o.product_id
+ORDER BY o.product_id;
+
 -- No search predicate was written, so none was simplified away.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
@@ -221,6 +266,7 @@ FROM projection_search_predicate
 WHERE body @@@ 'keyboard'
 ORDER BY id;
 
+DROP TABLE projection_search_predicate_owners;
 DROP TABLE projection_search_predicate_parts;
 DROP TABLE projection_search_predicate_labels;
 DROP TABLE projection_search_predicate;

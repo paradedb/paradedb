@@ -196,6 +196,7 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::search_operator_relations;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
@@ -2372,7 +2373,13 @@ impl JoinScan {
 
         // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
         // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
-        if !crate::gucs::enable_custom_scan_without_operator() && !plan.has_search_predicate() {
+        // The planner can simplify the operator out of the quals, so the query as written counts too.
+        if !crate::gucs::enable_custom_scan_without_operator()
+            && !plan.has_search_predicate()
+            && !sources
+                .iter()
+                .any(|source| search_operator_relations::applies_to(root, source.rti))
+        {
             return Err(JoinPathDecline::Quiet);
         }
 

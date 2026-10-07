@@ -188,7 +188,9 @@ jobs:
           sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
           sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
           # The typmod subtransaction tests prepare transactions, which Postgres disables by default.
-          sed -i "s/^#max_prepared_transactions = .*/max_prepared_transactions = 10/" postgresql.conf
+          # Citus raises this to twice max_connections only while it is unset, and its tests need
+          # that many, so set the same value explicitly.
+          sed -i "s/^#max_prepared_transactions = .*/max_prepared_transactions = 600/" postgresql.conf
           echo "citus.node_conninfo = 'sslmode=prefer'" >> postgresql.conf
 
       - name: Compile & install pg_search extension (system)

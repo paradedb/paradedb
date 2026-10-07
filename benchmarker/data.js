@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791403673703,
+  "lastUpdate": 1791411931703,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9266,6 +9266,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 20.45,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18f0b2263457da7b624aa9ac3718c4699bdc583b",
+          "message": "feat: Add support for `pdb.agg() OVER ()` to join scan (#6684)\n\n# Ticket(s) Closed\n\n- Closes #6359 \n\n(This does not handle sql window functions. That will be done by #6696 )\n\n## What\nVia the topk-as-agg path, add support for bare `pdb.agg()` window\nfunctions.\n\n## How\n\n### New udaf\nAdds a new `udaf` for computing a `pdb.agg()` request. Its accumulator\ntakes in a `pdb.agg()` spec and returns the computed json document. This\ndiffers from the route that aggregate scan takes due to the need to run\nalongside a topk. The topk running in the same node must have no\naggregate groups, so the grouping method that aggregate scan uses is\ndone inside of the accumulator inside, via DataFusion's\n`GroupsAccumulatorAdapter` (from the now depended on\n`datafusion_functions_aggregate_common` crate).\n\nThe accumulator holds a `Vec<(usize, Level)>` as its state. `Level`\nholds the both buckets and metrics belonging to that level. Each metric\nhas an internal accumulator, and each bucket is represented by an\ninterned key in a `GroupValues` (the same struct DataFusion uses to\nmanage grouping).\n\nWhen a partial needs to materialize its state, each level serializes its\nstate into an arrow IPC stream. Those streams are joined into a single\nbyte array and that is shipped. The merge side then splits and\ndeserializes the levels before merging batches into its \"child\"\naccumulators.\n\nWhen the final is `evaluate`d, it produces the same bucket rows the\naggregate scan would have produced for this spec, then uses aggregate\nscan's `assemble_pdb_agg_rows` to produce the final document.\n\n### Using it\nEach \"window\" `pdb.agg` request gets its own aggregate entry into the\naggregration node that the topk runs in. Expressions dependent on a\n`pdb.agg` expression delay their evaluation until\n`apply_output_projection`, unless running in `DISTINCT` mode. In which\ncase, window expressions are required to be semantically part of the\ndistinct key, which cannot happen here, so we return a plan error.\n\nAny `pdb.agg` input columns not already in the topk-payload are added to\nthe pre-select list. Any \"deferred\" expressions depending on a\n`pdb.agg()` result have their other dependencies added to the topk\npayload, as those columns must ride along until the expression can later\nbe evaluated.\n\n## Tests\n- Accumulator unit tests added\n- Integration and regression tests added.\n- Adapgted `pdbagggen` to extend qgen `generated_small_joins` test to\ninclude `pdb.agg() OVER ()` expressions when possible.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-07T15:41:59-06:00",
+          "tree_id": "f45c2325248bcf0b244dd9c8fdc064fd0de661c6",
+          "url": "https://github.com/paradedb/paradedb/commit/18f0b2263457da7b624aa9ac3718c4699bdc583b"
+        },
+        "date": 1791411928758,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.343,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.461,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 10.158,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 2.016,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.533,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.902,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.372,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 6.858,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.18,
             "unit": "ms"
           }
         ]

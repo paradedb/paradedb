@@ -362,6 +362,7 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
     query: Box<dyn Query>,
+    estimate_from_statistics: bool,
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     /// The original query, retained for pruning only when a predicate references a partition
     /// column. This eligibility check needs no segment statistics. Keep the whole query so mixed
@@ -417,6 +418,7 @@ impl Clone for SearchIndexReader {
             underlying_reader: self.underlying_reader.clone(),
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
+            estimate_from_statistics: self.estimate_from_statistics,
             segment_stats_snapshot: Arc::clone(&self.segment_stats_snapshot),
             pruning_query: self.pruning_query.clone(),
             need_scores: self.need_scores,
@@ -839,6 +841,7 @@ impl SearchIndexReader {
             });
         }
         let pruning_query = uses_partition_field.then(|| search_query_input.clone());
+        let estimate_from_statistics = crate::query::estimate::supports(&search_query_input);
         let query = search_query_input
             .into_tantivy_query(
                 &schema,
@@ -859,6 +862,7 @@ impl SearchIndexReader {
             underlying_reader: reader,
             underlying_index: index,
             query,
+            estimate_from_statistics,
             segment_stats_snapshot,
             pruning_query,
             need_scores,
@@ -926,6 +930,7 @@ impl SearchIndexReader {
             (tantivy::query::Occur::Must, additional_query),
         ]));
         clone.pruning_estimate = OnceLock::new();
+        clone.estimate_from_statistics = false;
         clone
     }
 
@@ -1917,19 +1922,24 @@ impl SearchIndexReader {
                 query_cost: 0,
             };
         };
-        let weight = self.weight();
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("counting docs in the largest segment should not fail");
+        let (count, mut cost) = self
+            .estimate_from_statistics
+            .then(|| crate::query::estimate::estimate_docs(self.query.as_ref(), largest_reader))
+            .flatten()
+            .unwrap_or_else(|| {
+                let weight = self.weight();
+                let mut scorer = weight
+                    .scorer(largest_reader, 1.0)
+                    .expect("counting docs in the largest segment should not fail");
 
-        // investigate the size_hint.  it will often give us a good enough value
-        let mut count = scorer.size_hint() as usize;
-        let mut cost = scorer.cost();
-        if count == 0 {
-            // but when it doesn't, we need to do a full count
-            count = scorer.count_including_deleted() as usize;
-            cost = cost.max(count as u64);
-        }
+                let mut count = scorer.size_hint() as u64;
+                let mut cost = scorer.cost();
+                if count == 0 {
+                    count = scorer.count_including_deleted() as u64;
+                    cost = cost.max(count);
+                }
+                (count, cost)
+            });
         if let Some(shortest_posting_list) = self.shortest_posting_list(largest_reader) {
             cost = cost.max(shortest_posting_list);
         }
@@ -1943,8 +1953,7 @@ impl SearchIndexReader {
         };
         let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
         DocsEstimate {
-            matching_docs: scale_largest_segment_estimate(count as u64, segment_doc_proportion)
-                as usize,
+            matching_docs: scale_largest_segment_estimate(count, segment_doc_proportion) as usize,
             total_docs,
             query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
         }
@@ -2051,7 +2060,14 @@ impl SearchIndexReader {
             .expect("should have at least one segment reader");
 
         let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
-        self.estimate_node_recursive(query_tree, largest_reader, segment_doc_proportion, parser);
+        let estimate_from_statistics = crate::query::estimate::supports(&query_tree.query);
+        self.estimate_node_recursive(
+            query_tree,
+            largest_reader,
+            segment_doc_proportion,
+            parser,
+            estimate_from_statistics,
+        );
     }
 
     fn estimate_node_recursive<QueryParserCtor: Fn() -> QueryParser>(
@@ -2060,12 +2076,19 @@ impl SearchIndexReader {
         largest_reader: &SegmentReader,
         segment_doc_proportion: f64,
         parser: &QueryParserCtor,
+        estimate_from_statistics: bool,
     ) {
         use crate::query::SearchQueryInput;
 
         // First, recursively estimate all children
         for child in node.children_mut() {
-            self.estimate_node_recursive(child, largest_reader, segment_doc_proportion, parser);
+            self.estimate_node_recursive(
+                child,
+                largest_reader,
+                segment_doc_proportion,
+                parser,
+                estimate_from_statistics,
+            );
         }
 
         // For structural wrapper nodes (used for labeling in EXPLAIN output), inherit
@@ -2099,6 +2122,16 @@ impl SearchIndexReader {
                 None,
             )
             .expect("converting query for estimation should not fail");
+
+        if estimate_from_statistics
+            && let Some((count, _)) =
+                crate::query::estimate::estimate_docs(tantivy_query.as_ref(), largest_reader)
+        {
+            node.set_estimate(
+                scale_largest_segment_estimate(count, segment_doc_proportion) as usize,
+            );
+            return;
+        }
 
         let weight = tantivy_query
             .weight(enable_scoring(node.query.need_scores(), &self.searcher))
@@ -2408,6 +2441,184 @@ mod tests {
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
     };
+
+    #[pg_test]
+    fn statistics_estimation_uses_only_supported_query_trees() {
+        let (index, _) = segmented_index_fixture("statistics_estimation", 1, false);
+        let term = term_query("title", "silver");
+        let phrase = SearchQueryInput::FieldedQuery {
+            field: "title".into(),
+            query: pdb::Query::TokenizedPhrase {
+                phrase: "silver dragon".into(),
+                slop: None,
+            },
+        };
+        let match_query = SearchQueryInput::FieldedQuery {
+            field: "title".into(),
+            query: pdb::Query::Match {
+                value: "SILVER dragon".into(),
+                tokenizer: None,
+                distance: None,
+                transposition_cost_one: None,
+                prefix: None,
+                conjunction_mode: Some(true),
+            },
+        };
+        let boolean = |must, should, must_not| SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+            minimum_should_match: None,
+        };
+        for (query, expected) in [
+            (term.clone(), 10),
+            (match_query.clone(), 10),
+            (phrase.clone(), 1),
+            (term_query("title", "absent"), 0),
+            (
+                boolean(vec![term.clone(), phrase.clone()], vec![], vec![]),
+                1,
+            ),
+            (
+                boolean(
+                    vec![term.clone()],
+                    vec![],
+                    vec![term_query("title", "absent")],
+                ),
+                10,
+            ),
+            (
+                boolean(
+                    vec![],
+                    vec![
+                        term.clone(),
+                        boolean(vec![match_query.clone()], vec![], vec![]),
+                    ],
+                    vec![],
+                ),
+                10,
+            ),
+            (
+                SearchQueryInput::WithIndex {
+                    oid: index.oid(),
+                    query: Box::new(phrase.clone()),
+                },
+                1,
+            ),
+        ] {
+            let reader = SearchIndexReader::open(
+                &index,
+                query.clone(),
+                false,
+                MvccSatisfies::LargestSegment,
+            )
+            .unwrap();
+            assert!(reader.estimate_from_statistics, "{query:?}");
+            let estimate = reader.estimate_docs(RowEstimate::Known(10));
+            assert_eq!(estimate.matching_docs, expected, "{query:?}");
+            assert_eq!(
+                reader
+                    .build_query_tree_with_estimates(query.clone())
+                    .unwrap()
+                    .estimated_docs,
+                Some(expected),
+                "{query:?}"
+            );
+            assert_eq!(
+                reader.estimate_docs(RowEstimate::Known(100)).matching_docs,
+                expected * 10
+            );
+            assert_eq!(reader.estimate_docs(RowEstimate::Unknown).total_docs, 10);
+        }
+
+        let mut fuzzy_match = match_query;
+        if let SearchQueryInput::FieldedQuery {
+            query: pdb::Query::Match { distance, .. },
+            ..
+        } = &mut fuzzy_match
+        {
+            *distance = Some(1);
+        }
+        for unsupported in [
+            range_query("id", 1, 5),
+            fuzzy_match,
+            SearchQueryInput::All,
+            SearchQueryInput::Parse {
+                query_string: "title:silver".into(),
+                lenient: None,
+                conjunction_mode: None,
+            },
+            SearchQueryInput::FieldedQuery {
+                field: "title".into(),
+                query: pdb::Query::Regex {
+                    pattern: "sil.*".into(),
+                },
+            },
+            SearchQueryInput::Boost {
+                query: Box::new(term.clone()),
+                factor: 2.0,
+            },
+        ] {
+            for query in [
+                unsupported.clone(),
+                boolean(vec![phrase.clone(), unsupported.clone()], vec![], vec![]),
+                boolean(vec![], vec![term.clone(), unsupported.clone()], vec![]),
+                boolean(vec![term.clone()], vec![], vec![unsupported]),
+            ] {
+                let reader = SearchIndexReader::open(
+                    &index,
+                    query.clone(),
+                    false,
+                    MvccSatisfies::LargestSegment,
+                )
+                .unwrap();
+                assert!(!reader.estimate_from_statistics, "{query:?}");
+                let segment = reader.searcher.segment_reader(0);
+                let weight = reader.weight();
+                let mut scorer = weight.scorer(segment, 1.0).unwrap();
+                let mut count = scorer.size_hint() as usize;
+                let mut cost = scorer.cost();
+                if count == 0 {
+                    count = scorer.count_including_deleted() as usize;
+                    cost = cost.max(count as u64);
+                }
+                if let Some(shortest) = reader.shortest_posting_list(segment) {
+                    cost = cost.max(shortest);
+                }
+                let estimate = reader.estimate_docs(RowEstimate::Known(10));
+                assert_eq!(
+                    (estimate.matching_docs, estimate.query_cost),
+                    (count, cost),
+                    "{query:?}"
+                );
+                let mut tree = reader.build_query_tree_with_estimates(query).unwrap();
+                assert_eq!(tree.estimated_docs, Some(count));
+                tree.traverse_mut(0, &mut |node, _| {
+                    if node.query == phrase {
+                        assert_eq!(node.estimated_docs, Some(10));
+                    }
+                });
+            }
+        }
+        for (name, mutable, expected) in [
+            ("statistics_empty", false, 0),
+            ("statistics_mutable", true, 5),
+        ] {
+            let (index, _) = segmented_index_fixture(name, 0, mutable);
+            unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+            let reader = SearchIndexReader::open(
+                &index,
+                term_query("title", "mutable"),
+                false,
+                MvccSatisfies::LargestSegment,
+            )
+            .unwrap();
+            let estimate = reader.estimate_docs(RowEstimate::Unknown);
+            assert_eq!(estimate.matching_docs, expected);
+            assert_eq!(estimate.total_docs, expected as u64);
+            unsafe { pg_sys::PopActiveSnapshot() };
+        }
+    }
 
     #[pg_test]
     fn collect_ctidset_rebinds_visibility_to_each_reader() {

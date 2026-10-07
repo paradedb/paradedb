@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod builder;
+pub(crate) mod estimate;
 pub mod estimate_tree;
 pub mod heap_field_filter;
 mod more_like_this;

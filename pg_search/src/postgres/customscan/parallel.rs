@@ -23,9 +23,111 @@ use crate::postgres::ParallelScanState;
 
 pub use crate::scan::info::RowEstimate;
 
+use crate::aggregate::AggregateRequest;
+use crate::api::operator::estimate_selectivity_and_cost;
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::rel::PgSearchRelation;
+use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
+use std::num::NonZeroUsize;
 
 use tantivy::index::SegmentId;
+
+/// Workers plus a full share for the leader when it participates.
+pub(crate) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool) -> f64 {
+    if leader_participates {
+        (nworkers.get() + 1) as f64
+    } else {
+        nworkers.get() as f64
+    }
+}
+
+/// Compare divided work plus startup and transfer costs with serial work.
+/// Transfer covers result rows for Top K, or one partial aggregate per worker.
+pub(crate) fn parallel_scan_is_cheaper(
+    work: f64,
+    nworkers: NonZeroUsize,
+    leader_participates: bool,
+    transfer_cost: f64,
+) -> bool {
+    work / parallel_divisor(nworkers, leader_participates)
+        + unsafe { pg_sys::parallel_setup_cost }
+        + transfer_cost
+        < work
+}
+
+/// Use workers when dividing traversal, collector updates, and heap visibility checks
+/// saves more than parallel startup and transferring one partial result per worker.
+/// Unknown estimates keep the existing worker budget.
+pub(crate) fn aggregate_nworkers(
+    index: &PgSearchRelation,
+    reader: &SearchIndexReader,
+    query: &SearchQueryInput,
+    aggregation: &AggregateRequest,
+    solve_mvcc: bool,
+) -> usize {
+    unsafe {
+        let nworkers = (pg_sys::max_parallel_workers_per_gather as usize)
+            .min(reader.segment_readers().len())
+            .saturating_sub(usize::from(pg_sys::parallel_leader_participation));
+        let Some(workers) = NonZeroUsize::new(
+            clamp_to_gather_limits(nworkers).min(pg_sys::max_worker_processes as usize),
+        ) else {
+            return 0;
+        };
+        if query.has_heap_filters() || query.has_postgres_expressions() {
+            return nworkers;
+        }
+        let Some(updates_per_doc) = aggregation.updates_per_doc(reader) else {
+            return nworkers;
+        };
+        let Some(heap) = index.heap_relation() else {
+            return nworkers;
+        };
+        let total_rows = RowEstimate::from_reltuples(heap.reltuples().map(f64::from));
+        let (selectivity, Some(cost)) =
+            estimate_selectivity_and_cost(index, query.clone(), Some(reader))
+        else {
+            return nworkers;
+        };
+        let rows = selectivity
+            .zip(total_rows.known_rows())
+            .map(|(selectivity, rows)| (selectivity * rows).ceil());
+        if rows.is_none() && (updates_per_doc > 0 || solve_mvcc) {
+            return nworkers;
+        }
+        let rows = rows.unwrap_or(0.0);
+        // The catalog visibility fraction can lag recent writes, as in PostgreSQL costing.
+        let stats = &*heap.rd_rel;
+        let all_visible = if crate::gucs::enable_visibility_map_shortcuts() && stats.relpages > 0 {
+            (stats.relallvisible as f64 / stats.relpages as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let heap_checks = if solve_mvcc {
+            rows * (1.0 - all_visible)
+        } else {
+            0.0
+        };
+        let work = cost as f64 * pg_sys::cpu_index_tuple_cost
+            + rows * updates_per_doc as f64 * pg_sys::cpu_operator_cost
+            + heap_checks * pg_sys::cpu_tuple_cost;
+        let nworkers = if parallel_scan_is_cheaper(
+            work,
+            workers,
+            pg_sys::parallel_leader_participation,
+            workers.get() as f64 * pg_sys::parallel_tuple_cost,
+        ) {
+            nworkers
+        } else {
+            0
+        };
+        pgrx::debug1!(
+            "aggregate traversal cost={cost}, matching rows={rows}, heap checks={heap_checks}, requested parallel workers={nworkers}"
+        );
+        nworkers
+    }
+}
 
 fn clamp_to_gather_limits(nworkers: usize) -> usize {
     unsafe {

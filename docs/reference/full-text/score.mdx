@@ -505,6 +505,8 @@ results = Order.with(order_hits: order_hits, product_hits: product_hits,
 ```
 
 ```cs EF Core
+// Run candidate searches and retrieve matching orders in Postgres.
+// Attach product scores and compute ranks and fusion in C#.
 var orderHits = await dbContext.Orders
     .Where(order => EF.Functions.MatchAny(order.CustomerName, "Johnson"))
     .OrderByDescending(order => EF.Functions.Score(order.OrderId))
@@ -520,6 +522,7 @@ var productHits = await dbContext.MockItems
     .ToListAsync();
 
 // Retrieve orders for the 20 candidate products, then attach their product scores.
+// A product can have many orders, so this can return more than 20 orders.
 var productIds = productHits.Select(product => product.Id).ToArray();
 var matchingOrders = await dbContext.Orders
     .Where(order => productIds.Contains(order.ProductId))
@@ -571,11 +574,6 @@ var results = fused.Select(hit => new {
 ```
 
 </CodeGroup>
-
-The EF Core example runs the candidate searches and retrieves matching orders in
-Postgres, then attaches product scores and computes ranks and fusion in C#. The other examples execute the
-entire fusion query in Postgres. Limiting products to 20 does not limit the
-number of matching orders; products can have many orders.
 
 ## Deterministic Sorting
 

@@ -1897,6 +1897,123 @@ LIMIT 3;
   1 |    70 |              5 |     80.25 |               74 |            325
 (3 rows)
 
+-- Test 27d: pdb.agg() as a global window function over a JOIN. JoinScan
+-- computes the document as one more aggregate in its Top-K aggregate node,
+-- above the SQL window aggregate. The spec reads fields of both tables.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}},
+            "scores": {"terms": {"field": "score", "order": {"_key": "asc"}}}
+        }
+    }'::jsonb) OVER () AS by_brand,
+    COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, (pdb.window_agg('pdb.agg(''{"aggs":{"scores":{"terms":{"field":"score","order":{"_key":"asc"}}},"avg_score":{"avg":{"field":"score"}}},"terms":{"field":"brand","order":{"_key":"asc"}}}'') OVER ()'::text)), (pdb.window_agg('count(*) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_0@1 as col_3, get_field(__topk@0, c2) as col_4, get_field(__topk@0, c3) as ctid_0, get_field(__topk@0, c4) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, window_agg_1, p_0.ctid_0, r_1.ctid_1, 3, [3, 4]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, pdb_agg({"aggs":{"scores":{"terms":{"field":"score","order":{"_key":"asc"}}},"avg_score":{"avg":{"field":"score"}}},"terms":{"field":"brand","order":{"_key":"asc"}}}) as window_agg_0]
+     :         ProjectionExec: expr=[id@1 as id, score@4 as score, window_agg_1@5 as window_agg_1, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1, brand@2 as brand]
+     :           WindowAggExec: wdw=[window_agg_1: Ok(Field { name: "window_agg_1", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+     :             VisibilityFilterExec: tables=[p, r]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, brand@2, ctid_1@3, score@5]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=p, segments=1, eager=[brand], query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(19 rows)
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{
+        "terms": {"field": "brand", "order": {"_key": "asc"}},
+        "aggs": {
+            "avg_score": {"avg": {"field": "score"}},
+            "scores": {"terms": {"field": "score", "order": {"_key": "asc"}}}
+        }
+    }'::jsonb) OVER () AS by_brand,
+    COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score |                                                                                                                                                                                                                                                       by_brand                                                                                                                                                                                                                                                       | total_count 
+----+-------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------
+  1 |    95 | {"buckets": [{"key": "ASUS", "scores": {"buckets": [{"key": 65, "doc_count": 1}], "sum_other_doc_count": 0}, "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "scores": {"buckets": [{"key": 70, "doc_count": 1}, {"key": 95, "doc_count": 1}], "sum_other_doc_count": 0}, "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "scores": {"buckets": [{"key": 91, "doc_count": 1}], "sum_other_doc_count": 0}, "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0} |           4
+  3 |    91 | {"buckets": [{"key": "ASUS", "scores": {"buckets": [{"key": 65, "doc_count": 1}], "sum_other_doc_count": 0}, "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "scores": {"buckets": [{"key": 70, "doc_count": 1}, {"key": 95, "doc_count": 1}], "sum_other_doc_count": 0}, "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "scores": {"buckets": [{"key": 91, "doc_count": 1}], "sum_other_doc_count": 0}, "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0} |           4
+  1 |    70 | {"buckets": [{"key": "ASUS", "scores": {"buckets": [{"key": 65, "doc_count": 1}], "sum_other_doc_count": 0}, "avg_score": {"value": 65.0}, "doc_count": 1}, {"key": "Apple", "scores": {"buckets": [{"key": 70, "doc_count": 1}, {"key": 95, "doc_count": 1}], "sum_other_doc_count": 0}, "avg_score": {"value": 82.5}, "doc_count": 2}, {"key": "Lenovo", "scores": {"buckets": [{"key": 91, "doc_count": 1}], "sum_other_doc_count": 0}, "avg_score": {"value": 91.0}, "doc_count": 1}], "sum_other_doc_count": 0} |           4
+(3 rows)
+
+-- Test 27e: The pdb.agg() document as an input of target list expressions:
+-- read as text, and mixed with a source column.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () ->> 'value' AS avg_text,
+    (pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () -> 'value')::float8 + r.score AS avg_plus_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, ((pdb.window_agg('pdb.agg(''{"avg":{"field":"score"}}'') OVER ()'::text) ->> 'value'::text)), ((((pdb.window_agg('pdb.agg(''{"avg":{"field":"score"}}'') OVER ()'::text) -> 'value'::text))::double precision + (r.score)::double precision))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, pdb_eval_expr_opexpr_bca42b74(window_agg_0@1) as col_3, pdb_eval_expr_funcexpr_0bee08ab(window_agg_0@1) + pdb_eval_expr_funcexpr_66fd9ca6(get_field(__topk@0, c1)) as col_4, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_0]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, ctid_0@0, ctid_1@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () ->> 'value' AS avg_text,
+    (pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () -> 'value')::float8 + r.score AS avg_plus_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score | avg_text | avg_plus_score 
+----+-------+----------+----------------
+  1 |    95 | 80.25    |         175.25
+  3 |    91 | 80.25    |         171.25
+  1 |    70 | 80.25    |         150.25
+(3 rows)
+
 -- Test 28: Window function in subquery
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *

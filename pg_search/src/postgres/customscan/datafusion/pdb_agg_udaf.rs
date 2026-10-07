@@ -49,10 +49,10 @@ use datafusion::logical_expr::{
     Accumulator, Aggregate, AggregateUDF, AggregateUDFImpl, EmitTo, Expr, GroupsAccumulator,
     Signature, Volatility, lit, udaf_default_human_display,
 };
+use datafusion::physical_expr::GroupsAccumulatorAdapter;
 use datafusion::physical_expr::aggregate::{AggregateExprBuilder, AggregateFunctionExpr};
 use datafusion::physical_plan::aggregates::group_values::{GroupValues, new_group_values};
 use datafusion::physical_plan::aggregates::order::GroupOrdering;
-use datafusion_functions_aggregate_common::aggregate::groups_accumulator::GroupsAccumulatorAdapter;
 use pgrx::{IntoDatum, pg_sys};
 
 use super::{literal_arg, reject_distinct};

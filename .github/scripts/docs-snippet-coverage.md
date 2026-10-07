@@ -9,7 +9,7 @@ Every executable fence outside application CodeGroups is listed in
 `docs_snippet_coverage.json` with a reviewed mode, reason and SHA-256 digest:
 
 - `sql`: execute with fresh demo fixtures, including any listed setup fences.
-- `setup`: execute as part of `test_docs_getting_started.py` in its own database.
+- `setup`: execute as part of `smoke_test_getting_started.py` in its own database.
 - `skip`: explicitly excluded operational example, fragment, alternative host
   configuration, or example needing an unavailable fixture.
 
@@ -44,5 +44,5 @@ The smoke test accepts exact target names, such as `django sqlalchemy`. Empty
 target extraction fails. Run only the setup sequence with:
 
 ```bash
-python3 .github/scripts/test_docs_getting_started.py django sqlalchemy
+python3 .github/scripts/smoke_test_getting_started.py django sqlalchemy
 ```

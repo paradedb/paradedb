@@ -385,7 +385,7 @@ if has_target efcore; then
 fi
 
 read -r -a setup_targets <<<"$ORMS"
-python3 "${SCRIPT_DIR}/test_docs_getting_started.py" "${setup_targets[@]}"
+python3 "${SCRIPT_DIR}/smoke_test_getting_started.py" "${setup_targets[@]}"
 
 echo "SQL passed: $sql_pass_count failed: $sql_fail_count"
 echo "Django passed: $django_pass_count failed: $django_fail_count"

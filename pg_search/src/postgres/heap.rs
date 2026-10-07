@@ -770,6 +770,12 @@ impl VisibilityChecker {
         self.segment_checks[&segment_ord].clone()
     }
 
+    /// Splits matching bits into (proven visible, needs visibility checks) without
+    /// enumerating document IDs. Only matches inside dirty document ranges need checks.
+    /// For example, if a window has 500 matches and a dirty range covers 10 document
+    /// IDs, but only 3 of those IDs match, 497 matches stay on the bitmap fast path
+    /// and only 3 need checking. A dirty range with no matches adds no checks.
+    /// If visibility proof is unavailable, all matches need checking.
     pub(crate) fn partition_bitmap_visibility(
         &mut self,
         segment_ord: SegmentOrdinal,

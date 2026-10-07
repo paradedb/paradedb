@@ -37,10 +37,10 @@ use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, 
 use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
-use crate::postgres::customscan::aggregatescan::parallelism::AggregateParallelism;
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::parallel::aggregate_nworkers;
 use crate::postgres::heap::VisibilityStats;
@@ -702,7 +702,14 @@ pub fn execute_aggregate(
             return Ok(results);
         }
 
-        let nworkers = aggregate_nworkers(index, &reader, &query, &agg_req, solve_mvcc);
+        let nworkers = aggregate_nworkers(
+            index,
+            &reader,
+            &query,
+            &agg_req,
+            solve_mvcc,
+            parallelism.as_deref_mut(),
+        );
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader

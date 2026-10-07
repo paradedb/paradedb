@@ -21,6 +21,7 @@ pub mod datafusion_build;
 pub mod datafusion_exec;
 pub mod datafusion_project;
 pub mod exec;
+pub mod explain;
 pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
@@ -30,7 +31,6 @@ pub mod orderby;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::node::NodeExt;
 use crate::postgres::search_operator_relations;
-pub mod parallelism;
 pub mod pdb_agg;
 pub mod privdat;
 pub mod scan_state;
@@ -889,29 +889,8 @@ impl CustomScan for AggregateScan {
         }
 
         if explainer.is_analyze() && state.custom_state().parallelism.executed {
-            explainer.add_group("Aggregate Parallelism", |explainer| {
+            explainer.add_group("Parallelism", |explainer| {
                 state.custom_state().parallelism.explain(explainer);
-                if explainer.is_costs() {
-                    let query = state
-                        .custom_state()
-                        .aggregate_clause
-                        .query()
-                        .without_heap_filters();
-                    let work = (!query.has_postgres_expressions())
-                        .then(|| {
-                            crate::api::operator::estimate_query_cost(
-                                state.custom_state().indexrel(),
-                                query,
-                            )
-                        })
-                        .flatten();
-                    if let Some(work) = work {
-                        explainer.add_unsigned_integer("Estimated Query Work", work, None);
-                    } else {
-                        explainer.add_text("Estimated Query Work", "unknown");
-                    }
-                    explainer.add_text("Parallel Threshold", "not applied");
-                }
             });
         }
 

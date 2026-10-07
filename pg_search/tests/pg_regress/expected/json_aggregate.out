@@ -427,7 +427,7 @@ WHERE id @@@ paradedb.boolean(
          "Blocks Total": 1,                                                                                                                                                                             +
          "Blocks Requiring Checks": 1                                                                                                                                                                   +
        },                                                                                                                                                                                               +
-       "Aggregate Parallelism": {                                                                                                                                                                       +
+       "Parallelism": {                                                                                                                                                                                 +
          "Workers Requested": 0,                                                                                                                                                                        +
          "Workers Used": 0                                                                                                                                                                              +
        }                                                                                                                                                                                                +

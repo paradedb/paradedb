@@ -26,6 +26,7 @@ pub use crate::scan::info::RowEstimate;
 use crate::aggregate::AggregateRequest;
 use crate::api::operator::estimate_selectivity_and_cost;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
@@ -65,6 +66,7 @@ pub(crate) fn aggregate_nworkers(
     query: &SearchQueryInput,
     aggregation: &AggregateRequest,
     solve_mvcc: bool,
+    parallelism: Option<&mut AggregateParallelism>,
 ) -> usize {
     unsafe {
         let nworkers = (pg_sys::max_parallel_workers_per_gather as usize)
@@ -112,11 +114,21 @@ pub(crate) fn aggregate_nworkers(
         let work = cost as f64 * pg_sys::cpu_index_tuple_cost
             + rows * updates_per_doc as f64 * pg_sys::cpu_operator_cost
             + heap_checks * pg_sys::cpu_tuple_cost;
+        let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
+        if let Some(stats) = parallelism {
+            let divisor = parallel_divisor(workers, pg_sys::parallel_leader_participation);
+            stats.estimated_work = Some(work);
+            stats.parallel_threshold = Some(if divisor > 1.0 {
+                (pg_sys::parallel_setup_cost + transfer_cost) / (1.0 - 1.0 / divisor)
+            } else {
+                f64::INFINITY
+            });
+        }
         let nworkers = if parallel_scan_is_cheaper(
             work,
             workers,
             pg_sys::parallel_leader_participation,
-            workers.get() as f64 * pg_sys::parallel_tuple_cost,
+            transfer_cost,
         ) {
             nworkers
         } else {

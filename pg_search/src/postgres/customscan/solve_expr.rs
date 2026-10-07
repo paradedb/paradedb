@@ -15,10 +15,59 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! "Solving" a search query means replacing the parts only PostgreSQL can evaluate with their
+//! values, before the scan runs. Two kinds of node need it:
+//!
+//! - `PostgresExpression`: a sub-query or function call whose result is a `SearchQueryInput`.
+//! - `HeapFilter` predicates that still contain `Param` nodes, such as `lib = $2` in a generic
+//!   plan.
+//!
+//! Solving evaluates each one with `ExecEvalExpr` and writes the result back into the query.
+//!
+//! # Which ExprContext
+//!
+//! | Context | Created | Per-tuple memory reset | Use it for |
+//! |---|---|---|---|
+//! | `ps_ExprContext` | PostgreSQL, in `ExecInitCustomScan` | by the scan, per row | evaluating heap filters, snippets, projection |
+//! | runtime context (`BaseScanState::runtime_context`, `AggregateScanState::runtime_context`) | [`SolvePostgresExpressions::init_expr_context`], only when the base query has something to solve | once, at the start of each solve | the solved query |
+//!
+//! Both live in the EState's per-query memory and are freed with it.
+//!
+//! # Rules
+//!
+//! 1. Solve only in the runtime context. Never in `ps_ExprContext`, and never in a standalone
+//!    `ExprContextGuard`, which has no `ecxt_param_list_info` and so cannot evaluate `$n`.
+//!    Evaluate heap filters, snippets and projections in `ps_ExprContext`.
+//! 2. One reset per solve pass. `SearchQueryInput::solve_postgres_expressions` resets, then solves
+//!    one query. To solve several queries into one context (the aggregate's query and its
+//!    `FILTER`s, a join's sources), reset once and use `solve_postgres_expressions_no_reset` for
+//!    each.
+//! 3. Nothing else resets the runtime context between solves.
+//! 4. Before solving again (rescan), drop everything that still points into the old solved
+//!    query: the reader and its scorers. The new solve starts with a reset that frees it.
+//!
+//! # Why a second context
+//!
+//! The solved query is read until the next solve: a Base Scan builds each segment's scorer, and
+//! its heap filter, lazily after earlier rows have been returned, and `EXPLAIN ANALYZE` prints the
+//! query after the last row. `ps_ExprContext`'s per-tuple memory is reset per row (the executor
+//! convention in `src/backend/executor/README`), so a query solved there is freed mid-scan.
+//! IndexScan has the same problem with `WHERE col = $1` and keeps `iss_RuntimeContext` for it
+//! (`nodeIndexscan.c`), reset once per rescan; the runtime context is the same idea.
+//!
+//! # Scans outside this trait
+//!
+//! JoinScan solves `JoinCSClause` in `ps_ExprContext`, which it never resets per row because
+//! DataFusion produces its rows. The DataFusion aggregate does reset `ps_ExprContext` per row,
+//! so it cannot solve there; each source solves in `PgSearchTableProvider::scan` into a context
+//! created for that source alone (`aggregatescan/datafusion_exec.rs`), so one source's reset
+//! cannot free another's query.
+
 use crate::api::operator::searchqueryinput_typoid;
 use crate::query::tid_bitmap_stream::BitmapCell;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgMemoryContexts};
+use std::ptr::NonNull;
 
 impl SearchQueryInput {
     /// The cursor-source cell attached to this query's HeapFilters, if any.
@@ -255,27 +304,22 @@ pub trait SolvePostgresExpressions {
     fn has_parameters(&mut self) -> bool;
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext);
 
+    /// Returns the runtime context to solve this query in, or `None` when there is nothing to
+    /// solve. Called from `begin_custom_scan`, before `init_search_query_input` has run, so
+    /// `has_postgres_expressions` and `has_parameters` must answer from the base query.
+    #[must_use = "retain the returned runtime context for solving expressions"]
     unsafe fn init_expr_context(
         &mut self,
         estate: *mut pg_sys::EState,
-        planstate: *mut pg_sys::PlanState,
-    ) {
-        if self.has_postgres_expressions() || self.has_parameters() {
-            // we have some runtime Postgres expressions/sub-queries that need to be evaluated
-            //
-            // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
-            // make a new one and swap some pointers around
-
-            // hold onto the planstate's current ExprContext
-            // TODO(@mdashti): improve this code by using an extended version of 'ExprContextGuard'
-            let stdecontext = (*planstate).ps_ExprContext;
-
-            // assign a new one
-            pg_sys::ExecAssignExprContext(estate, planstate);
-
-            // and restore our planstate's original ExprContext
-            (*planstate).ps_ExprContext = stdecontext;
+    ) -> Option<NonNull<pg_sys::ExprContext>> {
+        if !(self.has_postgres_expressions() || self.has_parameters()) {
+            return None;
         }
+
+        Some(
+            NonNull::new(pg_sys::CreateExprContext(estate))
+                .expect("CreateExprContext returned null"),
+        )
     }
 
     fn init_search_query_input(&mut self) {}
@@ -290,15 +334,21 @@ pub trait SolvePostgresExpressions {
     /// time.
     fn attach_bitmap_cell(&mut self, _cell: &BitmapCell) {}
 
+    /// Restores the working query from its base and solves it. `runtime_context` is what
+    /// `init_expr_context` returned; it is only read when there is something to solve. Calling
+    /// this again is a rescan: rule 4 in the module doc applies first.
     fn prepare_query_for_execution(
         &mut self,
         planstate: *mut pg_sys::PlanState,
-        expr_context: *mut pg_sys::ExprContext,
+        runtime_context: Option<NonNull<pg_sys::ExprContext>>,
     ) {
         self.init_search_query_input();
         if self.has_postgres_expressions() || self.has_parameters() {
+            let runtime_context = runtime_context
+                .expect("a query with runtime expressions needs the context from init_expr_context")
+                .as_ptr();
             self.init_postgres_expressions(planstate);
-            self.solve_postgres_expressions(expr_context);
+            self.solve_postgres_expressions(runtime_context);
         }
         // Attach after `init_search_query_input` re-clones the query from its base,
         // which wipes the serde-skipped cell.

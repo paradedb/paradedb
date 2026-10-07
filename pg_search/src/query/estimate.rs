@@ -117,7 +117,7 @@ impl QueryEstimate for BooleanQuery {
             return child.estimate_docs(reader);
         }
         let total = reader.max_doc().max(1) as f64;
-        let mut required = 1.0;
+        let mut required = Vec::new();
         let mut excluded = 1.0;
         let mut optional = Vec::new();
         let mut required_cost: Option<u64> = None;
@@ -128,7 +128,7 @@ impl QueryEstimate for BooleanQuery {
             };
             match occur {
                 Occur::Must => {
-                    required *= child.matches / total;
+                    required.push(child.matches / total);
                     required_cost =
                         Some(required_cost.map_or(child.cost, |cost| cost.min(child.cost)));
                 }
@@ -138,6 +138,13 @@ impl QueryEstimate for BooleanQuery {
                 }
                 Occur::MustNot => excluded *= 1.0 - child.matches / total,
             }
+        }
+        required.sort_unstable_by(f64::total_cmp);
+        let mut exponent = 1.0;
+        let mut required_fraction = 1.0;
+        for fraction in required {
+            required_fraction *= fraction.powf(exponent);
+            exponent *= 0.5;
         }
         let minimum = self
             .get_minimum_number_should_match()
@@ -160,7 +167,7 @@ impl QueryEstimate for BooleanQuery {
             probabilities[minimum]
         };
         Ok(Some(Estimate {
-            matches: (required * optional_fraction * excluded).clamp(0.0, 1.0) * total,
+            matches: (required_fraction * optional_fraction * excluded).clamp(0.0, 1.0) * total,
             cost: required_cost.unwrap_or(optional_cost),
         }))
     }
@@ -254,13 +261,18 @@ mod tests {
             Term::from_field_text(field, "beta"),
         ]);
         assert_eq!(estimate(&phrase, segment), Some((1, 320)));
-        assert_eq!(
-            count(&BooleanQuery::intersection(vec![
-                term("alpha"),
-                term("beta")
-            ])),
-            16
-        );
+        for (terms, expected) in [
+            (vec!["alpha", "beta"], 23),
+            (vec!["alpha", "beta", "gamma"], 20),
+            (vec!["alpha", "beta", "gamma", "delta"], 18),
+        ] {
+            let query = BooleanQuery::intersection(terms.into_iter().map(term).collect());
+            assert_eq!(estimate(&query, segment), Some((expected, 32)));
+        }
+        for terms in [["alpha", "absent"], ["absent", "alpha"]] {
+            let query = BooleanQuery::intersection(terms.into_iter().map(term).collect());
+            assert_eq!(estimate(&query, segment), Some((0, 0)));
+        }
         assert_eq!(
             count(&BooleanQuery::union(vec![term("alpha"), term("beta")])),
             48
@@ -302,11 +314,31 @@ mod tests {
                 32
             );
         }
-        let nested = BooleanQuery::intersection(vec![
+        let mut nested = vec![
             Box::new(BooleanQuery::union(vec![term("alpha"), term("beta")])),
             term("gamma"),
-        ]);
-        assert_eq!(count(&nested), 24);
+        ];
+        assert_eq!(
+            estimate(&BooleanQuery::intersection(nested.clone()), segment),
+            Some((28, 32))
+        );
+        nested.reverse();
+        assert_eq!(
+            estimate(&BooleanQuery::intersection(nested), segment),
+            Some((28, 32))
+        );
+        assert_eq!(
+            count(&BooleanQuery::with_minimum_required_clauses(
+                vec![
+                    (Occur::Must, term("alpha")),
+                    (Occur::Must, term("beta")),
+                    (Occur::Should, term("gamma")),
+                    (Occur::MustNot, term("delta")),
+                ],
+                1
+            )),
+            6
+        );
         let mixed = BooleanQuery::intersection(vec![
             term("alpha"),
             Box::new(RegexQuery::from_pattern("b.*", field).unwrap()),

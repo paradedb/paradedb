@@ -87,24 +87,22 @@ GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: nhfs_big)
-                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (max((paradedb.score(id)))) DESC, profile_id
-         ->  GroupAggregate
+         ->  HashAggregate
                Group Key: profile_id
-               ->  Sort
-                     Sort Key: profile_id
-                     ->  Gather
-                           Workers Planned: 1
-                           ->  Parallel Custom Scan (ParadeDB Base Scan) on nhfs_big
-                                 Table: nhfs_big
-                                 Index: nhfs_big_bm25_idx
-                                 Exec Method: NormalScanExecState
-                                 Scores: true
-                                 Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"company_name","value":"Jarvi","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"term":{"field":"group_id","value":"952582b4-bb51-461e-b566-0e5f980f4660"}}]}},"always_filters":[{"heap_filter":"(end_date IS NULL)"}]}}]}}
-(15 rows)
+               ->  Gather
+                     Workers Planned: 1
+                     ->  Parallel Custom Scan (ParadeDB Base Scan) on nhfs_big
+                           Table: nhfs_big
+                           Index: nhfs_big_bm25_idx
+                           Exec Method: NormalScanExecState
+                           Scores: true
+                           Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"company_name","value":"Jarvi","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"term":{"field":"group_id","value":"952582b4-bb51-461e-b566-0e5f980f4660"}}]}},"always_filters":[{"heap_filter":"(end_date IS NULL)"}]}}]}}
+(13 rows)
 
 -- Test 2: Execute the query to verify it returns results without panic.
 -- Without the fix: ERROR: Unsupported query shape / CONTEXT: parallel worker

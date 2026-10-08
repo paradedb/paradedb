@@ -53,11 +53,9 @@ INSERT INTO suppliers (id, name, description, country, rating) VALUES
 (4, 'DigitalGadgets', 'Distributor of consumer electronics, mobile accessories, and gadgets', 'China', 3),
 (5, 'PowerWave', 'Provider of energy solutions, power adapters, and desktop accessories', 'USA', 4);
 
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price, stock)
-WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}, "stock": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price, stock);
 
-CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, description, country, rating)
-WITH (numeric_fields = '{"rating": {"fast": true}}');
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, description, country, rating);
 
 SET paradedb.enable_join_custom_scan = on;
 SET paradedb.enable_aggregate_custom_scan = on;
@@ -70,14 +68,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop' OR s.description @@@ 'display')
+WHERE (p.description ||| 'laptop' OR s.description ||| 'display')
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop' OR s.description @@@ 'display')
+WHERE (p.description ||| 'laptop' OR s.description ||| 'display')
 ORDER BY p.id
 LIMIT 10;
 
@@ -89,27 +87,27 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'keyboard OR microphone' OR s.description @@@ 'acoustic')
+WHERE ((p.description ||| 'keyboard' OR p.description ||| 'microphone') OR s.description ||| 'acoustic')
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'keyboard OR microphone' OR s.description @@@ 'acoustic')
+WHERE ((p.description ||| 'keyboard' OR p.description ||| 'microphone') OR s.description ||| 'acoustic')
 ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
 -- TEST 3: 2-table cross-table OR combined with fast-field range filters
--- Matches: p.price < 100.00 AND (p.description @@@ 'mouse' OR s.description @@@ 'energy')
+-- Matches: p.price < 100.00 AND (p.description ||| 'mouse' OR s.description ||| 'energy')
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name AS supplier_name, s.rating
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.price < 100.00
-  AND (p.description @@@ 'mouse' OR s.description @@@ 'energy')
+  AND (p.description ||| 'mouse' OR s.description ||| 'energy')
 ORDER BY p.id
 LIMIT 10;
 
@@ -117,7 +115,7 @@ SELECT p.id, p.name, p.price, s.name AS supplier_name, s.rating
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.price < 100.00
-  AND (p.description @@@ 'mouse' OR s.description @@@ 'energy')
+  AND (p.description ||| 'mouse' OR s.description ||| 'energy')
 ORDER BY p.id
 LIMIT 10;
 
@@ -128,14 +126,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless OR bluetooth OR microphone' OR s.description @@@ 'hardware')
+WHERE ((p.description ||| 'wireless' OR p.description ||| 'bluetooth' OR p.description ||| 'microphone') OR s.description ||| 'hardware')
 ORDER BY p.price DESC
 LIMIT 4;
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless OR bluetooth OR microphone' OR s.description @@@ 'hardware')
+WHERE ((p.description ||| 'wireless' OR p.description ||| 'bluetooth' OR p.description ||| 'microphone') OR s.description ||| 'hardware')
 ORDER BY p.price DESC
 LIMIT 4;
 
@@ -198,25 +196,23 @@ INSERT INTO work_items (id, title, abstract, researcher_id, year) VALUES
 
 CREATE INDEX organisations_bm25_idx ON organisations USING paradedb (id, name, location, field);
 
-CREATE INDEX researchers_bm25_idx ON researchers USING paradedb (id, name, bio, org_id, citations)
-WITH (numeric_fields = '{"org_id": {"fast": true}, "citations": {"fast": true}}');
+CREATE INDEX researchers_bm25_idx ON researchers USING paradedb (id, name, bio, org_id, citations);
 
-CREATE INDEX work_items_bm25_idx ON work_items USING paradedb (id, title, abstract, researcher_id, year)
-WITH (numeric_fields = '{"researcher_id": {"fast": true}, "year": {"fast": true}}');
+CREATE INDEX work_items_bm25_idx ON work_items USING paradedb (id, title, abstract, researcher_id, year);
 
 -- =============================================================================
 -- TEST 5: 3-table transitive disjunctive search join (O -> R -> W)
 -- Matches:
--- w.abstract @@@ 'compaction' (w306)
--- OR r.bio @@@ 'compiler' (r201 -> w301, w302)
--- OR o.location @@@ 'Munich' (o102 -> r202 -> w303, w304)
+-- w.abstract ||| 'compaction' (w306)
+-- OR r.bio ||| 'compiler' (r201 -> w301, w302)
+-- OR o.location ||| 'Munich' (o102 -> r202 -> w303, w304)
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.abstract @@@ 'compaction' OR r.bio @@@ 'compiler' OR o.location @@@ 'Munich')
+WHERE (w.abstract ||| 'compaction' OR r.bio ||| 'compiler' OR o.location ||| 'Munich')
 ORDER BY w.id
 LIMIT 10;
 
@@ -224,20 +220,20 @@ SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.abstract @@@ 'compaction' OR r.bio @@@ 'compiler' OR o.location @@@ 'Munich')
+WHERE (w.abstract ||| 'compaction' OR r.bio ||| 'compiler' OR o.location ||| 'Munich')
 ORDER BY w.id
 LIMIT 10;
 
 -- =============================================================================
 -- TEST 6: 3-table transitive search join with year filter and LIMIT
--- Matches: (w.title @@@ 'quantum' OR r.name @@@ 'Carol' OR o.name @@@ 'Stanford') AND w.year >= 2024
+-- Matches: (w.title ||| 'quantum' OR r.name ||| 'Carol' OR o.name ||| 'Stanford') AND w.year >= 2024
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT w.id, w.title, w.year, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.title @@@ 'quantum' OR r.name @@@ 'Carol' OR o.name @@@ 'Stanford')
+WHERE (w.title ||| 'quantum' OR r.name ||| 'Carol' OR o.name ||| 'Stanford')
   AND w.year >= 2024
 ORDER BY w.id
 LIMIT 10;
@@ -246,21 +242,21 @@ SELECT w.id, w.title, w.year, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.title @@@ 'quantum' OR r.name @@@ 'Carol' OR o.name @@@ 'Stanford')
+WHERE (w.title ||| 'quantum' OR r.name ||| 'Carol' OR o.name ||| 'Stanford')
   AND w.year >= 2024
 ORDER BY w.id
 LIMIT 10;
 
 -- =============================================================================
 -- TEST 7: 3-table transitive search join with search predicates across all 3 tables
--- Matches: w.abstract @@@ 'consensus' OR r.bio @@@ 'distributed' OR o.field @@@ 'Cloud'
+-- Matches: w.abstract ||| 'consensus' OR r.bio ||| 'distributed' OR o.field ||| 'Cloud'
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.abstract @@@ 'consensus' OR r.bio @@@ 'distributed' OR o.field @@@ 'Cloud')
+WHERE (w.abstract ||| 'consensus' OR r.bio ||| 'distributed' OR o.field ||| 'Cloud')
 ORDER BY w.id
 LIMIT 10;
 
@@ -268,7 +264,7 @@ SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.abstract @@@ 'consensus' OR r.bio @@@ 'distributed' OR o.field @@@ 'Cloud')
+WHERE (w.abstract ||| 'consensus' OR r.bio ||| 'distributed' OR o.field ||| 'Cloud')
 ORDER BY w.id
 LIMIT 10;
 
@@ -280,23 +276,23 @@ SELECT count(*)
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.abstract @@@ 'compaction' OR r.bio @@@ 'compiler' OR o.location @@@ 'Munich');
+WHERE (w.abstract ||| 'compaction' OR r.bio ||| 'compiler' OR o.location ||| 'Munich');
 
 SELECT count(*)
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.abstract @@@ 'compaction' OR r.bio @@@ 'compiler' OR o.location @@@ 'Munich');
+WHERE (w.abstract ||| 'compaction' OR r.bio ||| 'compiler' OR o.location ||| 'Munich');
 
 -- =============================================================================
 -- TEST 9: Disjunctive search join with empty match set on one table
--- Matches: (w.title @@@ 'nonexistent_quantum_xyz' OR r.name @@@ 'Carol') AND w.year >= 2024
+-- Matches: (w.title ||| 'nonexistent_quantum_xyz' OR r.name ||| 'Carol') AND w.year >= 2024
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT w.id, w.title, w.year, r.name AS researcher_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
-WHERE (w.title @@@ 'nonexistent_quantum_xyz' OR r.name @@@ 'Carol')
+WHERE (w.title ||| 'nonexistent_quantum_xyz' OR r.name ||| 'Carol')
   AND w.year >= 2024
 ORDER BY w.id
 LIMIT 10;
@@ -304,21 +300,21 @@ LIMIT 10;
 SELECT w.id, w.title, w.year, r.name AS researcher_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
-WHERE (w.title @@@ 'nonexistent_quantum_xyz' OR r.name @@@ 'Carol')
+WHERE (w.title ||| 'nonexistent_quantum_xyz' OR r.name ||| 'Carol')
   AND w.year >= 2024
 ORDER BY w.id
 LIMIT 10;
 
 -- =============================================================================
 -- TEST 10: 3-table disjunctive search join with non-matching branches on 2 tables
--- Matches: w.title @@@ 'NonExistentTitle' OR r.name @@@ 'Alice' OR o.name @@@ 'NonExistentOrg'
+-- Matches: w.title ||| 'NonExistentTitle' OR r.name ||| 'Alice' OR o.name ||| 'NonExistentOrg'
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.title @@@ 'NonExistentTitle' OR r.name @@@ 'Alice' OR o.name @@@ 'NonExistentOrg')
+WHERE (w.title ||| 'NonExistentTitle' OR r.name ||| 'Alice' OR o.name ||| 'NonExistentOrg')
 ORDER BY w.id
 LIMIT 10;
 
@@ -326,19 +322,19 @@ SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
-WHERE (w.title @@@ 'NonExistentTitle' OR r.name @@@ 'Alice' OR o.name @@@ 'NonExistentOrg')
+WHERE (w.title ||| 'NonExistentTitle' OR r.name ||| 'Alice' OR o.name ||| 'NonExistentOrg')
 ORDER BY w.id
 LIMIT 10;
 
 -- =============================================================================
 -- TEST 11: Compound disjunctive query with exact year filter
--- Matches: (w.title @@@ 'quantum' OR r.bio @@@ 'compiler') AND w.year = 2024
+-- Matches: (w.title ||| 'quantum' OR r.bio ||| 'compiler') AND w.year = 2024
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT w.id, w.title, w.year, r.name AS researcher_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
-WHERE (w.title @@@ 'quantum' OR r.bio @@@ 'compiler')
+WHERE (w.title ||| 'quantum' OR r.bio ||| 'compiler')
   AND w.year = 2024
 ORDER BY w.id
 LIMIT 10;
@@ -346,7 +342,7 @@ LIMIT 10;
 SELECT w.id, w.title, w.year, r.name AS researcher_name
 FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
-WHERE (w.title @@@ 'quantum' OR r.bio @@@ 'compiler')
+WHERE (w.title ||| 'quantum' OR r.bio ||| 'compiler')
   AND w.year = 2024
 ORDER BY w.id
 LIMIT 10;

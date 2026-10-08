@@ -11,6 +11,7 @@ on:
     paths:
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/lint-rust.yml"
+      - ".github/scripts/check_impl_drop.py"
       - "**/*.rs"
       - "**/*.toml"
       - "Cargo.lock"
@@ -34,7 +35,7 @@ jobs:
       - family=c7g+c8g
       - cpu=4
       - ram=8
-      - image=ubuntu24-full-arm64
+      - image=ubuntu26-full-arm64
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
@@ -45,6 +46,10 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
+
+      # A bare `impl Drop` can abort the backend during an ERROR or at exit (#6479, #6530).
+      - name: Check impl Drop
+        run: python3 .github/scripts/check_impl_drop.py
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
@@ -63,9 +68,6 @@ jobs:
         with:
           pg_version: ${{ matrix.pg_version }}
           extra_packages: lld libfontconfig1-dev libopenblas-dev
-
-      - name: Initialize pgrx Environment
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Run Rustfmt
         run: cargo fmt --all -- --check

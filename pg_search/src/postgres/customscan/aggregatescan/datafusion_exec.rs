@@ -26,7 +26,7 @@
 
 use super::join_targetlist::{AggOrderByEntry, GroupingTransform};
 use super::pdb_agg::{
-    PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricSpec, PdbStat,
+    PdbAggColumn, PdbAggFieldRef, PdbAggPlan, PdbAggRequest, PdbKeySpec, PdbMetricSpec, PdbStat,
 };
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -34,7 +34,9 @@ use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
-use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
+use crate::postgres::customscan::aggregatescan::privdat::{
+    CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
+};
 use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
@@ -44,34 +46,36 @@ use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
     build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
 };
-use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::customscan::joinscan::build::{
     JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
 };
-use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
 use crate::postgres::customscan::joinscan::scan_state::{
-    create_datafusion_session_context, register_source_table,
+    create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
+use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
-use datafusion::common::{DataFusionError, NullHandling, Result, ScalarValue};
+use datafusion::common::{Column, DataFusionError, NullHandling, Result, ScalarValue};
 use datafusion::functions::core::expr_fn::coalesce;
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
-    array_agg, avg, bool_and, bool_or, count, max, min, stddev, stddev_pop, sum, var_pop,
-    var_sample,
+    array_agg, avg, bool_and, bool_or, count, first_value, max, min, stddev, stddev_pop, sum,
+    var_pop, var_sample,
 };
+use datafusion::functions_aggregate::min_max::{max_udaf, min_udaf};
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
+use datafusion::functions_aggregate::sum::sum_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
 use datafusion::logical_expr::{
-    Aggregate, Cast, Expr, GroupingSet, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
-    col, lit,
+    Aggregate, AggregateUDF, Cast, Expr, GroupingSet, LogicalPlan, LogicalPlanBuilder,
+    LogicalPlanBuilderOptions, col, lit,
 };
 use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
+use std::sync::Arc;
 use tantivy::aggregation::Key;
 
 /// Creates a DataFusion [`SessionContext`] for aggregate-on-join workloads.
@@ -84,6 +88,8 @@ pub struct JoinAggregatePlan {
     pub logical: datafusion::logical_expr::LogicalPlan,
     /// Per `targetlist.group_columns` entry, its DataFusion output column.
     pub group_df_indices: Vec<usize>,
+    /// The number of DataFusion grouping columns. The aggregates follow them.
+    pub num_group_exprs: usize,
     /// Set when the query carries `pdb.agg()` calls.
     pub pdb_plan: Option<PdbAggPlan>,
     /// `HAVING` of a scalar `pdb.agg()` query, applied to the assembled root row
@@ -120,6 +126,18 @@ pub async fn build_join_aggregate_plan(
     )
     .await?;
 
+    // A row value column reads the row with the lowest ctids in its group. One
+    // order for all of them makes them read the same row, which matters when an
+    // expression above uses more than one. With an order, `first_value` also has
+    // a groups accumulator, which keeps its state small enough to spill.
+    let row_order: Vec<Sort> = df
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| CtidColumn::try_from(field.name().as_str()).is_ok())
+        .map(|field| col(field.name()).sort(true, false))
+        .collect();
+
     // Step 2: Build GROUP BY expressions
     // DataFusion deduplicates grouping expressions that resolve to the same
     // column name (e.g. metadata.brand). We must track which DataFusion output
@@ -127,8 +145,20 @@ pub async fn build_join_aggregate_plan(
     let mut group_exprs = Vec::new();
     let mut field_to_df_idx = crate::api::HashMap::default();
     let mut group_df_indices = Vec::with_capacity(targetlist.group_columns.len());
+    // A row value column is an aggregate, so its index is known after them.
+    let mut row_values = Vec::new();
 
-    for gc in &targetlist.group_columns {
+    for (gc_idx, gc) in targetlist.group_columns.iter().enumerate() {
+        if gc.row_value {
+            // PostgreSQL's Agg node reads such a column from one row of the group.
+            let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
+            row_values.push((
+                gc_idx,
+                first_value(column, row_order.clone()).alias(targetlist.row_value_name(gc_idx)),
+            ));
+            group_df_indices.push(usize::MAX);
+            continue;
+        }
         // Dedup key by (plan_position, field_name, transform): plan_position is the
         // unique source identity; field_name distinguishes columns within
         // a source, transform distinguishes different transformations of the same column.
@@ -155,6 +185,12 @@ pub async fn build_join_aggregate_plan(
             std::collections::hash_map::Entry::Occupied(o) => *o.get(),
         };
         group_df_indices.push(df_idx);
+    }
+
+    // With no key to group on, a GROUP BY query has one group when a row
+    // matches and none when no row does. A constant key gives that.
+    if targetlist.has_group_by && group_exprs.is_empty() {
+        group_exprs.push(lit(true).alias(targetlist.one_group_key()));
     }
 
     // Step 3: Build aggregate expressions. `pdb.agg()` entries contribute no
@@ -269,16 +305,22 @@ pub async fn build_join_aggregate_plan(
                 None => agg_expr,
             };
             // Alias for stable reference
-            Ok(Some(agg_expr.alias(format!("agg_{}", i))))
+            Ok(Some(agg_expr.alias(targetlist.aggregate_name(i))))
         })
         .filter_map(Result::transpose)
         .collect::<Result<Vec<Expr>>>()?;
+    let num_group_exprs = group_exprs.len();
+    let mut agg_exprs = agg_exprs;
+    for (gc_idx, expr) in row_values {
+        group_df_indices[gc_idx] = num_group_exprs + agg_exprs.len();
+        agg_exprs.push(expr);
+    }
 
     let having_expr = having_filter
         .map(|having| {
             let having_ctx = FilterExprExecContext {
                 targetlist: Some(targetlist),
-                plan: None,
+                plan: Some(plan),
             };
             having.to_datafusion(&having_ctx).ok_or_else(|| {
                 DataFusionError::Internal(
@@ -307,7 +349,28 @@ pub async fn build_join_aggregate_plan(
             plan,
         )?,
         None => {
-            let df = df.aggregate(group_exprs, agg_exprs)?;
+            // Deliberately *not* `DataFrame::aggregate`: that hardcodes
+            // `add_implicit_group_by_exprs(true)`, which appends every column
+            // functionally determined by the group key to the group expression
+            // list (MySQL-style `SELECT col ... GROUP BY pk`). If any scanned
+            // columns are unique or functionally dependent, that expansion would
+            // widen the group key behind our back and invalidate
+            // `group_df_indices` - the aggregate columns would no longer start
+            // where `project_aggregate_row_to_slot` expects them, and the
+            // projection would silently read a grouping column as an aggregate
+            // result.
+            //
+            // Postgres has already validated and fully enumerated the GROUP BY
+            // clause by the time we get here, so the implicit expansion has
+            // nothing to add. Functional dependencies still reach the optimizer
+            // via the plan schema; only the group-key rewrite is suppressed.
+            let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
+            let (state, plan) = df.into_parts();
+            let aggregated = LogicalPlanBuilder::from(plan)
+                .with_options(options)
+                .aggregate(group_exprs, agg_exprs)?
+                .build()?;
+            let df = DataFrame::new(state, aggregated);
             match having_expr {
                 Some(expr) => df.filter(expr)?,
                 None => df,
@@ -321,16 +384,17 @@ pub async fn build_join_aggregate_plan(
     // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
     // bounded TopK heap.
     if let Some(topk) = topk {
-        let sort_col_name = topk.sort_target.resolve_sort_col_name(targetlist, plan);
-        let sort_expr = datafusion::prelude::col(&sort_col_name)
+        let sort_column = topk.sort_target.resolve_sort_column(targetlist, plan);
+        let sort_expr = Expr::Column(sort_column)
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         df = df.sort(vec![sort_expr])?;
         df = df.limit(0, Some(topk.k))?;
     }
 
     Ok(JoinAggregatePlan {
-        logical: df.into_optimized_plan()?,
+        logical: optimize_logical_plan(df)?,
         group_df_indices,
+        num_group_exprs,
         pdb_plan,
         pdb_root_having,
     })
@@ -383,8 +447,9 @@ fn build_pdb_aggregate_plan(
             }
         })
         .collect();
-
-    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(true);
+    // Suppress implicit group-by widening (matching `build_join_aggregate_plan`),
+    // so functionally dependent columns are not appended to the group key.
+    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
     if array_keys.is_empty() {
         return LogicalPlanBuilder::from(input)
             .with_options(options)
@@ -604,9 +669,10 @@ fn apply_pdb_aggregate(
     }
 
     // The aggregate lays its output out as group expressions, `__grouping_id`
-    // when there are grouping sets, then aggregates. Read it back by position:
-    // a group key can be a call rather than a column, so it cannot be named
-    // again here, and the CSE pass renames aggregates later.
+    // when there are grouping sets, then aggregates. Read it back by position,
+    // into the order the plan lays out: a group key can be a call rather than a
+    // column, so it cannot be named again here, and the CSE pass renames
+    // aggregates later.
     let output: Vec<Expr> = df
         .schema()
         .columns()
@@ -616,33 +682,50 @@ fn apply_pdb_aggregate(
     let num_group = group_exprs.len();
     let num_keys = pdb_plan.keys.len();
     let aggs_start = output.len() - num_std_aggs - pdb_plan.metrics.len();
-    let mut select = Vec::with_capacity(output.len());
-    select.extend_from_slice(&output[..num_group]);
-    select.extend_from_slice(&output[aggs_start..aggs_start + num_std_aggs]);
-    select.extend_from_slice(&output[num_group + num_keys..aggs_start]);
-    select.extend_from_slice(&output[num_group..num_group + num_keys]);
-    select.extend_from_slice(&output[aggs_start + num_std_aggs..]);
+    let select: Vec<Expr> = pdb_plan
+        .columns()
+        .map(|column| {
+            let position = match column {
+                PdbAggColumn::GroupKey(i) => i,
+                PdbAggColumn::Key(i) => num_group + i,
+                PdbAggColumn::GroupingId => num_group + num_keys,
+                PdbAggColumn::StdAgg(i) => aggs_start + i,
+                PdbAggColumn::Metric(i) => aggs_start + num_std_aggs + i,
+            };
+            output[position].clone()
+        })
+        .collect();
     df.select(select)
+}
+
+/// The `missing` key as Tantivy reads it, before the cast to the column's type.
+fn pdb_missing_literal(missing: &Key, field: &PdbAggFieldRef) -> ScalarValue {
+    match missing {
+        Key::Str(s) => ScalarValue::from(s.as_str()),
+        Key::I64(v) => ScalarValue::from(*v),
+        Key::U64(v) => ScalarValue::from(*v),
+        // A timestamp column takes its literal as whole microseconds.
+        Key::F64(v) if field.is_datetime() => ScalarValue::from(*v as i64),
+        Key::F64(v) => ScalarValue::from(*v),
+    }
 }
 
 /// The `missing` literal in the column's own Arrow type, so `coalesce` neither
 /// widens the key column nor fails on a text column with a numeric literal.
 fn pdb_missing_lit(missing: &Key, field: &PdbAggFieldRef) -> Expr {
-    let literal = match missing {
-        Key::Str(s) => lit(s.clone()),
-        Key::I64(v) => lit(*v),
-        Key::U64(v) => lit(*v),
-        // A timestamp column takes its literal as whole microseconds.
-        Key::F64(v) if field.is_datetime() => lit(*v as i64),
-        Key::F64(v) => lit(*v),
-    };
     Expr::Cast(Cast::new(
-        Box::new(literal),
+        Box::new(lit(pdb_missing_literal(missing, field))),
         field.field_type.arrow_data_type(),
     ))
 }
 
-fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
+/// [`pdb_missing_lit`] as a value, for a key written over the NULL elements of
+/// an array column once the `pdb_agg` accumulator has exploded it.
+pub(crate) fn pdb_missing_scalar(missing: &Key, field: &PdbAggFieldRef) -> Result<ScalarValue> {
+    pdb_missing_literal(missing, field).cast_to(&field.field_type.arrow_data_type())
+}
+
+pub(crate) fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
     let column = make_plan_position_col_with(
         plan,
         key.field.plan_position,
@@ -655,53 +738,80 @@ fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
     }
 }
 
+/// A metric as an aggregate call: the function and its arguments.
+pub(crate) struct PdbMetricCall {
+    pub udaf: Arc<AggregateUDF>,
+    pub args: Vec<Expr>,
+}
+
+/// The aggregate call a metric runs as. `column` supplies the metric's field as
+/// a column of the caller's plan. The function and the number of arguments
+/// depend on the metric alone, so a caller that only needs those can pass any
+/// expression for the column.
+pub(crate) fn pdb_metric_call(
+    metric: &PdbMetricSpec,
+    column: impl FnOnce(&PdbAggFieldRef) -> Expr,
+) -> PdbMetricCall {
+    let PdbMetricSpec::Stat {
+        stat,
+        field,
+        missing,
+        ..
+    } = metric
+    else {
+        return PdbMetricCall {
+            udaf: count_udaf(),
+            args: vec![lit(1)],
+        };
+    };
+    let mut column = column(field);
+    if let Some(missing) = missing {
+        column = coalesce(vec![column, pdb_missing_lit(missing, field)]);
+    }
+    // A sum runs in f64 like Tantivy's, which also keeps an integer sum
+    // from overflowing. Timestamps have no direct f64 cast.
+    let as_f64 = |column: Expr| {
+        let column = if field.is_datetime() {
+            Expr::Cast(Cast::new(Box::new(column), DataType::Int64))
+        } else {
+            column
+        };
+        Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
+    };
+    let (udaf, args) = match stat {
+        PdbStat::Count => (count_udaf(), vec![column]),
+        // NUMERIC takes the decimal accumulator the SQL aggregates use; the
+        // assembler decodes its blob.
+        PdbStat::Sum if field.field_type.is_numeric() => {
+            numeric_sum_func_with_args(column, &field.field_type)
+        }
+        PdbStat::Sum => (sum_udaf(), vec![as_f64(column)]),
+        PdbStat::Min => (min_udaf(), vec![column]),
+        PdbStat::Max => (max_udaf(), vec![column]),
+        // Tantivy's own sketch, salted by the column type the way a
+        // segment collection is.
+        PdbStat::Cardinality => (
+            tantivy_cardinality_udaf(),
+            vec![
+                column,
+                lit(ScalarValue::UInt8(Some(field.column_type().to_code()))),
+            ],
+        ),
+    };
+    PdbMetricCall { udaf, args }
+}
+
 fn pdb_metric_expr(
     metric: &PdbMetricSpec,
     plan: &RelNode,
     pdb_filters: &HashMap<usize, Expr>,
 ) -> Expr {
-    let (expr, entry_filter) = match metric {
-        PdbMetricSpec::DocCount { entry_filter } => (count(lit(1)), entry_filter),
-        PdbMetricSpec::Stat {
-            stat,
-            field,
-            missing,
-            entry_filter,
-        } => {
-            let mut column = make_plan_position_col(plan, field.plan_position, &field.field_name);
-            if let Some(missing) = missing {
-                column = coalesce(vec![column, pdb_missing_lit(missing, field)]);
-            }
-            // A sum runs in f64 like Tantivy's, which also keeps an integer sum
-            // from overflowing. Timestamps have no direct f64 cast.
-            let as_f64 = |column: Expr| {
-                let column = if field.is_datetime() {
-                    Expr::Cast(Cast::new(Box::new(column), DataType::Int64))
-                } else {
-                    column
-                };
-                Expr::Cast(Cast::new(Box::new(column), DataType::Float64))
-            };
-            let expr = match stat {
-                PdbStat::Count => count(column),
-                // NUMERIC takes the decimal accumulator the SQL aggregates use; the
-                // assembler decodes its blob.
-                PdbStat::Sum if field.field_type.is_numeric() => {
-                    numeric_sum(column, &field.field_type)
-                }
-                PdbStat::Sum => sum(as_f64(column)),
-                PdbStat::Min => min(column),
-                PdbStat::Max => max(column),
-                // Tantivy's own sketch, salted by the column type the way a
-                // segment collection is.
-                PdbStat::Cardinality => tantivy_cardinality_udaf().call(vec![
-                    column,
-                    lit(ScalarValue::UInt8(Some(field.column_type().to_code()))),
-                ]),
-            };
-            (expr, entry_filter)
-        }
-    };
+    let call = pdb_metric_call(metric, |field| {
+        make_plan_position_col(plan, field.plan_position, &field.field_name)
+    });
+    let expr = call.udaf.call(call.args);
+    let (PdbMetricSpec::DocCount { entry_filter } | PdbMetricSpec::Stat { entry_filter, .. }) =
+        metric;
     match entry_filter.and_then(|i| pdb_filters.get(&i)) {
         Some(filter) => with_filter(expr, filter.clone()),
         None => expr,
@@ -712,13 +822,21 @@ fn pdb_metric_expr(
 /// by storage. The `Numeric64` UDAFs take the scale as a plan literal so it
 /// survives plan serialization for parallel and MPP execution; decimal-bytes
 /// values are self-describing.
-fn numeric_sum(col: Expr, field_type: &SearchFieldType) -> Expr {
+fn numeric_sum_func_with_args(
+    col: Expr,
+    field_type: &SearchFieldType,
+) -> (Arc<AggregateUDF>, Vec<Expr>) {
     match field_type {
         SearchFieldType::Numeric64(_, scale) => {
-            numeric64_sum_udaf().call(vec![col, lit(*scale as i32)])
+            (numeric64_sum_udaf(), vec![col, lit(*scale as i32)])
         }
-        _ => numeric_bytes_sum_udaf().call(vec![col]),
+        _ => (numeric_bytes_sum_udaf(), vec![col]),
     }
+}
+
+fn numeric_sum(col: Expr, field_type: &SearchFieldType) -> Expr {
+    let (udf, args) = numeric_sum_func_with_args(col, field_type);
+    udf.call(args)
 }
 
 /// `AVG` over a NUMERIC column; see [`numeric_sum`].
@@ -933,7 +1051,7 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 /// Context for the **exec phase** — translating a [`FilterExpr`] IR into a
 /// DataFusion [`Expr`].
 ///
-/// HAVING provides `targetlist` for resolving `AggRef`/`GroupRef`;
+/// HAVING provides `targetlist` and `plan` for resolving `AggRef`/`GroupRef`;
 /// FILTER provides `plan` (a `RelNode` tree) for resolving `ColumnRef`.
 ///
 /// This is distinct from the build-phase context in `datafusion_build.rs`,
@@ -954,12 +1072,20 @@ impl FilterExpr {
             FilterExpr::AggRef(idx) => {
                 let tl = ctx.targetlist?;
                 if *idx < tl.aggregates.len() {
-                    Some(datafusion::prelude::col(format!("agg_{}", idx)))
+                    Some(Expr::Column(Column::new_unqualified(
+                        tl.aggregate_name(*idx),
+                    )))
                 } else {
                     None
                 }
             }
-            FilterExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
+            FilterExpr::GroupRef(idx) => {
+                let tl = ctx.targetlist?;
+                let plan = ctx.plan?;
+                (*idx < tl.group_columns.len()).then(|| {
+                    Expr::Column(TopKSortTarget::GroupColumn(*idx).resolve_sort_column(tl, plan))
+                })
+            }
             FilterExpr::ColumnRef {
                 plan_position,
                 field_name,
@@ -1073,7 +1199,10 @@ async fn build_source_df(
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
-    let source_idx = mpp_manifests.map(|_| plan_position);
+    let is_mpp = mpp_manifests.is_some()
+        || (crate::postgres::customscan::mpp::glue::mpp_is_active()
+            && ctx.state().config().target_partitions() > 1);
+    let source_idx = is_mpp.then_some(plan_position);
     let mut provider = PgSearchTableProvider::new(scan_info, fields.clone(), source_idx);
     // The leader claims segments out of the DSM pool the same manifests populate, so its own
     // reader is built from the source's manifest. This plan never crosses the codec that
@@ -1092,7 +1221,7 @@ async fn build_source_df(
         }
     }
     // HeapFilter queries (e.g. `=` on a column indexed via a
-    // `pdb.literal(...)` cast) compile to runtime Postgres expressions
+    // `pdb.literal` cast) compile to runtime Postgres expressions
     // that can only be evaluated with a live ExprContext + PlanState.
     // The provider's `scan()` reaches for them via
     // `init_postgres_expressions` / `solve_postgres_expressions` only
@@ -1101,41 +1230,39 @@ async fn build_source_df(
     provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
 
-    // Deferring an aggregate source's visibility trades an in-scan check for a
-    // post-join one. `DeferredPlacementRule` places a string lookup, not a
-    // visibility check, so it cannot pick the shapes where that trade pays.
-    // Until something can, the source keeps its eager, in-scan check.
-    if crate::gucs::enable_aggregate_late_materialization() {
-        let mut required_early: crate::api::HashSet<String> = Default::default();
-        for jk in plan.join_keys() {
-            if source.contains_rti(jk.outer_rti)
-                && let Some(col) = source.column_name(jk.outer_attno)
-            {
-                required_early.insert(col);
-            }
-            if source.contains_rti(jk.inner_rti)
-                && let Some(col) = source.column_name(jk.inner_attno)
-            {
-                required_early.insert(col);
-            }
+    // Strings leave the scan deferred, so the placement rule can put each half of their
+    // lookup where it pays and the aggregate can group on term ordinals. Visibility stays in
+    // the scan: a post-join check trades one check per scanned row for one per joined row,
+    // and nothing models when that pays.
+    let mut required_early: crate::api::HashSet<String> = Default::default();
+    for jk in plan.join_keys() {
+        if source.contains_rti(jk.outer_rti)
+            && let Some(col) = source.column_name(jk.outer_attno)
+        {
+            required_early.insert(col);
         }
-        for (rti, attno) in plan.filter_input_vars() {
-            if source.contains_rti(rti)
-                && let Some(col) = source.column_name(attno)
-            {
-                required_early.insert(col);
-            }
+        if source.contains_rti(jk.inner_rti)
+            && let Some(col) = source.column_name(jk.inner_attno)
+        {
+            required_early.insert(col);
         }
-
-        provider.configure_deferred_outputs(
-            &required_early,
-            crate::scan::VisibilityMode::Deferred { plan_position },
-        );
     }
+    for (rti, attno) in plan.filter_input_vars() {
+        if source.contains_rti(rti)
+            && let Some(col) = source.column_name(attno)
+        {
+            required_early.insert(col);
+        }
+    }
+    let display_alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
+
+    provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
+    provider.configure_deferred_outputs(&required_early, crate::scan::VisibilityMode::Eager);
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
-    // Select fields AND ensure CTID and Score are aliased consistently with JoinScan
+    // Select fields AND ensure CTID is aliased consistently with JoinScan
     let mut exprs = Vec::new();
     for df_field in df.schema().fields().iter() {
         let name = df_field.name();
@@ -1143,7 +1270,6 @@ async fn build_source_df(
             Some(WhichFastField::Ctid) => {
                 make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
             }
-            Some(WhichFastField::Score) => make_col(alias.as_str(), SCORE_COL_NAME),
             _ => make_col(alias.as_str(), name),
         };
         exprs.push(expr);
@@ -1187,7 +1313,11 @@ fn make_plan_position_col_with(
     }
 }
 
-fn make_plan_position_col(plan: &RelNode, plan_position: usize, field_name: &str) -> Expr {
+pub(crate) fn make_plan_position_col(
+    plan: &RelNode,
+    plan_position: usize,
+    field_name: &str,
+) -> Expr {
     make_plan_position_col_with(
         plan,
         plan_position,

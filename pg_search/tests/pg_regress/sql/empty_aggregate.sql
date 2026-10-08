@@ -25,12 +25,7 @@ CREATE TABLE empty_test (
 
 -- Create index with fast fields for aggregation
 CREATE INDEX empty_test_idx ON empty_test
-USING paradedb (id, value, category, price, created_at)
-WITH (
-    numeric_fields='{"value": {"fast": true}, "price": {"fast": true}}',
-    text_fields='{"category": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}',
-    json_fields='{}'
-);
+USING paradedb (id, value, (category::pdb.literal_normalized('lowercase=true')), price, created_at);
 
 -- Create a second empty table for additional tests
 DROP TABLE IF EXISTS empty_logs CASCADE;
@@ -44,12 +39,7 @@ CREATE TABLE empty_logs (
 );
 
 CREATE INDEX empty_logs_idx ON empty_logs
-USING paradedb (id, message, country, severity, timestamp, metadata)
-WITH (
-    text_fields = '{"country": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}',
-    numeric_fields = '{"severity": {"fast": true}}',
-    json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}'
-);
+USING paradedb (id, message, (country::pdb.literal_normalized('lowercase=true')), severity, timestamp, (metadata::pdb.literal_normalized('lowercase=true')));
 
 -- =====================================================================
 -- SECTION 2: Simple SQL Aggregates on Empty Table

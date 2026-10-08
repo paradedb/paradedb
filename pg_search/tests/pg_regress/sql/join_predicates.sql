@@ -53,8 +53,7 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 
 -- Create BM25 indexes on both tables
 -- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price);
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country);
 
 -- Make sure the GUC is enabled
@@ -69,14 +68,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless' AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless' AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
 
@@ -85,12 +84,12 @@ LIMIT 10;
 -- =============================================================================
 -- This test shows a query where both sides have side-level predicates AND
 -- there's a join-level predicate spanning both tables.
--- Side-level inner: p.description @@@ 'wireless' matches 201,206,207
--- Side-level outer: s.contact_info @@@ 'technology' matches 151
+-- Side-level inner: p.description ||| 'wireless' matches 201,206,207
+-- Side-level outer: s.contact_info ||| 'technology' matches 151
 -- Join candidates after side filters: (201,151), (206,151)
--- Join-level: p.name @@@ 'headphones' OR s.name @@@ 'TechCorp'
---   - p.name @@@ 'headphones': matches 206
---   - s.name @@@ 'TechCorp': matches 151
+-- Join-level: p.name ||| 'headphones' OR s.name ||| 'TechCorp'
+--   - p.name ||| 'headphones': matches 206
+--   - s.name ||| 'TechCorp': matches 151
 -- Since supplier 151 matches 'TechCorp', both (201,151) and (206,151) pass
 -- Expected: 2 rows (201 and 206)
 
@@ -98,18 +97,18 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
-  AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
+  AND (p.name ||| 'headphones' OR s.name ||| 'TechCorp')
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
-  AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
+  AND (p.name ||| 'headphones' OR s.name ||| 'TechCorp')
 ORDER BY p.id
 LIMIT 10;
 
@@ -125,12 +124,12 @@ LIMIT 10;
 -- SELECT p.id, p.name, s.name AS supplier_name
 -- FROM products p
 -- JOIN suppliers s ON p.supplier_id = s.id
--- WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless';
+-- WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless';
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless'
 ORDER BY p.id;
 
 -- =============================================================================
@@ -146,14 +145,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -161,7 +160,7 @@ LIMIT 10;
 -- TEST 5: Complex join-level predicate with NOT and OR
 -- =============================================================================
 
--- Complex condition: (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+-- Complex condition: (p.description ||| 'wireless' AND NOT p.description ||| 'mouse') OR s.contact_info ||| 'shipping'
 -- This tests:
 -- 1. Negation within a search predicate
 -- 2. OR combining predicates across tables
@@ -172,31 +171,31 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+WHERE (p.description ||| 'wireless' AND NOT p.description ||| 'mouse') OR s.contact_info ||| 'shipping'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+WHERE (p.description ||| 'wireless' AND NOT p.description ||| 'mouse') OR s.contact_info ||| 'shipping'
 ORDER BY p.id
 LIMIT 10;
 
--- Another complex pattern: NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+-- Another complex pattern: NOT (p.description ||| 'cable' OR p.description ||| 'stand')
 -- Products that do NOT contain 'cable' AND do NOT contain 'stand'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+WHERE NOT (p.description ||| 'cable' OR p.description ||| 'stand')
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+WHERE NOT (p.description ||| 'cable' OR p.description ||| 'stand')
 ORDER BY p.id
 LIMIT 10;
 
@@ -206,57 +205,57 @@ LIMIT 10;
 
 -- Deeply nested: (p_cond1 OR (p_cond2 OR (s_cond AND NOT p_cond3)))
 -- This tests the recursive expression tree building
--- p_cond1: p.description @@@ 'keyboard'
--- p_cond2: p.description @@@ 'headphones'  
--- s_cond: s.contact_info @@@ 'shipping'
--- p_cond3: p.description @@@ 'wireless'
+-- p_cond1: p.description ||| 'keyboard'
+-- p_cond2: p.description ||| 'headphones'
+-- s_cond: s.contact_info ||| 'shipping'
+-- p_cond3: p.description ||| 'wireless'
 -- EXPECTED: Products with 'keyboard' OR 'headphones' OR (supplier has 'shipping' AND product NOT 'wireless')
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+WHERE p.description ||| 'keyboard' OR (p.description ||| 'headphones' OR (s.contact_info ||| 'shipping' AND NOT p.description ||| 'wireless'))
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+WHERE p.description ||| 'keyboard' OR (p.description ||| 'headphones' OR (s.contact_info ||| 'shipping' AND NOT p.description ||| 'wireless'))
 ORDER BY p.id
 LIMIT 10;
 
 -- AND of multiple single-table predicates combined with OR across tables
--- ((p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK'))
+-- ((p.description ||| 'wireless' AND p.description ||| 'mouse') OR (s.contact_info ||| 'shipping' AND s.country ||| 'UK'))
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+WHERE (p.description ||| 'wireless' AND p.description ||| 'mouse') OR (s.contact_info ||| 'shipping' AND s.country ||| 'UK')
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+WHERE (p.description ||| 'wireless' AND p.description ||| 'mouse') OR (s.contact_info ||| 'shipping' AND s.country ||| 'UK')
 ORDER BY p.id
 LIMIT 10;
 
--- Triple-nested NOT: NOT (NOT (NOT p.description @@@ 'cable'))
--- Equivalent to: NOT p.description @@@ 'cable'
+-- Triple-nested NOT: NOT (NOT (NOT p.description ||| 'cable'))
+-- Equivalent to: NOT p.description ||| 'cable'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+WHERE NOT (NOT (NOT p.description ||| 'cable'))
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+WHERE NOT (NOT (NOT p.description ||| 'cable'))
 ORDER BY p.id
 LIMIT 10;
 
@@ -299,15 +298,9 @@ CREATE TABLE qgen_products (
 -- Create index BEFORE inserting data (this is the key difference from other tests)
 -- This causes multiple segments to be created as data is inserted
 -- Note: age must be columnar for the join key
-CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, name, age) WITH (
-    text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true } }'
-);
+CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, (name::pdb.literal), age);
 
-CREATE INDEX qgen_products_bm25_idx ON qgen_products USING paradedb (id, name, age) WITH (
-    text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true } }'
-);
+CREATE INDEX qgen_products_bm25_idx ON qgen_products USING paradedb (id, (name::pdb.literal), age);
 
 -- Insert sample value first
 INSERT INTO qgen_users (uuid, name, color, age, quantity, price, rating) 
@@ -350,14 +343,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE qgen_users.name @@@ 'bob' 
+WHERE qgen_users.name ||| 'bob'
 ORDER BY qgen_users.id 
 LIMIT 5;
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE qgen_users.name @@@ 'bob' 
+WHERE qgen_users.name ||| 'bob'
 ORDER BY qgen_users.id 
 LIMIT 5;
 
@@ -367,14 +360,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE NOT (qgen_users.name @@@ 'bob') 
+WHERE NOT (qgen_users.name ||| 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE NOT (qgen_users.name @@@ 'bob') 
+WHERE NOT (qgen_users.name ||| 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
 
@@ -383,14 +376,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE (qgen_products.name @@@ 'alice') OR (qgen_users.name @@@ 'bob')
+WHERE (qgen_products.name ||| 'alice') OR (qgen_users.name ||| 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE (qgen_products.name @@@ 'alice') OR (qgen_users.name @@@ 'bob')
+WHERE (qgen_products.name ||| 'alice') OR (qgen_users.name ||| 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
 
@@ -416,11 +409,9 @@ UPDATE suppliers SET min_order_value = 100.00 WHERE id = 154; -- QualityFirst
 DROP INDEX IF EXISTS products_bm25_idx;
 DROP INDEX IF EXISTS suppliers_bm25_idx;
 
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price);
 
-CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country, min_order_value)
-WITH (numeric_fields = '{"min_order_value": {"fast": true}}');
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country, min_order_value);
 
 -- Test case: Search predicate AND multi-table predicate (both columns are fast fields)
 -- Products where description matches 'wireless' AND price >= supplier's min_order_value
@@ -429,7 +420,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
@@ -441,7 +432,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'cable'
+WHERE p.description ||| 'cable'
    OR p.price >= s.min_order_value
 LIMIT 10;
 
@@ -449,7 +440,7 @@ LIMIT 10;
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'cable'
+WHERE p.description ||| 'cable'
    OR p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
@@ -464,7 +455,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name as supplier
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.category_id > s.id  -- category_id is NOT in the BM25 index
 LIMIT 10;
 
@@ -482,7 +473,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id - s.id) >= 0
 ORDER BY p.id
 LIMIT 10;
@@ -490,7 +481,7 @@ LIMIT 10;
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id - s.id) >= 0
 ORDER BY p.id
 LIMIT 10;
@@ -499,7 +490,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id - s.id) >= 0
 ORDER BY p.id
 LIMIT 10;
@@ -518,7 +509,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id) <= length(to_hex(s.id))
 ORDER BY p.id
 LIMIT 10;
@@ -526,7 +517,7 @@ LIMIT 10;
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id) <= length(to_hex(s.id))
 ORDER BY p.id
 LIMIT 10;
@@ -535,7 +526,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id) <= length(to_hex(s.id))
 ORDER BY p.id
 LIMIT 10;
@@ -561,16 +552,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE ((s.country @@@ 'USA') AND (p.name @@@ 'Keyboard'))
-   OR (NOT (p.name @@@ 'Keyboard'))
+WHERE ((s.country ||| 'USA') AND (p.name ||| 'Keyboard'))
+   OR (NOT (p.name ||| 'Keyboard'))
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE ((s.country @@@ 'USA') AND (p.name @@@ 'Keyboard'))
-   OR (NOT (p.name @@@ 'Keyboard'))
+WHERE ((s.country ||| 'USA') AND (p.name ||| 'Keyboard'))
+   OR (NOT (p.name ||| 'Keyboard'))
 ORDER BY p.id
 LIMIT 10;
 

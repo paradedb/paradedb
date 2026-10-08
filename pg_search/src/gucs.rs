@@ -35,6 +35,20 @@ pub enum PlannerWarnings {
     Error,
 }
 
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum DisjunctionPruning {
+    #[default]
+    #[name = c"auto"]
+    Auto,
+    #[name = c"wand"]
+    Wand,
+    #[name = c"maxscore"]
+    MaxScore,
+}
+
+static DISJUNCTION_PRUNING: GucSetting<DisjunctionPruning> =
+    GucSetting::<DisjunctionPruning>::new(DisjunctionPruning::Auto);
+
 /// Spill DataFusion sorts and aggregates (and the join operators DataFusion can spill) to
 /// a `BufFile` temp file on `work_mem` overflow, instead of erroring. Off by default.
 static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -48,6 +62,9 @@ static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(tr
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows visibility proofs from segment bounds and heap-block document ranges.
+static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
     GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
@@ -56,9 +73,7 @@ static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle range co-partitioning for joins.
-static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
-
-static ENABLE_AGGREGATE_LATE_MATERIALIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
+static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
@@ -176,6 +191,10 @@ static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
+/// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path.
+static JOINSCAN_FORCE_TOPK_AS_AGG: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
 static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -251,6 +270,15 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
     GucSetting::<i32>::new(20_000);
 
+/// Row count threshold below which DataFusion converts a partitioned HashJoinExec
+/// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
+static HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS: GucSetting<i32> =
+    GucSetting::<i32>::new(128 * 1024);
+
+/// Byte size threshold below which DataFusion converts a partitioned HashJoinExec
+/// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
+static HASH_JOIN_SINGLE_PARTITION_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(1024 * 1024);
+
 /// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
 /// sorted segments. When `false`, the planner never returns the gallop
 /// strategy regardless of density, and pushed-down InList filters fall
@@ -275,44 +303,70 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Per-segment ceiling on IVF clusters probed by a vector ORDER BY query,
-/// expressed as a fraction of the segment's own cluster count and resolved
-/// per-segment (`ceil(fraction * num_clusters)`, at least one cluster). A
-/// fraction rather than an absolute count because every segment can have a
-/// different cluster count — an absolute cap scans small segments
-/// exhaustively while barely probing large ones. Default 0.02 (2% of
-/// clusters): with the default 0.01 centroid ratio that is ~2% of ~1% of
-/// rows, in line with SPANN Fig. 2 (99% of SIFT1M queries reach perfect
-/// recall@1 within ~1% of clusters). `1.0` probes every cluster.
+/// Maximum fraction of each segment's IVF clusters probed by a vector query.
 static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
 
+/// Returns the maximum IVF probe fraction.
 pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
-/// Fixed per-probe cost — the IVF cluster OPEN — in rows of full work.
-/// Testing knob for calibrating the probe-budget work model; defaults to
-/// the fitted value in tantivy.
+/// Fixed IVF cluster-open cost measured in fully scored rows.
 static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
     GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
 
+/// Returns the fixed IVF cluster-open cost.
 pub fn vector_fixed_probe_cost_rows() -> f64 {
     VECTOR_FIXED_PROBE_COST_ROWS.get()
 }
 
-/// Doc-count boundary at which a merged segment's vector storage switches
-/// from flat (exact scan) to IVF (clustered). Captured into the index's
-/// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
-/// of that index for its lifetime.
-///
-/// Default 500, overriding tantivy's 10,000: a single-segment flat-vs-IVF
-/// sweep (dim 768, default probe settings) put the latency crossover between
-/// 500 and 1,000 docs — IVF roughly ties flat at 500 docs, is 1.6x faster at
-/// 1,000, and 7x+ faster from 2,000 up, at recall@10 >= 0.99. 10,000 left
-/// mid-size segments (e.g. 100k rows split across CPU-count segments)
-/// brute-forcing their vectors.
+/// Maximum quantization layers scored; zero disables quantized scoring.
+static VECTOR_MAX_SCAN_LEVELS: GucSetting<i32> = GucSetting::<i32>::new(3);
+
+/// Returns the maximum quantization prefix depth.
+pub fn vector_max_scan_levels() -> usize {
+    VECTOR_MAX_SCAN_LEVELS.get().max(0) as usize
+}
+
+/// Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`.
+static VECTOR_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Returns whether per-segment vector scan statistics are shown in EXPLAIN.
+pub fn vector_stats() -> bool {
+    VECTOR_STATS.get()
+}
+
+/// Recall target for the stacked IVF router's centroid ranking. Below `1.0`
+/// the router stops scanning its centroid lists once the estimated recall
+/// of the top clusters reaches the target (adaptive partition scanning);
+/// `1.0` ranks with the fixed per-level nprobe fractions instead. Tantivy
+/// ignores the target and uses the nprobe path above
+/// `APS_MAX_DIM` (128) dimensions, where the estimate is unreliable.
+static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> =
+    GucSetting::<f64>::new(tantivy::vector::ivf::DEFAULT_ROUTER_RECALL as f64);
+
+/// Returns the stacked IVF router's recall target.
+pub fn vector_router_recall_target() -> f32 {
+    VECTOR_ROUTER_RECALL_TARGET.get() as f32
+}
+
+/// Recall target for each segment's own cluster scan. Below `1.0` the probe
+/// loop stops once the estimated recall of the clusters covered so far
+/// reaches the target (adaptive partition scanning); `1.0` leaves
+/// `vector_cluster_max_probe` as the only bound. Tantivy applies it to
+/// stacked-router segments only and ignores it above `APS_MAX_DIM` (128)
+/// dimensions.
+static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+
+/// Returns the segment cluster scan's recall target.
+pub fn vector_recall_target() -> f32 {
+    VECTOR_RECALL_TARGET.get() as f32
+}
+
+/// Minimum merged-segment row count for IVF vector storage.
 static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
 
+/// Returns the IVF clustering threshold.
 pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
@@ -357,6 +411,15 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_visibility_map_shortcuts",
+        c"Enable visibility-map shortcuts for segments and document ranges",
+        c"When disabled, fetch each matching document's CTID and use per-row visibility checks",
+        &ENABLE_VISIBILITY_MAP_SHORTCUTS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_enum_guc(
         c"paradedb.planner_warnings",
         c"Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used",
@@ -364,6 +427,15 @@ pub fn init() {
           scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
           an error instead. When set to 'off', suppresses checks and warnings.",
         &PLANNER_WARNINGS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.disjunction_pruning",
+        c"Pruning algorithm for scored term disjunctions",
+        c"'auto' selects per segment; 'wand' or 'maxscore' overrides the automatic cutoffs for eligible score-ordered top-k disjunctions. Other query paths are unchanged.",
+        &DISJUNCTION_PRUNING,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -379,18 +451,9 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_range_partitioned_join",
-        c"Allows the user to enable or disable range co-partitioned joins",
-        c"When enabled, DataFusion optimizer rules co-partition inner joins across tables on the split points a partitioned build recorded. Both tables must define partition_by on the join key. An index created empty records no split points until it is reindexed. Default is false.",
+        c"Enables range co-partitioned joins and asymmetric range alignment for MPP joins",
+        c"When enabled, MPP inner joins co-partition or align streams using split points from partition_by indexes. Co-partitioning requires partition_by on both tables, while asymmetric alignment requires it only on the larger table. Default is true.",
         &ENABLE_RANGE_PARTITIONED_JOIN,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
-        c"paradedb.enable_aggregate_late_materialization",
-        c"Defer visibility checks above aggregate-on-join plans",
-        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. The placement rule for deferred string columns does not cover this trade, so it stays off. Default is false.",
-        &ENABLE_AGGREGATE_LATE_MATERIALIZATION,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -563,7 +626,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
         c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Fraction of a segment's IVF clusters probed per vector ORDER BY query, resolved per-segment as ceil(fraction * cluster_count) and floored at one cluster. A fraction rather than an absolute count so the ceiling tracks each segment's own cluster count instead of scanning small segments exhaustively and barely probing large ones. 1.0 probes every cluster. Lower values reduce latency at the cost of recall.",
+        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
@@ -574,10 +637,52 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_fixed_probe_cost_rows",
         c"Fixed per-probe cost (the cluster OPEN) in rows of full work, for the IVF probe budget (testing knob)",
-        c"How many rows of full work the fixed component of an IVF probe - opening the cluster - is modeled to cost in the probe-budget work model. Runtime-settable for testing and calibration only; the default is the value fitted on the reference fixture.",
+        c"Rows of work charged for opening one IVF cluster.",
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_recall_target",
+        c"Recall target for the stacked IVF router's (vector_router = 'ivf') centroid ranking in vector ORDER BY queries",
+        c"Below 1.0 the stacked router stops scanning its centroid lists once the estimated recall of the ranked clusters reaches this target (adaptive partition scanning); 1.0 ranks with the fixed per-level nprobe fractions. Ignored, and treated as 1.0, for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
+        &VECTOR_ROUTER_RECALL_TARGET,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_recall_target",
+        c"Recall target for each segment's cluster scan in vector ORDER BY queries",
+        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to segments built with vector_router = 'ivf', and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
+        &VECTOR_RECALL_TARGET,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_scan_levels",
+        c"Maximum quantized vector layers scored before exact rerank",
+        c"Uses a prefix of the quantization schedule built for the vector field. Values above the built layer count clamp to that count. 0 disables quantized scoring; routing and the probe budget still apply.",
+        &VECTOR_MAX_SCAN_LEVELS,
+        0,
+        3,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_stats",
+        c"Show per-segment vector scan statistics in EXPLAIN (ANALYZE, VERBOSE)",
+        c"Adds the Segment Info block with per-segment probe, layer, rerank, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
+        &VECTOR_STATS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -673,6 +778,16 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.joinscan_force_topk_as_agg",
+        c"Force JoinScan to compute ORDER BY + LIMIT with the topk_as_agg aggregate",
+        c"Development switch. When enabled, JoinScan runs its Top K through the \
+          topk_as_agg aggregate instead of a SortExec(fetch).",
+        &JOINSCAN_FORCE_TOPK_AS_AGG,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_size",
         c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
@@ -689,6 +804,28 @@ pub fn init() {
         c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery. Set to 0 to disable pushdown.",
         c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery; above this K the predicate stays in PostgreSQL. Set to 0 to disable pushdown entirely.",
         &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_single_partition_threshold_rows",
+        c"Row count threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        c"Row count threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        &HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_single_partition_threshold",
+        c"Byte size threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        c"Byte size threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        &HASH_JOIN_SINGLE_PARTITION_THRESHOLD,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -835,6 +972,10 @@ pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
 }
 
+pub fn enable_visibility_map_shortcuts() -> bool {
+    ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
+}
+
 pub fn enable_bitmap_intersection() -> bool {
     ENABLE_BITMAP_INTERSECTION.get()
 }
@@ -843,16 +984,20 @@ pub fn planner_warnings() -> PlannerWarnings {
     PLANNER_WARNINGS.get()
 }
 
+pub fn disjunction_pruning() -> tantivy::query::DisjunctionPruning {
+    match DISJUNCTION_PRUNING.get() {
+        DisjunctionPruning::Auto => tantivy::query::DisjunctionPruning::Auto,
+        DisjunctionPruning::Wand => tantivy::query::DisjunctionPruning::BlockWand,
+        DisjunctionPruning::MaxScore => tantivy::query::DisjunctionPruning::BlockMaxScore,
+    }
+}
+
 pub fn enable_join_custom_scan() -> bool {
     ENABLE_JOIN_CUSTOM_SCAN.get()
 }
 
 pub fn enable_range_partitioned_join() -> bool {
     ENABLE_RANGE_PARTITIONED_JOIN.get()
-}
-
-pub fn enable_aggregate_late_materialization() -> bool {
-    ENABLE_AGGREGATE_LATE_MATERIALIZATION.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {
@@ -1030,6 +1175,10 @@ pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
 }
 
+pub fn joinscan_force_topk_as_agg() -> bool {
+    JOINSCAN_FORCE_TOPK_AS_AGG.get()
+}
+
 pub fn defer_column_fetch() -> DeferredPlacement {
     DEFER_COLUMN_FETCH.get()
 }
@@ -1069,6 +1218,14 @@ pub fn hash_join_inlist_pushdown_max_size() -> i32 {
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn hash_join_single_partition_threshold_rows() -> i32 {
+    HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS.get()
+}
+
+pub fn hash_join_single_partition_threshold() -> i32 {
+    HASH_JOIN_SINGLE_PARTITION_THRESHOLD.get()
 }
 
 pub fn term_set_gallop_enabled() -> bool {

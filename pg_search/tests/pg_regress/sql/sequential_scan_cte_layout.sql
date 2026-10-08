@@ -15,13 +15,13 @@ SELECT array_agg(id ORDER BY id) FROM c WHERE body = 'alpha';
 WITH c AS MATERIALIZED (
     SELECT id, extra, body FROM sequential_scan_cte_layout
 )
-SELECT array_agg(id ORDER BY id) FROM c WHERE id @@@ 'body:alpha';
+SELECT array_agg(id ORDER BY id) FROM c WHERE body ||| 'alpha';
 
 WITH c AS MATERIALIZED (SELECT * FROM sequential_scan_cte_layout)
-SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ 'alpha';
+SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ pdb.parse('alpha');
 
 WITH c AS MATERIALIZED (SELECT * FROM sequential_scan_cte_layout)
-SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ 'body:alpha';
+SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ pdb.parse('body:alpha');
 
 WITH c AS MATERIALIZED (SELECT * FROM sequential_scan_cte_layout)
 SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ paradedb.term('extra', 'alpha');
@@ -34,32 +34,32 @@ SET LOCAL enable_bitmapscan = off;
 WITH c AS MATERIALIZED (
     SELECT id, extra, body FROM sequential_scan_cte_layout
 )
-SELECT array_agg(id ORDER BY id) FROM c WHERE id @@@ 'body:alpha';
+SELECT array_agg(id ORDER BY id) FROM c WHERE body ||| 'alpha';
 
 WITH c AS MATERIALIZED (
     SELECT id, extra, body FROM sequential_scan_cte_layout
 )
-SELECT array_agg(id ORDER BY id) FROM c WHERE id @@@ 'extra:alpha';
+SELECT array_agg(id ORDER BY id) FROM c WHERE extra ||| 'alpha';
 
 WITH c (extra, id, body) AS MATERIALIZED (
     SELECT body, id, extra FROM sequential_scan_cte_layout
 )
-SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ 'body:alpha';
+SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ pdb.parse('body:alpha');
 
 WITH c AS MATERIALIZED (
     SELECT id, extra, body FROM sequential_scan_cte_layout
 ), d AS MATERIALIZED (
     SELECT body, extra, id FROM c
 )
-SELECT array_agg(id ORDER BY id) FROM d WHERE d @@@ 'extra:alpha';
+SELECT array_agg(id ORDER BY id) FROM d WHERE d.extra ||| 'alpha';
 
 SELECT array_agg(id ORDER BY id)
 FROM (SELECT extra, id, body FROM sequential_scan_cte_layout OFFSET 0) s
-WHERE s @@@ 'body:alpha';
+WHERE s.body ||| 'alpha';
 
 SELECT array_agg(id ORDER BY id)
 FROM (SELECT extra, id, body FROM sequential_scan_cte_layout ORDER BY id DESC LIMIT 1) s
-WHERE s @@@ 'body:alpha';
+WHERE s.body ||| 'alpha';
 
 CREATE TABLE sequential_scan_cte_mixed (
     id integer NOT NULL, discarded text, body text, extra integer, enabled boolean
@@ -76,28 +76,28 @@ WITH c AS MATERIALIZED (
     SELECT id, enabled, extra, body, 'padding'::text AS padding
     FROM sequential_scan_cte_mixed
 )
-SELECT array_agg(id ORDER BY id) FROM c WHERE id @@@ 'normalized_body:alpha';
+SELECT array_agg(id ORDER BY id) FROM c WHERE id @@@ pdb.parse('normalized_body:alpha');
 
 WITH c AS MATERIALIZED (
     SELECT id, enabled, extra, body, 'padding'::text AS padding
     FROM sequential_scan_cte_mixed
 )
-SELECT array_agg(id ORDER BY id) FROM c WHERE id @@@ 'extra:42';
+SELECT array_agg(id ORDER BY id) FROM c WHERE extra @@@ pdb.term(42);
 
 WITH c AS MATERIALIZED (
     SELECT id, enabled, extra, body, 'padding'::text AS padding
     FROM sequential_scan_cte_mixed
 )
-SELECT array_agg(id ORDER BY id) FROM c WHERE NOT (id @@@ 'normalized_body:alpha');
+SELECT array_agg(id ORDER BY id) FROM c WHERE NOT (id @@@ pdb.parse('normalized_body:alpha'));
 
 WITH c AS MATERIALIZED (
     SELECT 'padding'::text AS padding, enabled, body, extra, id
     FROM sequential_scan_cte_mixed
 )
-SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ 'alpha';
+SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ pdb.parse('alpha');
 
 WITH c AS MATERIALIZED (SELECT * FROM sequential_scan_cte_mixed)
-SELECT v.id, c @@@ 'normalized_body:alpha' AS matches, c @@@ paradedb.all() AS all_match
+SELECT v.id, c @@@ pdb.parse('normalized_body:alpha') AS matches, c @@@ paradedb.all() AS all_match
 FROM (VALUES (1), (3), (4)) v(id) LEFT JOIN c USING (id) ORDER BY v.id;
 
 DROP INDEX sequential_scan_cte_mixed_idx;
@@ -106,12 +106,12 @@ USING paradedb (id, (lower(body)::pdb.literal('alias=normalized_body')), extra, 
 WHERE enabled;
 
 WITH c AS MATERIALIZED (SELECT * FROM sequential_scan_cte_mixed)
-SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ 'normalized_body:beta';
+SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ pdb.parse('normalized_body:beta');
 
 SET LOCAL plan_cache_mode = force_generic_plan;
 PREPARE sequential_scan_cte_whole_row(text) AS
 WITH c AS MATERIALIZED (SELECT * FROM sequential_scan_cte_mixed)
-SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ $1;
+SELECT array_agg(id ORDER BY id) FROM c WHERE c @@@ pdb.parse($1);
 EXECUTE sequential_scan_cte_whole_row('normalized_body:alpha');
 EXECUTE sequential_scan_cte_whole_row('normalized_body:beta');
 DEALLOCATE sequential_scan_cte_whole_row;

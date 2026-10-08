@@ -110,7 +110,8 @@ fn list_tokenizers(mut conn: PgConnection) {
             ("lindera_deprecated".into(),),
             ("lindera".into(),),
             ("unicode_words_deprecated".into(),),
-            ("unicode_words".into(),)
+            ("unicode_words".into(),),
+            ("regex_tokenizer_deprecated".into(),)
         ]
     );
 }
@@ -132,15 +133,7 @@ fn test_index_fields(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX idx_test_fields ON test_fields USING paradedb (
-            id, title, price, in_stock, metadata, price_range, created_at
-        ) WITH (
-            text_fields='{"title": {"fast": true}}',
-            numeric_fields='{"price": {}}',
-            boolean_fields='{"in_stock": {}}',
-            json_fields='{"metadata": {}}',
-            range_fields='{"price_range": {}}'
-        );
+        CREATE INDEX idx_test_fields ON test_fields USING paradedb (id, (title::pdb.unicode_words('columnar=true')), price, in_stock, metadata, price_range, created_at);
     "#
     .execute(&mut conn);
 

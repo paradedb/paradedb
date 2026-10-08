@@ -20,6 +20,7 @@ use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScanState;
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggPlan;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
@@ -27,8 +28,11 @@ use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
+use crate::postgres::heap::VisibilityStats;
 use crate::query::tid_bitmap_stream::BitmapCell;
+use std::ptr::NonNull;
 
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
@@ -48,8 +52,6 @@ pub enum ExecutionState {
 pub struct DataFusionAggState {
     /// The join tree.
     pub plan: RelNode,
-    /// Original plan preserved for rescans.
-    pub base_plan: Option<RelNode>,
     /// GROUP BY columns and aggregate functions.
     pub targetlist: JoinAggregateTargetList,
     /// Optional TopK sort+limit pushed down from Postgres.
@@ -79,6 +81,8 @@ pub struct DataFusionAggState {
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
+    /// The number of grouping columns in DataFusion's output RecordBatch.
+    pub num_group_exprs: usize,
     /// The `pdb.agg()` grouping-set layout, set when the query has any such call.
     pub pdb_plan: Option<PdbAggPlan>,
     /// `HAVING` of a scalar `pdb.agg()` query, judged on the assembled root row.
@@ -112,30 +116,30 @@ pub struct DataFusionAggState {
 ///
 /// When the targetlist contains aggregates wrapped in `FuncExpr` calls, we
 /// build a copy of the targetlist with each `FuncExpr`'s aggregate replaced by
-/// a `Const` placeholder. Before each per-row projection we mutate those
-/// `Const`s in place with the live aggregate values, so the compiled projection
-/// bakes in the current row's values. This follows the basescan pattern.
-///
-/// The `const_nodes` pointers alias into `targetlist`'s memory context — if
-/// the targetlist is freed or replaced, the const pointers become dangling.
-/// Bundling both into one struct keeps the lifetime invariant type-level so
-/// neither half can be cleared without the other.
+/// a placeholder, and project that copy. Before each per-row projection we
+/// write the live aggregate values into the placeholder columns.
 pub struct WrappedAggregateProjection {
-    /// Targetlist copy with `Const` placeholders for each wrapped aggregate.
-    pub targetlist: *mut pg_sys::List,
-    /// Pointers to the `Const` nodes inside `targetlist`, indexed by target
-    /// entry position (0-based). `None` for entries without a Const node.
-    pub const_nodes: Vec<Option<*mut pg_sys::Const>>,
+    /// Projection of the targetlist copy, built one time for the scan.
+    pub projection: PlaceholderProjection,
+    /// The placeholder column and its type, indexed by target entry position
+    /// (0-based). `None` for entries without a placeholder.
+    pub placeholders: Vec<Option<(PlaceholderColumn, pg_sys::Oid)>>,
 }
 
 #[derive(Default)]
 pub struct AggregateScanState {
+    pub visibility_stats: VisibilityStats,
+    pub parallelism: Option<AggregateParallelism>,
     pub state: ExecutionState,
     pub indexrelid: pg_sys::Oid,
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
     pub execution_rti: pg_sys::Index,
     pub aggregate_clause: AggregateCSClause,
     pub base_aggregate_clause: Option<AggregateCSClause>,
+    /// Where the Tantivy path solves `aggregate_clause`; `None` when it has nothing to solve.
+    /// Separate from `ps_ExprContext`, which wrapped-aggregate projection resets per row: see the
+    /// rules in `solve_expr.rs`. Unused on the DataFusion path.
+    pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
 
     /// Execution state for the child bitmap scan, if a bitmap intersection source was
     /// harvested at plan time.
@@ -150,7 +154,7 @@ pub struct AggregateScanState {
     /// has aggregates inside `FuncExpr` wrappers that need per-row projection.
     pub wrapped_projection: Option<WrappedAggregateProjection>,
 
-    /// Reusable tuple slot for aggregate result rows
+    /// Tantivy-only reusable tuple slot for aggregate result rows.
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
@@ -203,22 +207,11 @@ impl CustomScanState for AggregateScanState {
     }
 }
 
+/// Only the Tantivy path solves through this trait: `begin_custom_scan` and `exec_custom_scan`
+/// take the DataFusion branch before reaching it, and that path solves each source's query in
+/// `PgSearchTableProvider::scan` instead (see `solve_expr.rs`).
 impl SolvePostgresExpressions for AggregateScanState {
     fn has_postgres_expressions(&mut self) -> bool {
-        // Check both the Tantivy-path search queries and DataFusion-path
-        // join-level predicates for unresolved PostgresExpression nodes
-        // (prepared statement parameters like $1).
-        if let Some(ref mut df) = self.datafusion_state {
-            let mut has = false;
-            df.plan.visit_queries(&mut |q| {
-                if q.has_postgres_expressions() {
-                    has = true;
-                }
-            });
-            if has {
-                return true;
-            }
-        }
         self.aggregate_clause.query_mut().has_postgres_expressions()
             || self
                 .aggregate_clause
@@ -227,17 +220,6 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn has_parameters(&mut self) -> bool {
-        if let Some(ref mut df) = self.datafusion_state {
-            let mut has = false;
-            df.plan.visit_queries(&mut |q| {
-                if q.has_parameters() {
-                    has = true;
-                }
-            });
-            if has {
-                return true;
-            }
-        }
         self.aggregate_clause.query_mut().has_parameters()
             || self
                 .aggregate_clause
@@ -248,11 +230,6 @@ impl SolvePostgresExpressions for AggregateScanState {
     fn init_search_query_input(&mut self) {
         if let Some(base) = &self.base_aggregate_clause {
             self.aggregate_clause = base.clone();
-        }
-        if let Some(ref mut df) = self.datafusion_state
-            && let Some(base) = &df.base_plan
-        {
-            df.plan = base.clone();
         }
     }
 
@@ -275,11 +252,6 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        if let Some(ref mut df) = self.datafusion_state {
-            df.plan.visit_queries_mut(&mut |q| {
-                q.init_postgres_expressions(planstate);
-            });
-        }
         self.aggregate_clause
             .query_mut()
             .init_postgres_expressions(planstate);
@@ -288,19 +260,19 @@ impl SolvePostgresExpressions for AggregateScanState {
             .for_each(|agg| agg.init_postgres_expressions(planstate));
     }
 
+    /// Resets `expr_context` once, then solves the query and every `FILTER` without resetting
+    /// (rule 2 in `solve_expr.rs`): a reset per query would free the trees solved before it.
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        if let Some(ref mut df) = self.datafusion_state {
-            df.plan.visit_queries_mut(&mut |q| {
-                q.solve_postgres_expressions(expr_context);
-            });
-        }
-        if !self.is_datafusion_backend() {
-            self.aggregate_clause
-                .query_mut()
-                .solve_postgres_expressions(expr_context);
-            self.aggregate_clause
-                .aggregates_mut()
-                .for_each(|agg| agg.solve_postgres_expressions(expr_context));
-        }
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
+        self.aggregate_clause
+            .query_mut()
+            .solve_postgres_expressions_no_reset(expr_context);
+        self.aggregate_clause
+            .aggregates_mut()
+            .for_each(|agg| agg.solve_postgres_expressions(expr_context));
     }
 }

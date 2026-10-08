@@ -1,0 +1,15 @@
+---
+title: 0.15.18
+description: "ParadeDB release notes for 0.15.18"
+noindex: true
+---
+
+See GitHub release: [v0.15.18](https://github.com/paradedb/paradedb/releases/tag/v0.15.18)
+
+## Stability Improvements 💪
+
+- Fixed a backward incompatibility issue introduced in `0.15.17` where fields configured with a `normalizer` but `fast=false` would be broken
+
+## Performance Improvements 🚀
+
+- Added support for pushdown when sorting by multiple fast fields

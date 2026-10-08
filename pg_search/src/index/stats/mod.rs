@@ -39,6 +39,8 @@ use tantivy::schema::Field;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
 use crate::postgres::storage::block::STATS_EXT;
+use crate::postgres::types::is_datetime_type;
+use crate::schema::{SearchField, SearchFieldType};
 
 mod plugin;
 mod pruning;
@@ -47,7 +49,9 @@ mod tests;
 
 use plugin::stats_component;
 pub(crate) use plugin::{StatsWriter, logical_bounds_hold, register};
-pub(crate) use pruning::{persisted_split_points, segments_for_partition};
+pub(crate) use pruning::{
+    PartitionSegments, SegmentInclusion, persisted_split_points, segments_for_partition,
+};
 
 const EMPIRICAL_IDX: usize = 0;
 const LOGICAL_IDX: usize = 1;
@@ -143,7 +147,7 @@ impl From<LogicalWire> for LogicalBounds {
 }
 
 /// True when `hi` ends before `lo` starts, so two ranges with these ends cannot share a value.
-fn ends_before(hi: Bound<&PdbOwnedValue>, lo: Bound<&PdbOwnedValue>) -> bool {
+pub(crate) fn ends_before(hi: Bound<&PdbOwnedValue>, lo: Bound<&PdbOwnedValue>) -> bool {
     match (hi, lo) {
         (Bound::Unbounded, _) | (_, Bound::Unbounded) => false,
         (Bound::Included(h), Bound::Included(l)) => h.total_cmp(l) == Ordering::Less,
@@ -160,6 +164,45 @@ fn ranges_intersect(
     b_hi: Bound<&PdbOwnedValue>,
 ) -> bool {
     !ends_before(a_hi, b_lo) && !ends_before(b_hi, a_lo)
+}
+
+fn lower_bound_ge(a_lo: Bound<&PdbOwnedValue>, b_lo: Bound<&PdbOwnedValue>) -> bool {
+    match (a_lo, b_lo) {
+        (_, Bound::Unbounded) => true,
+        (Bound::Unbounded, _) => false,
+        (Bound::Included(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) != Ordering::Less
+        }
+        (Bound::Included(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) == Ordering::Greater
+        }
+    }
+}
+
+fn upper_bound_le(a_hi: Bound<&PdbOwnedValue>, b_hi: Bound<&PdbOwnedValue>) -> bool {
+    match (a_hi, b_hi) {
+        (_, Bound::Unbounded) => true,
+        (Bound::Unbounded, _) => false,
+        (Bound::Included(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Included(b))
+        | (Bound::Excluded(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) != Ordering::Greater
+        }
+        (Bound::Included(a), Bound::Excluded(b)) => {
+            comparable(a, b) && a.total_cmp(b) == Ordering::Less
+        }
+    }
+}
+
+fn range_is_subset(
+    a_lo: Bound<&PdbOwnedValue>,
+    a_hi: Bound<&PdbOwnedValue>,
+    b_lo: Bound<&PdbOwnedValue>,
+    b_hi: Bound<&PdbOwnedValue>,
+) -> bool {
+    lower_bound_ge(a_lo, b_lo) && upper_bound_le(a_hi, b_hi)
 }
 
 /// The looser of two lower bounds. At an equal value the inclusive one is looser.
@@ -220,7 +263,7 @@ fn max_upper(a: &Bound<PdbOwnedValue>, b: &Bound<PdbOwnedValue>) -> Bound<PdbOwn
 
 /// Whether `total_cmp` ranks these two values by value. The derived order it falls back to
 /// ranks by variant, so a bound of one kind against a statistic of another says nothing.
-fn comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
+pub(crate) fn comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
     use PdbOwnedValue::*;
     matches!(
         (a, b),
@@ -276,6 +319,27 @@ impl LogicalBounds {
     pub(crate) fn may_hold_nulls(&self) -> bool {
         matches!(self.lower, Bound::Unbounded)
     }
+
+    /// Whether all values in this box are guaranteed to fall in `[lower, upper)`.
+    pub(crate) fn is_subset_of(
+        &self,
+        lower: &Bound<PdbOwnedValue>,
+        upper: &Bound<PdbOwnedValue>,
+    ) -> bool {
+        for own in [&self.lower, &self.upper] {
+            if let Bound::Included(v) | Bound::Excluded(v) = own
+                && !(bound_comparable(lower, v) && bound_comparable(upper, v))
+            {
+                return false;
+            }
+        }
+        range_is_subset(
+            self.lower.as_ref(),
+            self.upper.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+        )
+    }
 }
 
 impl EmpiricalStats {
@@ -290,6 +354,23 @@ impl EmpiricalStats {
             return true;
         }
         ranges_intersect(
+            Bound::Included(&self.min),
+            Bound::Included(&self.max),
+            lower.as_ref(),
+            upper.as_ref(),
+        )
+    }
+
+    /// Whether all values in `[min, max]` are guaranteed to fall in `[lower, upper)`.
+    pub(crate) fn is_subset_of(
+        &self,
+        lower: &Bound<PdbOwnedValue>,
+        upper: &Bound<PdbOwnedValue>,
+    ) -> bool {
+        if !(bound_comparable(lower, &self.min) && bound_comparable(upper, &self.max)) {
+            return false;
+        }
+        range_is_subset(
             Bound::Included(&self.min),
             Bound::Included(&self.max),
             lower.as_ref(),
@@ -326,14 +407,18 @@ impl SegmentStats {
         })
     }
 
-    /// The `.stats` of `segment`, through its directory. `None` when the segment was written
-    /// without the component.
+    /// Open a segment's `.stats` component through its directory, reading only the footer.
+    ///
+    /// Returns `None` when the component is absent, including for mutable segments. Errors
+    /// opening an existing component or decoding its footer are returned to the caller.
     pub(crate) fn of_segment(segment: &Segment) -> io::Result<Option<Self>> {
         Self::from_component(segment.open_read(stats_component()))
     }
 
-    /// The `.stats` of an open segment reader. `None` when the segment was written without the
-    /// component.
+    /// Open `.stats` through an execution segment reader, using its captured directory view.
+    ///
+    /// Like [`Self::of_segment`], this reads only the footer. An absent component returns
+    /// `None`; errors opening an existing component or decoding its footer are returned.
     pub(crate) fn of_reader(reader: &SegmentReader) -> io::Result<Option<Self>> {
         Self::from_component(reader.open_read(stats_component()))
     }
@@ -346,12 +431,41 @@ impl SegmentStats {
         }
     }
 
+    /// Read and decode a field's observed minimum, maximum, and nullability.
+    ///
+    /// Values retain their stored representation, which may differ from query bounds for
+    /// datetime fields. Returns `None` if the field has no empirical entry and an error if the
+    /// entry cannot be read or decoded.
     pub(crate) fn empirical(&self, field: Field) -> io::Result<Option<EmpiricalStats>> {
         Ok(self
             .read::<EmpiricalWire>(field, EMPIRICAL_IDX)?
             .map(EmpiricalStats::from))
     }
 
+    /// Read a field's empirical statistics in the representation used by its query bounds.
+    ///
+    /// Datetime fields stored as `I64` microseconds are converted to `Date` bounds, matching
+    /// fast-field value conversion during execution. Other field types retain their stored
+    /// representation. Returns `None` for a missing entry and an error for a read, decode, or
+    /// datetime conversion failure.
+    pub(crate) fn empirical_for(&self, field: &SearchField) -> io::Result<Option<EmpiricalStats>> {
+        let Some(stats) = self.empirical(field.field())? else {
+            return Ok(None);
+        };
+        if !matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
+            return Ok(Some(stats));
+        }
+        stats.into_dates().map(Some).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "datetime statistics do not decode as timestamps",
+            )
+        })
+    }
+
+    /// Read the logical bounds assigned to a field by a partitioned build. These boundaries
+    /// need not occur among the segment's values. Returns `None` if no bounds were assigned,
+    /// or an error if the entry cannot be read or decoded.
     pub(crate) fn logical(&self, field: Field) -> io::Result<Option<LogicalBounds>> {
         Ok(self
             .read::<LogicalWire>(field, LOGICAL_IDX)?

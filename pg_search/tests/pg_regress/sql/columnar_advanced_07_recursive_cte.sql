@@ -57,12 +57,7 @@ VALUES
 -- Create search index with columnar storage
 DROP INDEX IF EXISTS category_idx;
 CREATE INDEX category_idx ON category
-USING paradedb (id, name, parent_id, description, level, item_count, is_active)
-WITH (
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"parent_id": {"fast": true}, "level": {"fast": true}, "item_count": {"fast": true}}',
-    boolean_fields = '{"is_active": {"fast": true}}'
-);
+USING paradedb (id, (name::pdb.simple('columnar=true')), parent_id, (description::pdb.simple('columnar=true')), level, item_count, is_active);
 
 -- Test 1: Basic recursive CTE to find all descendants of Electronics
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -144,7 +139,7 @@ WITH RECURSIVE category_tree AS (
     -- Base case with search
     SELECT id, name, parent_id, level, description, item_count
     FROM category
-    WHERE description @@@ 'books'
+    WHERE description ||| 'books'
     
     UNION ALL
     
@@ -161,7 +156,7 @@ WITH RECURSIVE category_tree AS (
     -- Base case with search
     SELECT id, name, parent_id, level, description, item_count
     FROM category
-    WHERE description @@@ 'books'
+    WHERE description ||| 'books'
     
     UNION ALL
     
@@ -188,7 +183,7 @@ WITH RECURSIVE category_tree AS (
     SELECT c.id, c.name, c.parent_id, c.level, c.description, c.item_count
     FROM category c
     JOIN category_tree ct ON c.parent_id = ct.id
-    WHERE c.description @@@ 'computer' OR c.item_count > 30
+    WHERE c.description ||| 'computer' OR c.item_count > 30
 )
 SELECT name, level, description, item_count
 FROM category_tree
@@ -206,7 +201,7 @@ WITH RECURSIVE category_tree AS (
     SELECT c.id, c.name, c.parent_id, c.level, c.description, c.item_count
     FROM category c
     JOIN category_tree ct ON c.parent_id = ct.id
-    WHERE c.description @@@ 'computer' OR c.item_count > 30
+    WHERE c.description ||| 'computer' OR c.item_count > 30
 )
 SELECT name, level, description, item_count
 FROM category_tree

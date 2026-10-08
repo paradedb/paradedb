@@ -69,22 +69,62 @@ const TUPLES_DONE_BATCH_SIZE: usize = 5;
 struct WorkerConfig {
     heaprelid: pg_sys::Oid,
     indexrelid: pg_sys::Oid,
-    concurrent: bool,
+    concurrent: u8,
+    _pad1: [u8; 7],
     current_xid: pg_sys::FullTransactionId,
-    need_wal: bool,
+    need_wal: u8,
+    _pad2: [u8; 7],
     next_xid: pg_sys::FullTransactionId,
+}
+
+// SAFETY: WorkerConfig is #[repr(C)] with explicit padding. All fields
+// are integer types (Oid = u32 wrapper, u8, FullTransactionId = u64
+// wrapper). Every bit pattern is valid.
+unsafe impl bytemuck::Zeroable for WorkerConfig {}
+unsafe impl bytemuck::Pod for WorkerConfig {}
+
+impl WorkerConfig {
+    fn new(
+        heaprelid: pg_sys::Oid,
+        indexrelid: pg_sys::Oid,
+        concurrent: bool,
+        current_xid: pg_sys::FullTransactionId,
+        need_wal: bool,
+        next_xid: pg_sys::FullTransactionId,
+    ) -> Self {
+        Self {
+            heaprelid,
+            indexrelid,
+            concurrent: concurrent as u8,
+            _pad1: [0; 7],
+            current_xid,
+            need_wal: need_wal as u8,
+            _pad2: [0; 7],
+            next_xid,
+        }
+    }
+
+    fn concurrent(&self) -> bool {
+        self.concurrent != 0
+    }
+
+    fn need_wal(&self) -> bool {
+        self.need_wal != 0
+    }
 }
 impl ParallelStateType for WorkerConfig {}
 
 /// Type alias that holds a pointer to a [`pg_sys::ParallelTableScanDescData`] which is over-allocated,
 /// so the [`usize`] field tells us how big it really is, in bytes
 type ScanDesc = (usize, *mut pg_sys::ParallelTableScanDescData);
-impl ParallelStateType for pg_sys::ParallelTableScanDescData {}
+// ParallelTableScanDescData is a foreign bindgen type that cannot implement
+// Pod. It is accessed through object_raw() instead of the typed object() path.
 
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
 struct WorkerCoordination {
     mutex: Spinlock,
+    _pad: [u8; 4],
     nstarted: usize,
     nlaunched: usize,
     ntuples_done: usize,
@@ -93,8 +133,20 @@ struct WorkerCoordination {
     nspilled: usize,
 }
 
+// SAFETY: WorkerCoordination is #[repr(C)] with explicit padding. All
+// fields are integer types (Spinlock = i32 wrapper, usize). Every bit
+// pattern is valid.
+unsafe impl bytemuck::Zeroable for WorkerCoordination {}
+unsafe impl bytemuck::Pod for WorkerCoordination {}
+
 impl ParallelStateType for WorkerCoordination {}
-impl ParallelStateType for pg_sys::SharedFileSet {}
+
+// SharedFileSet is a foreign bindgen type that cannot implement Pod.
+// It is accessed through object_raw() instead of the typed object() path.
+
+const _: () = assert!(size_of::<WorkerConfig>() == 40);
+const _: () = assert!(size_of::<WorkerCoordination>() == 48);
+
 impl WorkerCoordination {
     fn inc_nstarted(&mut self) {
         let _lock = self.mutex.acquire();
@@ -151,6 +203,12 @@ struct ParallelBuild {
     /// leader initializes it in place once the DSM is mapped, since its cleanup hooks onto the
     /// segment. Untouched without `partition_by`.
     fileset: pg_sys::SharedFileSet,
+}
+
+impl ParallelState for pg_sys::SharedFileSet {
+    fn as_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self as *const _ as *const u8, size_of_val(self)) }
+    }
 }
 
 impl ParallelState for ScanDesc {
@@ -245,10 +303,14 @@ impl ParallelWorker for BuildWorker<'_> {
             .object::<WorkerConfig>(0)
             .expect("should be able to get ParallelBuildConfig from state manager")
             .expect("ParallelBuildConfig should not be NULL");
-        let scandesc = state_manager
-            .object::<pg_sys::ParallelTableScanDescData>(1)
-            .expect("should be able to get ParallelTableScanDesc")
-            .expect("ParallelTableScanDesc should not be NULL");
+        // SAFETY: the leader wrote a valid ParallelTableScanDescData into
+        // this slot via table_parallelscan_initialize before workers launched.
+        let scandesc = unsafe {
+            state_manager
+                .object_raw::<pg_sys::ParallelTableScanDescData>(1)
+                .expect("should be able to get ParallelTableScanDesc")
+                .expect("ParallelTableScanDesc should not be NULL")
+        };
         let coordination = state_manager
             .object::<WorkerCoordination>(2)
             .expect("should be able to get WorkerCoordination")
@@ -258,10 +320,14 @@ impl ParallelWorker for BuildWorker<'_> {
             .expect("should be able to get partitioning bytes")
             .expect("partitioning bytes should not be NULL");
         let partitioning = deserialize_partitioning(partitioning);
-        let fileset = state_manager
-            .object::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
-            .expect("should be able to get the spill fileset")
-            .expect("spill fileset should not be NULL");
+        // SAFETY: the leader wrote a valid SharedFileSet into this slot
+        // via SharedFileSetInit before workers launched.
+        let fileset = unsafe {
+            state_manager
+                .object_raw::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
+                .expect("should be able to get the spill fileset")
+                .expect("spill fileset should not be NULL")
+        };
 
         unsafe {
             // A worker attaches so that the last process out deletes the spill files. On an
@@ -272,7 +338,7 @@ impl ParallelWorker for BuildWorker<'_> {
                 pg_sys::SharedFileSetAttach(fileset, state_manager.dsm_segment());
             }
 
-            let (heap_lock, index_lock) = if !config.concurrent {
+            let (heap_lock, index_lock) = if !config.concurrent() {
                 (pg_sys::ShareLock, pg_sys::AccessExclusiveLock)
             } else {
                 (pg_sys::ShareUpdateExclusiveLock, pg_sys::RowExclusiveLock)
@@ -285,7 +351,7 @@ impl ParallelWorker for BuildWorker<'_> {
             let table_scan_desc = pg_sys::table_beginscan_parallel(heaprel.as_ptr(), scandesc);
 
             indexrel.set_is_create_index();
-            indexrel.set_need_wal(config.need_wal);
+            indexrel.set_need_wal(config.need_wal());
 
             Self {
                 config: *config,
@@ -340,7 +406,7 @@ impl<'a> BuildWorker<'a> {
     fn do_build(&mut self, worker_number: i32, is_leader: bool) -> anyhow::Result<(f64, usize)> {
         unsafe {
             let index_info = self.indexrel.index_info();
-            (*index_info).ii_Concurrent = self.config.concurrent;
+            (*index_info).ii_Concurrent = self.config.concurrent();
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
@@ -371,7 +437,7 @@ impl<'a> BuildWorker<'a> {
             // descriptor on the parallel path, and from `build_index` on the serial one. The
             // scan ends before the drain runs and unregisters what it registered, so this
             // registration keeps the snapshot alive until the drain is done with it.
-            let build_snapshot = (partitioning.is_some() && self.config.concurrent)
+            let build_snapshot = (partitioning.is_some() && self.config.concurrent())
                 .then(|| {
                     self.table_scan_desc
                         .map(|scan| (*scan.as_ptr()).rs_snapshot)
@@ -618,9 +684,9 @@ unsafe fn read_ctid_records(
         if !nread.is_multiple_of(CTID_RECORD_LEN) {
             anyhow::bail!("partition spill file holds a partial ctid record ({nread} bytes read)");
         }
-        buf[..nread]
-            .chunks_exact(CTID_RECORD_LEN)
-            .for_each(&mut sink);
+        for record in buf[..nread].as_chunks::<CTID_RECORD_LEN>().0 {
+            sink(record);
+        }
     }
 }
 
@@ -1350,14 +1416,14 @@ pub(super) fn build_index(
         }
     });
 
-    let config = WorkerConfig {
-        heaprelid: heaprel.oid(),
-        indexrelid: indexrel.oid(),
+    let config = WorkerConfig::new(
+        heaprel.oid(),
+        indexrel.oid(),
         concurrent,
-        current_xid: unsafe { pg_sys::GetCurrentFullTransactionId() },
-        need_wal: indexrel.need_wal(),
-        next_xid: unsafe { pg_sys::ReadNextFullTransactionId() },
-    };
+        unsafe { pg_sys::GetCurrentFullTransactionId() },
+        indexrel.need_wal(),
+        unsafe { pg_sys::ReadNextFullTransactionId() },
+    );
 
     // Boundaries are fixed before any worker starts, so every worker cuts on the same ones.
     // A concurrent build samples under its registered snapshot, and its drain re-fetches
@@ -1409,11 +1475,15 @@ pub(super) fn build_index(
             }
             // The spill fileset is initialized in the DSM itself: its cleanup is a detach
             // callback on the segment, keyed on this very address, so a copy would not do.
-            let fileset = launcher
-                .state_manager()
-                .object::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
-                .expect("should be able to get the spill fileset")
-                .expect("spill fileset should not be NULL");
+            // SAFETY: the leader initialises the SharedFileSet in this slot
+            // before any worker launches.
+            let fileset = unsafe {
+                launcher
+                    .state_manager()
+                    .object_raw::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
+                    .expect("should be able to get the spill fileset")
+                    .expect("spill fileset should not be NULL")
+            };
             unsafe { pg_sys::SharedFileSetInit(fileset, launcher.dsm_segment()) };
         }
     ) {
@@ -1858,11 +1928,10 @@ mod tests {
             "serial partitioned build indexes every row"
         );
 
-        let matches: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_build WHERE partitioned_build @@@ 'name:lorem';",
-        )
-        .unwrap()
-        .unwrap();
+        let matches: i64 =
+            Spi::get_one("SELECT COUNT(*)::bigint FROM partitioned_build WHERE name ||| 'lorem';")
+                .unwrap()
+                .unwrap();
         assert_eq!(
             matches, 20000,
             "search through the serial partitioned index"
@@ -1906,7 +1975,7 @@ mod tests {
             );
 
             let matches: i64 = Spi::get_one(
-                "SELECT COUNT(*)::bigint FROM partitioned_build WHERE partitioned_build @@@ 'name:lorem';",
+                "SELECT COUNT(*)::bigint FROM partitioned_build WHERE name ||| 'lorem';",
             )
             .unwrap()
             .unwrap();
@@ -2039,7 +2108,7 @@ mod tests {
             assert_eq!(num_docs, 20005, "every row is indexed once");
 
             let lone: i64 = Spi::get_one(
-                "SELECT COUNT(*)::bigint FROM partitioned_lone_partition WHERE tenant_id = 7 AND partitioned_lone_partition @@@ 'name:lone';",
+                "SELECT COUNT(*)::bigint FROM partitioned_lone_partition WHERE tenant_id = 7 AND name ||| 'lone';",
             )
             .unwrap()
             .unwrap();
@@ -2097,7 +2166,7 @@ mod tests {
         );
 
         let visible: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_deleted WHERE partitioned_deleted @@@ 'name:lorem';",
+            "SELECT COUNT(*)::bigint FROM partitioned_deleted WHERE name ||| 'lorem';",
         )
         .unwrap()
         .unwrap();
@@ -2187,14 +2256,14 @@ mod tests {
         .unwrap();
 
         let fresh: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE partitioned_hot @@@ 'name:freshmarker';",
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE name ||| 'freshmarker';",
         )
         .unwrap()
         .unwrap();
         assert_eq!(fresh, 1, "the live row version must be indexed");
 
         let stale: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE partitioned_hot @@@ 'name:stalemarker';",
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE name ||| 'stalemarker';",
         )
         .unwrap()
         .unwrap();
@@ -2268,7 +2337,7 @@ mod tests {
         let ids_for = |query: &str| -> String {
             Spi::get_one::<String>(&format!(
                 "SELECT COALESCE(string_agg(id::text, ',' ORDER BY id), '') \
-                 FROM partitioned_parity WHERE partitioned_parity @@@ '{query}';"
+                 FROM partitioned_parity WHERE partitioned_parity @@@ pdb.parse('{query}');"
             ))
             .unwrap()
             .unwrap()
@@ -2277,7 +2346,7 @@ mod tests {
         // Ground truth: a non-partitioned index over the same rows.
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');",
+            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, (message::pdb.unicode_words('normalizer=raw', 'columnar=true')));",
         )
         .unwrap();
         let expected_alpha = ids_for("message:alpha");
@@ -2306,7 +2375,7 @@ mod tests {
                 "{label}: full set differs"
             );
         };
-        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (partition_by = 'tenant_id, message', target_segment_count = 8, text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');";
+        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, (message::pdb.unicode_words('normalizer=raw', 'columnar=true'))) WITH (partition_by = 'tenant_id, message', target_segment_count = 8);";
 
         // Serial build.
         Spi::run(create_partitioned).unwrap();

@@ -99,16 +99,22 @@ repos:
         pass_filenames: false
         env:
           RUSTDOCFLAGS: "-D warnings"
+      - id: impl-drop
+        name: check impl Drop
+        entry: python3 .github/scripts/check_impl_drop.py
+        language: system
+        types: [rust]
+        pass_filenames: false
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.4
+    rev: v0.16.10
     hooks:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
 
   - repo: https://github.com/pylint-dev/pylint
-    rev: v4.0.7
+    rev: v4.1.2
     hooks:
       - id: pylint
         args:

@@ -6,72 +6,71 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX search_idx on mock_items
-USING paradedb (id, description, rating, category, metadata)
-WITH (text_fields = '{"category": {"tokenizer": {"type": "keyword"}, "fast": true}}', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
+USING paradedb (id, description, rating, (category::pdb.literal), (metadata::pdb.literal_normalized('lowercase=true')));
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating DESC
 LIMIT 5;
 
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating DESC
 LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, id ASC
 LIMIT 5;
 
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, id ASC
 LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, id ASC, category
 LIMIT 5;
 
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, id ASC, category
 LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id) DESC
 LIMIT 5;
 
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id) DESC
 LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id), id DESC
 LIMIT 5;
 
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id), id DESC
 LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id), id, category DESC
 LIMIT 5;
 
 SELECT id, description, rating, pdb.score(id) FROM mock_items
-WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
+WHERE description ||| 'keyboard' OR description ||| 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id), id, category DESC
 LIMIT 5;
 

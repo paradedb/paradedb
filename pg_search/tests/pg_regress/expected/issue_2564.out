@@ -42,32 +42,9 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path,
-    file_size
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb ((id::pdb.literal), (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
+CREATE INDEX files_search ON files USING paradedb ((id::pdb.literal), (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')), file_size);
+CREATE INDEX pages_search ON pages USING paradedb ((id::pdb.literal), (fileid::pdb.literal), (content::pdb.simple('columnar=true')), page_number);
 -- Insert sample data for documents
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -110,47 +87,51 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.pa
 FROM documents d
          JOIN files f ON d.id = f.documentId
          JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures'
-  AND f.title @@@ 'Receipt'
-  AND p.content @@@ 'Socienty'
+WHERE d.parents ||| 'Factures'
+  AND f.title ||| 'Receipt'
+  AND p.content ||| 'Socienty'
 ORDER BY d.id, f.id, p.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, f, p)
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
    Sort Key: d.id, p.fileid, p.id
-   ->  Hash Join
-         Hash Cond: (f.documentid = d.id)
-         ->  Nested Loop
-               Join Filter: (f.id = p.fileid)
-               ->  Custom Scan (ParadeDB Base Scan) on files f
-                     Table: files
-                     Index: files_search
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on pages p
-                     Table: pages
-                     Index: pages_search
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-         ->  Hash
-               ->  Custom Scan (ParadeDB Base Scan) on documents d
-                     Table: documents
-                     Index: documents_search
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
+   Presorted Key: d.id
+   ->  Nested Loop
+         Join Filter: (f.id = p.fileid)
+         ->  Merge Join
+               Merge Cond: (d.id = f.documentid)
+               ->  Sort
+                     Sort Key: d.id
+                     ->  Custom Scan (ParadeDB Base Scan) on documents d
+                           Table: documents
+                           Index: documents_search
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+               ->  Sort
+                     Sort Key: f.documentid
+                     ->  Custom Scan (ParadeDB Base Scan) on files f
+                           Table: files
+                           Index: files_search
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"Receipt","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         ->  Custom Scan (ParadeDB Base Scan) on pages p
+               Table: pages
+               Index: pages_search
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"Socienty","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(29 rows)
 
 SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d
          JOIN files f ON d.id = f.documentId
          JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures'
-  AND f.title @@@ 'Receipt'
-  AND p.content @@@ 'Socienty'
+WHERE d.parents ||| 'Factures'
+  AND f.title ||| 'Receipt'
+  AND p.content ||| 'Socienty'
 ORDER BY d.id, f.id, p.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, f, p)
   id  | parents  |  title  |     file_path      | fileid | page_number 
@@ -164,14 +145,14 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
        (
            SELECT f.title
            FROM files f
-           WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+           WHERE f.documentId = d.id AND f.title ||| 'Invoice'
            ORDER BY pdb.score(f.id) DESC LIMIT 1
        ) AS file_title
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: d.id
    ->  Custom Scan (ParadeDB Base Scan) on documents d
@@ -179,7 +160,7 @@ ORDER BY d.id;
          Index: documents_search
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          SubPlan 1
            ->  Limit
                  ->  Custom Scan (ParadeDB Base Scan) on files f
@@ -190,7 +171,7 @@ ORDER BY d.id;
                        Scores: true
                           TopK Order By: pdb.score() desc
                           TopK Limit: 1
-                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(documentid = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
+                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"Invoice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(documentid = $1)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
                        ->  Bitmap Index Scan on files_pkey
                              Index Cond: (documentid = d.id)
 (21 rows)
@@ -199,11 +180,11 @@ SELECT d.id, d.title, d.parents,
        (
            SELECT f.title
            FROM files f
-           WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+           WHERE f.documentId = d.id AND f.title ||| 'Invoice'
            ORDER BY pdb.score(f.id) DESC LIMIT 1
        ) AS file_title
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
   id  |    title     | parents  | file_title  
 ------+--------------+----------+-------------

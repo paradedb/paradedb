@@ -145,14 +145,16 @@ pub mod scan_state;
 pub mod visibility_filter;
 pub mod window_func;
 
-pub use self::build::CtidColumn;
-use self::build::{JoinCSClause, RelNode, RelationAlias};
+pub use self::build::{CtidColumn, ScoreColumn};
+use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
     get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
-use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node};
+use self::window_func::{
+    SupportedWindowAggType, WindowAggDef, extract_window_agg, is_supported_window_agg_node,
+};
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -184,26 +186,29 @@ use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
 use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
-use arrow_array::Array;
+use crate::scan::deferred_encode::DeferredCtid;
+use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
+use arrow_buffer::ScalarBuffer;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::aggregatescan::datafusion_build;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
-use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::search_operator_relations;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
-use pgrx::{PgList, pg_sys};
+use pgrx::{PgList, PgMemoryContexts, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
 
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
+use super::datafusion::pdb_agg_udaf::{debug_assert_single_document, json_document_to_datum};
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -669,6 +674,29 @@ impl JoinScan {
             }
         }
 
+        // A `pdb.agg()` is computed inside the Top-K aggregate node, which needs
+        // OFFSET + LIMIT known at planning, and its fields have to come from a
+        // source the join still puts out: the aggregate reads the join's rows.
+        let root_id = PlannerRootId::from(root);
+        for window_agg in &mut window_aggs {
+            if let WindowAggDef::PdbAgg(request) = &mut window_agg.agg_def {
+                if limit_offset
+                    .as_ref()
+                    .and_then(|lo| lo.static_fetch())
+                    .is_none()
+                {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: pdb.agg() as a window function requires a statically known LIMIT and OFFSET",
+                    ));
+                }
+                request
+                    .assign_plan_positions(|field| {
+                        plan.plan_position(root_id, field.rti, field.attno)
+                    })
+                    .map_err(|e| JoinDeclineReason::new(format!("JoinScan not used: {e}")))?;
+            }
+        }
+
         order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
 
         for jk in join_keys {
@@ -703,7 +731,6 @@ impl JoinScan {
         }
 
         // --- Build JoinCSClause ---
-
         let mut join_clause = JoinCSClause::new(plan.clone())
             .with_limit_offset(limit_offset.clone())
             .with_distinct(has_distinct)
@@ -927,11 +954,20 @@ impl JoinScan {
         }
 
         let planstate = state.planstate();
-        let expr_context = state.runtime_context;
+        // Solved in `ps_ExprContext`: JoinScan never resets it per row (see `solve_expr.rs`).
+        let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
-        state
-            .custom_state_mut()
-            .prepare_query_for_execution(planstate, expr_context);
+        let custom_state = state.custom_state_mut();
+        custom_state.join_clause = custom_state
+            .base_join_clause
+            .clone()
+            .expect("runtime expression solving requires a pristine JoinScan clause");
+        custom_state
+            .join_clause
+            .init_postgres_expressions(planstate);
+        custom_state
+            .join_clause
+            .solve_postgres_expressions(expr_context);
 
         let bytes = unsafe { Self::rebake_for_mpp(state) };
         // Keep the leader's own execution in sync with what's dispatched to workers:
@@ -974,12 +1010,12 @@ impl JoinScan {
     /// Re-bake with `mpp_source_idx` forced to `None` on every source after a short-launch
     /// decline. Physical replanning does not rewrite provider metadata already serialized in
     /// the logical plan, so the serial fallback needs its own logical shape.
-    unsafe fn rebake_for_mpp_fallback(state: &mut CustomScanStateWrapper<Self>) -> Vec<u8> {
+    unsafe fn rebake_for_mpp_fallback(state: &CustomScanStateWrapper<Self>) -> Vec<u8> {
         Self::rebake_from_custom_exprs_string(state, true)
     }
 
     unsafe fn rebake_from_custom_exprs_string(
-        state: &mut CustomScanStateWrapper<Self>,
+        state: &CustomScanStateWrapper<Self>,
         force_serial: bool,
     ) -> Vec<u8> {
         let custom_exprs: *mut pg_sys::List = match &state.custom_state().custom_exprs_string {
@@ -1361,6 +1397,16 @@ impl CustomScan for JoinScan {
         }
 
         if !join_clause.order_by.is_empty() {
+            let score_name = |rti: &pg_sys::Index| {
+                join_clause
+                    .plan
+                    .sources()
+                    .iter()
+                    .find(|s| s.contains_rti(*rti))
+                    .map(|s| ScoreColumn::new(s.display_alias()).to_string())
+                    .unwrap_or_else(|| ScoreColumn::new("?").to_string())
+            };
+
             explainer.add_text(
                 "Order By",
                 join_clause
@@ -1369,6 +1415,13 @@ impl CustomScan for JoinScan {
                     .map(|oi| match &oi.feature {
                         OrderByFeature::Field { name: f, .. } => {
                             format!("{} {}", f, oi.direction.as_ref())
+                        }
+                        OrderByFeature::Score { rti } => {
+                            format!("{} {}", score_name(rti), oi.direction.as_ref())
+                        }
+                        OrderByFeature::ScoreSum { rtis } => {
+                            let scores: Vec<String> = rtis.iter().map(score_name).collect();
+                            format!("{} {}", scores.join(" + "), oi.direction.as_ref())
                         }
                         OrderByFeature::Var { rti, attno, name } => {
                             if let Some(info) = base_relations.iter().find(|i| i.heap_rti == *rti) {
@@ -1442,9 +1495,9 @@ impl CustomScan for JoinScan {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
-            let build_with = |ctx: &datafusion::prelude::SessionContext| {
+            let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
                 let logical_plan = deserialize_logical_plan_with_runtime(
-                    logical_plan,
+                    bytes,
                     &ctx.task_ctx(),
                     None,
                     Some(expr_context.as_ptr()),
@@ -1460,14 +1513,15 @@ impl CustomScan for JoinScan {
                 state.custom_state().parallel_mode_ok,
                 &state.custom_state().join_clause.plan,
             ) {
-                let mpp_plan = build_with(&Self::build_mpp_session_context(None));
+                let mpp_plan = build_with(&Self::build_mpp_session_context(None), logical_plan);
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
                 } else {
-                    build_with(&create_datafusion_session_context())
+                    let fallback_bytes = unsafe { Self::rebake_for_mpp_fallback(state) };
+                    build_with(&create_datafusion_session_context(), &fallback_bytes)
                 }
             } else {
-                build_with(&create_datafusion_session_context())
+                build_with(&create_datafusion_session_context(), logical_plan)
             };
             explain_physical_plan(&physical_plan, explainer);
         }
@@ -1485,7 +1539,17 @@ impl CustomScan for JoinScan {
                 // expressions, and pushed-down predicates may all need it.
                 pg_sys::ExecAssignExprContext(estate, planstate);
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
-                state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+
+                // Assign child memory context for window aggs
+                let window_agg_ctx = pg_sys::AllocSetContextCreateExtended(
+                    (*estate).es_query_cxt,
+                    c"ParadeDB Join Scan window aggs".as_ptr(),
+                    pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+                );
+                assert!(state.custom_state_mut().window_agg_ctx.is_none());
+                state.custom_state_mut().window_agg_ctx = Some(window_agg_ctx);
             }
             // MPP: mark one launch attempt for the first exec call. The existing logical plan is
             // resolved and rebaked at execution time before it is deserialized to build the
@@ -1554,6 +1618,7 @@ impl CustomScan for JoinScan {
                             visibility_checker,
                             fetch_slot,
                             ctid_col_idx: None,
+                            ffhelper: None,
                         },
                     );
                 }
@@ -1597,7 +1662,7 @@ impl CustomScan for JoinScan {
                 };
 
                 // Raw pointers precomputed so the planning closure below never borrows `state`.
-                let runtime_context = state.runtime_context;
+                let runtime_context = state.csstate.ss.ps.ps_ExprContext;
                 let build_plan =
                     |ctx: &datafusion::prelude::SessionContext| -> Arc<dyn ExecutionPlan> {
                         let logical_plan = deserialize_logical_plan_with_runtime(
@@ -1704,6 +1769,17 @@ impl CustomScan for JoinScan {
                     (plan_ctx, plan)
                 };
 
+                for (plan_position, rel_state) in state.custom_state_mut().relations.iter_mut() {
+                    if let Some(resolver) =
+                        crate::scan::execution_plan::find_ctid_resolver_for_plan_position(
+                            &plan,
+                            *plan_position,
+                        )
+                    {
+                        rel_state.ffhelper = Some(resolver.ffhelper);
+                    }
+                }
+
                 let task_ctx = build_task_context(
                     &ctx,
                     &plan,
@@ -1742,6 +1818,23 @@ impl CustomScan for JoinScan {
                     }
                 }
 
+                #[cfg(debug_assertions)]
+                {
+                    crate::scan::execution_plan::visit_scan_nodes(&plan, &mut |scan| {
+                        if let Some(pos) = scan.deferred_ctid_plan_position() {
+                            debug_assert!(
+                                state
+                                    .custom_state()
+                                    .relations
+                                    .get(&pos)
+                                    .and_then(|r| r.ffhelper.as_ref())
+                                    .is_some(),
+                                "JoinScan: relation at plan_position {pos} has deferred CTIDs but missing FFHelper on RelationState"
+                            );
+                        }
+                    });
+                }
+
                 let plan_sources = state.custom_state().join_clause.plan.sources();
                 let output_batch_col_indices: Vec<Option<usize>> = state
                     .custom_state()
@@ -1749,21 +1842,9 @@ impl CustomScan for JoinScan {
                     .iter()
                     .enumerate()
                     .map(|(out_idx, col_info)| match col_info {
-                        privdat::OutputColumnInfo::Score { plan_position, .. } => {
+                        privdat::OutputColumnInfo::Score { .. } => {
                             let col_alias = format!("col_{}", out_idx + 1);
-                            if let Ok(idx) = schema.index_of(&col_alias) {
-                                Some(idx)
-                            } else if let Some(source) = plan_sources.get(*plan_position) {
-                                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
-                                    .execution(*plan_position);
-                                let score_col = format!("_score_{alias}");
-                                schema
-                                    .index_of(&score_col)
-                                    .ok()
-                                    .or_else(|| schema.index_of(privdat::SCORE_COL_NAME).ok())
-                            } else {
-                                schema.index_of(privdat::SCORE_COL_NAME).ok()
-                            }
+                            schema.index_of(&col_alias).ok()
                         }
                         privdat::OutputColumnInfo::Unnested {
                             source_rti,
@@ -1823,7 +1904,7 @@ impl CustomScan for JoinScan {
                 };
 
                 match next_batch {
-                    Some(Ok(batch)) => {
+                    Some(Ok(mut batch)) => {
                         // First distributed batch out: fold the worker decode, first scan, and
                         // network hop into the launch timing.
                         if let Some(built) = state.custom_state().stream_built_at {
@@ -1834,6 +1915,7 @@ impl CustomScan for JoinScan {
                             }
                             state.custom_state_mut().stream_built_at = None;
                         }
+                        Self::resolve_batch_ctids(&mut batch, &state.custom_state().relations);
                         state.custom_state_mut().current_batch = Some(batch);
                         state.custom_state_mut().batch_index = 0;
                     }
@@ -2145,14 +2227,18 @@ unsafe fn build_output_projection(
 /// `force_serial`: when `true`, every source is baked with `mpp_source_idx = None`
 /// regardless of the global `mpp_is_active()` budget check. A short-launch decline must rebuild
 /// this logical metadata because choosing a serial physical planner does not rewrite it. A
-/// parallel-unsafe statement (`private_data.parallel_mode_ok == false`, #6157) is baked serially
-/// regardless of this flag.
+/// parallel-unsafe statement (`private_data.parallel_mode_ok == false`, #6157) or a query
+/// ineligible for MPP (`!mpp_eligible`, #5784) is baked serially regardless of this flag.
 fn bake_logical_plan(
     private_data: &mut PrivateData,
     custom_exprs: *mut pg_sys::List,
     force_serial: bool,
 ) {
-    let force_serial = force_serial || !private_data.parallel_mode_ok;
+    let force_serial = force_serial
+        || !mpp_eligible(
+            private_data.parallel_mode_ok,
+            &private_data.join_clause.plan,
+        );
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("Failed to create tokio runtime");
@@ -2258,12 +2344,12 @@ impl JoinScan {
             return Err(JoinPathDecline::Quiet);
         }
 
-        let join_rel = planning::find_final_rel(root);
-        let lower_rel = if !join_rel.is_null() {
-            &*join_rel
-        } else {
-            input_rel
+        // `input_rel` is the last upper rel below FINAL, so its own paths are
+        // still live; the join rel's `cheapest_total_path` may not be.
+        let Some(lower_path) = planning::find_live_lower_path(root, input_rel) else {
+            return Err(JoinPathDecline::Quiet);
         };
+        let lower_rel = &*(*lower_path).parent;
 
         let sources = datafusion_build::collect_join_agg_sources(root, lower_rel);
         if sources.is_empty() {
@@ -2308,7 +2394,7 @@ impl JoinScan {
 
         // Inspect lower join path predicates
         let path_info = match datafusion_build::check_join_path_predicates(
-            root, lower_rel, &sources,
+            root, lower_path, &sources,
         ) {
             datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
@@ -2328,6 +2414,18 @@ impl JoinScan {
         let (mut plan, multi_table_clauses) =
             datafusion_build::extract_join_tree_from_parse(root, &sources, path_info)
                 .map_err(|e| warn(JoinDeclineReason::new(format!("JoinScan not used: {e}"))))?;
+
+        // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
+        // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
+        // The planner can simplify the operator out of the quals, so the query as written counts too.
+        if !crate::gucs::enable_custom_scan_without_operator()
+            && !plan.has_search_predicate()
+            && !sources
+                .iter()
+                .any(|source| search_operator_relations::applies_to(root, source.rti))
+        {
+            return Err(JoinPathDecline::Quiet);
+        }
 
         let unsupported = plan.unsupported_join_types();
         if !unsupported.is_empty() {
@@ -2353,11 +2451,6 @@ impl JoinScan {
         let (join_clause, limit_offset) =
             Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
 
-        // Need at least one search predicate in the plan.
-        if !join_clause.plan.has_search_predicate() {
-            return Err(JoinPathDecline::Quiet);
-        }
-
         let path = Self::finalize_clause_into_path(
             root,
             output_rel,
@@ -2375,6 +2468,92 @@ impl JoinScan {
             aliases,
             multi_table_clauses,
         })
+    }
+
+    /// Resolves any deferred CTIDs (which are stored as packed DocAddresses) in `batch` into real
+    /// PostgreSQL CTIDs.
+    ///
+    /// For each active `ctid_{plan_position}` column in the batch:
+    /// - If all values are already resolved CTIDs (or NULLs), does nothing.
+    /// - Otherwise, groups unresolved DocAddresses by segment ordinal, performs batch lookups via
+    ///   the relation's `FFHelper`, and replaces the column with fully resolved CTIDs.
+    fn resolve_batch_ctids(
+        batch: &mut RecordBatch,
+        relations: &crate::api::HashMap<usize, scan_state::RelationState>,
+    ) {
+        if batch.num_rows() == 0 {
+            return;
+        }
+
+        let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
+        let mut modified = false;
+
+        for (plan_position, rel_state) in relations {
+            let Some(col_idx) = rel_state.ctid_col_idx else {
+                continue;
+            };
+            let Some(ctid_array) = columns[col_idx].as_any().downcast_ref::<UInt64Array>() else {
+                continue;
+            };
+
+            let tagged_rows: Vec<(usize, tantivy::DocAddress)> = (0..ctid_array.len())
+                .filter_map(|row_idx| {
+                    if !ctid_array.is_null(row_idx)
+                        && let Some(doc_addr) =
+                            DeferredCtid(ctid_array.value(row_idx)).doc_address()
+                    {
+                        Some((row_idx, doc_addr))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if tagged_rows.is_empty() {
+                continue;
+            }
+
+            let ffhelper = rel_state.ffhelper.as_ref().unwrap_or_else(|| {
+                panic!(
+                    "FFHelper must be present on RelationState for plan_position {plan_position} \
+                     to resolve deferred CTIDs"
+                )
+            });
+
+            let mut new_values = ctid_array.values().to_vec();
+
+            crate::index::fast_fields_helper::for_each_segment(
+                ffhelper.num_segments(),
+                tagged_rows.into_iter(),
+                |seg_ord, rows| {
+                    let doc_ids: Vec<tantivy::DocId> =
+                        rows.iter().map(|(_, doc_id)| *doc_id).collect();
+                    let mut fetched_ctids = vec![None; doc_ids.len()];
+                    ffhelper.ctid(seg_ord).as_u64s(&doc_ids, &mut fetched_ctids);
+
+                    for ((row_idx, _), maybe_ctid) in rows.into_iter().zip(fetched_ctids) {
+                        let ctid = maybe_ctid.unwrap_or_else(|| {
+                            panic!(
+                                "CTID fast field missing for visible doc in segment {seg_ord}, plan_position {plan_position}"
+                            )
+                        });
+                        new_values[row_idx] = ctid;
+                    }
+                    Ok(())
+                },
+            )
+            .expect("for_each_segment failed during CTID resolution");
+
+            let new_array =
+                UInt64Array::new(ScalarBuffer::from(new_values), ctid_array.nulls().cloned());
+            columns[col_idx] = Arc::new(new_array) as ArrayRef;
+            modified = true;
+        }
+
+        if modified {
+            *batch = RecordBatch::try_new(batch.schema(), columns)
+                .expect("Failed to rebuild RecordBatch after resolving deferred CTIDs");
+        }
     }
 
     /// Build a result tuple from the current joined row.
@@ -2404,8 +2583,8 @@ impl JoinScan {
         for col_info in &output_columns {
             let plan_position = match col_info {
                 privdat::OutputColumnInfo::Var { plan_position, .. } => *plan_position,
-                privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
-                privdat::OutputColumnInfo::Pruned
+                privdat::OutputColumnInfo::Score { .. }
+                | privdat::OutputColumnInfo::Pruned
                 | privdat::OutputColumnInfo::Unnested { .. }
                 | privdat::OutputColumnInfo::WindowAgg { .. }
                 | privdat::OutputColumnInfo::Expression => {
@@ -2430,10 +2609,36 @@ impl JoinScan {
                     ctid_array.value(row_idx)
                 };
                 let rel_state = state.custom_state_mut().relations.get_mut(&plan_position)?;
-                if !rel_state
+                // The ctid arrives in one of two shapes. On a page that is not all-visible the
+                // visibility check resolves it to the chain member, and a member is heap-only,
+                // which the index fetch rejects at chain start. On an all-visible page it stays
+                // the root the index holds, and a pruned root is a redirect the direct fetch
+                // cannot follow.
+                debug_assert!(
+                    DeferredCtid(ctid).is_ctid(),
+                    "JoinScan: unresolved deferred ctid ({ctid}) reached build_result_tuple for source {plan_position}"
+                );
+                let fetched = rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)
-                {
+                    || rel_state
+                        .visibility_checker
+                        .exec_if_visible(ctid, rel_state.fetch_slot, |_| ())
+                        .is_some();
+                // A miss means the two fetches do not cover some ctid shape, not that the
+                // row is gone. Skipping it drops the row, and on an outer join that takes
+                // the preserved side's columns with it, so the loss is silent and far from
+                // its cause. Fail loudly where tests and DST can see it, and fix the fetch.
+                //
+                // Null-extending instead would be worse: the source did match, so blanking
+                // its columns claims a no-match row that never existed.
+                debug_assert!(
+                    fetched,
+                    "JoinScan: no heap tuple for source {plan_position} at ctid ({}, {})",
+                    ctid >> 16,
+                    ctid & 0xffff
+                );
+                if !fetched {
                     return None;
                 }
                 pg_sys::slot_getallattrs(rel_state.fetch_slot);
@@ -2449,6 +2654,7 @@ impl JoinScan {
         // Fill the result slot based on the output column mapping
         let datums = (*result_slot).tts_values;
         let nulls = (*result_slot).tts_isnull;
+
         let batch = state.custom_state().current_batch.as_ref()?;
 
         for (i, col_info) in output_columns.iter().enumerate() {
@@ -2515,11 +2721,17 @@ impl JoinScan {
                     *nulls.add(i) = is_null;
                 }
                 privdat::OutputColumnInfo::WindowAgg { agg_index } => {
+                    // use the canonical index for cases of duplicate definitions
+                    let agg_index = state
+                        .custom_state()
+                        .join_clause
+                        .window_aggs
+                        .canonical_index(*agg_index);
                     let window_agg = state
                         .custom_state()
                         .join_clause
                         .window_aggs
-                        .get(*agg_index)
+                        .get(agg_index)
                         .expect("A window agg output column should always have a valid index");
                     let Some(col_idx) = state
                         .custom_state()
@@ -2532,22 +2744,64 @@ impl JoinScan {
                         continue;
                     };
                     let agg_col = batch.column(col_idx);
-                    let numeric = match numeric_window_field(
-                        window_agg.agg_type,
-                        window_agg.arg_field_type(),
-                    ) {
-                        Ok(f) => f,
-                        Err(e) => pgrx::error!(
-                            "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
-                        ),
+                    let try_maybe_datum = match &window_agg.agg_def {
+                        WindowAggDef::Sql(sql) => {
+                            let numeric = match numeric_window_field(
+                                sql.agg_type(),
+                                sql.arg_field_type(),
+                            ) {
+                                Ok(f) => f,
+                                Err(e) => pgrx::error!(
+                                    "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
+                                ),
+                            };
+                            datafusion_agg_to_datum(
+                                matches!(sql.agg_type(), SupportedWindowAggType::Avg),
+                                numeric,
+                                window_agg.result_type.0,
+                                agg_col.as_ref(),
+                                row_idx,
+                            )
+                        }
+                        WindowAggDef::PdbAgg(_) => {
+                            debug_assert_single_document(agg_col.as_ref());
+                            let mut window_agg_datums =
+                                state.custom_state().window_agg_datums.borrow_mut();
+                            match window_agg_datums.get(&agg_index) {
+                                Some(d) => Ok(*d),
+                                None => {
+                                    // Reused for every row of the scan: allocate in the window agg
+                                    // context so we can clear it between scans. Do the conversion
+                                    // in a scratch context so the intermediates get dropped
+                                    // immediately.
+                                    let ctx = state
+                                        .custom_state()
+                                        .window_agg_ctx
+                                        .expect("should have been initialized in begin_scan");
+                                    let tmp_ctx = pg_sys::AllocSetContextCreateExtended(
+                                        ctx,
+                                        c"ParadeDB Join Scan pdb.agg scratch".as_ptr(),
+                                        pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+                                        pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+                                        pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+                                    );
+                                    let datum = PgMemoryContexts::For(tmp_ctx).switch_to(|_| {
+                                        let datum =
+                                            json_document_to_datum(agg_col.as_ref(), row_idx)?;
+                                        Ok(datum.map(|d| {
+                                            PgMemoryContexts::For(ctx)
+                                                .switch_to(|_| pg_sys::datumCopy(d, false, -1))
+                                        }))
+                                    });
+                                    pg_sys::MemoryContextDelete(tmp_ctx);
+                                    if let Ok(d) = datum {
+                                        window_agg_datums.insert(agg_index, d);
+                                    }
+                                    datum
+                                }
+                            }
+                        }
                     };
-                    let try_maybe_datum = datafusion_agg_to_datum(
-                        matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
-                        numeric,
-                        window_agg.result_type.0,
-                        agg_col.as_ref(),
-                        row_idx,
-                    );
                     let maybe_datum = match try_maybe_datum {
                         Ok(d) => d,
                         Err(e) => pgrx::error!("Failed to convert window agg result to datum: {e}"),

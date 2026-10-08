@@ -552,7 +552,10 @@ pub(crate) mod pdb {
     define_tokenizer_type!(
         "ChineseCompatibleDef",
         ChineseCompatible,
-        SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default()),
+        SearchTokenizer::ChineseCompatible {
+            chinese_convert: None,
+            filters: SearchTokenizerFilters::default(),
+        },
         tokenize_chinese_compatible,
         json_to_chinese_compatible,
         jsonb_to_chinese_compatible,
@@ -590,6 +593,7 @@ pub(crate) mod pdb {
         Jieba,
         SearchTokenizer::Jieba {
             chinese_convert: None,
+            search_mode: true,
             filters: SearchTokenizerFilters::default(),
         },
         tokenize_jieba,
@@ -970,7 +974,7 @@ fn literal_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
     let parsed_typmod = ParsedTypmod::try_from(&typmod_parts).unwrap();
     if parsed_typmod.len() == 1 && matches!(parsed_typmod[0].key(), Some("alias")) {
         drop(parsed_typmod);
-        return save_typmod(typmod_parts.iter()).expect("should not fail to save typmod");
+        return save_typmod(typmod_parts.iter()).unwrap_or_else(|e| e.report());
     }
 
     ErrorReport::new(
@@ -1015,8 +1019,7 @@ fn alias_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
         CString::new(format!("alias={raw}")).unwrap()
     };
 
-    save_typmod(std::iter::once(Some(normalized.as_c_str())))
-        .expect("should not fail to save typmod")
+    save_typmod(std::iter::once(Some(normalized.as_c_str()))).unwrap_or_else(|e| e.report())
 }
 
 extension_sql!(

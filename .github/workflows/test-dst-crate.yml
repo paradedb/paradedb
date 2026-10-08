@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache: false
           rustflags: "" # Use .cargo/config.toml target-cpu flags
@@ -43,7 +43,7 @@ jobs:
       # .cargo/config.toml links Linux builds with LLD. The GitHub-hosted image
       # currently ships it, but install it explicitly rather than depend on that.
       - name: Install LLD
-        uses: paradedb/actions/apt-install@v12
+        uses: paradedb/actions/apt-install@v14
         with:
           packages: --no-install-recommends lld
 

@@ -26,10 +26,11 @@
 //! Future phases of the dedup work will move the shared session-builder helpers
 //! and the `RelNode` family of relation-tree types into this module as well.
 
+use arrow_array::{Array, UInt64Array};
 use datafusion::common::ScalarValue;
 use datafusion::error::{DataFusionError, Result};
-use datafusion::logical_expr::AggregateUDF;
 use datafusion::logical_expr::function::AccumulatorArgs;
+use datafusion::logical_expr::{AggregateUDF, ScalarUDF};
 use datafusion::physical_plan::expressions::Literal;
 use std::sync::Arc;
 
@@ -38,15 +39,36 @@ pub mod explain;
 mod expr_translators;
 pub mod memory;
 pub mod numeric_agg;
+pub mod pdb_agg_udaf;
 pub mod spill;
 pub mod timestamp_to_date;
+pub mod topk_agg;
 pub mod translator;
 
-/// Resolve a pg_search aggregate UDAF by name, for the plan codecs. These
-/// functions are not in any session registry, so serialized plans (parallel
-/// and MPP dispatch) decode them through here.
+/// All pg_search aggregate UDAFs, registered into SessionState so plans referencing
+/// them can resolve them by name across plan serialization and dispatch.
+pub fn all_pg_search_udafs() -> Vec<Arc<AggregateUDF>> {
+    vec![
+        numeric_agg::numeric64_sum_udaf(),
+        numeric_agg::numeric64_avg_udaf(),
+        numeric_agg::numeric_bytes_sum_udaf(),
+        numeric_agg::numeric_bytes_avg_udaf(),
+        cardinality_agg::tantivy_cardinality_udaf(),
+        pdb_agg_udaf::pdb_agg_udaf(),
+        topk_agg::topk_as_agg_udaf(),
+    ]
+}
+
+/// All stateless pg_search scalar UDFs registered into SessionState.
+pub fn all_pg_search_udfs() -> Vec<Arc<ScalarUDF>> {
+    vec![timestamp_to_date::timestamp_to_date_udf()]
+}
+
+/// Resolve a pg_search aggregate UDAF by name, for the plan codecs.
 pub fn udaf_by_name(name: &str) -> Option<Arc<AggregateUDF>> {
-    numeric_agg::udaf_by_name(name).or_else(|| cardinality_agg::udaf_by_name(name))
+    all_pg_search_udafs()
+        .into_iter()
+        .find(|udaf| udaf.name() == name)
 }
 
 /// The literal argument at `index` of a UDAF call. A per-call setting travels
@@ -76,4 +98,13 @@ pub(crate) fn reject_distinct(args: &AccumulatorArgs, name: &str) -> Result<()> 
         )));
     }
     Ok(())
+}
+
+pub(crate) fn fill_nulls_u64(arr: Arc<dyn Array>, fill: u64) -> Result<Arc<dyn Array>> {
+    use datafusion::arrow::compute::{is_not_null, kernels::zip::zip};
+    if arr.null_count() == 0 {
+        return Ok(arr);
+    }
+    let filled = zip(&is_not_null(&arr)?, &arr, &UInt64Array::new_scalar(fill))?;
+    Ok(filled)
 }

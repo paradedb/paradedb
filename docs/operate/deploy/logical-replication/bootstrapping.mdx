@@ -1,0 +1,93 @@
+---
+title: Initial Sync and Indexing
+description: Wait for the initial copy, build ParadeDB indexes, and query replicated data
+canonical: https://www.paradedb.com/docs/operate/deploy/logical-replication/bootstrapping
+---
+
+After [configuring logical replication](/operate/deploy/logical-replication/getting-started), follow these steps to prepare your replica for queries.
+
+## Operating Model
+
+When ParadeDB is used as a logical subscriber:
+
+1. Your application writes to tables on the publisher
+2. Postgres logical replication applies those row changes to matching tables
+   on ParadeDB
+3. ParadeDB maintains ParadeDB indexes locally on the subscriber
+4. Search and analytics queries run against ParadeDB instead of the primary
+
+This keeps the source database authoritative while isolating search traffic from
+OLTP traffic.
+
+<Note>
+  Logical replication copies row changes into ParadeDB, but it does not copy
+  ParadeDB indexes from the publisher. For the deployment described in this
+  guide, build the ParadeDB indexes directly on the ParadeDB subscriber.
+</Note>
+
+## 1. Wait for the Initial Copy to Finish
+
+By default, logical replication starts with an initial copy of the existing data. Let Postgres finish copying the base table data before you build ParadeDB indexes.
+This avoids extra indexing work during the bootstrap phase.
+
+### Initial-Copy Parallelism
+
+`max_sync_workers_per_subscription` controls how many tables a subscription
+can copy at once when it is created or refreshed. The default is `2`. Raising
+it lets multi-table subscriptions copy more tables at once, but requires more
+slots and workers. See [Replication Configuration](/operate/deploy/logical-replication/configuration#choosing-publication-and-subscription-boundaries)
+for capacity settings.
+
+### Checking Copy Progress
+
+On ParadeDB, you can check whether the initial copy is still running with:
+
+```sql
+SELECT
+  subname,
+  worker_type,
+  CASE WHEN relid = 0 THEN NULL ELSE relid::regclass END AS table_name,
+  latest_end_time
+FROM pg_stat_subscription
+ORDER BY 1, 2, 3;
+```
+
+The initial copy is complete when there are no remaining rows with
+`worker_type = 'table synchronization'`. If you want a stricter per-table
+check, run:
+
+```sql
+SELECT srrelid::regclass AS table_name, srsubstate
+FROM pg_subscription_rel
+ORDER BY 1;
+```
+
+The initial copy is complete when every replicated table is in state `r`
+(`ready`).
+
+## 2. Build ParadeDB Indexes
+
+Once the replicated tables are caught up, create ParadeDB indexes locally on the ParadeDB logical replica:
+
+```sql
+CREATE INDEX mock_items_search_idx ON public.mock_items
+USING paradedb (id, description, category, rating);
+```
+
+After this, ongoing replicated `INSERT`, `UPDATE`, and `DELETE` operations will
+keep the ParadeDB index current automatically.
+
+## 3. Query ParadeDB
+
+Your application can now issue queries to ParadeDB without adding
+indexes to the primary database:
+
+```sql
+SELECT description, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
+```
+
+For more query examples, see [Run Your First Queries](/start/run-queries).

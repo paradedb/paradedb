@@ -1,5 +1,5 @@
 -- Regression test for issue 5177.
--- When `WHERE` has a cross-table OR like `(u.name @@@ 'bob') OR (p.name @@@ 'bob')`
+-- When `WHERE` has a cross-table OR like `(u.name ||| 'bob') OR (p.name ||| 'bob')`
 -- and PG pushes that OR into an inner sub-join's `joinrestrictinfo`, the outer
 -- JoinScan's path reconstruction silently dropped `RestrictInfo` clauses that
 -- contain `@@@`. The cross-table OR was then lost and the WHERE was effectively
@@ -17,19 +17,13 @@ DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;
 
 CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
-CREATE INDEX idxusers ON users USING paradedb (id, name)
-  WITH (
-        text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX idxusers ON users USING paradedb (id, (name::pdb.literal));
 
 CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
-CREATE INDEX idxproducts ON products USING paradedb (id, name, age)
-  WITH (
-        text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-        numeric_fields = '{"age": {"fast": true}}');
+CREATE INDEX idxproducts ON products USING paradedb (id, (name::pdb.literal), age);
 
 CREATE TABLE orders (id INTEGER PRIMARY KEY, age INTEGER);
-CREATE INDEX idxorders ON orders USING paradedb (id, age)
-  WITH (numeric_fields = '{"age": {"fast": true}}');
+CREATE INDEX idxorders ON orders USING paradedb (id, age);
 
 -- Joinable on users.id = products.id and products.age = orders.age.
 -- For each (u, p, o) triple, only some satisfy `u.name='bob' OR p.name='bob'`.
@@ -88,16 +82,16 @@ SELECT 'BM25' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
-   OR (products.name @@@ 'bob')
+WHERE (users.name ||| 'bob') AND (NOT (products.name ||| 'bob'))
+   OR (products.name ||| 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
 
 SELECT 'BM25' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
-   OR (products.name @@@ 'bob')
+WHERE (users.name ||| 'bob') AND (NOT (products.name ||| 'bob'))
+   OR (products.name ||| 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
 
 DROP TABLE users CASCADE;

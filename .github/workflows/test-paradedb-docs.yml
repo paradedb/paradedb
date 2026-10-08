@@ -10,6 +10,8 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/scripts/**"
+      - ".github/actions/setup-postgres/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-paradedb-docs.yml"
       - "docs/**"
   workflow_dispatch:
@@ -32,7 +34,7 @@ jobs:
       - family=c7g+c8g
       - cpu=8
       - ram=16
-      - image=ubuntu24-full-arm64
+      - image=ubuntu26-full-arm64
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
@@ -47,31 +49,15 @@ jobs:
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+      # Reuse the shared cache without saving entries from this workflow.
+      - name: Set Up pg_search Toolchain
+        uses: ./.github/actions/setup-pg-search-toolchain
         with:
-          cache: false
-          rustflags: "" # Use .cargo/config.toml target-cpu flags
-
-      - name: Extract pgrx Version
-        id: pgrx
-        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
-
-      # Cache notes:
-      # - Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
-      #   See test-pg_search.yml for rationale.
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          prefix-key: "v3-rust-cache"
-          shared-key: pg${{ matrix.pg_version }}
-          cache-targets: true
-          cache-all-crates: true
-          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
-          save-if: false
+          pg_version: ${{ matrix.pg_version }}
+          cache_save: "false"
 
       - name: Install System Dependencies
-        uses: paradedb/actions/apt-install@v12
+        uses: paradedb/actions/apt-install@v14
         with:
           packages: libsecret-1-dev libopenblas-dev lld
 
@@ -119,9 +105,9 @@ jobs:
           echo "Checking that each file has title, description, and canonical URL..."
           missing_meta=0
           for file in $(find . -name "*.mdx" \
-            ! -path "./changelog/*" \
-            ! -path "./snippets/*" \
-            ! -path "./welcome/support.mdx"); do
+            ! -path "./changelog/unreleased/*" \
+            ! -path "./project/changelog/*" \
+            ! -path "./snippets/*"); do
 
             title=$(grep -E "^title:" "$file" || true)
             desc=$(grep -E "^description:" "$file" || true)
@@ -156,26 +142,19 @@ jobs:
 
           echo "🎉 All SEO checks passed!"
 
-      - name: Install pgrx
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
+      - name: Lint Changelog Fragments
+        run: python3 .github/scripts/release.py lint-fragments --changelog-only
 
-      - name: Initialize pgrx Environment
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
-
-      - name: Add pgrx PostgreSQL binaries to PATH
-        run: echo "$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n 1)" >> $GITHUB_PATH
-
-      - name: Install pgvector (pgrx-managed Postgres)
-        run: |
-          git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
-          cd pgvector/
-          PG_CONFIG=$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config | head -n 1)
-          make PG_CONFIG="$PG_CONFIG" -j
-          make PG_CONFIG="$PG_CONFIG" install -j
+      - name: Set Up PostgreSQL (pgrx)
+        id: postgres
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: ${{ matrix.pg_version }}
+          pg_impl: pgrx
 
       - name: Compile & install pg_search extension (pgrx)
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},block_tracker"
+        run: cargo pgrx install --pg-config "${{ steps.postgres.outputs.pg_config }}" --features="pg${{ matrix.pg_version }},block_tracker"
 
       - name: Add extension to shared_preload_libraries
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/

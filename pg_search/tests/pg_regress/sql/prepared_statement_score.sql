@@ -19,7 +19,7 @@ SELECT
   description,
   paradedb.score(id) AS score
 FROM mock_items
-WHERE description @@@ $1        
+WHERE description ||| $1
 AND $2 = 0
 ORDER BY score DESC
 LIMIT 5;
@@ -54,7 +54,7 @@ SELECT
   description,
   paradedb.score(id) AS score
 FROM mock_items
-WHERE description @@@ $1        
+WHERE description ||| $1
 AND $2 = 0
 ORDER BY score DESC
 LIMIT 5;
@@ -82,7 +82,7 @@ SELECT
   description,
   paradedb.score(id) AS score
 FROM mock_items
-WHERE description @@@ $1        
+WHERE description ||| $1
 ORDER BY score DESC
 LIMIT 5;
 
@@ -102,7 +102,7 @@ SELECT
   description,
   pdb.score(id) AS score
 FROM mock_items
-WHERE description @@@ $1        
+WHERE description ||| $1
 AND $2 = 0
 ORDER BY score DESC
 LIMIT 5;
@@ -126,7 +126,7 @@ SELECT
   description,
   pdb.score(id) AS score
 FROM mock_items
-WHERE description @@@ $1
+WHERE description ||| $1
 AND $2 = 0
 ORDER BY score DESC
 LIMIT 10;
@@ -159,7 +159,7 @@ SELECT
   rating,
   pdb.score(id) AS score
 FROM mock_items
-WHERE description @@@ $1
+WHERE description ||| $1
 AND rating > $2
 AND $3 = 0
 ORDER BY score DESC

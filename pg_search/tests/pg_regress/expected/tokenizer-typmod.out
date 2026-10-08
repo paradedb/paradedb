@@ -296,7 +296,7 @@ DROP TABLE IF EXISTS edge_ngram_e2e;
 CREATE TABLE edge_ngram_e2e (id serial8 NOT NULL PRIMARY KEY, name text);
 INSERT INTO edge_ngram_e2e (name) VALUES ('PostgreSQL'), ('ParadeDB'), ('Paragraph');
 CREATE INDEX idx_edge_ngram_e2e ON edge_ngram_e2e USING paradedb (id, (name::pdb.edge_ngram(2, 10)));
-SELECT name FROM edge_ngram_e2e WHERE name @@@ 'par' ORDER BY name;
+SELECT name FROM edge_ngram_e2e WHERE name ||| 'par' ORDER BY name;
    name    
 -----------
  ParadeDB
@@ -484,9 +484,9 @@ SELECT 'Running Shoes.  olé'::pdb.literal_normalized('lowercase=false', 'stemme
 
 -- Invalid configurations
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmmer=english')::text[];
-ERROR:  Invalid option: 'stemmmer'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'stemmmer'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, pnorms, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 SELECT 'Running Shoes.  olé'::pdb.simple('min=english')::text[];
-ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, normalizer, pnorms, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=foo')::text[];
 ERROR:  Cannot parse value of 'ascii_folding=foo'
 SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=f')::text[];

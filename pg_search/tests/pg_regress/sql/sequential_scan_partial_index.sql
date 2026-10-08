@@ -49,7 +49,7 @@ $$;
 
 SET plan_cache_mode = force_generic_plan;
 PREPARE partial_index_lookup(text) AS
-SELECT id FROM partial_index_fallback WHERE body @@@ $1 ORDER BY id;
+SELECT id FROM partial_index_fallback WHERE body ||| $1 ORDER BY id;
 EXECUTE partial_index_lookup('allowed');
 EXECUTE partial_index_lookup('denied');
 DEALLOCATE partial_index_lookup;
@@ -99,7 +99,7 @@ USING paradedb (id, (lower(body)::pdb.literal('alias=lower_body')))
 WHERE active AND priority > 0;
 SET plan_cache_mode = force_generic_plan;
 PREPARE strict_partial_lookup(text) AS
-SELECT id, lower(body) @@@ $1 AS search_match FROM partial_index_fallback ORDER BY id;
+SELECT id, lower(body) ||| $1 AS search_match FROM partial_index_fallback ORDER BY id;
 EXECUTE strict_partial_lookup('allowed');
 EXECUTE strict_partial_lookup('denied');
 DEALLOCATE strict_partial_lookup;

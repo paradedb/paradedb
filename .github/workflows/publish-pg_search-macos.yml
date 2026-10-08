@@ -1,9 +1,7 @@
 # workflows/publish-pg_search-macos.yml
 #
 # Publish pg_search (macOS)
-# Build and publish the pg_search extension for macOS as .pkg to GitHub Releases. This
-# workflow is triggered on creation of a GitHub Tag, but beta releases get filtered
-# out by the `if` condition of the job.
+# Build and publish the pg_search extension for macOS as signed .pkg installers to GitHub Releases.
 
 name: Publish pg_search (macOS)
 
@@ -14,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        description: "The existing GitHub Release version to upload to, without the v prefix (e.g. 0.25.9). Builds the selected branch or tag."
         required: true
         default: ""
 
@@ -88,9 +86,11 @@ jobs:
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          if [ -z "${INPUTS_VERSION}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
               VERSION=${GITHUB_REF#refs/tags/v}
             else
@@ -98,7 +98,7 @@ jobs:
               VERSION="0.0.0"
             fi
           else
-            VERSION=${{ github.event.inputs.version }}
+            VERSION="${INPUTS_VERSION}"
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
@@ -130,7 +130,9 @@ jobs:
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
-        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        env:
+          STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
+        run: cargo install --locked cargo-pgrx --version "${STEP_PGRX_VERSION}" --debug
 
       - name: Initialize pgrx Environment
         working-directory: pg_search/
@@ -179,6 +181,9 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
       - name: Create .pkg Package
+        env:
+          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          STEP_VERSION_OS_VERSION: ${{ steps.version.outputs.os_version }}
         run: |
           # Retrieve the built pg_search extension
           mkdir archive
@@ -187,7 +192,7 @@ jobs:
 
           # Variables for directory structure and versioning
           pg_version=${{ matrix.pg_version }}
-          tag_version=${{ steps.version.outputs.tag_version }}
+          tag_version="${STEP_VERSION_TAG_VERSION}"
           package_dir="pg_search-${tag_version}-arm64-pg${pg_version}"
 
           # Define Homebrew PostgreSQL paths
@@ -241,7 +246,7 @@ jobs:
                   --install-location /opt/homebrew/opt/paradedb \
                   --scripts ~/tmp/pg_search_postinstall_script/ \
                   --sign "Developer ID Installer" \
-                  pg_search@${{ matrix.pg_version }}--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
+                  pg_search@${{ matrix.pg_version }}--${tag_version}."arm64_${STEP_VERSION_OS_VERSION}.pkg"
 
       # Submit the signed pkg to Apple's notary service and staple the ticket onto it
       # so Gatekeeper accepts the installer on first open, even offline. Authenticates
@@ -252,9 +257,11 @@ jobs:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          STEP_VERSION_OS_VERSION: ${{ steps.version.outputs.os_version }}
         run: |
           set -euo pipefail
-          PKG="pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg"
+          PKG="pg_search@${{ matrix.pg_version }}--${STEP_VERSION_TAG_VERSION}.arm64_${STEP_VERSION_OS_VERSION}.pkg"
           echo "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
           xcrun notarytool submit "$PKG" \
             --key "$RUNNER_TEMP/AuthKey.p8" \
@@ -265,7 +272,7 @@ jobs:
           rm -f "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the .pkg. Works without GitHub Enterprise;
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.
@@ -279,10 +286,11 @@ jobs:
         id: upload_url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }})
+            "/repos/${GITHUB_REPOSITORY}/releases/tags/v""${STEP_VERSION_TAG_VERSION}")
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
@@ -309,7 +317,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: failure()
-        uses: paradedb/actions/slack-alert@v12
+        uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

@@ -57,7 +57,7 @@ fn crash_in_subquery(mut conn: PgConnection) {
                     from
                       paradedb.index_layer_info as ref_1
                     where (cast(null as float8) >= cast(null as float8))
-                      and (subq_0.c3 @@@ ref_1.relname)
+                      and (subq_0.c3 @@@ pdb.parse_with_field(ref_1.relname::text))
                     limit 117) as subq_1
               where case when (select count from paradedb.index_layer_info limit 1 offset 3)
                        > cast(null as int2) then cast(nullif(cast(null as "time"),

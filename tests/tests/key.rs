@@ -38,8 +38,7 @@ fn boolean_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -83,8 +82,7 @@ fn uuid_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -133,9 +131,9 @@ fn uuid_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value @@@ 'blue'
+    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value ||| 'blue'
     UNION
-    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
+    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value ||| 'tooth'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -164,8 +162,7 @@ fn i64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -196,9 +193,9 @@ fn i64_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 
     let rows: Vec<(i64, String)> = r#"
-    SELECT id, pdb.snippet(value) FROM test_table WHERE value @@@ 'blue'
+    SELECT id, pdb.snippet(value) FROM test_table WHERE value ||| 'blue'
     UNION
-    SELECT id, pdb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
+    SELECT id, pdb.snippet(value) FROM test_table WHERE value ||| 'tooth'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -227,8 +224,7 @@ fn i32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -281,8 +277,7 @@ fn i16_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -335,8 +330,7 @@ fn f32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -389,8 +383,7 @@ fn f64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -443,8 +436,7 @@ fn numeric_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -497,8 +489,7 @@ fn string_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -569,8 +560,7 @@ fn date_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -623,8 +613,7 @@ fn time_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -677,8 +666,7 @@ fn timestamp_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -731,8 +719,7 @@ fn timestamptz_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -763,9 +750,9 @@ fn timestamptz_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value @@@ 'blue'
+    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value ||| 'blue'
     UNION
-    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
+    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value ||| 'tooth'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -794,8 +781,7 @@ fn timetz_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
@@ -854,8 +840,7 @@ fn inet_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_index ON test_table USING paradedb (id, value)
-    WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+    CREATE INDEX test_index ON test_table USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 

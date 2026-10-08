@@ -1,0 +1,30 @@
+---
+title: Set Up Your Coding Agent
+sidebarTitle: Set Up Your Coding Agent
+description: Teach your coding agent to use ParadeDB
+canonical: https://www.paradedb.com/docs/start/ai-agents
+---
+
+Install the ParadeDB agent skill to help your coding agent write queries and build applications with ParadeDB.
+
+```bash
+npx skills add paradedb/agent-skills
+```
+
+This installs `paradedb-skill` into your agent's skills directory and works with all major coding assistants. For manual and tool-specific setup instructions, see the [agent-skills repository](https://github.com/paradedb/agent-skills).
+
+## MCP Integration
+
+The ParadeDB documentation is available via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for direct integration with MCP-compatible agents.
+
+**MCP Endpoint:**
+
+```text
+https://www.paradedb.com/docs/mcp
+```
+
+This allows MCP-enabled tools to query ParadeDB documentation programmatically and provide contextual assistance.
+
+### Cursor Plugin
+
+For Cursor users, the easiest way to access the MCP server is with the [official plugin](https://cursor.com/marketplace/parade-db).

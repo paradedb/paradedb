@@ -27,28 +27,22 @@ INSERT INTO products_2024 (product_name, amount, sale_date) VALUES
 ('Wireless Headphones', 150.00, '2024-03-25');
 -- Create BM25 indexes on both tables
 CREATE INDEX idx_products_2023_bm25 ON products_2023
-USING paradedb (id, product_name, amount, sale_date)
-WITH (
-    text_fields = '{"product_name": {}}'
-);
+USING paradedb (id, product_name, amount, sale_date);
 CREATE INDEX idx_products_2024_bm25 ON products_2024
-USING paradedb (id, product_name, amount, sale_date)
-WITH (
-    text_fields = '{"product_name": {}}'
-);
+USING paradedb (id, product_name, amount, sale_date);
 -- Create view that combines both tables
 CREATE VIEW products_view AS
 SELECT * FROM products_2023
 UNION ALL
 SELECT * FROM products_2024;
 -- Test individual table searches work correctly
-SELECT id, product_name FROM products_2023 WHERE product_name @@@ 'laptop' ORDER BY id;
+SELECT id, product_name FROM products_2023 WHERE product_name ||| 'laptop' ORDER BY id;
  id | product_name 
 ----+--------------
   1 | Laptop
 (1 row)
 
-SELECT id, product_name FROM products_2024 WHERE product_name @@@ 'tablet' ORDER BY id;
+SELECT id, product_name FROM products_2024 WHERE product_name ||| 'tablet' ORDER BY id;
  id | product_name 
 ----+--------------
   1 | Tablet
@@ -63,9 +57,9 @@ SELECT id, product_name FROM products_view WHERE product_name LIKE '%Laptop%' OR
 
 -- The main test: This should work without throwing "Cannot open relation with oid=Oid(0)"
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, product_name FROM products_view WHERE product_name @@@ 'laptop OR tablet' ORDER BY id;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, product_name FROM products_view WHERE (product_name ||| 'laptop' OR product_name ||| 'tablet') ORDER BY id;
+                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: products_2023.id
    ->  Append
@@ -74,16 +68,16 @@ SELECT id, product_name FROM products_view WHERE product_name @@@ 'laptop OR tab
                Index: idx_products_2023_bm25
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"product_name","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"product_name","value":"tablet","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
          ->  Custom Scan (ParadeDB Base Scan) on products_2024
                Table: products_2024
                Index: idx_products_2024_bm25
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"product_name","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"product_name","value":"tablet","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (15 rows)
 
-SELECT id, product_name FROM products_view WHERE product_name @@@ 'laptop OR tablet' ORDER BY id;
+SELECT id, product_name FROM products_view WHERE (product_name ||| 'laptop' OR product_name ||| 'tablet') ORDER BY id;
  id | product_name 
 ----+--------------
   1 | Laptop
@@ -93,11 +87,11 @@ SELECT id, product_name FROM products_view WHERE product_name @@@ 'laptop OR tab
 -- Test with more complex query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, product_name, amount FROM products_view 
-WHERE product_name @@@ 'laptop OR tablet OR computer' 
+WHERE (product_name ||| 'laptop' OR product_name ||| 'tablet' OR product_name ||| 'computer')
 AND amount > 100 
 ORDER BY amount DESC;
-                                                                                                                                            QUERY PLAN                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: products_2023.amount DESC
    ->  Append
@@ -106,17 +100,17 @@ ORDER BY amount DESC;
                Index: idx_products_2023_bm25
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet OR computer","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"amount","lower_bound":{"excluded":"100"},"upper_bound":null}}]}}
+               Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"product_name","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"product_name","value":"tablet","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"product_name","value":"computer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},{"range":{"field":"amount","lower_bound":{"excluded":"100"},"upper_bound":null}}]}}
          ->  Custom Scan (ParadeDB Base Scan) on products_2024
                Table: products_2024
                Index: idx_products_2024_bm25
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet OR computer","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"amount","lower_bound":{"excluded":"100"},"upper_bound":null}}]}}
+               Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"product_name","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"product_name","value":"tablet","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"product_name","value":"computer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},{"range":{"field":"amount","lower_bound":{"excluded":"100"},"upper_bound":null}}]}}
 (15 rows)
 
 SELECT id, product_name, amount FROM products_view 
-WHERE product_name @@@ 'laptop OR tablet OR computer' 
+WHERE (product_name ||| 'laptop' OR product_name ||| 'tablet' OR product_name ||| 'computer')
 AND amount > 100 
 ORDER BY amount DESC;
  id |   product_name   | amount  

@@ -9,7 +9,7 @@ CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
-CREATE INDEX on mock_items USING paradedb (id, description, rating, category, metadata) WITH (json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
+CREATE INDEX on mock_items USING paradedb (id, description, rating, category, (metadata::pdb.literal_normalized('lowercase=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, rating, COUNT(*)
 FROM mock_items
@@ -17,23 +17,21 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: id, rating
-         ->  HashAggregate
-               Group Key: id
-               ->  Custom Scan (ParadeDB Base Scan) on mock_items
-                     Table: mock_items
-                     Index: mock_items_id_description_rating_category_metadata_idx
-                     Exec Method: ColumnarExecState
-                     Columnar: id, rating
-                     Scores: false
-                     Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: mock_items_id_description_rating_category_metadata_idx (mock_items)
+               Group By: id, rating
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : AggregateExec: mode=Single, gby=[id@0 as id, rating@1 as rating], aggr=[count(1) as agg_0]
+                 :   CooperativeExec
+                 :     PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+(12 rows)
 
 SELECT id, rating, COUNT(*)
 FROM mock_items
@@ -41,7 +39,6 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
  id | rating | count 
 ----+--------+-------
   1 |      4 |     1

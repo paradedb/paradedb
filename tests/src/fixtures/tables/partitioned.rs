@@ -16,15 +16,16 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use chrono::{NaiveDate, NaiveDateTime};
-use soa_derive::StructOfArray;
 use sqlx::FromRow;
 
-#[derive(Debug, PartialEq, FromRow, StructOfArray, Default)]
-pub struct PartitionedTable {
-    pub id: i32,
-    pub sale_date: NaiveDateTime,
-    pub amount: f32,
-    pub description: String,
+fixture_table! {
+    #[derive(Debug, PartialEq, FromRow, Default)]
+    pub struct PartitionedTable => PartitionedTableVec {
+        pub id: i32,
+        pub sale_date: NaiveDateTime,
+        pub amount: f32,
+        pub description: String,
+    }
 }
 
 impl PartitionedTable {
@@ -50,9 +51,6 @@ BEGIN;
       FOR VALUES FROM ('2023-04-01') TO ('2023-06-30');
 
     CREATE INDEX sales_index ON sales
-      USING paradedb (id, description, sale_date, amount)
-      WITH (
-        numeric_fields='{"amount": {"fast": true}}'
-      );
+      USING paradedb (id, description, sale_date, amount);
 COMMIT;
 "#;

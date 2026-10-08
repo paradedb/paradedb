@@ -75,7 +75,12 @@ run_psql_file() {
     printf '%s\n' "$output" >&2
   fi
 
-  if grep -Eq '(^|:) WARNING:' <<<"$output"; then
+  # Historical changelog snippets retain the deprecated option. Current docs
+  # must run without deprecation warnings.
+  if [[ "$sql_file" == */project__changelog__* ]]; then
+    output="$(grep -Ev 'WARNING:  key_field is deprecated as of 0\.26\.0 and is a no-op; it no longer needs to be provided$' <<<"$output" || true)"
+  fi
+  if grep -E '(^|:) WARNING:' <<<"$output" >/dev/null; then
     return 1
   fi
 }
@@ -124,7 +129,7 @@ if [[ $ORMS =~ "django" ]]; then
 
   echo "Installing Django ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "django-paradedb==0.12.0" \
+    "django-paradedb==0.14.0" \
     "django-cte>=2.0" \
     "psycopg[binary]"
 
@@ -133,7 +138,7 @@ if [[ $ORMS =~ "django" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Eq 'schema_editor\.add_index' "$snippet_file"; then
+    if ! grep -Eq 'schema_editor\.add_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -161,7 +166,7 @@ if [[ $ORMS =~ "rails" ]]; then
   echo "Installing rails-paradedb from RubyGems..."
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
-    "rails-paradedb:0.12.0" \
+    "rails-paradedb:0.13.0" \
     "pg" \
     "json:<3"
 
@@ -170,7 +175,7 @@ if [[ $ORMS =~ "rails" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Fq 'add_paradedb_index' "$snippet_file"; then
+    if ! grep -Eq 'add_paradedb_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -205,7 +210,7 @@ if [[ $ORMS =~ "sqlalchemy" ]]; then
 
   echo "Installing SQLAlchemy ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "sqlalchemy-paradedb==0.11.0" \
+    "sqlalchemy-paradedb==0.12.0" \
     "psycopg[binary]"
 
   while IFS= read -r snippet_file; do
@@ -213,7 +218,7 @@ if [[ $ORMS =~ "sqlalchemy" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Fq 'idx.create' "$snippet_file"; then
+    if ! grep -Eq 'idx\.create|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -242,7 +247,7 @@ if [[ $ORMS =~ "drizzle" ]]; then
   # Keep the Drizzle version aligned with the integration's peer dependency.
   # Skip peer resolution for Drizzle's unused optional integrations (e.g. effect).
   npm --prefix "$JAVASCRIPT_ENV_DIR" install --legacy-peer-deps \
-    "@paradedb/drizzle-paradedb@0.5.0" \
+    "@paradedb/drizzle-paradedb@0.6.0" \
     "drizzle-orm@1.0.0-rc.4" \
     "postgres" \
     "tsx"
@@ -253,7 +258,7 @@ if [[ $ORMS =~ "drizzle" ]]; then
     run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
     drop_snippet_indexes
 
-    if ! grep -Fq 'paradedbIndex' "$snippet_file"; then
+    if ! grep -Eq 'paradedbIndex|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -284,7 +289,7 @@ if [[ $ORMS =~ "efcore" ]]; then
   echo "Installing ParadeDB.EntityFrameworkCore from NuGet..."
   dotnet new console --framework net10.0 --output "$CSHARP_ENV_DIR" >/dev/null
   dotnet add "$CSHARP_ENV_DIR" package ParadeDB.EntityFrameworkCore \
-    --version 0.3.0 \
+    --version 0.4.0 \
     >/dev/null
   dotnet restore "$CSHARP_ENV_DIR" -p:NuGetAudit=false >/dev/null
 

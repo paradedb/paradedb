@@ -17,14 +17,17 @@
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
+use crate::index::reader::io_stats::Trace;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::buffile::{BufFileReleaseGuard, create_temp_buffile};
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryImmutable,
-    SegmentMetaEntryMutable, bm25_max_free_space,
+    CTID_MAP_EXT, FileEntry, MVCCEntry, STATS_EXT, SegmentFileDetails, SegmentMetaEntry,
+    SegmentMetaEntryContent, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+    bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
@@ -34,6 +37,7 @@ use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Debug, Display};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
@@ -45,15 +49,91 @@ use tantivy::directory::error::{
 };
 use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
-    WatchCallback, WatchHandle,
+    TempFilePtr, WatchCallback, WatchHandle,
 };
-use tantivy::index::{SegmentComponent, SegmentId, SegmentMetaInventory};
+use tantivy::index::{SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 
 /// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
 /// We want to write more at a time so we can allocate chunks of blocks all at once,
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
+
+/// PostgreSQL-owned spill file for Tantivy merge-local temporary payloads.
+///
+/// `BufFileCreateTemp(false)` registers the file with PostgreSQL's resource
+/// owner and temporary-file accounting, so it is removed on normal close,
+/// transaction abort, backend exit, or process failure. It never enters the
+/// immutable segment-component map.
+struct PgTempFile {
+    file: *mut pg_sys::BufFile,
+    release_guard: Arc<BufFileReleaseGuard>,
+}
+
+impl PgTempFile {
+    fn create() -> Self {
+        let release_guard = BufFileReleaseGuard::register();
+        let file = unsafe { create_temp_buffile() };
+        Self {
+            file,
+            release_guard,
+        }
+    }
+}
+
+impl Read for PgTempFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        Ok(unsafe { pg_sys::BufFileRead(self.file, buf.as_mut_ptr().cast(), buf.len()) })
+    }
+}
+
+impl Write for PgTempFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        unsafe {
+            #[cfg(feature = "pg15")]
+            pg_sys::BufFileWrite(self.file, buf.as_ptr() as *mut std::ffi::c_void, buf.len());
+            #[cfg(not(feature = "pg15"))]
+            pg_sys::BufFileWrite(self.file, buf.as_ptr().cast(), buf.len());
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // BufFileSeek flushes pending writes before the read phase. There is
+        // no independent BufFile flush API.
+        Ok(())
+    }
+}
+
+impl Seek for PgTempFile {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        if position != SeekFrom::Start(0) {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "PostgreSQL quantization spill files support rewind only",
+            ));
+        }
+        let result = unsafe {
+            pg_sys::BufFileSeek(self.file, 0, 0, 0 /* SEEK_SET */)
+        };
+        if result != 0 {
+            return Err(io::Error::other(format!(
+                "BufFileSeek rewind failed with status {result}"
+            )));
+        }
+        Ok(0)
+    }
+}
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `may_close` already refuses the
+// close while unwinding, after the owner released the file, and outside a transaction.
+impl Drop for PgTempFile {
+    fn drop(&mut self) {
+        if self.release_guard.may_close() {
+            unsafe { pg_sys::BufFileClose(self.file) }
+        }
+    }
+}
 
 /// The `(max_doc, num_deleted_docs)` pair of a mutable segment's meta entry as one reader
 /// loaded it. A mutable segment is materialized from the heap on open, from the prefix of its
@@ -294,6 +374,7 @@ type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
 /// and should back all Tantivy Indexes used in insert and scan operations
 #[derive(Debug, Clone)]
 pub struct MVCCDirectory {
+    pub(crate) io_stats: Option<Trace>,
     //
     // NB:  Directories get cloned, **A LOT**, by tantivy.  As such, it should be cheap, especially
     // in terms of memory usage, to clone this struct.
@@ -327,8 +408,13 @@ impl MVCCDirectory {
         Self::with_mvcc_style(index_relation, MvccSatisfies::ParallelWorker(view))
     }
 
+    pub fn indexrel(&self) -> &PgSearchRelation {
+        &self.indexrel
+    }
+
     pub fn with_mvcc_style(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Self {
         Self {
+            io_stats: None,
             indexrel: Clone::clone(index_relation),
             mvcc_style: Arc::new(mvcc_style),
 
@@ -341,6 +427,25 @@ impl MVCCDirectory {
             total_docs: Default::default(),
             heap_fetch_state: Default::default(),
             expression_state: Default::default(),
+        }
+    }
+
+    /// Take over this directory's pins on the segments it loaded. See [`SegmentPins`].
+    pub fn segment_pins(&self) -> SegmentPins {
+        SegmentPins {
+            _pin_cushion: self.pin_cushion.clone(),
+        }
+    }
+
+    /// A short name for the visibility style, for diagnostics that must not print a whole
+    /// [`SegmentView`].
+    pub fn mvcc_style_name(&self) -> &'static str {
+        match &*self.mvcc_style {
+            MvccSatisfies::ParallelWorker(_) => "parallel-worker replay",
+            MvccSatisfies::LargestSegment => "largest segment",
+            MvccSatisfies::Snapshot => "snapshot",
+            MvccSatisfies::Vacuum => "vacuum",
+            MvccSatisfies::Mergeable => "mergeable",
         }
     }
 
@@ -374,6 +479,19 @@ impl MVCCDirectory {
             .unwrap_or(false)
     }
 
+    /// Whether a mutable segment's in-memory index has been built. `None` for a persisted
+    /// segment or an unknown id.
+    #[cfg(any(test, feature = "pg_test"))]
+    pub(crate) fn mutable_segment_materialized(&self, segment_id: &SegmentId) -> Option<bool> {
+        self.all_entries
+            .lock()
+            .get(segment_id)
+            .and_then(|entry| match entry {
+                LoadedSegmentMetaEntry::Memory { directory, .. } => Some(directory.get().is_some()),
+                LoadedSegmentMetaEntry::Persisted { .. } => None,
+            })
+    }
+
     fn file_entry(&self, path: &Path) -> tantivy::Result<Arc<dyn FileHandle>> {
         let file_name = path
             .file_name()
@@ -401,9 +519,10 @@ impl MVCCDirectory {
                     SegmentComponentReader::new(
                         &self.indexrel,
                         file_entry,
-                        path.extension()
-                            .and_then(|ext| ext.to_str())
-                            .and_then(|ext| SegmentComponent::try_from(ext).ok()),
+                        self.io_stats.as_ref().and_then(|stats| {
+                            path.component_type()
+                                .map(|component| stats.component(&component))
+                        }),
                     )
                 }))
             }
@@ -413,6 +532,15 @@ impl MVCCDirectory {
                 directory,
                 ..
             } => {
+                // Mutable segments have neither plugin component; avoid materializing them for a probe.
+                if matches!(
+                    path.extension().and_then(|ext| ext.to_str()),
+                    Some(STATS_EXT | CTID_MAP_EXT)
+                ) {
+                    return Err(TantivyError::OpenDirectoryError(
+                        OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+                    ));
+                }
                 let file_handle = directory
                     .get_or_init(|| {
                         let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
@@ -526,13 +654,15 @@ impl MVCCDirectory {
 impl Directory for MVCCDirectory {
     /// Returns a segment reader that implements std::io::Read
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        match self.readers.lock().entry(path.to_path_buf()) {
-            Entry::Occupied(reader) => Ok(reader.get().clone()),
-            Entry::Vacant(vacant) => match self.file_entry(path) {
-                Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
-                Err(err) => {
-                    let file_entry =
-                        if let Some((file_entry, total_bytes)) = self.new_files.lock().get(path) {
+        let reader: Result<Arc<dyn FileHandle>, OpenReadError> =
+            match self.readers.lock().entry(path.to_path_buf()) {
+                Entry::Occupied(reader) => Ok(reader.get().clone()),
+                Entry::Vacant(vacant) => match self.file_entry(path) {
+                    Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
+                    Err(err) => {
+                        let file_entry = if let Some((file_entry, total_bytes)) =
+                            self.new_files.lock().get(path)
+                        {
                             FileEntry {
                                 starting_block: file_entry.starting_block,
                                 total_bytes: total_bytes.load(Ordering::Relaxed),
@@ -552,20 +682,22 @@ impl Directory for MVCCDirectory {
                                 filepath: PathBuf::from(path),
                             });
                         };
-                    Ok(vacant
-                        .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(
-                                &self.indexrel,
-                                file_entry,
-                                path.extension()
-                                    .and_then(|ext| ext.to_str())
-                                    .and_then(|ext| SegmentComponent::try_from(ext).ok()),
-                            )
-                        }))
-                        .clone())
-                }
-            },
-        }
+                        Ok(vacant
+                            .insert(Arc::new(unsafe {
+                                SegmentComponentReader::new_uncommitted(
+                                    &self.indexrel,
+                                    file_entry,
+                                    self.io_stats.as_ref().and_then(|stats| {
+                                        path.component_type()
+                                            .map(|component| stats.component(&component))
+                                    }),
+                                )
+                            }))
+                            .clone())
+                    }
+                },
+            };
+        reader
     }
     /// delete is called by Tantivy's garbage collection
     /// We handle this ourselves in amvacuumcleanup
@@ -586,6 +718,10 @@ impl Directory for MVCCDirectory {
             (writer.file_entry(), writer.total_bytes()),
         );
         Ok(Box::new(writer))
+    }
+
+    fn open_temp_file(&self) -> io::Result<TempFilePtr> {
+        Ok(Box::new(PgTempFile::create()))
     }
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
@@ -624,6 +760,10 @@ impl Directory for MVCCDirectory {
     /// Returns a list of all segment components to Tantivy,
     /// identified by `<uuid>.<ext>` PathBufs
     fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
+        let _io = self
+            .io_stats
+            .as_ref()
+            .map(|stats| stats.external("Metadata"));
         unsafe {
             Ok(MetaPage::open(&self.indexrel)
                 .segment_metas()
@@ -691,6 +831,10 @@ impl Directory for MVCCDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
+        let _io = self
+            .io_stats
+            .as_ref()
+            .map(|stats| stats.external("Metadata"));
         let loaded_metas = self.loaded_metas.get_or_init(|| unsafe {
             match load_metas(
                 &self.indexrel,
@@ -867,6 +1011,19 @@ impl Directory for MVCCDirectory {
 #[repr(transparent)]
 pub struct PinCushion(HashMap<pg_sys::BlockNumber, PinnedBuffer>);
 
+/// Keeps one reader's pins on its segments alive after that reader is gone.
+///
+/// A merge marks the segments it consumed as deleted and leaves their blocks in place;
+/// [`SegmentMetaEntry::recyclable`] then reports them recyclable as soon as nothing pins them, and
+/// a [`MvccSatisfies::ParallelWorker`] replay skips a recyclable segment. So a scan that replaces
+/// its reader while the shared work queue still hands out those segments holds this until the
+/// replacement reader has taken its own pins. Dropping it releases them.
+#[must_use]
+pub struct SegmentPins {
+    // Held for its `Drop`, never read: releasing the `PinnedBuffer`s is the whole point.
+    _pin_cushion: Arc<Mutex<Option<PinCushion>>>,
+}
+
 impl PinCushion {
     pub fn push(&mut self, bman: &BufferManager, entry: &SegmentMetaEntry) {
         let blockno = entry.pintest_blockno();
@@ -1001,17 +1158,31 @@ pub fn index_memory_segment(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use tantivy::postings::Postings;
 
+    use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::SegmentMetaEntryContent;
 
     use pgrx::prelude::*;
 
     #[pg_test]
+    #[should_panic(expected = "temporary file size exceeds")]
+    fn test_temp_file_drop_preserves_write_error() {
+        Spi::run("SET LOCAL temp_file_limit = '1kB'").unwrap();
+        let mut file = PgTempFile::create();
+        file.write_all(&[0u8; pg_sys::BLCKSZ as usize * 2]).unwrap();
+    }
+
+    #[pg_test]
     unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        Spi::run(
+            "CREATE INDEX t_idx ON t USING paradedb \
+             (id, data, (data::pdb.simple('alias=with_pnorms', 'pnorms=true')))",
+        )
+        .unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -1025,11 +1196,32 @@ mod tests {
             todo!("test_list_meta_entries");
         };
         assert!(entry.field_norms.is_some());
+        assert!(entry.posting_norms.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());
         assert!(entry.positions.is_some());
         assert!(entry.terms.is_some());
         assert!(entry.delete.is_none());
+
+        let reader = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).unwrap();
+        for segment in reader.segment_readers() {
+            let schema = segment.schema();
+            let plain = schema.get_field("data").unwrap();
+            let enabled = schema.get_field("with_pnorms").unwrap();
+            for (field, pnorms) in [(plain, false), (enabled, true)] {
+                let postings = segment
+                    .inverted_index(field)
+                    .unwrap()
+                    .read_postings(
+                        &tantivy::Term::from_field_text(field, "test"),
+                        tantivy::schema::IndexRecordOption::WithFreqs,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(postings.fieldnorm_id().is_some(), pnorms);
+            }
+            assert!(segment.get_fieldnorms_reader(enabled).is_ok());
+        }
     }
 
     /// A reader replaying a [`SegmentView`] must expose the view's ordinal order and, for a
@@ -1038,8 +1230,6 @@ mod tests {
     /// the readers a JoinScan opens in different processes.
     #[pg_test]
     unsafe fn test_segment_view_replays_origin_reader() {
-        use crate::index::reader::index::SearchIndexReader;
-
         Spi::run("CREATE TABLE t (id SERIAL8, data TEXT);").unwrap();
         // Two immutable segments of unequal size, then a small batch that lands in the
         // mutable segment.
@@ -1113,5 +1303,102 @@ mod tests {
                 o.segment_id()
             );
         }
+    }
+
+    /// A parallel scan publishes its segment view before any participant reads from it, and a
+    /// merge can retire those segments while the claims for them are still outstanding. Two
+    /// things then keep a participant able to resolve its claims, and this test pins both: the
+    /// replay itself, because a plain [`MvccSatisfies::Snapshot`] open lists only what is
+    /// undeleted at that moment, and the origin reader's pins, because a retired segment reads
+    /// as recyclable the moment nothing holds them.
+    #[pg_test]
+    unsafe fn test_segment_view_replays_retired_segments() {
+        // `target_segment_count = 1` keeps the merge policy engaged and `layer_sizes` puts a
+        // foreground layer in reach, so the merge below is synchronous with the insert that
+        // triggers it. No background layers keeps the background merger out of it.
+        Spi::run(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, title TEXT NOT NULL);
+             CREATE INDEX t_idx ON t USING paradedb (id, title)
+             WITH (target_segment_count = 1, layer_sizes = '1kb', background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO t SELECT g, 'silver dragon ' || g FROM generate_series(1, 10) g;
+             SET paradedb.global_mutable_segment_rows = 10000;
+             INSERT INTO t SELECT g, 'mutable ' || g FROM generate_series(11, 15) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .expect("fixture setup");
+        pg_sys::CommandCounterIncrement();
+
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        let origin =
+            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open origin");
+        let view = origin.segment_view();
+        let published = view.ids().collect::<Vec<_>>();
+        assert_eq!(published.len(), 2, "one sealed and one mutable segment");
+
+        // What a scan keeps when it replaces its reader: the reader goes, its pins stay.
+        let pins = origin.segment_pins();
+        drop(origin);
+
+        // A mutable segment is mergeable once the index stops collecting rows into one, and it
+        // is then a merge candidate on its own. This insert creates a segment, so its cleanup
+        // runs the foreground merge that retires the published ones.
+        Spi::run(
+            "SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO t SELECT g, 'quiet river ' || g FROM generate_series(16, 25) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .expect("merge trigger");
+        pg_sys::CommandCounterIncrement();
+
+        let fresh =
+            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open fresh");
+        let live = fresh.segment_ids();
+        let retired = published
+            .iter()
+            .filter(|id| !live.contains(id))
+            .collect::<Vec<_>>();
+        assert!(
+            !retired.is_empty(),
+            "the merge must retire at least one published segment: published={published:?}, live={live:?}"
+        );
+
+        let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(view))
+            .expect("open replay");
+        assert_eq!(
+            replay.segment_ids(),
+            published,
+            "the published view still resolves every segment it pinned"
+        );
+        drop(replay);
+
+        // The pins are load-bearing, not belt and braces: with nothing holding them the same
+        // entries report recyclable, and a replay drops a recyclable segment.
+        assert_eq!(count_recyclable(&retired), 0, "held pins block recycling");
+        drop(pins);
+        assert_eq!(
+            count_recyclable(&retired),
+            retired.len() as i64,
+            "released pins let every retired segment become recyclable"
+        );
+    }
+
+    fn count_recyclable(segment_ids: &[&SegmentId]) -> i64 {
+        let list = segment_ids
+            .iter()
+            .map(|id| format!("'{}'", id.short_uuid_string()))
+            .collect::<Vec<_>>()
+            .join(",");
+        Spi::get_one(&format!(
+            "SELECT count(*) FROM paradedb.index_info('t_idx', show_invisible => true) \
+             WHERE recyclable AND segno IN ({list})"
+        ))
+        .expect("spi should succeed")
+        .unwrap()
     }
 }

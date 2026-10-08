@@ -54,7 +54,7 @@ FROM (
     SELECT p.id
     FROM numeric64_dynamic_build b
     JOIN numeric64_dynamic_probe p ON b.amount = p.amount
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -79,7 +79,7 @@ FROM issue_6158_explain_analyze_lines(
     'SELECT p.id
      FROM numeric64_dynamic_build b
      JOIN numeric64_dynamic_probe p ON b.amount = p.amount
-     WHERE b.body @@@ ''wanted''
+     WHERE b.body ||| ''wanted''
      ORDER BY p.id
      LIMIT 10'
 ) AS line;
@@ -113,7 +113,7 @@ FROM (
     SELECT p.id
     FROM numeric64_dynamic_build b
     JOIN numeric64_dynamic_probe p ON b.amount = p.amount
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -163,7 +163,7 @@ FROM (
     SELECT p.id
     FROM numeric64_edge_build b
     JOIN numeric64_edge_probe p ON b.amount = p.amount
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -173,7 +173,7 @@ FROM (
     SELECT p.id
     FROM numeric64_edge_build b
     JOIN numeric64_edge_probe p ON b.whole = p.whole
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -186,7 +186,7 @@ FROM (
     SELECT p.id
     FROM numeric64_edge_build b
     JOIN numeric64_edge_probe p ON b.amount = p.amount
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -196,7 +196,7 @@ FROM (
     SELECT p.id
     FROM numeric64_edge_build b
     JOIN numeric64_edge_probe p ON b.whole = p.whole
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;

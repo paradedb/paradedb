@@ -26,10 +26,7 @@ INSERT INTO events (description, occurred_at, occurred_at_tz) VALUES
     ('echo event',    '2024-01-05 14:00:00', '2024-01-05 14:00:00+00');
 
 CREATE INDEX events_idx ON events
-USING paradedb (id, description, occurred_at, occurred_at_tz)
-WITH (
-    text_fields = '{"description": {}}'
-);
+USING paradedb (id, description, occurred_at, occurred_at_tz);
 
 -- =====================================================================
 -- 1. Datetime-as-Datum returns round-trip identically
@@ -46,12 +43,16 @@ ORDER BY id;
 
 SELECT id
 FROM events
-WHERE occurred_at @@@ '[2024-01-02T00:00:00Z TO 2024-01-04T00:00:00Z}'
+WHERE id @@@ pdb.all()
+  AND occurred_at >= '2024-01-02T00:00:00Z'::timestamp
+  AND occurred_at < '2024-01-04T00:00:00Z'::timestamp
 ORDER BY id;
 
 SELECT id
 FROM events
-WHERE occurred_at_tz @@@ '[2024-01-02T00:00:00Z TO 2024-01-04T00:00:00Z}'
+WHERE id @@@ pdb.all()
+  AND occurred_at_tz >= '2024-01-02T00:00:00Z'::timestamptz
+  AND occurred_at_tz < '2024-01-04T00:00:00Z'::timestamptz
 ORDER BY id;
 
 -- =====================================================================

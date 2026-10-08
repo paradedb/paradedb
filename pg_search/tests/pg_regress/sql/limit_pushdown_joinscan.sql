@@ -97,8 +97,7 @@ CREATE INDEX lj_companies_bm25 ON lj_companies
 USING paradedb (id, name);
 
 CREATE INDEX lj_people_bm25 ON lj_people
-USING paradedb (id, company_id, name, dept_id, email, seniority_slug)
-WITH (numeric_fields = '{"company_id": {"fast": true}, "dept_id": {"fast": true}}');
+USING paradedb (id, company_id, name, dept_id, email, seniority_slug);
 
 -- No BM25 index on lj_excluded_contacts — must remain non-BM25 for Test 13.
 

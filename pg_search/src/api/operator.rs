@@ -341,10 +341,23 @@ impl ReturnedNodePointer {
 
     unsafe fn for_support_cost(request: *mut pg_sys::SupportRequestCost) -> Self {
         unsafe {
-            // Heap execution materializes matching CTIDs, so keep its function cost high enough
-            // that PostgreSQL prefers the index AM whenever one is available.
-            (*request).startup = per_tuple_cost();
-            (*request).per_tuple = per_tuple_cost();
+            let root = (*request).root;
+            let node = (*request).node;
+            // A projected match can't steer path choice and only costs a set lookup per row.
+            if !root.is_null()
+                && (*root)
+                    .processed_tlist
+                    .cast::<pg_sys::Node>()
+                    .any(|n| std::ptr::eq(n, node))
+            {
+                (*request).startup = 0.0;
+                (*request).per_tuple = pg_sys::cpu_operator_cost;
+            } else {
+                // Heap execution materializes matching CTIDs, so keep its function cost high enough
+                // that PostgreSQL prefers the index AM whenever one is available.
+                (*request).startup = per_tuple_cost();
+                (*request).per_tuple = per_tuple_cost();
+            }
             Self::from_node(request.cast())
         }
     }
@@ -665,9 +678,9 @@ fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
     crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
 }
 
-/// Open a single-segment (`LargestSegment`) reader and estimate matching docs,
+/// Reuse the supplied reader, or open the largest segment, to estimate matching docs,
 /// total docs, and the query's Tantivy `DocSet::cost()` in one pass. The single
-/// source for both `estimate_selectivity` and `estimate_query_cost`.
+/// source for both `estimate_selectivity` and planner traversal estimates.
 ///
 /// Returns `None` if the reader can't be opened (e.g. a transient/concurrent-DDL
 /// failure); callers degrade gracefully rather than crash planning. The same open
@@ -675,6 +688,7 @@ fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
 fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    reader: Option<&SearchIndexReader>,
 ) -> Option<DocsEstimate> {
     // A partitioned index has no storage of its own (#4643), so estimate each leaf
     // partition and aggregate. A predicate above an Append covers every partition, which
@@ -686,7 +700,7 @@ fn open_and_estimate_docs(
             query_cost: 0,
         };
         for partition in leaf_partition_indexes(indexrel) {
-            let estimate = open_and_estimate_docs(&partition, search_query_input.clone())?;
+            let estimate = open_and_estimate_docs(&partition, search_query_input.clone(), None)?;
             aggregate.matching_docs += estimate.matching_docs;
             aggregate.total_docs += estimate.total_docs;
             aggregate.query_cost += estimate.query_cost;
@@ -699,21 +713,27 @@ fn open_and_estimate_docs(
         .expect("indexrel should be an index");
     let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
-    let search_reader = SearchIndexReader::open(
-        indexrel,
-        search_query_input,
-        false,
-        MvccSatisfies::LargestSegment,
-    )
-    .ok()?;
-
-    Some(search_reader.estimate_docs(row_estimate))
+    let opened;
+    let reader = match reader {
+        Some(reader) => reader,
+        None => {
+            opened = SearchIndexReader::open(
+                indexrel,
+                search_query_input,
+                false,
+                MvccSatisfies::LargestSegment,
+            )
+            .ok()?;
+            &opened
+        }
+    };
+    Some(reader.estimate_docs(row_estimate))
 }
 
 /// One index open, both planning answers: selectivity (matching/total docs) and the
 /// query's Tantivy `DocSet::cost()`. basescan path generation needs both for the same
 /// combined query, so it opens once here instead of calling `estimate_selectivity` and
-/// `estimate_query_cost` back-to-back.
+/// a separate traversal estimate back-to-back.
 ///
 /// Returns `(selectivity, query_cost)`:
 /// - expensive-to-estimate query (#4172): `(selectivity_heuristic, scaled match estimate)`
@@ -724,6 +744,7 @@ fn open_and_estimate_docs(
 pub(crate) fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    reader: Option<&SearchIndexReader>,
 ) -> (Option<f64>, Option<u64>) {
     if estimate_heuristically(&search_query_input) {
         // #4172 skips opening the index, so derive the work estimate from the same
@@ -739,7 +760,7 @@ pub(crate) fn estimate_selectivity_and_cost(
         return (Some(selectivity), cost);
     }
 
-    let Some(estimate) = open_and_estimate_docs(indexrel, search_query_input) else {
+    let Some(estimate) = open_and_estimate_docs(indexrel, search_query_input, reader) else {
         return (None, None);
     };
 
@@ -753,7 +774,7 @@ pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<f64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).0
+    estimate_selectivity_and_cost(indexrel, search_query_input, None).0
 }
 
 /// The estimated number of heap rows matching `search_query_input`, scaled from the
@@ -766,6 +787,7 @@ pub(crate) fn estimate_selectivity(
 pub(crate) fn estimate_matching_rows(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
+    reader: Option<&SearchIndexReader>,
 ) -> Option<u64> {
     if estimate_heuristically(&search_query_input) {
         let selectivity = search_query_input.selectivity_heuristic();
@@ -775,19 +797,17 @@ pub(crate) fn estimate_matching_rows(
             .map(|reltuples| (selectivity * reltuples as f64) as u64);
     }
 
-    open_and_estimate_docs(indexrel, search_query_input)
+    open_and_estimate_docs(indexrel, search_query_input, reader)
         .map(|estimate| estimate.matching_docs as u64)
 }
 
-/// Estimate the query's Tantivy `DocSet::cost()` -- a synthetic measure of how much work
-/// driving the docset takes -- for the score-DESC TopK worker decision
-/// (`decide_nonprunable_topk_workers`). `None` (caller falls back to the general worker
-/// path) for expensive-to-estimate queries (#4172) and when the index can't be opened.
+/// Estimate the query's traversal cost using the shared selectivity/cost estimator.
+/// Returns `None` if the index cannot be opened, or an expensive query has no row estimate.
 pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input).1
+    estimate_selectivity_and_cost(indexrel, search_query_input, None).1
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {
@@ -889,8 +909,7 @@ pub unsafe fn field_name_from_node(
     if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node)
         && type_is_alias((*relabel).resulttype)
     {
-        let typmod =
-            AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| panic!("{e}"));
+        let typmod = AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| e.report());
         if let Some(alias) = typmod.alias() {
             return Some(FieldName::from(alias));
         }
@@ -1583,7 +1602,10 @@ unsafe fn find_node_relation(
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`
 ///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Var` along with its name.
-unsafe fn attname_from_var(heaprel: &PgSearchRelation, var: *mut pg_sys::Var) -> Option<FieldName> {
+pub(crate) unsafe fn attname_from_var(
+    heaprel: &PgSearchRelation,
+    var: *mut pg_sys::Var,
+) -> Option<FieldName> {
     if (*var).varattno == 0 {
         return None;
     }

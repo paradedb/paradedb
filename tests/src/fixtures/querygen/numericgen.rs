@@ -62,6 +62,8 @@ pub enum NumericExpr {
         low: String,
         high: String,
     },
+    /// Term-set expression: column IN (v1, v2, ...)
+    In { column: String, values: Vec<String> },
     /// Combined AND of two numeric expressions
     And(Box<NumericExpr>, Box<NumericExpr>),
     /// Combined OR of two numeric expressions
@@ -79,6 +81,9 @@ impl NumericExpr {
             }
             NumericExpr::Between { column, low, high } => {
                 format!("{} BETWEEN {} AND {}", column, low, high)
+            }
+            NumericExpr::In { column, values } => {
+                format!("{} IN ({})", column, values.join(", "))
             }
             NumericExpr::And(left, right) => {
                 format!("({}) AND ({})", left.to_sql(), right.to_sql())
@@ -272,8 +277,10 @@ pub fn arb_numeric_comparison<S: AsRef<str>>(
         .prop_flat_map(|col_info| {
             let column = col_info.full_name();
             let column_for_between = column.clone();
+            let column_for_in = column.clone();
             let values = col_info.sample_values.clone();
             let values_for_between = values.clone();
+            let values_for_in = values.clone();
 
             // Choose between simple comparison and BETWEEN
             prop_oneof![
@@ -304,6 +311,13 @@ pub fn arb_numeric_comparison<S: AsRef<str>>(
                             None
                         }
                     }),
+                // IN list (20% weight)
+                2 => proptest::sample::subsequence(values_for_in, 1..=3).prop_map(move |values| {
+                    NumericExpr::In {
+                        column: column_for_in.clone(),
+                        values,
+                    }
+                }),
             ]
         })
         .boxed()

@@ -191,6 +191,7 @@ SELECT count(*)
 FROM products p LEFT JOIN orders_part o ON o.order_id = p.product_id AND o.part_key = 0
 WHERE o.customer_name ||| 'John' OR p.description ||| 'blue';
 WARNING:  Aggregate Scan (DataFusion) not used: RTI 2 is not a plain relation (rtekind: 0), which is not supported (table: join)
+WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: o)
  count 
 -------
     43

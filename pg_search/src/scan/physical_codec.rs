@@ -44,6 +44,7 @@ use crate::index::mvcc::SegmentView;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::datafusion::udaf_by_name;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+use crate::scan::CtidResolver;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
@@ -109,18 +110,21 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             // `DeferredLookupRebuild` instead.
             TAG_VISIBILITY_FILTER => {
                 let input = single_input(inputs)?;
-                VisibilityFilterExec::decode_for_dispatch(payload, input)
+                let resolvers = collect_ctid_resolvers(&input);
+                VisibilityFilterExec::decode_for_dispatch(
+                    payload,
+                    input,
+                    resolvers,
+                    &self.index_segment_views,
+                )
             }
             TAG_TANTIVY_FETCH => {
                 let input = single_input(inputs)?;
                 let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
-                let resolvers = collect_ctid_resolvers(&input);
                 TantivyFetchExec::decode_for_dispatch(
                     payload,
                     input,
                     ffhelpers,
-                    resolvers,
-                    &self.index_segment_views,
                     self.parallel_state,
                 )
             }
@@ -137,16 +141,11 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             TAG_SEGMENTED_TOPK => {
                 let input = single_input(inputs)?;
                 let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
-                // Re-collect the live ctid resolvers from the decoded subtree so a dispatched
-                // fragment can rebuild its absorbed visibility data (same as VFExec above).
-                let resolvers = collect_ctid_resolvers(&input);
                 SegmentedTopKExec::decode_for_dispatch(
                     payload,
                     input,
                     ffhelpers,
-                    resolvers,
                     ctx,
-                    &self.index_segment_views,
                     self.parallel_state,
                     proto_converter,
                 )
@@ -212,9 +211,9 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         name: &str,
         _buf: &[u8],
     ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
-        // The pg_search UDAFs are stateless singletons resolved by name; they
-        // are not in any session registry, so a dispatched plan that references
-        // them must decode through here.
+        // The pg_search UDAFs are stateless singletons resolved by name. Although
+        // registered in SessionState, deserialization without a populated session
+        // (or via explicit codec decode) resolves them through here.
         udaf_by_name(name).ok_or_else(|| {
             DataFusionError::NotImplemented(format!(
                 "UDAF '{name}' deserialization not implemented"
@@ -267,15 +266,15 @@ fn single_input(inputs: &[Arc<dyn ExecutionPlan>]) -> Result<Arc<dyn ExecutionPl
     }
 }
 
-/// `(plan_position, indexrelid, ffhelper)` for each scan that resolves deferred ctids, for the
+/// `(plan_position, resolver)` for each scan that resolves deferred ctids, for the
 /// visibility exec.
-fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, u32, Arc<FFHelper>)> {
+fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, CtidResolver)> {
     let mut scans = Vec::new();
     collect_scan_runtime(input, &mut scans);
     scans
         .into_iter()
         .filter_map(|s| match (s.ctid_plan_position, s.ffhelper) {
-            (Some(pos), Some(ff)) => Some((pos, s.indexrelid, ff)),
+            (Some(pos), Some(ff)) => Some((pos, CtidResolver::new(s.indexrelid, ff))),
             _ => None,
         })
         .collect()

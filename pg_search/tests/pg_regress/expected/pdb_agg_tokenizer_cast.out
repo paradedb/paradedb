@@ -1,0 +1,428 @@
+-- pdb.agg() on fields indexed through a tokenizer cast. A bare cast keeps the
+-- column's value, so the join path reads it back like a plain column, and the
+-- SQL GROUP BY over the same join is the reference for each answer. A computed
+-- expression has no column behind it and stays out.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS pac_products, pac_orders CASCADE;
+CREATE TABLE pac_products (
+    id INTEGER PRIMARY KEY,
+    description TEXT,
+    name TEXT,
+    color VARCHAR,
+    category TEXT,
+    tags TEXT[],
+    price NUMERIC(10, 2)
+);
+CREATE TABLE pac_orders (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER,
+    status TEXT
+);
+INSERT INTO pac_products (id, description, name, color, category, tags, price)
+SELECT i,
+       'item ' || i,
+       (ARRAY['alice', 'bob', 'cloe'])[1 + i % 3],
+       CASE WHEN i % 4 = 0 THEN NULL ELSE (ARRAY['red', 'blue'])[1 + i % 2] END,
+       (ARRAY['home garden', 'toys'])[1 + i % 2],
+       CASE WHEN i % 5 = 0 THEN NULL ELSE ARRAY['sale', (ARRAY['new', 'old'])[1 + i % 2]] END,
+       (i * 1.25)::numeric(10, 2)
+FROM generate_series(1, 12) AS i;
+INSERT INTO pac_orders (id, product_id, status)
+SELECT i, 1 + i % 12, (ARRAY['open', 'shipped'])[1 + i % 2]
+FROM generate_series(1, 24) AS i;
+CREATE INDEX pac_products_idx ON pac_products USING paradedb (
+    id,
+    description,
+    (name::pdb.literal),
+    (color::pdb.literal),
+    (category::pdb.unicode_words('columnar=true')),
+    (tags::pdb.literal),
+    price,
+    (upper(name)::pdb.literal('alias=name_upper'))
+);
+CREATE INDEX pac_orders_idx ON pac_orders USING paradedb (
+    id,
+    product_id,
+    (status::pdb.literal('alias=order_status'))
+);
+-- Test 1: terms on a literal cast over a join
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name, COUNT(*)
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item'
+GROUP BY p.name
+ORDER BY p.name;
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.name, (count(*))
+   Sort Key: p.name
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.name, (count(*))
+         Backend: DataFusion
+         Indexes: pac_products_idx (p), pac_orders_idx (o)
+         Group By: name
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[name@0 as name], aggr=[count(1) as agg_0]
+           :   TantivyDecodeExec: decode=[name]
+           :     AggregateExec: mode=Partial, gby=[name@0 as name], aggr=[count(1) as agg_0]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[name@0]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=1, fetch=[name], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(18 rows)
+
+SELECT p.name, COUNT(*)
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item'
+GROUP BY p.name
+ORDER BY p.name;
+ name  | count 
+-------+-------
+ alice |     8
+ bob   |     8
+ cloe  |     8
+(3 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "name"}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item';
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (pdb.agg('{"terms": {"field": "name"}}'::jsonb))
+   Backend: DataFusion
+   Indexes: pac_products_idx (p), pac_orders_idx (o)
+   Aggregates: pdb.agg({"terms":{"field":"name"}})
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
+     :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :     TantivyDecodeExec: decode=[name]
+     :       AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (name@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[name@1]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, fetch=[name], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(15 rows)
+
+SELECT pdb.agg('{"terms": {"field": "name"}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item';
+                                                                                     agg                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "alice", "doc_count": 8}, {"key": "bob", "doc_count": 8}, {"key": "cloe", "doc_count": 8}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- Test 2: a VARCHAR cast with NULLs, under it an aliased cast from the other
+-- table, with a NUMERIC metric and a cardinality on a tokenized cast
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.color, o.status, COUNT(*), SUM(p.price), COUNT(DISTINCT p.category)
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item'
+GROUP BY p.color, o.status
+ORDER BY p.color, o.status;
+                                                                                                                                             QUERY PLAN                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.color, o.status, (count(*)), (sum(p.price)), (count(DISTINCT p.category))
+   Sort Key: p.color, o.status
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.color, o.status, (count(*)), (sum(p.price)), (count(DISTINCT p.category))
+         Backend: DataFusion
+         Indexes: pac_products_idx (p), pac_orders_idx (o)
+         Group By: color, order_status
+         Aggregates: COUNT(*), SUM(price), COUNT(DISTINCT)(category)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[color@0 as color, order_status@1 as order_status], aggr=[count(1) as agg_0, numeric64_sum(p_0.price, 2) as agg_1, count(DISTINCT p_0.category) as agg_2]
+           :   TantivyDecodeExec: decode=[color, order_status]
+           :     AggregateExec: mode=Partial, gby=[color@0 as color, order_status@3 as order_status], aggr=[count(1) as agg_0, numeric64_sum(p_0.price, 2) as agg_1, count(DISTINCT p_0.category) as agg_2]
+           :       TantivyFetchExec: fetch=[order_status]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, product_id@1)], projection=[color@0, price@1, category@2, order_status@4]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, fetch=[color], eager=[category], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(19 rows)
+
+SELECT p.color, o.status, COUNT(*), SUM(p.price), COUNT(DISTINCT p.category)
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item'
+GROUP BY p.color, o.status
+ORDER BY p.color, o.status;
+ color | status  | count |  sum  | count 
+-------+---------+-------+-------+-------
+ blue  | open    |    12 | 90.00 |     1
+ red   | shipped |     6 | 45.00 |     1
+       | shipped |     6 | 60.00 |     1
+(3 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "color", "order": {"_key": "asc"}}, "aggs": {"by_status": {"terms": {"field": "order_status", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}, "categories": {"cardinality": {"field": "category"}}}}}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item';
+                                                                                                                                                              QUERY PLAN                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (pdb.agg('{"aggs": {"by_status": {"aggs": {"total": {"sum": {"field": "price"}}, "categories": {"cardinality": {"field": "category"}}}, "terms": {"field": "order_status", "order": {"_key": "asc"}}}}, "terms": {"field": "color", "order": {"_key": "asc"}}}'::jsonb))
+   Backend: DataFusion
+   Indexes: pac_products_idx (p), pac_orders_idx (o)
+   Aggregates: pdb.agg({"aggs":{"by_status":{"aggs":{"total":{"sum":{"field":"price"}},"categories":{"cardinality":{"field":"category"}}},"terms":{"field":"order_status","order":{"_key":"asc"}}}},"terms":{"field":"color","order":{"_key":"asc"}}})
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[__grouping_id@2 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_m0@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2, __pdb_m3@6 as __pdb_m3]
+     :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0, tantivy_cardinality(p_0.category, 4) as __pdb_m1, count(p_0.price) as __pdb_m2, numeric64_sum(p_0.price, 2) as __pdb_m3]
+     :     TantivyDecodeExec: decode=[color, order_status]
+     :       AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0, NULL as __pdb_k1), (color@1 as __pdb_k0, NULL as __pdb_k1), (color@1 as __pdb_k0, order_status@3 as __pdb_k1)], aggr=[count(1) as __pdb_m0, tantivy_cardinality(p_0.category, 4) as __pdb_m1, count(p_0.price) as __pdb_m2, numeric64_sum(p_0.price, 2) as __pdb_m3]
+     :         TantivyFetchExec: fetch=[order_status]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[price@1, color@2, category@3, order_status@5]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, fetch=[color], eager=[category], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
+
+SELECT pdb.agg('{"terms": {"field": "color", "order": {"_key": "asc"}}, "aggs": {"by_status": {"terms": {"field": "order_status", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}, "categories": {"cardinality": {"field": "category"}}}}}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item';
+                                                                                                                                                                                                                                                                                             agg                                                                                                                                                                                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "blue", "by_status": {"buckets": [{"key": "open", "total": {"value": 90.0}, "doc_count": 12, "categories": {"value": 1.0}}], "sum_other_doc_count": 0}, "doc_count": 12}, {"key": "red", "by_status": {"buckets": [{"key": "shipped", "total": {"value": 45.0}, "doc_count": 6, "categories": {"value": 1.0}}], "sum_other_doc_count": 0}, "doc_count": 6}, {"key": null, "by_status": {"buckets": [{"key": "shipped", "total": {"value": 60.0}, "doc_count": 6, "categories": {"value": 1.0}}], "sum_other_doc_count": 0}, "doc_count": 6}], "sum_other_doc_count": 0}
+(1 row)
+
+-- Test 3: terms on an array cast over a join
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT tag, COUNT(*)
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id, unnest(p.tags) AS tag
+WHERE p.description ||| 'item'
+GROUP BY tag
+ORDER BY tag;
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: tag.tag, (count(*))
+   Sort Key: tag.tag
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: tag.tag, (count(*))
+         Backend: DataFusion
+         Indexes: pac_products_idx (p), pac_orders_idx (o)
+         Group By: tags
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[p_0_tags@0 as p_0_tags], aggr=[count(1) as agg_0]
+           :   UnnestExec
+           :     ProjectionExec: expr=[tags@0 as p_0_tags]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[tags@0]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(18 rows)
+
+SELECT tag, COUNT(*)
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id, unnest(p.tags) AS tag
+WHERE p.description ||| 'item'
+GROUP BY tag
+ORDER BY tag;
+ tag  | count 
+------+-------
+ new  |    10
+ old  |    10
+ sale |    20
+(3 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item';
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}'::jsonb))
+   Backend: DataFusion
+   Indexes: pac_products_idx (p), pac_orders_idx (o)
+   Aggregates: pdb.agg({"terms":{"field":"tags","order":{"_key":"asc"}}})
+   DataFusion Physical Plan: 
+     : CoalescePartitionsExec
+     :   ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
+     :     UnionExec
+     :       ProjectionExec: expr=[NULL as __pdb_k0, 1 as __grouping_id, __pdb_m0@0 as __pdb_m0]
+     :         AggregateExec: mode=Single, gby=[], aggr=[count(1) as __pdb_m0]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+     :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, 0 as __grouping_id, __pdb_m0@1 as __pdb_m0]
+     :         AggregateExec: mode=Single, gby=[p_0_tags@0 as __pdb_k0], aggr=[count(1) as __pdb_m0]
+     :           UnnestExec
+     :             ProjectionExec: expr=[tags@0 as p_0_tags]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[tags@1]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(25 rows)
+
+SELECT pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item';
+                                                                                    agg                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "new", "doc_count": 10}, {"key": "old", "doc_count": 10}, {"key": "sale", "doc_count": 20}, {"key": null, "doc_count": 4}], "sum_other_doc_count": 0}
+(1 row)
+
+-- Test 4: a SQL GROUP BY beside pdb.agg(), both on casts
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT o.status, pdb.agg('{"terms": {"field": "name", "order": {"_key": "asc"}}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item'
+GROUP BY o.status
+ORDER BY o.status;
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: o.status, (pdb.agg('{"terms": {"field": "name", "order": {"_key": "asc"}}}'::jsonb))
+   Sort Key: o.status
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: o.status, (pdb.agg('{"terms": {"field": "name", "order": {"_key": "asc"}}}'::jsonb))
+         Backend: DataFusion
+         Indexes: pac_products_idx (p), pac_orders_idx (o)
+         Group By: order_status
+         Aggregates: pdb.agg({"terms":{"field":"name","order":{"_key":"asc"}}})
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[order_status@0 as order_status, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __pdb_m0@3 as __pdb_m0]
+           :   AggregateExec: mode=Final, gby=[order_status@0 as order_status, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0]
+           :     TantivyDecodeExec: decode=[order_status, name]
+           :       AggregateExec: mode=Partial, gby=[(order_status@1 as order_status, NULL as __pdb_k0), (order_status@1 as order_status, name@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+           :         TantivyFetchExec: fetch=[order_status]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@1)], projection=[name@1, order_status@2]
+           :             CooperativeExec
+           :               PgSearchScan: table=p, segments=1, fetch=[name], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(20 rows)
+
+SELECT o.status, pdb.agg('{"terms": {"field": "name", "order": {"_key": "asc"}}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item'
+GROUP BY o.status
+ORDER BY o.status;
+ status  |                                                                    agg                                                                     
+---------+--------------------------------------------------------------------------------------------------------------------------------------------
+ open    | {"buckets": [{"key": "alice", "doc_count": 4}, {"key": "bob", "doc_count": 4}, {"key": "cloe", "doc_count": 4}], "sum_other_doc_count": 0}
+ shipped | {"buckets": [{"key": "alice", "doc_count": 4}, {"key": "bob", "doc_count": 4}, {"key": "cloe", "doc_count": 4}], "sum_other_doc_count": 0}
+(2 rows)
+
+-- Test 5: on a single table, a cast key with a NUMERIC metric
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT name, SUM(price)
+FROM pac_products
+WHERE description ||| 'item'
+GROUP BY name
+ORDER BY name;
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: name, (sum(price))
+   Sort Key: pac_products.name
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: name, (sum(price))
+         Backend: DataFusion
+         Indexes: pac_products_idx (pac_products)
+         Group By: name
+         Aggregates: SUM(price)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[name@0 as name], aggr=[numeric64_sum(pac_products_0.price, 2) as agg_0]
+           :   TantivyDecodeExec: decode=[name]
+           :     AggregateExec: mode=Partial, gby=[name@0 as name], aggr=[numeric64_sum(pac_products_0.price, 2) as agg_0]
+           :       TantivyFetchExec: fetch=[name]
+           :         CooperativeExec
+           :           PgSearchScan: table=pac_products, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
+
+SELECT name, SUM(price)
+FROM pac_products
+WHERE description ||| 'item'
+GROUP BY name
+ORDER BY name;
+ name  |  sum  
+-------+-------
+ alice | 37.50
+ bob   | 27.50
+ cloe  | 32.50
+(3 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "name", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}')
+FROM pac_products
+WHERE description ||| 'item';
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (pdb.agg('{"aggs": {"total": {"sum": {"field": "price"}}}, "terms": {"field": "name", "order": {"_key": "asc"}}}'::jsonb))
+   Backend: DataFusion
+   Indexes: pac_products_idx (pac_products)
+   Aggregates: pdb.agg({"aggs":{"total":{"sum":{"field":"price"}}},"terms":{"field":"name","order":{"_key":"asc"}}})
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0, __pdb_m1@3 as __pdb_m1, __pdb_m2@4 as __pdb_m2]
+     :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0, count(pac_products_0.price) as __pdb_m1, numeric64_sum(pac_products_0.price, 2) as __pdb_m2]
+     :     TantivyDecodeExec: decode=[name]
+     :       AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (name@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0, count(pac_products_0.price) as __pdb_m1, numeric64_sum(pac_products_0.price, 2) as __pdb_m2]
+     :         TantivyFetchExec: fetch=[name]
+     :           CooperativeExec
+     :             PgSearchScan: table=pac_products, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(13 rows)
+
+SELECT pdb.agg('{"terms": {"field": "name", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}')
+FROM pac_products
+WHERE description ||| 'item';
+                                                                                                           agg                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "alice", "total": {"value": 37.5}, "doc_count": 4}, {"key": "bob", "total": {"value": 27.5}, "doc_count": 4}, {"key": "cloe", "total": {"value": 32.5}, "doc_count": 4}], "sum_other_doc_count": 0}
+(1 row)
+
+-- Test 6: a computed expression reads back on a single table, but not over a join
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "name_upper", "order": {"_key": "asc"}}}')
+FROM pac_products
+WHERE description ||| 'item';
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.pac_products
+   Output: pdb.agg_fn('pdb.agg'::text)
+   Index: pac_products_idx
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"name_upper","order":{"_key":"asc"}}})
+     Aggregate Definition: {"0":{"terms":{"field":"name_upper","order":{"_key":"asc"}}}}
+(6 rows)
+
+SELECT pdb.agg('{"terms": {"field": "name_upper", "order": {"_key": "asc"}}}')
+FROM pac_products
+WHERE description ||| 'item';
+                                                                    agg                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "ALICE", "doc_count": 4}, {"key": "BOB", "doc_count": 4}, {"key": "CLOE", "doc_count": 4}], "sum_other_doc_count": 0}
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "name_upper"}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item';
+ERROR:  Cannot execute pdb.agg: Field 'name_upper' is an expression index, which cannot be read back as a column
+SELECT pdb.agg('{"terms": {"field": "name_upper"}}')
+FROM pac_products p JOIN pac_orders o ON p.id = o.product_id
+WHERE p.description ||| 'item';
+ERROR:  Cannot execute pdb.agg: Field 'name_upper' is an expression index, which cannot be read back as a column
+DROP TABLE pac_products, pac_orders;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET max_parallel_workers_per_gather;

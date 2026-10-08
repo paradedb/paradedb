@@ -212,7 +212,7 @@ impl PdbOwnedValue {
                     && let (PDB_DATE_TAG, OwnedValue::Str(s)) = (object[0].0.as_str(), &object[0].1)
                 {
                     // Strings that parse as a datetime must be assumed to be datetimes
-                    if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
+                    if let Ok(pgdt) = PostgresDateTime::try_from_serialized(s.as_str()) {
                         return PdbOwnedValue::Date(pgdt);
                     }
                 }
@@ -360,7 +360,7 @@ impl PdbOwnedValue {
     ///
     /// **Contract**: Returns `Some` only for exact, lossless conversions. Returns `None` for
     /// NULLs, out-of-range bounds, precision-losing casts, or unsupported conversions.
-    /// [`RangePartitioning::to_datafusion`](crate::scan::range_partitioning::RangePartitioning::to_datafusion) depends on this exactness guarantee.
+    /// [`RangeSplitPoints::to_datafusion`](crate::scan::range_partitioning::RangeSplitPoints::to_datafusion) depends on this exactness guarantee.
     pub fn to_scalar(&self, data_type: &DataType) -> Option<ScalarValue> {
         use arrow_schema::TimeUnit;
 

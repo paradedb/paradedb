@@ -180,7 +180,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1);
  id | col 
 ----+-----
   1 |   1
@@ -193,7 +193,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1);
  id | col 
 ----+-----
   1 |   1
@@ -206,7 +206,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1);
  id | col 
 ----+-----
   1 |   1
@@ -219,7 +219,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1);
  id | col 
 ----+-----
   1 |   1
@@ -232,7 +232,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1.0::float8);
  id | col 
 ----+-----
   1 |   1
@@ -245,7 +245,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1.0::float8);
  id | col 
 ----+-----
   1 |   1
@@ -258,7 +258,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT id, trim_scale(col) AS col FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT id, trim_scale(col) AS col FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1.0::float8);
  id | col 
 ----+-----
   1 |   1
@@ -271,7 +271,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES (true);
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ 'true';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(true);
  id | col 
 ----+-----
   1 | t
@@ -319,7 +319,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1);
  id |   col   
 ----+---------
   1 | {1,2,3}
@@ -332,7 +332,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1);
  id |   col   
 ----+---------
   1 | {1,2,3}
@@ -345,7 +345,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1);
  id |   col   
 ----+---------
   1 | {1,2,3}
@@ -359,7 +359,7 @@ CREATE TABLE alias_test (
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 ERROR:  cannot cast type oid[] to pdb.alias at character 67
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1);
 ERROR:  cannot cast type oid[] to pdb.alias at character 35
 DROP TABLE alias_test;
 CREATE TABLE alias_test (
@@ -368,7 +368,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1.0::float8);
  id |   col   
 ----+---------
   1 | {1,2,3}
@@ -381,7 +381,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1.0::float8);
  id |   col   
 ----+---------
   1 | {1,2,3}
@@ -394,7 +394,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(1.0::float8);
  id |   col   
 ----+---------
   1 | {1,2,3}
@@ -407,7 +407,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES ('{true, false, true}');
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ 'true';
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ pdb.term(true);
  id |   col   
 ----+---------
   1 | {t,f,t}

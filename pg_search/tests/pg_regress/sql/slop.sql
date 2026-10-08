@@ -25,7 +25,6 @@ SELECT 'running shoes'::pdb.slop(2);
 -- error conditions
 --
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(2)::pdb.slop(2);
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.slop(2);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.slop(2);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.slop(2);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'running shoes'::pdb.slop(2);
@@ -89,14 +88,7 @@ INSERT INTO content_segment_text (
 ('doc8_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10008, '季度报告.docx', 5001, 1678003200000, 1678003200000, 2023, 202303, 20230305, 'docx', 18432, 101, '{100, 101}', 'document', 1, 1678003200000, 'office', '第一季度报告...');
 
 CREATE INDEX content_segment_text_bm25 ON content_segment_text 
-USING paradedb (id, routing_id, group_id, parent_id, ext_group,  filename, content) 
-WITH (
-    text_fields = '{
-        "filename": {"tokenizer": {"type": "jieba"}, "fast": true},
-        "content": {"tokenizer":{"type": "jieba"}, "fast": true},
-        "filename_keyword": {"tokenizer": {"type": "keyword"}, "column": "filename", "fast": true}
-    }'                                              
-);
+USING paradedb (id, routing_id, group_id, parent_id, ext_group, (filename::pdb.jieba('columnar=true')), (content::pdb.jieba('columnar=true')), (filename::pdb.literal('alias=filename_keyword')));
 
 SELECT * FROM content_segment_text  WHERE content ### '项目计划';
 SELECT * FROM content_segment_text WHERE id @@@ paradedb.phrase('content', ARRAY['项目', '计划']);

@@ -25,10 +25,7 @@ INSERT INTO json_test (metadata_json) VALUES
 
 -- Create BM25 index with JSON field as fast field
 CREATE INDEX json_test_idx ON json_test
-USING paradedb (id, metadata_json)
-WITH (
-    json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (metadata_json::pdb.unicode_words('columnar=true')));
 
 -- Test 1: Basic JSON projection aggregation with ->> operator
 -- This should use the aggregate scan for fast aggregation

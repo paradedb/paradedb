@@ -3,11 +3,11 @@
 
 Unified release artifact assembler for ParadeDB:
 - Assembles unreleased SQL migration fragments into pg_search--<prev>--<target>.sql
-- Assembles unreleased changelog fragments into docs/changelog/<version>.mdx
-- Registers new versions in docs/docs.json and docs/snippets/version.mdx
+- Assembles unreleased changelog fragments into docs/project/changelog/<version>.mdx
+- Registers new versions in docs navigation, snippets, and installation examples
 """
 
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,fixme
 
 import argparse
 import json
@@ -227,11 +227,20 @@ def format_sql_banner(filename):
     return f"\n{sep}\n-- Fragment: {filename}\n{sep}\n"
 
 
-def assemble_sql_files(repo_root, target_version, prev_version, preserve_fragments):
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+def assemble_sql_files(
+    repo_root,
+    target_version,
+    prev_version,
+    preserve_fragments,
+    output_dir=None,
+    update_control_default=False,
+):
     """Assemble SQL fragments into pg_search--<prev>--<target>.sql."""
     sql_dir = repo_root / "pg_search" / "sql"
     unreleased_dir = sql_dir / "unreleased"
-    output_file = sql_dir / f"pg_search--{prev_version}--{target_version}.sql"
+    dest_dir = Path(output_dir) if output_dir else sql_dir
+    output_file = dest_dir / f"pg_search--{prev_version}--{target_version}.sql"
 
     print(
         f"Assembling SQL upgrade script: {output_file} "
@@ -257,6 +266,19 @@ def assemble_sql_files(repo_root, target_version, prev_version, preserve_fragmen
 
     print(f"✅ Successfully generated: {output_file}")
 
+    if update_control_default:
+        control_file = dest_dir / "pg_search.control"
+        if control_file.exists():
+            content = control_file.read_text(encoding="utf-8")
+            updated = re.sub(
+                r"^default_version\s*=.*$",
+                f"default_version = '{target_version}'",
+                content,
+                flags=re.MULTILINE,
+            )
+            control_file.write_text(updated, encoding="utf-8")
+            print(f"✅ Updated default_version to '{target_version}' in {control_file}")
+
     if not preserve_fragments:
         for fragment in fragments:
             print(f"Removing consumed fragment: {fragment.name}")
@@ -268,6 +290,26 @@ def assemble_sql_files(repo_root, target_version, prev_version, preserve_fragmen
 # ==============================================================================
 # Changelog Assembly
 # ==============================================================================
+
+
+def get_changelog_dirs(repo_root):
+    """Return (changelog_dir, unreleased_dir, page_prefix) based on docs layout.
+
+    The canonical layout since the PR #6339 docs reorg is:
+      docs/project/changelog/
+      with docs.json page paths like 'project/changelog/<version>'
+
+    TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
+    Branch 0.25.x uses the pre-reorg layout:
+      docs/changelog/
+      with docs.json page paths like 'changelog/<version>'
+    """
+    project_changelog = repo_root / "docs" / "project" / "changelog"
+    if project_changelog.exists():
+        return project_changelog, project_changelog / "unreleased", "project/changelog"
+    # Legacy fallback for 0.25.x
+    legacy_changelog = repo_root / "docs" / "changelog"
+    return legacy_changelog, legacy_changelog / "unreleased", "changelog"
 
 
 def load_headers_map(json_path):
@@ -290,18 +332,21 @@ def load_headers_map(json_path):
 
 
 def parse_frontmatter(content):
-    """Parse YAML frontmatter header key and return (header, body)."""
+    """Parse YAML frontmatter header and title keys and return (header, title, body)."""
     match = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", content, re.DOTALL)
     if not match:
-        return None, content.strip()
+        return None, None, content.strip()
 
     frontmatter, body = match.group(1), match.group(2).strip()
+    header = None
+    title = None
     for line in frontmatter.splitlines():
         line = line.strip()
         if line.startswith("header:"):
-            val = line.split(":", 1)[1].strip().strip("\"'")
-            return val, body
-    return None, body
+            header = line.split(":", 1)[1].strip().strip("\"'")
+        elif line.startswith("title:"):
+            title = line.split(":", 1)[1].strip().strip("\"'")
+    return header, title, body
 
 
 def collect_changelog_fragments(unreleased_dir, headers_map):
@@ -319,16 +364,23 @@ def collect_changelog_fragments(unreleased_dir, headers_map):
 
     for fpath in files:
         with open(fpath, "r", encoding="utf-8") as f:
-            header, body = parse_frontmatter(f.read())
+            header, title, body = parse_frontmatter(f.read())
+        item = {"title": title, "body": body}
         if header and header in grouped:
-            grouped[header].append(body)
+            grouped[header].append(item)
         elif header:
-            extras.append((f"## {header.title()}", body))
+            extras.append((f"## {header.title()}", item))
         else:
             fallback_key = next(iter(headers_map))
-            grouped[fallback_key].append(body)
+            grouped[fallback_key].append(item)
 
     return files, grouped, extras
+
+
+def _normalize_changelog_item(item):
+    if isinstance(item, str):
+        return {"title": None, "body": item}
+    return item
 
 
 def render_changelog(version, headers_map, grouped, extras):
@@ -338,6 +390,7 @@ def render_changelog(version, headers_map, grouped, extras):
         "---",
         f'title: "{version}"',
         f'description: "ParadeDB release notes for {version}"',
+        "noindex: true",
         "---",
         "",
         f"See GitHub release: [v{version}]({release_url})",
@@ -346,20 +399,53 @@ def render_changelog(version, headers_map, grouped, extras):
 
     has_content = False
     for key, header_title in headers_map.items():
-        items = grouped.get(key, [])
-        if items:
+        raw_items = grouped.get(key, [])
+        if raw_items:
             has_content = True
             lines.append(header_title)
             lines.append("")
-            for item in items:
-                lines.append(format_changelog_item(item))
+
+            items = [_normalize_changelog_item(it) for it in raw_items]
+            sections = [
+                it for it in items if it.get("title") or it["body"].startswith("### ")
+            ]
+            bullets = [
+                it
+                for it in items
+                if not (it.get("title") or it["body"].startswith("### "))
+            ]
+
+            for sec in sections:
+                if sec.get("title") and not sec["body"].startswith("### "):
+                    lines.append(f"### {sec['title']}")
+                    lines.append("")
+                lines.append(sec["body"])
                 lines.append("")
 
-    for title, body in extras:
+            if sections and bullets:
+                other_title = (
+                    "### Minor Changes" if key == "other" else "### Other Changes"
+                )
+                lines.append(other_title)
+                lines.append("")
+
+            for b in bullets:
+                lines.append(format_changelog_item(b["body"]))
+                lines.append("")
+
+    for title, raw_item in extras:
         has_content = True
         lines.append(title)
         lines.append("")
-        lines.append(format_changelog_item(body))
+        item = _normalize_changelog_item(raw_item)
+        if item.get("title") and not item["body"].startswith("### "):
+            lines.append(f"### {item['title']}")
+            lines.append("")
+            lines.append(item["body"])
+        elif item["body"].startswith("### "):
+            lines.append(item["body"])
+        else:
+            lines.append(format_changelog_item(item["body"]))
         lines.append("")
 
     if not has_content:
@@ -391,9 +477,101 @@ def semver_key(page_str):
     return (0, 0, 0)
 
 
-def insert_changelog_into_pages(docs_data, target_page):
-    """Find the Changelog group, insert target_page if absent, and sort descending."""
-    versions = docs_data.get("navigation", {}).get("versions", [])
+def _find_changelog_pages(versions):
+    """Find and return the Changelog pages list in the Project tab, or None."""
+    for ver_obj in versions:
+        for tab in ver_obj.get("tabs", []):
+            if tab.get("tab") != "Project":
+                continue
+            for page in tab.get("pages", []):
+                if isinstance(page, dict) and page.get("group") == "Changelog":
+                    return page.get("pages", [])
+    return None
+
+
+def _insert_into_version_group(changelog_pages, target_group, target_page):
+    """Insert target_page into existing target_group if present."""
+    for group_obj in changelog_pages:
+        if isinstance(group_obj, dict) and group_obj.get("group") == target_group:
+            group_pages = group_obj.get("pages", [])
+            if target_page not in group_pages:
+                group_pages.append(target_page)
+                group_pages.sort(key=semver_key, reverse=True)
+                return True
+            return False
+    return None
+
+
+def _insert_into_older_groups(older_pages, target_group, target_page):
+    """Search for target_group inside Older group and insert target_page."""
+    for older_group in older_pages:
+        if isinstance(older_group, dict) and older_group.get("group") == target_group:
+            pages = older_group.get("pages", [])
+            if target_page not in pages:
+                pages.append(target_page)
+                pages.sort(key=semver_key, reverse=True)
+                return True
+            return False
+    return None
+
+
+def _promote_new_active_group(changelog_pages, older_pages, target_group, target_page):
+    """Demote existing active minor group to Older and insert new target_group."""
+    for idx, item in enumerate(changelog_pages):
+        if isinstance(item, dict) and item.get("group", "").startswith("v"):
+            prev_group = changelog_pages.pop(idx)
+            prev_group["expanded"] = False
+            older_pages.insert(0, prev_group)
+            new_group = {
+                "group": target_group,
+                "pages": [target_page],
+                "expanded": False,
+            }
+            changelog_pages.insert(idx, new_group)
+            return True
+    return False
+
+
+def _insert_into_tabs(versions, target_page):
+    """Insert target_page into the Project tab's Changelog section in docs.json."""
+    changelog_pages = _find_changelog_pages(versions)
+    if changelog_pages is None:
+        return False
+
+    target_tuple = semver_key(target_page)
+    target_group = f"v{target_tuple[0]}.{target_tuple[1]}"
+
+    res = _insert_into_version_group(changelog_pages, target_group, target_page)
+    if res is not None:
+        return res
+
+    for group_obj in changelog_pages:
+        if isinstance(group_obj, dict) and group_obj.get("group") == "Older":
+            older_pages = group_obj.setdefault("pages", [])
+            older_res = _insert_into_older_groups(
+                older_pages, target_group, target_page
+            )
+            if older_res is not None:
+                return older_res
+            if _promote_new_active_group(
+                changelog_pages, older_pages, target_group, target_page
+            ):
+                return True
+
+    new_group = {
+        "group": target_group,
+        "pages": [target_page],
+        "expanded": False,
+    }
+    changelog_pages.append(new_group)
+    return True
+
+
+def _insert_into_legacy_anchors(versions, target_page):
+    """Legacy accommodation for 0.25.x (remove after 0.25.x is EOL).
+
+    Pre-reorg docs.json on 0.25.x uses navigation.versions[].anchors[]
+    """
     for ver_obj in versions:
         for anchor in ver_obj.get("anchors", []):
             if anchor.get("anchor") != "Changelog":
@@ -408,6 +586,14 @@ def insert_changelog_into_pages(docs_data, target_page):
     return False
 
 
+def insert_changelog_into_pages(docs_data, target_page):
+    """Insert target_page into the appropriate Changelog group in docs.json and sort descending."""
+    versions = docs_data.get("navigation", {}).get("versions", [])
+    if _insert_into_tabs(versions, target_page):
+        return True
+    return _insert_into_legacy_anchors(versions, target_page)
+
+
 def update_navigation_version(docs_data, new_version):
     """Update top-level active version in navigation.versions[0]."""
     versions = docs_data.get("navigation", {}).get("versions", [])
@@ -415,13 +601,19 @@ def update_navigation_version(docs_data, new_version):
         versions[0]["version"] = f"v{new_version}"
 
 
-def update_docs_json(docs_json_path, new_version, is_latest=True):
-    """Insert changelog/<new_version> and optionally update active version in docs/docs.json."""
+def update_docs_json(docs_json_path, new_version, is_latest=True, repo_root=None):
+    """Insert changelog page and optionally update active version in docs/docs.json."""
     try:
         with open(docs_json_path, "r", encoding="utf-8") as f:
             docs_data = json.load(f)
 
-        target_page = f"changelog/{new_version}"
+        if repo_root is not None:
+            _, _, page_prefix = get_changelog_dirs(repo_root)
+        else:
+            root = docs_json_path.parent.parent
+            _, _, page_prefix = get_changelog_dirs(root)
+
+        target_page = f"{page_prefix}/{new_version}"
         updated_page = insert_changelog_into_pages(docs_data, target_page)
         if is_latest:
             update_navigation_version(docs_data, new_version)
@@ -450,29 +642,97 @@ def update_docs_json(docs_json_path, new_version, is_latest=True):
 
 
 def update_version_snippet(repo_root, clean_ver):
-    """Update exported version variable in docs/snippets/version.mdx."""
+    """Update the shared version snippet and current installation examples."""
     snippet_file = repo_root / "docs" / "snippets" / "version.mdx"
     snippet_file.parent.mkdir(parents=True, exist_ok=True)
-    content = dedent(
-        f"""\
-        // This snippet exports the latest released version of ParadeDB for the documentation site.
-        // Do not edit manually: this file is updated automatically by release.py upon release.
-        export const version = "{clean_ver}";
-        """
-    )
+    content = f'export const version = "{clean_ver}";\n'
     with open(snippet_file, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"✅ Updated {snippet_file} with version '{clean_ver}'")
+    update_installation_version(repo_root, clean_ver)
+    update_kubernetes_version(repo_root, clean_ver)
+    update_digitalocean_version(repo_root, clean_ver)
+    update_upgrading_version(repo_root, clean_ver)
+
+
+def update_upgrading_version(repo_root, clean_ver):
+    """Update literal versions in upgrade prose and executable examples."""
+    upgrading_file = repo_root / "docs/operate/deploy/upgrading.mdx"
+    if not upgrading_file.exists():
+        return
+
+    semver = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
+    patterns = [
+        rf"(The latest version of `pg_search` is `){semver}(?=`)",
+        rf"(docker pull paradedb/paradedb:){semver}",
+        rf"(ALTER EXTENSION pg_search UPDATE TO '){semver}(?=';)",
+    ]
+    content = upgrading_file.read_text(encoding="utf-8")
+    for pattern in patterns:
+        content = re.sub(pattern, lambda match: match[1] + clean_ver, content)
+    upgrading_file.write_text(content, encoding="utf-8")
+
+
+def update_installation_version(repo_root, clean_ver):
+    """Keep release tags and package versions aligned in installation URLs."""
+    install_file = repo_root / "docs/operate/deploy/self-hosted/extension.mdx"
+    if not install_file.exists():
+        return
+
+    def replace_version(match):
+        return match.group(0).replace(match.group(1), clean_ver)
+
+    content = install_file.read_text(encoding="utf-8")
+    content = re.sub(
+        r"https://github\.com/paradedb/paradedb/releases/download/v"
+        r'(\d+\.\d+\.\d+(?:-rc\.\d+)?)/[^\s"<>]+',
+        replace_version,
+        content,
+    )
+    install_file.write_text(content, encoding="utf-8")
+
+
+def update_kubernetes_version(repo_root, clean_ver):
+    """Update ParadeDB extension image examples without changing pgvector."""
+    kubernetes_file = repo_root / "docs/operate/deploy/self-hosted/kubernetes.mdx"
+    if not kubernetes_file.exists():
+        return
+
+    semver = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
+    patterns = [
+        rf"(paradedb/paradedb(?:-enterprise)?-extension:){semver}",
+        rf'(- name: pg_search\s+version: "){semver}',
+    ]
+    content = kubernetes_file.read_text(encoding="utf-8")
+    for pattern in patterns:
+        content = re.sub(pattern, lambda match: match[1] + clean_ver, content)
+    kubernetes_file.write_text(content, encoding="utf-8")
+
+
+def update_digitalocean_version(repo_root, clean_ver):
+    """Keep the DigitalOcean installer tag aligned with the latest release."""
+    install_file = repo_root / "docs/operate/deploy/cloud-platforms/digitalocean.mdx"
+    if not install_file.exists():
+        return
+
+    content = install_file.read_text(encoding="utf-8")
+    content = re.sub(
+        r"(https://paradedb\.com/install\.sh\?tag=)"
+        r"\d+\.\d+\.\d+(?:-rc\.\d+)?(?=-pg\d+)",
+        lambda match: match[1] + clean_ver,
+        content,
+    )
+    install_file.write_text(content, encoding="utf-8")
 
 
 def assemble_changelog_files(
     repo_root, clean_ver, preserve_fragments=False, is_latest=True
 ):
     """Assemble changelog content, write output file, and clean fragments."""
-    unreleased_dir = repo_root / "docs" / "changelog" / "unreleased"
+    changelog_dir, unreleased_dir, _ = get_changelog_dirs(repo_root)
     headers_map = load_headers_map(repo_root / ".changelog_headers.json")
     docs_json = repo_root / "docs" / "docs.json"
-    output_path = repo_root / "docs" / "changelog" / f"{clean_ver}.mdx"
+    output_path = changelog_dir / f"{clean_ver}.mdx"
 
     files, grouped, extras = collect_changelog_fragments(unreleased_dir, headers_map)
     print(f"Assembling changelog for v{clean_ver} from {len(files)} fragment(s)...")
@@ -484,7 +744,7 @@ def assemble_changelog_files(
     print(f"✅ Generated changelog: {output_path}")
 
     if docs_json.exists():
-        update_docs_json(docs_json, clean_ver, is_latest)
+        update_docs_json(docs_json, clean_ver, is_latest, repo_root=repo_root)
 
     if not preserve_fragments:
         if is_latest:
@@ -544,17 +804,17 @@ def check_is_latest(version, is_beta=False):
 
 def get_rendered_changelog_body(repo_root, clean_ver):
     """Retrieve rendered changelog body from existing MDX file or assemble in-memory."""
-    changelog_file = repo_root / "docs" / "changelog" / f"{clean_ver}.mdx"
+    changelog_dir, unreleased_dir, _ = get_changelog_dirs(repo_root)
+    changelog_file = changelog_dir / f"{clean_ver}.mdx"
     if changelog_file.exists():
         with open(changelog_file, "r", encoding="utf-8") as f:
-            _, body = parse_frontmatter(f.read())
+            *_, body = parse_frontmatter(f.read())
         return body
 
-    unreleased_dir = repo_root / "docs" / "changelog" / "unreleased"
     headers_map = load_headers_map(repo_root / ".changelog_headers.json")
     _, grouped, extras = collect_changelog_fragments(unreleased_dir, headers_map)
     rendered = render_changelog(clean_ver, headers_map, grouped, extras)
-    _, body = parse_frontmatter(rendered)
+    *_, body = parse_frontmatter(rendered)
     return body
 
 
@@ -578,6 +838,9 @@ def generate_approval_body(
         release_type = "Patch release"
         branch_action = "Sync release artifacts to `main`"
 
+    changelog_dir, _, _ = get_changelog_dirs(repo_root)
+    rel_changelog_path = (changelog_dir / f"{clean_ver}.mdx").relative_to(repo_root)
+
     changelog_body = get_rendered_changelog_body(repo_root, clean_ver)
     template = dedent(
         """\
@@ -593,7 +856,7 @@ def generate_approval_body(
         | **Previous Version** | `{prev_ver}` |
         | **Is Latest Release** | {is_latest} |
         | **SQL Upgrade Script** | `pg_search/sql/pg_search--{prev_ver}--{clean_ver}.sql` |
-        | **Changelog Document** | `docs/changelog/{clean_ver}.mdx` |
+        | **Changelog Document** | `{changelog_path}` |
         | **Post-Release Action** | {branch_action} |
 
         ---
@@ -617,6 +880,7 @@ def generate_approval_body(
         branch=branch,
         prev_ver=prev_ver,
         is_latest="true" if is_latest else "false",
+        changelog_path=rel_changelog_path,
         branch_action=branch_action,
         changelog_body=changelog_body,
     ).strip()
@@ -645,7 +909,14 @@ def handle_sql_command(args, repo_root):
     prev_version = resolve_prev_version(
         repo_root, sql_dir, clean_target, args.prev_version
     )
-    assemble_sql_files(repo_root, target_version, prev_version, args.preserve_fragments)
+    assemble_sql_files(
+        repo_root,
+        target_version,
+        prev_version,
+        args.preserve_fragments,
+        output_dir=args.output_dir,
+        update_control_default=args.update_control,
+    )
 
 
 def handle_changelog_command(args, repo_root):
@@ -656,7 +927,7 @@ def handle_changelog_command(args, repo_root):
     if args.register_only:
         docs_json = repo_root / "docs" / "docs.json"
         if docs_json.exists():
-            update_docs_json(docs_json, clean_ver, args.is_latest)
+            update_docs_json(docs_json, clean_ver, args.is_latest, repo_root=repo_root)
         if args.is_latest:
             update_version_snippet(repo_root, clean_ver)
         return
@@ -996,6 +1267,19 @@ def _check_branch_fragment_identity(repo_root, all_fragments):
             capture_output=True,
             check=False,
         )
+        # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
+        # On 0.25.x, changelog fragments are in docs/changelog/unreleased/ but on main
+        # they are in docs/project/changelog/unreleased/.
+        if show_cmd.returncode != 0 and "docs/changelog/unreleased" in str(rel_path):
+            alt_rel_path = str(rel_path).replace(
+                "docs/changelog/unreleased", "docs/project/changelog/unreleased"
+            )
+            show_cmd = subprocess.run(
+                ["git", "show", f"origin/main:{alt_rel_path}"],
+                cwd=repo_root,
+                capture_output=True,
+                check=False,
+            )
         if show_cmd.returncode == 0:
             main_bytes = show_cmd.stdout
             local_bytes = fpath.read_bytes()
@@ -1018,7 +1302,7 @@ def _check_branch_fragment_identity(repo_root, all_fragments):
 def lint_release_branch_fragments(repo_root, base_ref):
     """Lint fragments on PRs targeting a stable release branch (e.g. 0.25.x)."""
     unreleased_sql_dir = repo_root / "pg_search" / "sql" / "unreleased"
-    unreleased_cl_dir = repo_root / "docs" / "changelog" / "unreleased"
+    _, unreleased_cl_dir, _ = get_changelog_dirs(repo_root)
 
     all_fragments = list(unreleased_sql_dir.glob("*.sql")) + list(
         unreleased_cl_dir.glob("*.mdx")
@@ -1031,14 +1315,106 @@ def lint_release_branch_fragments(repo_root, base_ref):
     return errors
 
 
+def lint_changelog_fragments(repo_root):
+    """Validate that unreleased changelog fragments are properly formatted.
+
+    Ensures that:
+    - Every fragment has a valid 'header:' declared in .changelog_headers.json.
+    - Every fragment is either formatted as a single bullet point, or defines a
+      'title:' in frontmatter (or starts with '### ').
+    """
+    headers_map = load_headers_map(repo_root / ".changelog_headers.json")
+    _, unreleased_cl_dir, _ = get_changelog_dirs(repo_root)
+
+    if not unreleased_cl_dir.exists():
+        return 0
+
+    files = [
+        f
+        for f in unreleased_cl_dir.glob("*.mdx")
+        if f.is_file() and f.name != ".gitkeep"
+    ]
+    files.sort(key=lambda f: (parse_pr_number(f.name), f.name))
+
+    errors = 0
+    for fpath in files:
+        rel_path = fpath.relative_to(repo_root)
+        try:
+            content = fpath.read_text(encoding="utf-8")
+        except OSError as e:
+            print(f"❌ {rel_path}: Failed to read file: {e}", file=sys.stderr)
+            errors += 1
+            continue
+
+        header, title, body = parse_frontmatter(content)
+
+        if not header:
+            print(
+                f"::error file={rel_path}::Missing 'header:' frontmatter.",
+                file=sys.stderr,
+            )
+            print(f"❌ {rel_path}: Missing 'header:' frontmatter.", file=sys.stderr)
+            errors += 1
+        elif header not in headers_map:
+            valid_headers = ", ".join(repr(h) for h in headers_map)
+            print(
+                f"::error file={rel_path}::"
+                f"Invalid header '{header}'. Must be one of: {valid_headers}.",
+                file=sys.stderr,
+            )
+            print(
+                f"❌ {rel_path}: Invalid header '{header}'."
+                f" Must be one of: {valid_headers}.",
+                file=sys.stderr,
+            )
+            errors += 1
+
+        has_title = bool(title or body.startswith("### "))
+        if not has_title:
+            paragraphs = [p for p in re.split(r"\n\s*\n", body.strip()) if p.strip()]
+            bullet_markers = [
+                line for line in body.splitlines() if re.match(r"^\s*[-*]\s+", line)
+            ]
+            has_code_block = "```" in body
+
+            is_single_bullet = (
+                len(paragraphs) <= 1 and len(bullet_markers) <= 1 and not has_code_block
+            )
+
+            if not is_single_bullet:
+                print(
+                    f"::error file={rel_path}::"
+                    "Fragment must either be formatted as a single bullet point, "
+                    "or specify 'title: ...' in its frontmatter to render as a subsection.",
+                    file=sys.stderr,
+                )
+                print(
+                    f"❌ {rel_path}: Fragment must either be formatted as a single bullet point,\n"
+                    "  or specify 'title: <Feature Title>' in frontmatter to render as a"
+                    " subsection.",
+                    file=sys.stderr,
+                )
+                errors += 1
+
+    return errors
+
+
 def handle_lint_fragments_command(args, repo_root):
     """Handle lint-fragments subcommand."""
+    changelog_only = getattr(args, "changelog_only", False)
+    sql_only = getattr(args, "sql_only", False)
+
     print(f"Linting fragments with base_ref='{args.base_ref}' at {repo_root}")
 
-    if is_release_branch(args.base_ref):
-        errors = lint_release_branch_fragments(repo_root, args.base_ref)
-    else:
-        errors = lint_main_branch_fragments(repo_root, args.base_sha)
+    errors = 0
+    if not changelog_only:
+        if is_release_branch(args.base_ref):
+            errors += lint_release_branch_fragments(repo_root, args.base_ref)
+        else:
+            errors += lint_main_branch_fragments(repo_root, args.base_sha)
+
+    if not sql_only:
+        errors += lint_changelog_fragments(repo_root)
 
     if errors > 0:
         print(f"\n❌ Fragment lint failed with {errors} error(s).", file=sys.stderr)
@@ -1065,6 +1441,16 @@ def build_parser():
         "--prev-version", default=None, help="Previous version (e.g. 0.25.4)"
     )
     sql_parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Optional directory to write the assembled SQL script to (defaults to pg_search/sql)",
+    )
+    sql_parser.add_argument(
+        "--update-control",
+        action="store_true",
+        help="Update default_version in pg_search.control in output-dir to target version",
+    )
+    sql_parser.add_argument(
         "--preserve-fragments",
         action="store_true",
         help="Preserve unreleased fragment files instead of deleting them",
@@ -1082,7 +1468,7 @@ def build_parser():
     cl_parser.add_argument(
         "--register-only",
         action="store_true",
-        help="Only update docs.json and version.mdx",
+        help="Only update docs navigation, version snippet, and installation examples",
     )
     cl_parser.add_argument(
         "--is-latest",
@@ -1161,7 +1547,7 @@ def build_parser():
     )
 
     lint_parser = subparsers.add_parser(
-        "lint-fragments", help="Lint unreleased migration fragments"
+        "lint-fragments", help="Lint unreleased migration and changelog fragments"
     )
     lint_parser.add_argument(
         "--base-ref",
@@ -1172,6 +1558,16 @@ def build_parser():
         "--base-sha",
         default=None,
         help="Base commit SHA of the PR",
+    )
+    lint_parser.add_argument(
+        "--changelog-only",
+        action="store_true",
+        help="Only lint unreleased changelog fragments",
+    )
+    lint_parser.add_argument(
+        "--sql-only",
+        action="store_true",
+        help="Only lint unreleased SQL migration fragments",
     )
 
     return parser

@@ -51,35 +51,35 @@ USING paradedb (id, title, i4, i8, nr, dr, tr, tzr);
 -- `NormalScanExecState` scan and a "not using Top K scan" warning.
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY tzr LIMIT 5;
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY tzr LIMIT 5;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC LIMIT 5;
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY nr DESC LIMIT 5;
 
 -- =============================================================================
 -- The ordering itself, per range type. `id` is the tiebreaker so the duplicate
 -- row does not make the output non-deterministic.
 -- =============================================================================
-SELECT id, i4 FROM range_items WHERE title @@@ 'doc' ORDER BY i4, id LIMIT 14;
-SELECT id, i8 FROM range_items WHERE title @@@ 'doc' ORDER BY i8, id LIMIT 14;
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr, id LIMIT 14;
-SELECT id, dr FROM range_items WHERE title @@@ 'doc' ORDER BY dr, id LIMIT 14;
-SELECT id, tr FROM range_items WHERE title @@@ 'doc' ORDER BY tr, id LIMIT 14;
-SELECT id, tzr FROM range_items WHERE title @@@ 'doc' ORDER BY tzr, id LIMIT 14;
+SELECT id, i4 FROM range_items WHERE title ||| 'doc' ORDER BY i4, id LIMIT 14;
+SELECT id, i8 FROM range_items WHERE title ||| 'doc' ORDER BY i8, id LIMIT 14;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr, id LIMIT 14;
+SELECT id, dr FROM range_items WHERE title ||| 'doc' ORDER BY dr, id LIMIT 14;
+SELECT id, tr FROM range_items WHERE title ||| 'doc' ORDER BY tr, id LIMIT 14;
+SELECT id, tzr FROM range_items WHERE title ||| 'doc' ORDER BY tzr, id LIMIT 14;
 
 -- Continuous types keep their inclusivity, so they exercise the bound-flag tiebreaks that
 -- discrete types normalize away (`(5,10)` becomes `[6,10)` for int4range).
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC, id LIMIT 14;
-SELECT id, tzr FROM range_items WHERE title @@@ 'doc' ORDER BY tzr DESC, id LIMIT 14;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr DESC, id LIMIT 14;
+SELECT id, tzr FROM range_items WHERE title ||| 'doc' ORDER BY tzr DESC, id LIMIT 14;
 
 -- NULL placement follows the query, not the storage.
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr ASC NULLS FIRST, id LIMIT 3;
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr ASC NULLS LAST, id LIMIT 3;
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC NULLS FIRST, id LIMIT 3;
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC NULLS LAST, id LIMIT 3;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr ASC NULLS FIRST, id LIMIT 3;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr ASC NULLS LAST, id LIMIT 3;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr DESC NULLS FIRST, id LIMIT 3;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr DESC NULLS LAST, id LIMIT 3;
 
 -- OFFSET walks past the leading keys.
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr, id LIMIT 4 OFFSET 6;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr, id LIMIT 4 OFFSET 6;
 
 -- =============================================================================
 -- Differential check against native Postgres, for every range type crossed with
@@ -101,7 +101,7 @@ BEGIN
     -- came from another, and a lost pushdown would compare native to native.
     query := format(
         'SELECT array_agg(v) FROM ('
-        '  SELECT %I::text AS v FROM %I WHERE title @@@ ''doc'' ORDER BY %I %s LIMIT %s OFFSET %s'
+        '  SELECT %I::text AS v FROM %I WHERE title ||| ''doc'' ORDER BY %I %s LIMIT %s OFFSET %s'
         ') s',
         col, tbl, col, dir, lim, off);
 
@@ -145,20 +145,20 @@ ORDER BY result;
 -- to a Postgres Sort, which is correct but unaccelerated.
 -- =============================================================================
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY nr, id LIMIT 5;
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY nr, id LIMIT 5;
 
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY id, nr LIMIT 5;
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY id, nr LIMIT 5;
 
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY id, nr LIMIT 5;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY id, nr LIMIT 5;
 
 -- `lower(anyrange)` is a different function from the `lower(text)` the planner
 -- recognises, and a scalar bound orders differently from the whole range, so this
 -- must not be mistaken for a sort on `nr`. It stays a Postgres Sort.
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr) LIMIT 5;
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY lower(nr) LIMIT 5;
 
-SELECT id, lower(nr) FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr), id LIMIT 5;
+SELECT id, lower(nr) FROM range_items WHERE title ||| 'doc' ORDER BY lower(nr), id LIMIT 5;
 
 -- =============================================================================
 -- Cross-segment merge. Within a segment, a `numrange` bound compares by term
@@ -234,10 +234,10 @@ USING paradedb (id, title, category, valid_period, quantity_range);
 
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id, title, category FROM data_records
-WHERE title @@@ 'product' ORDER BY valid_period LIMIT 10;
+WHERE title ||| 'product' ORDER BY valid_period LIMIT 10;
 
 SELECT id, title, category FROM data_records
-WHERE title @@@ 'product' ORDER BY valid_period, id LIMIT 10;
+WHERE title ||| 'product' ORDER BY valid_period, id LIMIT 10;
 
 -- =============================================================================
 -- Parallel TopK. The range key is merged across workers here, not just across
@@ -268,12 +268,12 @@ $$;
 -- the plan whose values get compared.
 SELECT plan_contains(
     'SELECT array_agg(v) FROM ('
-    '  SELECT nr::text AS v FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5'
+    '  SELECT nr::text AS v FROM range_segments WHERE title ||| ''doc'' ORDER BY nr LIMIT 5'
     ') s',
     'Gather') AS parallel_plan,
     plan_contains(
     'SELECT array_agg(v) FROM ('
-    '  SELECT nr::text AS v FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5'
+    '  SELECT nr::text AS v FROM range_segments WHERE title ||| ''doc'' ORDER BY nr LIMIT 5'
     ') s',
     'TopK') AS topk_plan;
 

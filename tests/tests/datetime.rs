@@ -40,7 +40,8 @@ fn datetime_microsecond(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.079777Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14.079777Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14.079777Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     // Range queries
@@ -73,19 +74,22 @@ fn datetime_term_millisecond(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.079Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14.079Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14.079Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.078001Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14.078001Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14.078001Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     // Range queries
@@ -123,7 +127,8 @@ fn datetime_term_second(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.1Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14.1Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14.1Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     // Range queries

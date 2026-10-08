@@ -32,7 +32,7 @@ use super::predicate::{
     all_vars_are_fast_fields_recursive, find_base_info_recursive, resolve_join_conditions,
 };
 use super::privdat::{OutputColumnInfo, PrivateData};
-use super::window_func::{WindowAgg, WindowAggId, extract_window_agg};
+use super::window_func::{WindowAgg, WindowAggDef, WindowAggId, extract_window_agg};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::node::NodeExt;
@@ -47,9 +47,11 @@ use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
-    field_type_for_pullup, get_attno_by_name, resolve_fast_field,
+    field_type_for_pullup, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+};
 use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
@@ -174,6 +176,12 @@ pub(super) unsafe fn collect_join_sources_base_rel(
 
         classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 
+        // SECURITY: lifted SubPlans (e.g. an RLS policy) become joins above this scan, so a
+        // leaky filter in it would run first.
+        if has_leaky_heap_filter(root, rel, rti, &bm25_index, &classified.search_ri) {
+            return None;
+        }
+
         if !classified.search_ri.is_empty() {
             let context = PlannerContext::from_planner(root);
             let mut state = QualExtractState::default();
@@ -213,7 +221,8 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         return None;
     };
     current_node = node;
-    current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys);
+    // Same for OR-nested SubPlans, which may be RLS policies.
+    current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys)?;
 
     Some(CollectedJoinRel::new(current_node, all_keys))
 }
@@ -411,20 +420,20 @@ pub unsafe fn wrap_with_semi_anti(
 /// SubPlan (`col IS NULL OR col IN (SELECT ...)` style). The LeftMark join
 /// produces all left rows plus a boolean "mark" column; the Filter then keeps
 /// rows where `mark = true OR col IS NULL` (or the inverted form for NOT IN).
+///
+/// Returns `None` if any SubPlan can't be lowered, rather than dropping its predicate.
 unsafe fn wrap_with_mark_filter(
     mut current_node: RelNode,
     or_subplans: Vec<OrSubPlanExtraction>,
     all_keys: &mut Vec<JoinKeyPair>,
-) -> RelNode {
+) -> Option<RelNode> {
     for or_ext in or_subplans {
         let inner_rel = find_final_rel(or_ext.inner_root);
         if inner_rel.is_null() {
-            continue;
+            return None;
         }
 
-        let Some(inner_collected) = collect_join_sources(or_ext.inner_root, inner_rel) else {
-            continue;
-        };
+        let inner_collected = collect_join_sources(or_ext.inner_root, inner_rel)?;
         let inner_node = inner_collected.plan;
         let inner_keys = inner_collected.join_keys;
 
@@ -473,7 +482,7 @@ unsafe fn wrap_with_mark_filter(
         current_node = RelNode::Filter(Box::new(filter_node));
     }
 
-    current_node
+    Some(current_node)
 }
 
 /// Recursively reconstructs the intermediate relational tree from standard PostgreSQL join paths.
@@ -948,6 +957,99 @@ pub(crate) fn transparent_path_subpath(path: *mut pg_sys::Path) -> Option<*mut p
     }
 }
 
+/// Returns a live path over the scan/join rel, i.e. the rel whose relids cover
+/// `all_baserels`, for a hook running at `UPPERREL_FINAL`.
+///
+/// Upper-rel `add_path` calls pfree the paths they dominate, and
+/// `create_ordered_paths` adds presorted input paths to the ordered rel as-is,
+/// so once the scan/join rel feeds ORDER BY directly its `cheapest_total_path`
+/// may dangle. The upper rel's own pathlist is live, and so is every `subpath`
+/// below it, so that is descended instead.
+///
+/// A DISTINCT or window stage sits between the join and ORDER BY as a
+/// non-transparent node, so nothing above it takes a join path as-is and the
+/// join rel's own pick is still live. It is kept rather than reached by
+/// descent, because a custom scan path over that stage can be its only
+/// survivor, which leaves no route down to the join.
+pub(crate) unsafe fn find_live_lower_path(
+    root: *mut pg_sys::PlannerInfo,
+    input_rel: &pg_sys::RelOptInfo,
+) -> Option<*mut pg_sys::Path> {
+    let parse = (*root).parse;
+    if !(*parse).distinctClause.is_null() || (*parse).hasWindowFuncs {
+        let join_rel = find_final_rel(root);
+        if join_rel.is_null() || (*join_rel).cheapest_total_path.is_null() {
+            return None;
+        }
+        return Some((*join_rel).cheapest_total_path);
+    }
+
+    let all_baserels = (*root).all_baserels;
+    // The scan/join rel names its own pick; upper rels skip `set_cheapest`.
+    if !input_rel.cheapest_total_path.is_null() {
+        return descend_to_scan_join_rel(all_baserels, input_rel.cheapest_total_path);
+    }
+    // Every candidate below is a path of the scan/join rel, so their costs sit
+    // at one level, and the cheapest of them is the pick `set_cheapest` named
+    // for that rel.
+    let mut best: Option<*mut pg_sys::Path> = None;
+    for path in PgList::<pg_sys::Path>::from_pg(input_rel.pathlist).iter_ptr() {
+        let Some(lower) = descend_to_scan_join_rel(all_baserels, path) else {
+            continue;
+        };
+        if best.is_none_or(|best| cheaper_path(lower, best)) {
+            best = Some(lower);
+        }
+    }
+    best
+}
+
+/// Same preference order as `set_cheapest`.
+unsafe fn cheaper_path(a: *mut pg_sys::Path, b: *mut pg_sys::Path) -> bool {
+    #[cfg(feature = "pg18")]
+    if (*a).disabled_nodes != (*b).disabled_nodes {
+        return (*a).disabled_nodes < (*b).disabled_nodes;
+    }
+    match pg_sys::compare_path_costs(a, b, pg_sys::CostSelector::TOTAL_COST) {
+        cmp if cmp < 0 => true,
+        0 => {
+            pg_sys::compare_pathkeys((*a).pathkeys, (*b).pathkeys)
+                == pg_sys::PathKeysComparison::PATHKEYS_BETTER1
+        }
+        _ => false,
+    }
+}
+
+/// Wrapper nodes above a scan/join rel, such as Sort, Gather or Projection,
+/// nest a handful deep; a bound this loose only guards against a malformed
+/// self-referencing wrapper.
+const MAX_PATH_WRAPPER_DEPTH: usize = 64;
+
+/// Follows transparent wrappers down to the path owned by the scan/join rel.
+/// Nothing else can sit in between here: DISTINCT and window stages take the
+/// branch in `find_live_lower_path`, and grouping, row locking and set
+/// operations are declined before a JoinScan path is attempted.
+unsafe fn descend_to_scan_join_rel(
+    all_baserels: *mut pg_sys::Bitmapset,
+    mut path: *mut pg_sys::Path,
+) -> Option<*mut pg_sys::Path> {
+    for _ in 0..MAX_PATH_WRAPPER_DEPTH {
+        if path.is_null() {
+            return None;
+        }
+        let parent = (*path).parent;
+        if !parent.is_null() && pg_sys::bms_is_subset(all_baserels, (*parent).relids) {
+            return Some(path);
+        }
+        let next = transparent_path_subpath(path)?;
+        if next == path {
+            return None;
+        }
+        path = next;
+    }
+    None
+}
+
 /// Helper to resolve the top-most join or base relation from a `PlannerInfo` (`root`).
 ///
 /// In PostgreSQL, `join_rel_list` contains at most one `RelOptInfo` whose `relids`
@@ -1182,12 +1284,8 @@ fn numeric_bytes_layouts_differ(
     inner_ff: &WhichFastField,
     inner_ir: &PgSearchRelation,
 ) -> bool {
-    let is_numeric_bytes = |ff: &WhichFastField| {
-        matches!(
-            ff,
-            WhichFastField::Named(_, SearchFieldType::NumericBytes(..))
-        )
-    };
+    let is_numeric_bytes =
+        |ff: &WhichFastField| matches!(ff.field_type(), Some(SearchFieldType::NumericBytes(..)));
     is_numeric_bytes(outer_ff)
         && is_numeric_bytes(inner_ff)
         && outer_ir
@@ -1621,8 +1719,33 @@ pub(super) unsafe fn collect_required_fields(
     // (ChildProjection::WindowAgg) or embedded in an expression, where its
     // sentinel input never appears in the projection's `input_vars`.
     for window_agg in join_clause.window_aggs.iter() {
-        if let Some(ci) = &window_agg.col_info {
-            ensure_column_in_all_sources(&mut plan_sources, ci.rti, ci.attno);
+        match &window_agg.agg_def {
+            WindowAggDef::Sql(sql) => {
+                if let Some(ci) = sql.col_info() {
+                    ensure_column_in_all_sources(&mut plan_sources, ci.rti, ci.attno);
+                }
+            }
+            // `pdb.agg()` names index fields, which can be aliases of a column
+            // or JSON sub-fields, so they register by name, as in the
+            // aggregate scan.
+            WindowAggDef::PdbAgg(request) => {
+                for field in request.fields() {
+                    let Some(source) = plan_sources
+                        .iter_mut()
+                        .find(|s| s.plan_position == field.plan_position)
+                    else {
+                        continue;
+                    };
+                    let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+                    match resolve_fast_field_by_name(&field.field_name, &indexrel) {
+                        Some(resolved) => source.scan_info.add_field_by_name(field.attno, resolved),
+                        None => pgrx::warning!(
+                            "JoinScan: pdb.agg field '{}' is not columnar",
+                            field.field_name
+                        ),
+                    }
+                }
+            }
         }
     }
 }
@@ -1693,13 +1816,8 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
         return;
     }
     let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&indexrel)
-        && let Some(search_field) = schema.search_field(field_name)
-    {
-        side.scan_info.add_field(
-            attno,
-            WhichFastField::Array(field_name.to_string(), search_field.field_type()),
-        );
+    if let Some(field) = resolve_fast_field_by_name(field_name, &indexrel) {
+        side.scan_info.add_field(attno, field);
     }
 }
 
@@ -1743,7 +1861,7 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
     source.scan_info.add_field_by_name(
         synthetic_attno,
-        WhichFastField::Named(field_name.to_string(), field_type),
+        WhichFastField::eager(field_name.to_string(), field_type),
     );
     Ok(())
 }
@@ -2497,7 +2615,7 @@ pub(crate) fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sys::Inde
 /// Returns the RTI of the ordering base relation if found.
 pub(super) fn ensure_score_bubbling(source: &mut JoinSource) -> Option<pg_sys::Index> {
     source.scan_info.score_needed = true;
-    source.scan_info.add_field(0, WhichFastField::Score);
+    source.scan_info.add_field(0, WhichFastField::score());
     Some(source.scan_info.heap_rti)
 }
 

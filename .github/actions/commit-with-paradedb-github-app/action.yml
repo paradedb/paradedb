@@ -1,0 +1,106 @@
+name: Commit with ParadeDB GitHub App
+description: Create a verified App-signed commit from staged changes without pushing
+
+inputs:
+  github-token:
+    description: GitHub App installation token with contents write permission
+    required: true
+  message:
+    description: Commit message
+    required: true
+  repository:
+    description: Repository in owner/name format where the commit is created
+    default: ${{ github.repository }}
+  working-directory:
+    description: Repository working directory
+    default: "."
+
+outputs:
+  created:
+    description: Whether a commit was created
+    value: ${{ steps.commit.outputs.created }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create Verified Commit
+      id: commit
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        MESSAGE: ${{ inputs.message }}
+        COMMIT_REPOSITORY: ${{ inputs.repository }}
+      run: |
+        : "${GH_TOKEN:?A GitHub App token is required}"
+        : "${MESSAGE:?A commit message is required}"
+        if git diff --cached --quiet; then
+          echo "created=false" >> "$GITHUB_OUTPUT"
+        else
+          python3 - <<'PY'
+        """Commit the staged tree with a verified GitHub App signature, without pushing."""
+
+        import base64
+        import json
+        import os
+        import subprocess
+
+
+        def git(*args):
+            return subprocess.check_output(["git", *args])
+
+
+        def api(endpoint, payload):
+            return json.loads(
+                subprocess.check_output(
+                    ["gh", "api", "--method", "POST", endpoint, "--input", "-"],
+                    input=json.dumps(payload).encode(),
+                )
+            )
+
+
+        endpoint = f"repos/{os.environ['COMMIT_REPOSITORY']}/git"
+        parent = git("rev-parse", "HEAD").decode().strip()
+        base_tree = git("rev-parse", "HEAD^{tree}").decode().strip()
+        staged_tree = git("write-tree").decode().strip()
+
+        # Disable rename detection so renames become an addition and a deletion.
+        paths = git("diff", "--cached", "--no-renames", "--name-only", "-z").split(b"\0")
+        entries = []
+        for raw_path in filter(None, paths):
+            path = raw_path.decode()
+            staged = git("--literal-pathspecs", "ls-files", "--stage", "-z", "--", path)
+            if not staged:
+                entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
+                continue
+            mode, sha, _ = staged.split(b"\t", 1)[0].decode().split()
+            kind = "commit" if mode == "160000" else "blob"
+            if kind == "blob":
+                content = base64.b64encode(git("cat-file", "blob", sha)).decode()
+                blob = api(f"{endpoint}/blobs", {"content": content, "encoding": "base64"})
+                if blob["sha"] != sha:
+                    raise SystemExit(f"GitHub blob differs from staged blob: {path}")
+            entries.append({"path": path, "mode": mode, "type": kind, "sha": sha})
+
+        tree = api(f"{endpoint}/trees", {"base_tree": base_tree, "tree": entries})
+        if tree["sha"] != staged_tree:
+            raise SystemExit("GitHub tree differs from staged tree")
+        # Custom author/committer fields disable GitHub's automatic App signing.
+        commit = api(
+            f"{endpoint}/commits",
+            {"message": os.environ["MESSAGE"], "tree": staged_tree, "parents": [parent]},
+        )
+        if not commit.get("verification", {}).get("verified"):
+            raise SystemExit("GitHub did not verify the App commit")
+        sha = commit["sha"]
+        git("fetch", "origin", sha)
+        if git("rev-parse", f"{sha}^{{tree}}").decode().strip() != staged_tree:
+            raise SystemExit("Fetched commit differs from staged tree")
+        if git("rev-parse", f"{sha}^").decode().strip() != parent:
+            raise SystemExit("Fetched commit has an unexpected parent")
+        # Move only the local branch. The caller retains control of publishing it.
+        git("reset", "--soft", sha)
+        print(sha)
+        PY
+          echo "created=true" >> "$GITHUB_OUTPUT"
+        fi

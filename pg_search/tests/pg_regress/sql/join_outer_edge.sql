@@ -29,14 +29,11 @@ SELECT g, (g % 30) + 1, g * 5
 FROM generate_series(1, 30) g;
 
 CREATE INDEX oj_fact_idx ON oj_fact
-USING paradedb (id, dim_id, txt)
-WITH (numeric_fields='{"dim_id":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+USING paradedb (id, dim_id, (txt::pdb.unicode_words('columnar=true')));
 CREATE INDEX oj_dim_idx ON oj_dim
-USING paradedb (id, txt, price)
-WITH (numeric_fields='{"price":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+USING paradedb (id, (txt::pdb.unicode_words('columnar=true')), price);
 CREATE INDEX oj_sub_idx ON oj_sub
-USING paradedb (id, dim_id, val)
-WITH (numeric_fields='{"dim_id":{"fast":true}, "val":{"fast":true}}');
+USING paradedb (id, dim_id, val);
 
 ANALYZE oj_fact;
 ANALYZE oj_dim;
@@ -49,24 +46,24 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY b.id NULLS FIRST, a.id LIMIT 8;
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY b.id NULLS FIRST, a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY b.id NULLS FIRST, a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY b.id NULLS FIRST, a.id LIMIT 8;
 
 -- =============================================================================
 -- Score on the nullable side: NULL for null-extended rows
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
-SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
 
 -- =============================================================================
 -- Cross-table OR search predicate as a WHERE (post-join) filter
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' OR b.txt @@@ 'beta' ORDER BY a.id LIMIT 8;
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' OR b.txt @@@ 'beta' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' OR b.txt ||| 'beta' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' OR b.txt ||| 'beta' ORDER BY a.id LIMIT 8;
 
 -- =============================================================================
 -- ON-clause qual on the nullable side only: PG pushes it into that scan,
@@ -74,16 +71,16 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
 
 -- =============================================================================
 -- Two-sided non-equi ON condition: uses JoinScan
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
 
 -- =============================================================================
 -- FULL join: the search predicate lives inside a pulled-up subquery, below
@@ -92,9 +89,9 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id 
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
-SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
-SELECT COUNT(*) FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id;
+SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt ||| 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
+SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt ||| 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
+SELECT COUNT(*) FROM (SELECT * FROM oj_fact WHERE txt ||| 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id;
 
 -- =============================================================================
 -- Chained outer joins with delayed predicate on multi-table nullable side:
@@ -108,7 +105,7 @@ SELECT a.id, b.id, s.id
 FROM oj_fact a
 LEFT JOIN oj_dim b ON a.dim_id = b.id
 LEFT JOIN oj_sub s ON b.id = s.dim_id
-WHERE s.val IS NULL AND a.txt @@@ 'alpha'
+WHERE s.val IS NULL AND a.txt ||| 'alpha'
 ORDER BY a.id, b.id, s.id
 LIMIT 8;
 
@@ -116,7 +113,7 @@ SELECT a.id, b.id, s.id
 FROM oj_fact a
 LEFT JOIN oj_dim b ON a.dim_id = b.id
 LEFT JOIN oj_sub s ON b.id = s.dim_id
-WHERE s.val IS NULL AND a.txt @@@ 'alpha'
+WHERE s.val IS NULL AND a.txt ||| 'alpha'
 ORDER BY a.id, b.id, s.id
 LIMIT 8;
 
@@ -128,13 +125,13 @@ LIMIT 8;
 
 SET paradedb.enable_join_custom_scan = off;
 
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY b.id NULLS FIRST, a.id LIMIT 8;
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' OR b.txt @@@ 'beta' ORDER BY a.id LIMIT 8;
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
-SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
-SELECT a.id, b.id, s.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id LEFT JOIN oj_sub s ON b.id = s.dim_id WHERE s.val IS NULL AND a.txt @@@ 'alpha' ORDER BY a.id, b.id, s.id LIMIT 8;
-SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
-SELECT COUNT(*) FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' ORDER BY b.id NULLS FIRST, a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt ||| 'alpha' OR b.txt ||| 'beta' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt ||| 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id, s.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id LEFT JOIN oj_sub s ON b.id = s.dim_id WHERE s.val IS NULL AND a.txt ||| 'alpha' ORDER BY a.id, b.id, s.id LIMIT 8;
+SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt ||| 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
+SELECT COUNT(*) FROM (SELECT * FROM oj_fact WHERE txt ||| 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id;
 
 DROP TABLE oj_fact;
 DROP TABLE oj_dim;

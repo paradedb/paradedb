@@ -95,7 +95,7 @@ ORDER BY v.id;
 SET LOCAL plan_cache_mode = force_generic_plan;
 PREPARE sequential_scan_derived_query(text) AS
 SELECT array_agg(id ORDER BY id)
-FROM (SELECT body, id FROM sequential_scan_derived OFFSET 0) s WHERE id @@@ $1;
+FROM (SELECT body, id FROM sequential_scan_derived OFFSET 0) s WHERE id @@@ pdb.parse($1);
 EXECUTE sequential_scan_derived_query('body:alpha');
 EXECUTE sequential_scan_derived_query('lower_body:beta');
 EXECUTE sequential_scan_derived_query('*');

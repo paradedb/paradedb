@@ -48,13 +48,13 @@ fn query_empty_table(mut conn: PgConnection) {
     );
 
     CREATE INDEX test_index ON test_table
-    USING paradedb (id, value) WITH (text_fields='{"value": {}}');
+    USING paradedb (id, value);
     "#
     .execute(&mut conn);
 
     "SET max_parallel_workers = 0;".execute(&mut conn);
     let (count,) =
-        "SELECT count(*) FROM test_table WHERE value @@@ 'beer';".fetch_one::<(i64,)>(&mut conn);
+        "SELECT count(*) FROM test_table WHERE value ||| 'beer';".fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 0);
 
     "SET max_parallel_workers = 8;".execute(&mut conn);
@@ -62,7 +62,7 @@ fn query_empty_table(mut conn: PgConnection) {
         "SET debug_parallel_query TO on".execute(&mut conn);
     }
     let (count,) =
-        "SELECT count(*) FROM test_table WHERE value @@@ 'beer';".fetch_one::<(i64,)>(&mut conn);
+        "SELECT count(*) FROM test_table WHERE value ||| 'beer';".fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 0);
 }
 
@@ -80,48 +80,48 @@ fn unary_not_issue2141(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING paradedb (id, value) WITH (text_fields='{"value": {}}');
+    USING paradedb (id, value);
     "#
     .execute(&mut conn);
 
     let (count,) = r#"
-    SELECT count(*) FROM test_table WHERE value @@@ 'beer';
+    SELECT count(*) FROM test_table WHERE value ||| 'beer';
     "#
     .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 4);
 
     let (count,) = r#"
-    SELECT count(*) FROM test_table WHERE NOT value @@@ 'beer';
+    SELECT count(*) FROM test_table WHERE NOT value ||| 'beer';
     "#
     .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 0);
 
     let (count,) = r#"
-    SELECT count(*) FROM test_table WHERE value @@@ 'wine';
+    SELECT count(*) FROM test_table WHERE value ||| 'wine';
     "#
     .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
     let (count,) = r#"
-    SELECT count(*) FROM test_table WHERE NOT value @@@ 'wine';
+    SELECT count(*) FROM test_table WHERE NOT value ||| 'wine';
     "#
     .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 3);
 
     let (count,) = r#"
-    SELECT count(*) FROM test_table WHERE value @@@ 'wine' AND NOT value @@@ 'cheese';
+    SELECT count(*) FROM test_table WHERE value ||| 'wine' AND NOT value ||| 'cheese';
     "#
     .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
     let (count,) = r#"
-    SELECT count(*) FROM test_table WHERE NOT value @@@ 'wine' OR NOT value @@@ 'missing';
+    SELECT count(*) FROM test_table WHERE NOT value ||| 'wine' OR NOT value ||| 'missing';
     "#
     .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 4);
 
     let (count,) = r#"
-    SELECT count(*) FROM test_table WHERE NOT value @@@ 'wine' AND NOT value @@@ 'cheese';
+    SELECT count(*) FROM test_table WHERE NOT value ||| 'wine' AND NOT value ||| 'cheese';
     "#
     .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 2);
@@ -142,9 +142,7 @@ fn not_operator_preserves_null_semantics_issue_5264(mut conn: PgConnection) {
         (3, NULL);
 
     CREATE INDEX min_repro_idx ON min_repro
-    USING paradedb (id, color) WITH (
-        text_fields = '{"color": {"tokenizer": {"type": "keyword"}, "fast": true}}'
-    );
+    USING paradedb (id, (color::pdb.literal));
     "#
     .execute(&mut conn);
 
@@ -154,7 +152,7 @@ fn not_operator_preserves_null_semantics_issue_5264(mut conn: PgConnection) {
     .fetch(&mut conn);
 
     let indexed_rows: Vec<(i32,)> = r#"
-    SELECT id FROM min_repro WHERE NOT (color @@@ 'blue') ORDER BY id;
+    SELECT id FROM min_repro WHERE NOT (color ||| 'blue') ORDER BY id;
     "#
     .fetch(&mut conn);
 
@@ -180,12 +178,7 @@ fn negated_boolean_composition_preserves_null_semantics_issue_5264(mut conn: PgC
         (5, NULL, 'circle');
 
     CREATE INDEX bool_comp_repro_idx ON bool_comp_repro
-    USING paradedb (id, color, shape) WITH (
-        text_fields = '{
-            "color": {"tokenizer": {"type": "keyword"}, "fast": true},
-            "shape": {"tokenizer": {"type": "keyword"}, "fast": true}
-        }'
-    );
+    USING paradedb (id, (color::pdb.literal), (shape::pdb.literal));
     "#
     .execute(&mut conn);
 
@@ -198,7 +191,7 @@ fn negated_boolean_composition_preserves_null_semantics_issue_5264(mut conn: PgC
 
     let indexed_and_rows: Vec<(i32,)> = r#"
     SELECT id FROM bool_comp_repro
-    WHERE NOT ((color @@@ 'blue') AND (shape @@@ 'square'))
+    WHERE NOT ((color ||| 'blue') AND (shape ||| 'square'))
     ORDER BY id;
     "#
     .fetch(&mut conn);
@@ -212,7 +205,7 @@ fn negated_boolean_composition_preserves_null_semantics_issue_5264(mut conn: PgC
 
     let indexed_or_rows: Vec<(i32,)> = r#"
     SELECT id FROM bool_comp_repro
-    WHERE NOT ((color @@@ 'blue') OR (shape @@@ 'square'))
+    WHERE NOT ((color ||| 'blue') OR (shape ||| 'square'))
     ORDER BY id;
     "#
     .fetch(&mut conn);
@@ -236,9 +229,7 @@ fn bitmap_index_scan_preserves_null_semantics_issue_5264(mut conn: PgConnection)
         (NULL);
 
     CREATE INDEX bitmap_repro_idx ON bitmap_repro
-    USING paradedb (id, quantity) WITH (
-        numeric_fields = '{"quantity": {"fast": true}}'
-    );
+    USING paradedb (id, quantity);
 
     SET paradedb.enable_aggregate_custom_scan TO off;
     SET paradedb.enable_custom_scan TO off;
@@ -258,7 +249,7 @@ fn bitmap_index_scan_preserves_null_semantics_issue_5264(mut conn: PgConnection)
     .fetch_one::<(i64,)>(&mut conn);
 
     let (bm25_count,) = r#"
-    SELECT COUNT(*) FROM bitmap_repro WHERE NOT (quantity @@@ '7');
+    SELECT COUNT(*) FROM bitmap_repro WHERE NOT (quantity @@@ pdb.term(7));
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -282,9 +273,7 @@ fn negated_exists_returns_missing_rows_issue_5264(mut conn: PgConnection) {
         (4, NULL);
 
     CREATE INDEX exists_repro_idx ON exists_repro
-    USING paradedb (id, color) WITH (
-        text_fields = '{"color": {"tokenizer": {"type": "keyword"}, "fast": true}}'
-    );
+    USING paradedb (id, (color::pdb.literal));
     "#
     .execute(&mut conn);
 
@@ -362,15 +351,13 @@ fn negated_predicate_preserves_empty_array_not_null_issue_5264(mut conn: PgConne
         (3, NULL);
 
     CREATE INDEX array_repro_idx ON array_repro
-    USING paradedb (id, tags) WITH (
-        text_fields = '{"tags": {"tokenizer": {"type": "keyword"}, "fast": true}}'
-    );
+    USING paradedb (id, (tags::pdb.literal));
     "#
     .execute(&mut conn);
 
     // Empty array is SQL NOT NULL; the null-preserving guard must not treat it as NULL.
     let indexed_rows: Vec<(i32,)> = r#"
-    SELECT id FROM array_repro WHERE NOT (tags @@@ 'beer') ORDER BY id;
+    SELECT id FROM array_repro WHERE NOT (tags ||| 'beer') ORDER BY id;
     "#
     .fetch(&mut conn);
 

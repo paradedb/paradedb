@@ -17,11 +17,7 @@ INSERT INTO issue_3827_t (txt, n, not_indexed) VALUES
     ('foo', 3, 30);
 
 CREATE INDEX issue_3827_t_idx ON issue_3827_t
-USING paradedb (id, txt, n)
-WITH (
-    text_fields = '{"txt": {}}',
-    numeric_fields = '{"n": {"fast": true}}'
-);
+USING paradedb (id, txt, n);
 
 -- Test 1: Window agg pushdown with GROUP BY/ORDER BY on grouping column (planner hook)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

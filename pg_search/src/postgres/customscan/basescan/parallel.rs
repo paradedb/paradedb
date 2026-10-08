@@ -67,20 +67,18 @@ impl ParallelScanHandle {
         self.dsm.as_ptr()
     }
 
-    /// Worker End: flush local telemetry into DSM.
+    /// Worker Shutdown: flush local segment_info into DSM.
     pub fn publish_telemetry(&self, local: &ScanTelemetry) {
         debug_assert_eq!(self.role, ParallelRole::Worker);
         let dsm = unsafe { &mut *self.dsm.as_ptr() };
-        dsm.set_query_count(local.query_count());
         dsm.publish_segment_info(local.segment_info());
     }
 
-    /// Leader Shutdown: write this process's query count into DSM, snapshot
-    /// explain metadata + worker segment_info, merge segment_info into local.
+    /// Leader Shutdown: snapshot explain metadata + worker segment_info, merge
+    /// segment_info into local.
     pub fn finalize_explain(&self, local: &mut ScanTelemetry) {
         debug_assert_eq!(self.role, ParallelRole::Leader);
         let dsm = unsafe { &mut *self.dsm.as_ptr() };
-        dsm.set_query_count(local.query_count());
         let explain_data = dsm.explain_data();
         local.accumulate_segment_info(dsm.take_segment_info());
         local.set_parallel_explain(explain_data);
@@ -137,6 +135,10 @@ impl ParallelQueryCapable for BaseScan {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
         let pscan_state = unsafe { &mut *pscan_state };
+        // Only the counters are reset, never the segment payload: the DSM was sized once at
+        // estimate time, so it cannot hold a larger set. Every participant therefore keeps
+        // replaying the first published view for the life of the query, which also keeps the
+        // leader's pins on those segments held that long.
         pscan_state.bitmap_reset();
         pscan_state.reset();
         // Republish for the relaunched workers. The scan's rescan callback ran

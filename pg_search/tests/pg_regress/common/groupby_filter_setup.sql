@@ -47,21 +47,4 @@ INSERT INTO filter_agg_test (id, title, description, category, brand, status, pr
 
 -- Create BM25 index with fast fields for all aggregation scenarios
 CREATE INDEX filter_agg_idx ON filter_agg_test
-USING paradedb (id, title, description, category, brand, status, price, rating, in_stock, views)
-WITH (
-    text_fields='{
-        "title": {},
-        "description": {},
-        "category": {"fast": true},
-        "brand": {"fast": true},
-        "status": {"fast": true}
-    }',
-    numeric_fields='{
-        "price": {"fast": true},
-        "rating": {"fast": true},
-        "views": {"fast": true}
-    }',
-    boolean_fields='{
-        "in_stock": {"fast": true}
-    }'
-);
+USING paradedb (id, title, description, (category::pdb.unicode_words('columnar=true')), (brand::pdb.unicode_words('columnar=true')), (status::pdb.unicode_words('columnar=true')), price, rating, in_stock, views);

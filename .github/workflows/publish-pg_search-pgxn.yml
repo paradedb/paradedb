@@ -1,9 +1,7 @@
 # workflows/publish-pg_search-pgxn.yml
 #
 # Publish pg_search (PGXN)
-# Build and publish the pg_search extension to the PostgreSQL Extension Network (PGXN). This
-# workflow is triggered on creation of a GitHub Tag, but beta releases get filtered out
-# by the `if` condition of the job.
+# Bundle and publish the pg_search extension source to the PostgreSQL Extension Network (PGXN).
 
 name: Publish pg_search (PGXN)
 
@@ -38,7 +36,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: failure()
-        uses: paradedb/actions/slack-alert@v12
+        uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

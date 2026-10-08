@@ -55,7 +55,8 @@ INSERT INTO items (id, name, description, tag_id) VALUES
 INSERT INTO tags (id, label, category) VALUES
 (10, 'peripherals', 'hardware accessories for computers'),
 (20, 'cables', 'connectivity and data transfer cables'),
-(30, 'stands', 'ergonomic desk accessories and stands');
+(30, 'stands', 'ergonomic desk accessories and stands'),
+(40, 'audio', 'speakers and sound systems');
 
 INSERT INTO reviews (id, item_id, body, rating) VALUES
 (100, 1, 'great wireless mouse very ergonomic', 5),
@@ -68,17 +69,11 @@ INSERT INTO reviews (id, item_id, body, rating) VALUES
 (107, 7, 'nice large mouse pad', 4),
 (108, 8, 'keeps cables organized and tidy', 4);
 
-CREATE INDEX items_idx ON items USING paradedb (id, name, description, tag_id)
-WITH (
-    numeric_fields = '{"tag_id": {"fast": true}}'
-);
+CREATE INDEX items_idx ON items USING paradedb (id, name, description, tag_id);
 
 CREATE INDEX tags_idx ON tags USING paradedb (id, label, category);
 
-CREATE INDEX reviews_idx ON reviews USING paradedb (id, item_id, body, rating)
-WITH (
-    numeric_fields = '{"item_id": {"fast": true}, "rating": {"fast": true}}'
-);
+CREATE INDEX reviews_idx ON reviews USING paradedb (id, item_id, body, rating);
 
 -- =============================================================================
 -- TEST 1: Basic INNER JOIN — verify VisibilityFilterExec appears in plan
@@ -90,7 +85,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, t.label
 FROM items i
 JOIN tags t ON i.tag_id = t.id
-WHERE i.description @@@ 'wireless'
+WHERE i.description ||| 'wireless'
 ORDER BY i.id
 LIMIT 5;
 
@@ -98,7 +93,7 @@ LIMIT 5;
 SELECT i.id, i.name, t.label
 FROM items i
 JOIN tags t ON i.tag_id = t.id
-WHERE i.description @@@ 'wireless'
+WHERE i.description ||| 'wireless'
 ORDER BY i.id
 LIMIT 5;
 
@@ -113,11 +108,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name
 FROM items i
 JOIN tags t ON i.tag_id = t.id
-WHERE i.description @@@ 'wireless OR keyboard'
+WHERE (i.description ||| 'wireless' OR i.description ||| 'keyboard')
   AND EXISTS (
     SELECT 1 FROM reviews r
     WHERE r.item_id = i.id
-      AND r.body @@@ 'great'
+      AND r.body ||| 'great'
   )
 ORDER BY i.id
 LIMIT 5;
@@ -125,11 +120,11 @@ LIMIT 5;
 SELECT i.id, i.name
 FROM items i
 JOIN tags t ON i.tag_id = t.id
-WHERE i.description @@@ 'wireless OR keyboard'
+WHERE (i.description ||| 'wireless' OR i.description ||| 'keyboard')
   AND EXISTS (
     SELECT 1 FROM reviews r
     WHERE r.item_id = i.id
-      AND r.body @@@ 'great'
+      AND r.body ||| 'great'
   )
 ORDER BY i.id
 LIMIT 5;
@@ -144,16 +139,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.name AS wireless_name, b.id, b.name AS keyboard_name
 FROM items a
 JOIN items b ON a.tag_id = b.tag_id
-WHERE a.description @@@ 'wireless'
-  AND b.description @@@ 'keyboard'
+WHERE a.description ||| 'wireless'
+  AND b.description ||| 'keyboard'
 ORDER BY a.id, b.id
 LIMIT 5;
 
 SELECT a.id, a.name AS wireless_name, b.id, b.name AS keyboard_name
 FROM items a
 JOIN items b ON a.tag_id = b.tag_id
-WHERE a.description @@@ 'wireless'
-  AND b.description @@@ 'keyboard'
+WHERE a.description ||| 'wireless'
+  AND b.description ||| 'keyboard'
 ORDER BY a.id, b.id
 LIMIT 5;
 
@@ -174,7 +169,7 @@ DELETE FROM items WHERE id IN (9, 10);
 SELECT i.id, i.name, t.label
 FROM items i
 JOIN tags t ON i.tag_id = t.id
-WHERE i.description @@@ 'wireless'
+WHERE i.description ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
@@ -187,7 +182,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name
 FROM items i
 JOIN tags t ON i.tag_id = t.id
-WHERE i.description @@@ 'wireless OR mouse'
+WHERE (i.description ||| 'wireless' OR i.description ||| 'mouse')
   AND NOT EXISTS (
     SELECT 1 FROM reviews r
     WHERE r.item_id = i.id
@@ -199,7 +194,7 @@ LIMIT 5;
 SELECT i.id, i.name
 FROM items i
 JOIN tags t ON i.tag_id = t.id
-WHERE i.description @@@ 'wireless OR mouse'
+WHERE (i.description ||| 'wireless' OR i.description ||| 'mouse')
   AND NOT EXISTS (
     SELECT 1 FROM reviews r
     WHERE r.item_id = i.id

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+A parallel search with a bitmap intersection no longer crashes a parallel worker, fails with `bitmap cursor source was never initialized`, or returns wrong rows when its `Gather` or `Gather Merge` is rescanned, for example inside a correlated subquery (#6734).

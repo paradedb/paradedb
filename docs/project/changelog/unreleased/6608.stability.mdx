@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Aggregate Scan now runs a `GROUP BY` query that filters a grouping key to one value, or that selects a column the primary key decides. These queries fell back to Postgres, and `pdb.agg()` failed (#6606). This also fixes wrong rows for `GROUP BY date(ts)` under a window function (#6633), and an error on a `GROUP BY` key that is a cast (#6632).

@@ -70,6 +70,7 @@ mod parallel;
 pub mod pdb_owned_value;
 pub mod planner_warnings;
 pub mod rel;
+pub(crate) mod search_operator_relations;
 pub(crate) mod sequentialscan;
 pub mod storage;
 pub mod tuplesort;
@@ -918,16 +919,6 @@ impl ParallelScanState {
         }
     }
 
-    /// Set this worker's query count in DSM (used when flushing local scan
-    /// telemetry at teardown). Acquires the parallel mutex.
-    pub fn set_query_count(&mut self, count: usize) {
-        let _mutex = self.acquire_mutex();
-        let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-        if let Some(query_count) = self.query_count(parallel_worker_number) {
-            *query_count = count.min(u16::MAX as usize) as u16;
-        }
-    }
-
     /// Append intermediate aggregation results, including the number of segments that they
     /// represent.
     pub fn aggregation_append(
@@ -1193,7 +1184,7 @@ impl ParallelScanState {
 
     /// Publish per-segment JSON info into DSM (keyed by primary segment index).
     /// Last-write-wins per segment. Called by parallel workers in
-    /// `EndCustomScan` — not by the leader, which keeps its local map and
+    /// `ShutdownCustomScan` — not by the leader, which keeps its local map and
     /// merges worker entries at Shutdown. Not for the TopK collect hot path.
     /// Acquires the parallel mutex.
     pub fn publish_segment_info(&mut self, info: &BTreeMap<SegmentId, serde_json::Value>) {

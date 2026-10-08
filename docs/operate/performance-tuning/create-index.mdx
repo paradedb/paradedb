@@ -40,11 +40,11 @@ If possible, creating the ParadeDB index should be deferred until **after** a ta
 -- This is preferred
 CREATE TABLE test (id SERIAL, data text);
 INSERT INTO test (data) VALUES ('hello world'), ('many more values');
-CREATE INDEX ON test USING paradedb (id, data) WITH (key_field = 'id');
+CREATE INDEX ON test USING paradedb (id, data);
 
 -- ...to this
 CREATE TABLE test (id SERIAL, data text);
-CREATE INDEX ON test USING paradedb (id, data) WITH (key_field = 'id');
+CREATE INDEX ON test USING paradedb (id, data);
 INSERT INTO test (data) VALUES ('hello world'), ('many more values');
 ```
 

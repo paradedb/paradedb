@@ -195,7 +195,7 @@ impl BlockToDocIdMap {
             .flat_map(|blocks| [blocks.start, blocks.end])
             .collect();
         let boundaries = self.boundaries(&blocks)?;
-        for pair in boundaries.chunks_exact(2) {
+        for pair in boundaries.as_chunks::<2>().0 {
             let [start, end] = [pair[0], pair[1]];
             if start > end || end > self.num_docs {
                 bail!("invalid heap-block boundaries");

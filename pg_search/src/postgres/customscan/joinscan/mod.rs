@@ -146,13 +146,15 @@ pub mod visibility_filter;
 pub mod window_func;
 
 pub use self::build::{CtidColumn, ScoreColumn};
-use self::build::{JoinCSClause, RelNode, RelationAlias};
+use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
     get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
-use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node};
+use self::window_func::{
+    SupportedWindowAggType, WindowAggDef, extract_window_agg, is_supported_window_agg_node,
+};
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -192,20 +194,21 @@ use datafusion_distributed::shm::MppMesh;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::aggregatescan::datafusion_build;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
-use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::search_operator_relations;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
-use pgrx::{PgList, pg_sys};
+use pgrx::{PgList, PgMemoryContexts, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
 
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
+use super::datafusion::pdb_agg_udaf::{debug_assert_single_document, json_document_to_datum};
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -671,6 +674,29 @@ impl JoinScan {
             }
         }
 
+        // A `pdb.agg()` is computed inside the Top-K aggregate node, which needs
+        // OFFSET + LIMIT known at planning, and its fields have to come from a
+        // source the join still puts out: the aggregate reads the join's rows.
+        let root_id = PlannerRootId::from(root);
+        for window_agg in &mut window_aggs {
+            if let WindowAggDef::PdbAgg(request) = &mut window_agg.agg_def {
+                if limit_offset
+                    .as_ref()
+                    .and_then(|lo| lo.static_fetch())
+                    .is_none()
+                {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: pdb.agg() as a window function requires a statically known LIMIT and OFFSET",
+                    ));
+                }
+                request
+                    .assign_plan_positions(|field| {
+                        plan.plan_position(root_id, field.rti, field.attno)
+                    })
+                    .map_err(|e| JoinDeclineReason::new(format!("JoinScan not used: {e}")))?;
+            }
+        }
+
         order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
 
         for jk in join_keys {
@@ -928,11 +954,20 @@ impl JoinScan {
         }
 
         let planstate = state.planstate();
-        let expr_context = state.runtime_context;
+        // Solved in `ps_ExprContext`: JoinScan never resets it per row (see `solve_expr.rs`).
+        let expr_context = state.csstate.ss.ps.ps_ExprContext;
 
-        state
-            .custom_state_mut()
-            .prepare_query_for_execution(planstate, expr_context);
+        let custom_state = state.custom_state_mut();
+        custom_state.join_clause = custom_state
+            .base_join_clause
+            .clone()
+            .expect("runtime expression solving requires a pristine JoinScan clause");
+        custom_state
+            .join_clause
+            .init_postgres_expressions(planstate);
+        custom_state
+            .join_clause
+            .solve_postgres_expressions(expr_context);
 
         let bytes = unsafe { Self::rebake_for_mpp(state) };
         // Keep the leader's own execution in sync with what's dispatched to workers:
@@ -1504,7 +1539,17 @@ impl CustomScan for JoinScan {
                 // expressions, and pushed-down predicates may all need it.
                 pg_sys::ExecAssignExprContext(estate, planstate);
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
-                state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+
+                // Assign child memory context for window aggs
+                let window_agg_ctx = pg_sys::AllocSetContextCreateExtended(
+                    (*estate).es_query_cxt,
+                    c"ParadeDB Join Scan window aggs".as_ptr(),
+                    pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+                );
+                assert!(state.custom_state_mut().window_agg_ctx.is_none());
+                state.custom_state_mut().window_agg_ctx = Some(window_agg_ctx);
             }
             // MPP: mark one launch attempt for the first exec call. The existing logical plan is
             // resolved and rebaked at execution time before it is deserialized to build the
@@ -1617,7 +1662,7 @@ impl CustomScan for JoinScan {
                 };
 
                 // Raw pointers precomputed so the planning closure below never borrows `state`.
-                let runtime_context = state.runtime_context;
+                let runtime_context = state.csstate.ss.ps.ps_ExprContext;
                 let build_plan =
                     |ctx: &datafusion::prelude::SessionContext| -> Arc<dyn ExecutionPlan> {
                         let logical_plan = deserialize_logical_plan_with_runtime(
@@ -2372,7 +2417,13 @@ impl JoinScan {
 
         // Need at least one search predicate in the plan (unless enable_custom_scan_without_operator is set).
         // Quietly decline before validating clauses or join shapes to avoid false-alarm planner warnings.
-        if !crate::gucs::enable_custom_scan_without_operator() && !plan.has_search_predicate() {
+        // The planner can simplify the operator out of the quals, so the query as written counts too.
+        if !crate::gucs::enable_custom_scan_without_operator()
+            && !plan.has_search_predicate()
+            && !sources
+                .iter()
+                .any(|source| search_operator_relations::applies_to(root, source.rti))
+        {
             return Err(JoinPathDecline::Quiet);
         }
 
@@ -2603,6 +2654,7 @@ impl JoinScan {
         // Fill the result slot based on the output column mapping
         let datums = (*result_slot).tts_values;
         let nulls = (*result_slot).tts_isnull;
+
         let batch = state.custom_state().current_batch.as_ref()?;
 
         for (i, col_info) in output_columns.iter().enumerate() {
@@ -2669,11 +2721,17 @@ impl JoinScan {
                     *nulls.add(i) = is_null;
                 }
                 privdat::OutputColumnInfo::WindowAgg { agg_index } => {
+                    // use the canonical index for cases of duplicate definitions
+                    let agg_index = state
+                        .custom_state()
+                        .join_clause
+                        .window_aggs
+                        .canonical_index(*agg_index);
                     let window_agg = state
                         .custom_state()
                         .join_clause
                         .window_aggs
-                        .get(*agg_index)
+                        .get(agg_index)
                         .expect("A window agg output column should always have a valid index");
                     let Some(col_idx) = state
                         .custom_state()
@@ -2686,22 +2744,64 @@ impl JoinScan {
                         continue;
                     };
                     let agg_col = batch.column(col_idx);
-                    let numeric = match numeric_window_field(
-                        window_agg.agg_type,
-                        window_agg.arg_field_type(),
-                    ) {
-                        Ok(f) => f,
-                        Err(e) => pgrx::error!(
-                            "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
-                        ),
+                    let try_maybe_datum = match &window_agg.agg_def {
+                        WindowAggDef::Sql(sql) => {
+                            let numeric = match numeric_window_field(
+                                sql.agg_type(),
+                                sql.arg_field_type(),
+                            ) {
+                                Ok(f) => f,
+                                Err(e) => pgrx::error!(
+                                    "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
+                                ),
+                            };
+                            datafusion_agg_to_datum(
+                                matches!(sql.agg_type(), SupportedWindowAggType::Avg),
+                                numeric,
+                                window_agg.result_type.0,
+                                agg_col.as_ref(),
+                                row_idx,
+                            )
+                        }
+                        WindowAggDef::PdbAgg(_) => {
+                            debug_assert_single_document(agg_col.as_ref());
+                            let mut window_agg_datums =
+                                state.custom_state().window_agg_datums.borrow_mut();
+                            match window_agg_datums.get(&agg_index) {
+                                Some(d) => Ok(*d),
+                                None => {
+                                    // Reused for every row of the scan: allocate in the window agg
+                                    // context so we can clear it between scans. Do the conversion
+                                    // in a scratch context so the intermediates get dropped
+                                    // immediately.
+                                    let ctx = state
+                                        .custom_state()
+                                        .window_agg_ctx
+                                        .expect("should have been initialized in begin_scan");
+                                    let tmp_ctx = pg_sys::AllocSetContextCreateExtended(
+                                        ctx,
+                                        c"ParadeDB Join Scan pdb.agg scratch".as_ptr(),
+                                        pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+                                        pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+                                        pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+                                    );
+                                    let datum = PgMemoryContexts::For(tmp_ctx).switch_to(|_| {
+                                        let datum =
+                                            json_document_to_datum(agg_col.as_ref(), row_idx)?;
+                                        Ok(datum.map(|d| {
+                                            PgMemoryContexts::For(ctx)
+                                                .switch_to(|_| pg_sys::datumCopy(d, false, -1))
+                                        }))
+                                    });
+                                    pg_sys::MemoryContextDelete(tmp_ctx);
+                                    if let Ok(d) = datum {
+                                        window_agg_datums.insert(agg_index, d);
+                                    }
+                                    datum
+                                }
+                            }
+                        }
                     };
-                    let try_maybe_datum = datafusion_agg_to_datum(
-                        matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
-                        numeric,
-                        window_agg.result_type.0,
-                        agg_col.as_ref(),
-                        row_idx,
-                    );
                     let maybe_datum = match try_maybe_datum {
                         Ok(d) => d,
                         Err(e) => pgrx::error!("Failed to convert window agg result to datum: {e}"),

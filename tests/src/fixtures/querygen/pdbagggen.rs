@@ -21,6 +21,9 @@
 //! must be equal. On a single table the other backend is the oracle instead, and
 //! the documents themselves are compared. `missing`, `min_doc_count`, and `order`
 //! by a metric have no SQL translation here and are left to the regression tests.
+//!
+//! As a window function, `pdb.agg(...) OVER ()` puts the document of the whole
+//! join on every row a query returns, so the same `GROUP BY` is its oracle too.
 
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -81,11 +84,17 @@ pub struct Metric {
 pub struct PdbTerm {
     pub field: String,
     pub is_array: bool,
+    /// The alias of the join's own `LATERAL unnest` of this array field, when it
+    /// has one. The scans then key on those elements, each join row counting
+    /// once, and so must the oracle, in place of an unnest of its own.
+    pub unnested_as: Option<String>,
 }
 
 impl PdbTerm {
     pub fn sql_key(&self) -> String {
-        if self.is_array {
+        if let Some(alias) = &self.unnested_as {
+            alias.clone()
+        } else if self.is_array {
             format!("_{}", self.field.replace('.', "_"))
         } else {
             self.field.clone()
@@ -232,7 +241,7 @@ impl PdbAggExpr {
         let mut from = from_clause.to_string();
         let mut keys: Vec<String> = self.outer_group.iter().cloned().collect();
         for term in &self.terms {
-            if term.is_array {
+            if term.is_array && term.unnested_as.is_none() {
                 let alias = term.sql_key();
                 // Tantivy and DataFusion (via PreserveAndExpandEmpty) preserve documents
                 // with empty or NULL arrays, assigning them to the NULL/missing bucket
@@ -245,7 +254,7 @@ impl PdbAggExpr {
                 ));
                 keys.push(alias);
             } else {
-                keys.push(term.field.clone());
+                keys.push(term.sql_key());
             }
         }
         let mut select: Vec<String> = keys.clone();
@@ -298,6 +307,28 @@ impl PdbAggExpr {
                 }
             }
         }
+        Ok(out)
+    }
+
+    /// The rows of [`Self::pg_query`] for the document that `pdb.agg(...) OVER ()`
+    /// puts in the last column of every row, flattened once. Empty when there is
+    /// no row to carry a document.
+    pub fn window_rows(&self, rows: &[PgRow]) -> Result<Vec<String>, sqlx::Error> {
+        let mut documents = rows
+            .iter()
+            .map(|row| row.try_get::<Value, _>(row.len() - 1));
+        let Some(first) = documents.next().transpose()? else {
+            return Ok(Vec::new());
+        };
+        for document in documents {
+            if document? != first {
+                return Err(sqlx::Error::Protocol(
+                    "pdb.agg() OVER () rows carry different documents".into(),
+                ));
+            }
+        }
+        let mut out = Vec::new();
+        self.flatten(&first, 0, &mut Vec::new(), &mut out);
         Ok(out)
     }
 
@@ -376,11 +407,18 @@ fn json_string(value: &Value) -> String {
     }
 }
 
+/// Whether a SQL `GROUP BY` sits beside the call.
+#[derive(Clone, Copy)]
+enum OuterGroup {
+    Never,
+    Maybe,
+    Always,
+}
+
 /// What the oracle of a test can express, which bounds the specs it gets.
 #[derive(Clone, Copy)]
 struct SpecShape {
-    /// A SQL `GROUP BY` always sits beside the call.
-    grouped: bool,
+    outer_group: OuterGroup,
     /// Standard SQL aggregates may sit beside the call.
     allow_outer_aggs: bool,
     /// NUMERIC columns may be metric fields.
@@ -445,7 +483,7 @@ pub fn arb_pdb_agg_join(
         let where_cols = where_columns.clone();
         arb_joins(join_types, joined.clone(), &key_columns).prop_flat_map(move |join| {
             let shape = SpecShape {
-                grouped: false,
+                outer_group: OuterGroup::Maybe,
                 allow_outer_aggs: true,
                 numeric_metrics: true,
                 size_anywhere: false,
@@ -456,7 +494,7 @@ pub fn arb_pdb_agg_join(
                 },
                 allow_arrays: true,
             };
-            let agg = arb_pdb_agg(joined.clone(), shape);
+            let agg = arb_pdb_agg(joined.clone(), join.unnested_fields(), shape);
             let outer_strat = arb_wheres(vec![joined[0].clone()], &where_cols).boxed();
             let inner_strat = joined[1..]
                 .iter()
@@ -481,8 +519,9 @@ pub fn arb_pdb_agg_join(
 pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
     arb_pdb_agg(
         Vec::new(),
+        Vec::new(),
         SpecShape {
-            grouped: true,
+            outer_group: OuterGroup::Always,
             allow_outer_aggs: false,
             numeric_metrics: false,
             size_anywhere: true,
@@ -492,8 +531,36 @@ pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
     )
 }
 
+/// A `pdb.agg()` for `pdb.agg(...) OVER ()` beside the rows of a join over
+/// `tables`. A window has no SQL group or aggregates beside it.
+/// `has_keyless_step` bounds `cardinality` and `unnested` names the arrays the
+/// join unnests itself, both as in [`arb_pdb_agg_join`].
+pub fn arb_pdb_agg_window(
+    tables: Vec<String>,
+    has_keyless_step: bool,
+    unnested: Vec<(String, String)>,
+) -> impl Strategy<Value = PdbAggExpr> {
+    arb_pdb_agg(
+        tables,
+        unnested,
+        SpecShape {
+            outer_group: OuterGroup::Never,
+            allow_outer_aggs: false,
+            numeric_metrics: true,
+            size_anywhere: false,
+            sketch_keys: if has_keyless_step { 1 } else { usize::MAX },
+            allow_arrays: true,
+        },
+    )
+}
+
 /// Fields are qualified by each of `tables`, or bare when there are none.
-fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = PdbAggExpr> {
+/// `unnested` maps the array fields the join already unnests to their aliases.
+fn arb_pdb_agg(
+    tables: Vec<String>,
+    unnested: Vec<(String, String)>,
+    shape: SpecShape,
+) -> impl Strategy<Value = PdbAggExpr> {
     let qualify = |columns: &[&str]| -> Vec<String> {
         if tables.is_empty() {
             return columns.iter().map(|c| c.to_string()).collect();
@@ -529,12 +596,14 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
         ),
         1 => (Just(MetricKind::Avg), proptest::sample::select(int_fields.clone())),
     ];
-    let outer_group = if shape.grouped {
-        proptest::sample::select(key_fields.clone())
+    let outer_group = match shape.outer_group {
+        OuterGroup::Always => proptest::sample::select(key_fields.clone())
             .prop_map(Some)
-            .boxed()
-    } else {
-        proptest::option::weighted(0.3, proptest::sample::select(key_fields.clone())).boxed()
+            .boxed(),
+        OuterGroup::Maybe => {
+            proptest::option::weighted(0.3, proptest::sample::select(key_fields.clone())).boxed()
+        }
+        OuterGroup::Never => Just(None).boxed(),
     };
 
     let outer_aggs_strat = if shape.allow_outer_aggs {
@@ -575,12 +644,19 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
         .map(|f| PdbTerm {
             field: f.clone(),
             is_array: false,
+            unnested_as: None,
         })
         .collect();
     if shape.allow_arrays {
-        all_terms.extend(array_fields.iter().map(|f| PdbTerm {
-            field: f.clone(),
-            is_array: true,
+        all_terms.extend(array_fields.iter().map(|f| {
+            PdbTerm {
+                field: f.clone(),
+                is_array: true,
+                unnested_as: unnested
+                    .iter()
+                    .find(|(field, _)| field == f)
+                    .map(|(_, alias)| alias.clone()),
+            }
         }));
     }
 
@@ -737,10 +813,12 @@ mod tests {
                 PdbTerm {
                     field: "users.tags".to_string(),
                     is_array: true,
+                    unnested_as: None,
                 },
                 PdbTerm {
                     field: "users.age".to_string(),
                     is_array: false,
+                    unnested_as: None,
                 },
             ],
             size: Some((0, 10)),

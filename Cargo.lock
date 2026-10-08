@@ -2109,7 +2109,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "4.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-09-28-172238#1e87c8d6bd266594ec9210f42ed783d8847aedeb"
+source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-10-06-224907#2b82e8d2af32a6b15fb301be858ef47d7b629a3c"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5046,12 +5046,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "permutation"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df202b0b0f5b8e389955afd5f27b007b00fb948162953f1db9c70d2c7e3157d7"
-
-[[package]]
 name = "petgraph"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5760,7 +5754,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6696,28 +6690,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "soa_derive"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e4eaf24a10828e918ed1e0265de81ad86800f16c6834df8e664b623dec4206"
-dependencies = [
- "permutation",
- "rustc_version",
- "soa_derive_internal",
-]
-
-[[package]]
-name = "soa_derive_internal"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "039896b91e8c5b22d8acdf2206c72904a83d58d138d10e4bca62c16fdae1b744"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "socket2"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7353,7 +7325,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -7384,7 +7356,6 @@ dependencies = [
  "rstest",
  "rustc-hash",
  "serde_json",
- "soa_derive",
  "sqlx",
  "strum 0.28.0",
  "tantivy",

@@ -168,6 +168,8 @@ jobs:
           sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
           # Partitioned index builds warn with fewer than three maintenance workers.
           echo "max_parallel_maintenance_workers = 4" >> postgresql.conf
+          # Four workers plus the leader each need at least 15 MB for index builds.
+          echo "maintenance_work_mem = '128MB'" >> postgresql.conf
 
       - name: Start Postgres (pgrx)
         working-directory: tests/

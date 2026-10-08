@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791438433077,
+  "lastUpdate": 1791438456347,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9412,6 +9412,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 608.214,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b9b6cfd7e6cd52c83f62fca1f0bbf741499a9412",
+          "message": "feat: Include parallelism in aggregate `EXPLAIN ANALYZE` output (#6720)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBecause aggregate custom scans launch their own workers, the parallelism\nis completely opaque to us (we don't even see whether it was\nparallelized or a worker count in the explain output).\n\nThis changes the `EXPLAIN ANALYZE` output to look like:\n\n```sql\n                                                                 QUERY PLAN                                                                  \n---------------------------------------------------------------------------------------------------------------------------------------------\n Custom Scan (ParadeDB Aggregate Scan) on documents  (cost=0.00..0.00 rows=1 width=8) (actual time=20.544..20.545 rows=1.00 loops=1)\n   Index: documents_body_bm25_idx\n   Tantivy Query: {\"with_index\":{\"query\":{\"parse\":{\"query_string\":\"centerville OR high OR school\",\"lenient\":true,\"conjunction_mode\":null}}}}\n     Applies to Aggregates: COUNT(*)\n     Aggregate Definition: {\"0\":{\"filter\":\"*\"}}\n   Visibility:\n     Segments Skipped: 8\n     Segments Checked: 0\n     Blocks Total: 410165\n     Blocks Requiring Checks: 0\n   Parallelism:\n     Workers Requested: 1\n     Workers Launched: 1\n     Worker Selection: Cost model\n     Estimated Query Work: 4319.45\n     Parallel Threshold: 2000.20\n   Buffers: shared hit=263\n Planning:\n   Buffers: shared hit=375\n Planning Time: 14.382 ms\n Execution Time: 20.631 ms\n(21 rows)\n```\n\n## Why\n\n## How\n\n## Tests\n\nExtended `visibility_explain` to cover cost-based serial and parallel\ndecisions, worker caps, disabled leader participation, fallback\nselection, and numeric JSON cost fields.",
+          "timestamp": "2026-10-07T21:19:36-07:00",
+          "tree_id": "ab9d4bcdc5533af1df42dc0cbde675a86b066a7a",
+          "url": "https://github.com/paradedb/paradedb/commit/b9b6cfd7e6cd52c83f62fca1f0bbf741499a9412"
+        },
+        "date": 1791438452708,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 16.049,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 197.644,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 51.062,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 228.739,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 18.934,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 162.843,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 28.469,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 222.383,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 41.426,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 607.074,
             "unit": "ms"
           }
         ]

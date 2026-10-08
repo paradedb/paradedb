@@ -39,18 +39,10 @@ on:
         description: "benchmarker repo ref for hackernews (branch/tag/SHA)."
         required: false
         default: "main"
-      benchmarker_stackexchange_repo:
-        description: "benchmarker repo to clone for stackexchange."
-        required: false
-        default: "paradedb/benchmarker"
       benchmarker_stackexchange_ref:
         description: "benchmarker repo ref for stackexchange (branch/tag/SHA)."
         required: false
         default: "main"
-      benchmarker_wikipedia_repo:
-        description: "benchmarker repo to clone for wikipedia."
-        required: false
-        default: "paradedb/benchmarker"
       benchmarker_wikipedia_ref:
         description: "benchmarker repo ref for wikipedia (branch/tag/SHA)."
         required: false
@@ -127,7 +119,6 @@ jobs:
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
-          repository: paradedb/benchmarker
           ref: ${{ inputs.benchmarker_hackernews_ref || 'main' }}
 
       - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)
@@ -283,7 +274,6 @@ jobs:
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
-          repository: ${{ inputs[format('benchmarker_{0}_repo', matrix.dataset)] || 'paradedb/benchmarker' }}
           ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'main' }}
 
       - name: Pull ${{ env.DATASET }} benchmark config (public S3, anonymous)

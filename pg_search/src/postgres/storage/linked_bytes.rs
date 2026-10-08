@@ -430,11 +430,6 @@ impl LinkedBytesList {
     /// # Safety
     /// Published payloads require an independent guard preventing logical reuse.
     pub unsafe fn get_bytes_range(&self, range: Range<usize>, published: bool) -> OwnedBytes {
-        let mode = if published {
-            PageReadMode::Published
-        } else {
-            PageReadMode::Locked
-        };
         if range.is_empty() {
             return OwnedBytes::empty();
         }
@@ -444,6 +439,13 @@ impl LinkedBytesList {
         let start_block_ord = range.start / ITEM_SIZE;
         // range.end is exclusive, so the last byte is at range.end - 1
         let end_block_ord = (range.end - 1) / ITEM_SIZE;
+        let mode = if !published {
+            PageReadMode::Locked
+        } else if start_block_ord == end_block_ord {
+            PageReadMode::Published
+        } else {
+            PageReadMode::PublishedSequential
+        };
 
         if start_block_ord == end_block_ord {
             // Single block read

@@ -18,7 +18,7 @@
 use crate::index::mvcc::PinCushion;
 use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::FileEntry;
+use crate::postgres::storage::block::{FileEntry, VECTOR_VEC_EXT};
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
@@ -71,11 +71,17 @@ impl SegmentComponentReader {
         unsafe {
             let end = range.end.min(self.len());
             let range = range.start..end;
+            let published = match self.protection {
+                ReadProtection::IndexFile => true,
+                ReadProtection::Segment { .. } => matches!(
+                    &self.component,
+                    Some(tantivy::index::SegmentComponent::Custom(ext)) if ext == VECTOR_VEC_EXT
+                ),
+                ReadProtection::Unpublished => false,
+            };
 
             // read one or more pages
-            Ok(self
-                .block_list
-                .get_bytes_range(range, matches!(self.protection, ReadProtection::IndexFile)))
+            Ok(self.block_list.get_bytes_range(range, published))
         }
     }
 }
@@ -111,8 +117,6 @@ impl HasLen for SegmentComponentReader {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::postgres::storage::block::VECTOR_VEC_EXT;
-
     use crate::api::HashMap;
     use crate::index::directory::utils::save_index_files;
     use crate::index::writer::segment_component::SegmentComponentWriter;

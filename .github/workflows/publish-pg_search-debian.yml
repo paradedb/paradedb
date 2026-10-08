@@ -198,7 +198,7 @@ jobs:
         with:
           packages: >-
             sudo wget git ca-certificates curl gnupg gpg lsb-release
-            pkg-config libssl-dev jq gettext-base lld
+            pkg-config libssl-dev libicu-dev jq gettext-base lld
 
       - name: Checkout Git Repository
         if: steps.guard.outputs.build == 'true'

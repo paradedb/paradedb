@@ -35,14 +35,20 @@ use super::mvcc_collector::MVCCFilterCollector;
 pub struct CountAllCollector {
     inner: InterruptableCollector<MVCCFilterCollector<DistributedAggregationCollector>>,
     checker: Arc<Mutex<VisibilityChecker>>,
+    matches_all: bool,
 }
 
 impl CountAllCollector {
-    pub fn new(inner: DistributedAggregationCollector, checker: VisibilityChecker) -> Self {
+    pub fn new(
+        inner: DistributedAggregationCollector,
+        checker: VisibilityChecker,
+        matches_all: bool,
+    ) -> Self {
         let inner = MVCCFilterCollector::new(inner, checker);
         Self {
             checker: inner.lock.clone(),
             inner: InterruptableCollector::new(inner),
+            matches_all,
         }
     }
 }
@@ -81,11 +87,16 @@ impl Collector for CountAllCollector {
     ) -> tantivy::Result<<Self::Child as SegmentCollector>::Fruit> {
         pgrx::check_for_interrupts!();
         if VisibilityChecker::for_segment_arc(&self.checker, ord)?.is_none() {
+            let doc_count = if self.matches_all {
+                segment.num_docs()
+            } else {
+                weight.count(segment)?
+            };
             let mut result = IntermediateAggregationResults::default();
             result.push(
                 "0".to_string(),
                 IntermediateAggregationResult::Bucket(IntermediateBucketResult::Filter {
-                    doc_count: u64::from(weight.count(segment)?),
+                    doc_count: u64::from(doc_count),
                     sub_aggregations: IntermediateAggregationResults::default(),
                 }),
             )?;

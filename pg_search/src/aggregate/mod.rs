@@ -508,7 +508,11 @@ impl<'a> ParallelAggregationWorker<'a> {
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
             if count_all {
-                reader.collect(CountAllCollector::new(base_collector, vischeck))
+                reader.collect(CountAllCollector::new(
+                    base_collector,
+                    vischeck,
+                    self.query.is_match_all(),
+                ))
             } else {
                 let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
                 reader.collect(InterruptableCollector::new(mvcc_collector))

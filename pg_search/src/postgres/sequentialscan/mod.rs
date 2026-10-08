@@ -39,11 +39,13 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
+use pgrx::htup::heap_getattr_raw;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    Array, FromDatum, PgLogLevel, PgMemoryContexts, PgSqlErrorCode, default, function_name,
-    pg_extern, pg_func_extra, pg_getarg_datum, pg_getarg_datum_raw, pg_sys,
+    Array, FromDatum, PgLogLevel, PgMemoryContexts, PgSqlErrorCode, PgTupleDesc, default,
+    function_name, pg_extern, pg_func_extra, pg_getarg_datum, pg_getarg_datum_raw, pg_sys,
 };
+use std::num::NonZeroUsize;
 
 struct QueryCacheEntry {
     matches: KeySet,
@@ -68,10 +70,21 @@ impl QueryCacheEntry {
 /// Any other query has no `tableoid` and one entry.
 type CacheKey = (Vec<u8>, Option<pg_sys::Oid>);
 
+/// Where the trailing record argument keeps its `tableoid`: its position, and a copy of the
+/// record's descriptor in the function's memory context, so a row is read by position
+/// without a type cache lookup.
+struct TableOidField {
+    attno: NonZeroUsize,
+    tupdesc: pg_sys::TupleDesc,
+}
+
 #[derive(Default)]
 struct Cache {
     by_query: HashMap<CacheKey, QueryCacheEntry>,
     inline_rows: HashMap<CacheKey, RowMatcher>,
+    /// The record's `tableoid` column, looked up on the first row. A call site's record has
+    /// one shape, so `Some(None)` means no row here carries a `tableoid`.
+    tableoid: Option<Option<TableOidField>>,
 }
 
 #[allow(unused_variables)]
@@ -176,7 +189,7 @@ pub fn search_with_query_input_ctid_or_row(
     let query_datum = unsafe { pg_sys::pg_detoast_datum(query_datum.cast_mut_ptr()) };
 
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
-    let tableoid = unsafe { record_tableoid(fcinfo) };
+    let tableoid = unsafe { record_tableoid(fcinfo, &mut cache.tableoid) };
     let key = (
         unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() },
         tableoid,
@@ -247,7 +260,7 @@ fn search_with_query_input_impl(
     // get the Cache attached to this instance of the function
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
 
-    let tableoid = unsafe { record_tableoid(fcinfo) };
+    let tableoid = unsafe { record_tableoid(fcinfo, &mut cache.tableoid) };
     let key = (
         unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() },
         tableoid,
@@ -471,16 +484,40 @@ unsafe fn deserialize_query(query_datum: *mut pg_sys::varlena) -> SearchQueryInp
 /// The `tableoid` shipped as a column of the trailing record argument when the planner
 /// resolved a partitioned index (#4643). `None` when the record has no such column, e.g.
 /// for a form without row identity or an unpartitioned index.
-unsafe fn record_tableoid(fcinfo: pg_sys::FunctionCallInfo) -> Option<pg_sys::Oid> {
+///
+/// A call site's record has one shape, so its `tableoid` column is found on the first row,
+/// and a call site without one stops reading its record after that.
+unsafe fn record_tableoid(
+    fcinfo: pg_sys::FunctionCallInfo,
+    field: &mut Option<Option<TableOidField>>,
+) -> Option<pg_sys::Oid> {
     unsafe {
         // The record is the last argument of every heap-filter form.
         let nargs = (*fcinfo).nargs;
-        if nargs < 4 {
+        if nargs < 4 || matches!(field, Some(None)) {
             return None;
         }
         let record = pg_getarg_datum(fcinfo, nargs as usize - 1)?;
-        let record = PgHeapTuple::from_composite_datum(record);
-        record.get_by_name::<pg_sys::Oid>("tableoid").ok().flatten()
+        let header =
+            pg_sys::pg_detoast_datum(record.cast_mut_ptr()).cast::<pg_sys::HeapTupleHeaderData>();
+        let field = field
+            .get_or_insert_with(|| {
+                let (attno, _) =
+                    PgHeapTuple::from_composite_datum(record).get_attribute_by_name("tableoid")?;
+                let record_desc = PgTupleDesc::from_pg(pg_sys::lookup_rowtype_tupdesc(
+                    pgrx::heap_tuple_header_get_type_id(header),
+                    pgrx::heap_tuple_header_get_typmod(header),
+                ));
+                let tupdesc = PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
+                    .switch_to(|_| pg_sys::CreateTupleDescCopy(record_desc.as_ptr()));
+                Some(TableOidField { attno, tupdesc })
+            })
+            .as_ref()?;
+        let mut tuple: pg_sys::HeapTupleData = std::mem::zeroed();
+        tuple.t_len = pgrx::heap_tuple_header_get_datum_length(header) as u32;
+        tuple.t_data = header;
+        let datum = heap_getattr_raw(&mut tuple, field.attno, field.tupdesc)?;
+        pg_sys::Oid::from_datum(datum, false)
     }
 }
 

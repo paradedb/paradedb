@@ -5,6 +5,7 @@ SELECT pg_prewarm('stackoverflow_posts_idx');
 SELECT pg_prewarm('badges_idx');
 SELECT pg_prewarm('comments_idx');
 SELECT pg_prewarm('users_idx');
+SELECT pg_prewarm('stackoverflow_posts_unpartitioned_idx');
 
 -- standard Postgres companion indexes
 SELECT pg_prewarm('stackoverflow_posts_owner_user_id_idx');

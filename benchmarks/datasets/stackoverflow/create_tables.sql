@@ -4,6 +4,7 @@ DROP TABLE IF EXISTS stackoverflow_posts CASCADE;
 DROP TABLE IF EXISTS badges CASCADE;
 DROP TABLE IF EXISTS comments CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS stackoverflow_posts_unpartitioned CASCADE;
 
 CREATE TABLE stackoverflow_posts (
     id INTEGER PRIMARY KEY,

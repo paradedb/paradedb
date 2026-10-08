@@ -24,6 +24,31 @@ USING bm25 (
     target_segment_count = 32
 );
 
+-- An unpartitioned copy of stackoverflow_posts for the `top_k_score_desc_partition_*` comparisons:
+-- the same rows in the same heap order and the same index, without `partition_by`. Kept in this
+-- file so the results record the copy's build time and segment count next to the original's.
+CREATE TABLE stackoverflow_posts_unpartitioned AS SELECT * FROM stackoverflow_posts;
+ALTER TABLE stackoverflow_posts_unpartitioned ADD PRIMARY KEY (id);
+CREATE INDEX stackoverflow_posts_unpartitioned_idx ON stackoverflow_posts_unpartitioned
+USING bm25 (
+    id,
+    (title::pdb.unicode_words('columnar=true')),
+    (body::pdb.unicode_words('columnar=true')),
+    (tags::pdb.literal_normalized),
+    post_type_id,
+    score,
+    creation_date,
+    view_count,
+    answer_count,
+    comment_count,
+    amount15,
+    amount78,
+    (owner_display_name::pdb.unicode_words('columnar=true')),
+    owner_user_id
+) WITH (
+    target_segment_count = 32
+);
+
 CREATE INDEX badges_idx ON badges
 USING bm25 (
     id,

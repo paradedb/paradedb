@@ -2124,27 +2124,22 @@ impl CustomScan for BaseScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Leader-only: last chance to read DSM before Postgres destroys it.
+        // Postgres calls this hook at the end of `ExecutePlan`. In a worker, that is before it
+        // detaches its tuple queue, so a leader that read every row finds the worker's data in
+        // the DSM. `take()` makes a second call a no-op: by then the DSM can be gone.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel.take()
-            && parallel.is_leader()
-        {
-            parallel.finalize_explain(&mut scan_state.telemetry);
-        };
-    }
-
-    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Workers: DSM is still alive; publish local telemetry once.
-        // Leader: do not touch DSM — Shutdown already ran (or serial path).
-        {
-            let scan_state = state.custom_state_mut();
-            if let Some(parallel) = scan_state.parallel.take()
-                && !parallel.is_leader()
-            {
+        if let Some(parallel) = scan_state.parallel.take() {
+            if parallel.is_leader() {
+                // Leader: last chance to read the DSM before Postgres destroys it.
+                parallel.finalize_explain(&mut scan_state.telemetry);
+            } else {
+                // Worker: flush local telemetry into the DSM for the leader to read.
                 parallel.publish_telemetry(&scan_state.telemetry);
             }
         }
+    }
 
+    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // get some things dropped now. Order matters: scorers hold bitmap
         // cursors into the TIDBitmap/DSA, so everything that can hold a scorer
         // drops before the bitmap machinery is torn down.

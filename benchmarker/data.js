@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791438456347,
+  "lastUpdate": 1791474781734,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -10746,6 +10746,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 20.732,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7a72356bc020df4b35f0b370b04b0513172dc4d",
+          "message": "fix: install ICU headers for source image builds (#6741)\n\n## What\n\nInstall `libicu-dev` in the source-image builder stage.\n\n## Why\n\n[The StackExchange benchmark\nfailed](https://github.com/paradedb/paradedb/actions/runs/37734671816/job/113171390122)\nwhile pgrx 0.19.3 generated PostgreSQL 18 bindings: `utils/pg_locale.h`\nincludes `unicode/ucol.h`, which was missing. Rust 1.99 installed\nsuccessfully; no benchmarker or shared-actions bump is needed.\n\n## How\n\nProvide ICU development headers alongside the existing PostgreSQL build\ndependencies. The final image still starts from the clean runtime base.\n\n## Tests\n\n- `git diff --check` passed.\n- PostgreSQL 18 header compilation passed in\n`paradedb/paradedb:latest-pg18` after installing `libicu-dev`.\n- Docker lint passed.\n- [Full StackExchange benchmark\nvalidation](https://github.com/paradedb/paradedb/actions/runs/37797964454)\nis running.",
+          "timestamp": "2026-10-08T08:09:14-07:00",
+          "tree_id": "692dee4f28655a0d7d42b20d88c1ebcbef346bba",
+          "url": "https://github.com/paradedb/paradedb/commit/a7a72356bc020df4b35f0b370b04b0513172dc4d"
+        },
+        "date": 1791474758681,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.402,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.485,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 10.206,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 2.006,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.584,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.904,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.477,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 1.647,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.667,
             "unit": "ms"
           }
         ]

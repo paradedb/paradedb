@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791435759664,
+  "lastUpdate": 1791435773346,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -10524,6 +10524,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 20.545,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a98581bf29d1951d3ce0a32dd5dad2f93b993a6",
+          "message": "perf: Use statistics for simple query estimates (#6701)\n\n## What\n\nUse term-dictionary statistics to estimate queries composed entirely of\nexact match, term, phrase, and match-all clauses, including nested\nbooleans. Const-score and boost wrappers delegate to their inner\nqueries, including field-level score adjustments. Any unsupported clause\nsends the whole query through the existing estimator.\n\n## Why\n\nPlanning these queries currently constructs scorers, seeks to the first\nphrase match, and can scan postings when a size hint is zero. A small\nstatistics path avoids that work without changing dependencies or the\nindex format.",
+          "timestamp": "2026-10-07T21:19:50-07:00",
+          "tree_id": "18c631d9beb5a38f0ef8beb35a7d36c27a2a32e7",
+          "url": "https://github.com/paradedb/paradedb/commit/4a98581bf29d1951d3ce0a32dd5dad2f93b993a6"
+        },
+        "date": 1791435764732,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.616,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.306,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.751,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 10.499,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 2.017,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.781,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.582,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 1.638,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.732,
             "unit": "ms"
           }
         ]

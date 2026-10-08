@@ -774,8 +774,11 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
 // A background merger commits with synchronous_commit = local, so a synchronous standby that is
 // missing cannot park it at commit holding its merge slot. With such a standby configured, the
 // merge must still publish, every merger must exit on its own, and none may wait in SyncRep.
+//
+// Every test in this file needs PG_CONFIG for an ephemeral server; the main CI job skips them
+// by name with `--skip replication --skip ephemeral`, so keep one of those words in the name.
 #[async_std::test]
-async fn test_background_merge_commits_without_synchronous_standby() -> Result<()> {
+async fn test_background_merge_commits_without_synchronous_replication_standby() -> Result<()> {
     let primary = EphemeralPostgres::new(
         Some(
             "shared_preload_libraries = 'pg_search'\nsynchronous_standby_names = 'missing_standby'",

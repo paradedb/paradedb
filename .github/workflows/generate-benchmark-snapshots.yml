@@ -29,14 +29,10 @@ on:
         description: "Optional size for stackoverflow/cohere (e.g. 100k, 1m, 20m). Blank = all sizes. Not supported for stackexchange/wikipedia."
         required: false
         default: ""
-      benchmarker_repo:
-        description: "Benchmarker repository for stackexchange/wikipedia."
-        required: false
-        default: "planetscale/paradedb-benchmarker"
       benchmarker_ref:
         description: "Benchmarker ref for stackexchange/wikipedia (branch/tag/SHA)."
         required: false
-        default: "datasets"
+        default: "main"
       dataset_source:
         description: "Optional S3 prefix override. Defaults to s3://paradedb-benchmarker/datasets/<dataset>/."
         required: false
@@ -225,8 +221,7 @@ jobs:
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
-          repository: ${{ inputs.benchmarker_repo || 'planetscale/paradedb-benchmarker' }}
-          ref: ${{ inputs.benchmarker_ref || 'datasets' }}
+          ref: ${{ inputs.benchmarker_ref || 'main' }}
 
       - name: Load Heap (no index)
         working-directory: benchmarker

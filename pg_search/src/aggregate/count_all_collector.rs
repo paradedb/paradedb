@@ -21,11 +21,14 @@ use parking_lot::Mutex;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::{
     IntermediateAggregationResult, IntermediateAggregationResults, IntermediateBucketResult,
+    IntermediateMetricResult,
 };
+use tantivy::aggregation::metric::{IntermediateCount, IntermediateStats};
 use tantivy::collector::{Collector, SegmentCollector};
 use tantivy::query::Weight;
 use tantivy::{SegmentOrdinal, SegmentReader};
 
+use crate::postgres::customscan::aggregatescan::build::{AggregationKey, DocCountKey};
 use crate::postgres::heap::VisibilityChecker;
 
 use super::interrupt_collector::InterruptableCollector;
@@ -36,6 +39,7 @@ pub struct CountAllCollector {
     inner: InterruptableCollector<MVCCFilterCollector<DistributedAggregationCollector>>,
     checker: Arc<Mutex<VisibilityChecker>>,
     matches_all: bool,
+    include_doc_count: bool,
 }
 
 impl CountAllCollector {
@@ -43,12 +47,14 @@ impl CountAllCollector {
         inner: DistributedAggregationCollector,
         checker: VisibilityChecker,
         matches_all: bool,
+        include_doc_count: bool,
     ) -> Self {
         let inner = MVCCFilterCollector::new(inner, checker);
         Self {
             checker: inner.lock.clone(),
             inner: InterruptableCollector::new(inner),
             matches_all,
+            include_doc_count,
         }
     }
 }
@@ -100,6 +106,19 @@ impl Collector for CountAllCollector {
                     sub_aggregations: IntermediateAggregationResults::default(),
                 }),
             )?;
+            if self.include_doc_count {
+                result.push(
+                    DocCountKey::NAME.to_string(),
+                    IntermediateAggregationResult::Metric(IntermediateMetricResult::Count(
+                        IntermediateCount::from_stats(IntermediateStats::from_parts(
+                            u64::from(doc_count),
+                            0.0,
+                            0.0,
+                            0.0,
+                        )),
+                    )),
+                )?;
+            }
             return Ok(Ok(result));
         }
         self.inner.collect_segment(weight, ord, segment)

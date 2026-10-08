@@ -36,7 +36,9 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::customscan::aggregatescan::build::{
+    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey,
+};
 use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
@@ -479,6 +481,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 if clause.is_bare_doc_count()
                     && matches!(clause.aggregates().next(), Some(AggregateType::CountAny { .. })));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
+        let include_doc_count = aggregations.contains_key(DocCountKey::NAME);
         let schema = indexrel.schema()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
@@ -512,6 +515,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                     base_collector,
                     vischeck,
                     self.query.is_match_all(),
+                    include_doc_count,
                 ))
             } else {
                 let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);

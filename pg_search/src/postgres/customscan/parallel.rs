@@ -55,17 +55,16 @@ pub(crate) enum WorkerDecisionReason {
     RowHeuristic,
 }
 
-impl WorkerDecisionReason {
-    /// Reader-facing label for EXPLAIN VERBOSE: each names the decision branch the paths came from.
-    pub(crate) fn label(self) -> &'static str {
-        match self {
+impl std::fmt::Display for WorkerDecisionReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
             Self::BlockWandPrunable => "Prunable top-K",
             Self::CostModel => "Cost model",
             Self::CostModelLimited => "Cost model (LIMIT)",
             Self::PerSegment => "Per-segment",
             Self::DocumentCount => "Document count",
             Self::RowHeuristic => "Row-capped",
-        }
+        })
     }
 }
 

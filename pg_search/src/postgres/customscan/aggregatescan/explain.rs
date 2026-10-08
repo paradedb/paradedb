@@ -31,7 +31,7 @@ impl AggregateParallelism {
         explainer.add_unsigned_integer("Workers Requested", self.workers_requested as u64, None);
         explainer.add_unsigned_integer("Workers Launched", self.workers_launched as u64, None);
         if let Some(reason) = self.worker_selection_reason {
-            explainer.add_text("Worker Selection", reason.label());
+            explainer.add_text("Worker Selection", reason.to_string());
         }
         if explainer.is_costs()
             && let Some(cost) = &self.cost

@@ -1728,7 +1728,7 @@ impl CustomScan for BaseScan {
         if explainer.is_verbose()
             && let Some(reason) = state.custom_state().worker_selection_reason
         {
-            explainer.add_text("Worker Selection", reason.label());
+            explainer.add_text("Worker Selection", reason.to_string());
         }
 
         if explainer.is_analyze() {

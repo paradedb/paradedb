@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791428359361,
+  "lastUpdate": 1791428532343,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9116,6 +9116,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 609.873,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dc5b7834bf5bb50be13ad3a84a8b48f5a93649d7",
+          "message": "fix: highlight through the aliased field a query matched (#6271)\n\n`pdb.snippet(content)` builds its generator on the field named in the\ncall. When the row was matched through an aliased field over that same\ncolumn, every term in the query belongs to the alias, and tantivy keeps\nonly terms whose field matches the generator's, so the term set is empty\nand there is nothing to mark up.\n\n`snippet_generator` now builds one generator over every field the column\nis indexed under, with `SnippetGenerator::create_for_fields` from\nparadedb/tantivy#231. The fields come from the schema rather than from\nwhat the query addressed, so an alias only column resolves through its\nexpression and an empty index resolves like a populated one. Fragments\nare selected over the union of the fields' matches, so `snippet`,\n`snippets` and `snippet_positions` all see a document matched through\nboth the column and an alias.\n\nFixes #3052.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-10-07T18:34:18-07:00",
+          "tree_id": "2a333d941bc965388c68405e2f7b004bdf2d0353",
+          "url": "https://github.com/paradedb/paradedb/commit/dc5b7834bf5bb50be13ad3a84a8b48f5a93649d7"
+        },
+        "date": 1791428529106,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 20.009,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 216.917,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 50.83,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 229.499,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 19.335,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 168.914,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 26.436,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 223.024,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.142,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 609.504,
             "unit": "ms"
           }
         ]

@@ -52,17 +52,17 @@ COVERAGE_PATH = SCRIPT_DIR / "docs_snippet_coverage.json"
 
 def classify(info):
     """Resolve a labeled application fence to its verification target."""
-    parts = set(info.lower().split())
+    parts = set(info.lower().replace("ef core", "efcore").split())
     if info.lower().startswith("sql"):
         return "sql"
-    for target, language, label in (
-        ("django", "python", "django"),
-        ("sqlalchemy", "python", "sqlalchemy"),
-        ("rails", "ruby", "rails"),
-        ("drizzle", "ts", "drizzle"),
-        ("efcore", "cs", "core"),
+    for target, language in (
+        ("django", "python"),
+        ("sqlalchemy", "python"),
+        ("rails", "ruby"),
+        ("drizzle", "ts"),
+        ("efcore", "cs"),
     ):
-        if info.lower().startswith(language) and (label in parts or target == "efcore"):
+        if info.lower().startswith(language) and target in parts:
             return target
     return ""
 
@@ -70,14 +70,20 @@ def classify(info):
 def prepare_drizzle_snippet(source):
     """Capture complete index-builder expressions so the harness can migrate them."""
     pattern = re.compile(r"^indexing(?=\s*\.paradedbIndex)[\s\S]*?;", re.MULTILINE)
-    return pattern.sub(
-        lambda match: (
-            "docsIndexes.push((docsTable) => "
-            + re.sub(r"\b(?:mockItems|arrayDemo)\.", "docsTable.", match.group()[:-1])
-            + ");"
-        ),
-        source,
-    )
+
+    def capture_index(match):
+        expression = match.group()[:-1]
+        tables = set(re.findall(r"\b(mockItems|arrayDemo)\.", expression))
+        if len(tables) != 1:
+            raise ValueError("Drizzle index must reference exactly one fixture table")
+        table = {"mockItems": "mock_items", "arrayDemo": "array_demo"}[tables.pop()]
+        expression = re.sub(r"\b(?:mockItems|arrayDemo)\.", "docsTable.", expression)
+        return (
+            f'docsIndexes.push({{ table: "{table}", '
+            f"build: (docsTable) => {expression} }});"
+        )
+
+    return pattern.sub(capture_index, source)
 
 
 def codegroup_name(path, index):
@@ -213,11 +219,6 @@ def write_standalone_snippets(outputs, outside, coverage):
 
 def main():
     """Validate coverage and emit snippets for the smoke-test harnesses."""
-    if len(sys.argv) > 1:
-        if len(sys.argv) != 3 or sys.argv[1] != "--prepare-drizzle":
-            raise ValueError("Usage: extract_code_snippets.py [--prepare-drizzle FILE]")
-        print(prepare_drizzle_snippet(Path(sys.argv[2]).read_text(encoding="utf-8")))
-        return 0
     groups, outside = inventory()
     if not groups:
         raise ValueError("No documentation CodeGroups found")
@@ -248,6 +249,8 @@ def main():
                     ]
                     + body
                 )
+            if target == "drizzle":
+                body = prepare_drizzle_snippet(body)
             (outputs[target] / f"{name}.{TARGET_SUFFIXES[target]}").write_text(body)
             counts[target] += 1
     counts["sql"] += write_standalone_snippets(outputs, outside, coverage)

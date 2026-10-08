@@ -103,32 +103,14 @@ create_snippet_indexes() {
   run_psql_file "${SCRIPT_DIR}/create_code_snippet_indexes.sql"
 }
 
-prepare_external_fixture() {
-  if grep -Eq "mockItemsGeo|MockItemGeo|MockItemsGeo" "$1"; then
-    run_psql_file "${SQL_DIR}/reference__filtering__external-indexes__fence-001.sql"
-  fi
-}
-
 drop_snippet_indexes() {
   run_psql_file "${SCRIPT_DIR}/drop_code_snippet_indexes.sql"
 }
 
 python3 "${SCRIPT_DIR}/extract_code_snippets.py"
 
-for target in $ORMS; do
-  case "$target" in
-    sql | django | rails | sqlalchemy | drizzle | efcore) ;;
-    *)
-      echo "Unknown snippet target: $target" >&2
-      exit 1
-      ;;
-  esac
-  if [[ -z "$(find "$VERIFY_DIR/$target" -type f -print -quit)" ]]; then
-    echo "No snippets extracted for $target" >&2
-    exit 1
-  fi
-done
-run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
+# Make the geometric table and its search index available to every ORM harness.
+run_psql_file "${SQL_DIR}/reference__filtering__external-indexes__fence-001.sql"
 
 sql_pass_count=0
 sql_fail_count=0
@@ -139,7 +121,6 @@ if has_target sql; then
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
     drop_snippet_indexes
-    prepare_external_fixture "$snippet_file"
 
     if ! grep -Fq 'CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
@@ -173,7 +154,6 @@ if has_target django; then
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
     drop_snippet_indexes
-    prepare_external_fixture "$snippet_file"
 
     if ! grep -Eq 'schema_editor\.add_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
@@ -211,7 +191,6 @@ if has_target rails; then
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
     drop_snippet_indexes
-    prepare_external_fixture "$snippet_file"
 
     if ! grep -Eq 'add_paradedb_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
@@ -255,7 +234,6 @@ if has_target sqlalchemy; then
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
     drop_snippet_indexes
-    prepare_external_fixture "$snippet_file"
 
     if ! grep -Eq 'idx\.create|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
@@ -297,24 +275,17 @@ if has_target drizzle; then
 
     run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
     drop_snippet_indexes
-    prepare_external_fixture "$snippet_file"
 
     if ! grep -Eq 'paradedbIndex|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
-
-    DOCS_INDEX_TABLE=mock_items
-    if grep -Fq "arrayDemo" "$snippet_file"; then
-      DOCS_INDEX_TABLE=array_demo
-    fi
-    export DOCS_INDEX_TABLE
 
     if {
       cat "${SCRIPT_DIR}/drizzle_snippet_harness.ts"
       cat <<TS
 // Source: $rel_snippet
 TS
-      python3 "${SCRIPT_DIR}/extract_code_snippets.py" --prepare-drizzle "$snippet_file"
+      cat "$snippet_file"
       echo "await verifyDocsIndexes();"
       cat <<'TS'
 
@@ -346,7 +317,6 @@ if has_target efcore; then
 
     run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
     drop_snippet_indexes
-    prepare_external_fixture "$snippet_file"
     if ! grep -Eq 'CREATE INDEX|modelBuilder\.' "$snippet_file"; then
       create_snippet_indexes
     fi

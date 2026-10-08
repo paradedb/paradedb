@@ -1,4 +1,4 @@
-const docsIndexes: any[] = [];
+const docsIndexes: { table: string; build: (table: any) => any }[] = [];
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -41,9 +41,9 @@ const mockItems = definePgTable(
     embedding: pgVector("embedding", { dimensions: 8 }),
   },
   (table) =>
-    process.env.DOCS_INDEX_TABLE === "mock_items"
-      ? docsIndexes.map((build) => build(table))
-      : [],
+    docsIndexes
+      .filter((index) => index.table === "mock_items")
+      .map((index) => index.build(table)),
 );
 
 const orders = definePgTable("orders", {
@@ -59,9 +59,9 @@ const arrayDemo = definePgTable(
     categories: pgText("categories").array(),
   },
   (table) =>
-    process.env.DOCS_INDEX_TABLE === "array_demo"
-      ? docsIndexes.map((build) => build(table))
-      : [],
+    docsIndexes
+      .filter((index) => index.table === "array_demo")
+      .map((index) => index.build(table)),
 );
 
 const mockItemsGeo = definePgTable("mock_items_geo", {
@@ -78,10 +78,8 @@ async function verifyDocsIndexes() {
   if (docsIndexes.length) {
     const { generateDrizzleJson, generateMigration } =
       await import("drizzle-kit/api-postgres");
-    const table =
-      process.env.DOCS_INDEX_TABLE === "array_demo" ? arrayDemo : mockItems;
     const before = await generateDrizzleJson({});
-    const after = await generateDrizzleJson({ table });
+    const after = await generateDrizzleJson({ mockItems, arrayDemo });
     const statements = await generateMigration(before, after);
     const indexStatements = statements.filter((statement: string) =>
       /^CREATE (UNIQUE )?INDEX/i.test(statement),
@@ -96,9 +94,14 @@ async function verifyDocsIndexes() {
         throw new Error(`Unexpected index DDL: ${statement}`);
       await client.unsafe(statement);
     }
-    const indexes =
-      await client`SELECT indexrelid FROM pg_index JOIN pg_class ON oid = indexrelid JOIN pg_am ON pg_am.oid = relam WHERE amname = 'paradedb' AND indrelid = ${table === arrayDemo ? "array_demo" : "mock_items"}::regclass AND indisvalid AND indisready`;
-    if (indexes.length !== docsIndexes.length)
-      throw new Error("Generated indexes are missing or invalid");
+    for (const table of new Set(docsIndexes.map((index) => index.table))) {
+      const indexes =
+        await client`SELECT indexrelid FROM pg_index JOIN pg_class ON oid = indexrelid JOIN pg_am ON pg_am.oid = relam WHERE amname = 'paradedb' AND indrelid = ${table}::regclass AND indisvalid AND indisready`;
+      if (
+        indexes.length !==
+        docsIndexes.filter((index) => index.table === table).length
+      )
+        throw new Error(`Generated indexes on ${table} are missing or invalid`);
+    }
   }
 }

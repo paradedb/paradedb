@@ -752,15 +752,16 @@ impl Directory for MVCCDirectory {
         save_settings(&self.indexrel, &meta.index_settings)
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
 
-        if let Some(filename) = &meta.centroid_index
-            && !payload.contains_key(Path::new(filename))
-            && self.indexrel.index_file(Path::new(filename))?.is_none()
+        if let Some(centroids) = &meta.centroid_index
+            && !payload.contains_key(&centroids.file_name)
+            && self.indexrel.index_file(&centroids.file_name)?.is_none()
         {
             return Err(TantivyError::InternalError(format!(
-                "centroid index file {filename} was not written through this directory"
+                "centroid index file {} was not written through this directory",
+                centroids.file_name.display()
             )));
         }
-        save_index_files(&self.indexrel, payload)
+        save_index_files(&self.indexrel, payload, meta.centroid_index.as_ref())
             .map_err(|err| TantivyError::InternalError(err.to_string()))?;
 
         // If there were no new segments, skip the rest of the work
@@ -1186,36 +1187,21 @@ mod tests {
                 .as_ref(),
             &routing_bytes[routing_bytes.len() - 1..]
         );
-        let mut read = Vec::new();
-        reader
-            .read_bytes_chunks(0..page_size * 2 + 13, &mut |chunk| {
-                if read.is_empty() {
-                    assert_eq!(chunk, &routing_bytes[..page_size]);
-                    assert_eq!(
-                        reader
-                            .read_bytes(page_size * 3..page_size * 23)
-                            .unwrap()
-                            .as_ref(),
-                        &routing_bytes[page_size * 3..page_size * 23]
-                    );
-                    assert_eq!(chunk, &routing_bytes[..page_size]);
-                    assert_eq!(escaped.as_ref(), &routing_bytes[escaped_range.clone()]);
-                    let mut nested = Vec::new();
-                    reader
-                        .read_bytes_chunks(page_size * 20 + 3..page_size * 22 + 11, &mut |part| {
-                            nested.extend_from_slice(part);
-                            assert_eq!(chunk, &routing_bytes[..page_size]);
-                        })
-                        .unwrap();
-                    assert_eq!(
-                        nested,
-                        routing_bytes[page_size * 20 + 3..page_size * 22 + 11]
-                    );
-                }
-                read.extend_from_slice(chunk);
-            })
+        let retained = reader.read_bytes(0..page_size).unwrap();
+        let read = reader.read_bytes(0..page_size * 2 + 13).unwrap();
+        let nested = reader
+            .read_bytes(page_size * 20 + 3..page_size * 22 + 11)
             .unwrap();
-        assert_eq!(read, routing_bytes[..page_size * 2 + 13]);
+        assert_eq!(retained.as_ref(), &routing_bytes[..page_size]);
+        assert_eq!(read.as_ref(), &routing_bytes[..page_size * 2 + 13]);
+        assert_eq!(
+            nested.as_ref(),
+            &routing_bytes[page_size * 20 + 3..page_size * 22 + 11]
+        );
+        assert_eq!(escaped.as_ref(), &routing_bytes[escaped_range.clone()]);
+        drop(retained);
+        drop(read);
+        drop(nested);
         drop(reader);
         drop(reopened);
         drop(directory);
@@ -1227,7 +1213,47 @@ mod tests {
     }
 
     #[pg_test]
-    unsafe fn test_published_vector_chunk_pins() {
+    unsafe fn test_centroid_metadata_survives_commits_and_reindex() {
+        Spi::run(
+            "SET paradedb.vector_min_training_rows = 1;
+             CREATE TABLE t (id int PRIMARY KEY, vec vector(3));
+             INSERT INTO t SELECT g, ARRAY[g, 0, 0]::vector FROM generate_series(1, 32) g;
+             CREATE INDEX t_idx ON t USING paradedb (id, vec vector_l2_ops)
+                 WITH (mutable_segment_rows = 0, layer_sizes = '0', background_layer_sizes = '0');",
+        )
+        .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 't_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let original = PgSearchRelation::open(oid)
+            .centroid_index()
+            .unwrap()
+            .unwrap();
+        for statement in [
+            "INSERT INTO t VALUES (33, '[33,0,0]')",
+            "INSERT INTO t VALUES (34, '[34,0,0]')",
+            "REINDEX INDEX t_idx",
+        ] {
+            Spi::run(statement).unwrap();
+            let indexrel = PgSearchRelation::open(oid);
+            let index = tantivy::Index::open(MvccSatisfies::Snapshot.directory(&indexrel)).unwrap();
+            let meta = index.load_metas().unwrap().centroid_index.unwrap();
+            assert_eq!(meta, indexrel.centroid_index().unwrap().unwrap());
+            assert!(indexrel.index_file(&meta.file_name).unwrap().is_some());
+            assert_eq!(meta == original, !statement.starts_with("REINDEX"));
+        }
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT count(*) FROM (SELECT id FROM t WHERE id @@@ pdb.all()
+                 ORDER BY vec <-> '[1,0,0]' LIMIT 100) hits",
+            )
+            .unwrap(),
+            Some(34),
+        );
+    }
+
+    #[pg_test]
+    unsafe fn test_published_vector_reader_pins() {
         use std::io::Write;
         use tantivy::directory::TerminatingWrite;
 
@@ -1257,11 +1283,9 @@ mod tests {
         let mut bman = BufferManager::new(&indexrel);
 
         let temporary = directory.get_file_handle(&path).unwrap();
-        let mut read = Vec::new();
-        temporary
-            .read_bytes_chunks(0..bytes.len(), &mut |chunk| read.extend_from_slice(chunk))
-            .unwrap();
-        assert_eq!(read, bytes);
+        let read = temporary.read_bytes(0..bytes.len()).unwrap();
+        assert_eq!(read.as_ref(), bytes.as_slice());
+        drop(read);
         assert!(bman.get_buffer_for_cleanup_conditional(sentinel).is_some());
         drop(temporary);
 
@@ -1285,25 +1309,15 @@ mod tests {
         drop(reopened);
         assert!(bman.get_buffer_for_cleanup_conditional(sentinel).is_none());
 
-        let mut read = Vec::new();
-        reader
-            .read_bytes_chunks(0..bytes.len(), &mut |chunk| {
-                if read.is_empty() {
-                    assert_eq!(chunk, &bytes[..page_size]);
-                    let mut nested = Vec::new();
-                    reader
-                        .read_bytes_chunks(page_size..page_size * 19, &mut |part| {
-                            nested.extend_from_slice(part);
-                            assert_eq!(chunk, &bytes[..page_size]);
-                        })
-                        .unwrap();
-                    assert_eq!(nested, bytes[page_size..page_size * 19]);
-                    assert_eq!(chunk, &bytes[..page_size]);
-                }
-                read.extend_from_slice(chunk);
-            })
-            .unwrap();
-        assert_eq!(read, bytes);
+        let retained = reader.read_bytes(0..page_size).unwrap();
+        let read = reader.read_bytes(0..bytes.len()).unwrap();
+        let nested = reader.read_bytes(page_size..page_size * 19).unwrap();
+        assert_eq!(retained.as_ref(), &bytes[..page_size]);
+        assert_eq!(nested.as_ref(), &bytes[page_size..page_size * 19]);
+        assert_eq!(read.as_ref(), bytes.as_slice());
+        drop(retained);
+        drop(read);
+        drop(nested);
         drop(reader);
         assert!(bman.get_buffer_for_cleanup_conditional(sentinel).is_some());
     }

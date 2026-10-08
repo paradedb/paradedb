@@ -32,17 +32,13 @@ use crate::vector::PgVector;
 use anyhow::{Result, bail};
 use pgrx::{FromDatum, pg_sys};
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
+use tantivy::TantivyError;
 use tantivy::schema::{Field, FieldType, Schema};
 use tantivy::vector::{
     CentroidProducer, IvfCentroids, IvfMatrix, Metric, RouterKind, VectorOptions,
 };
-use tantivy::{Index, TantivyError};
 
 pub const IVF_ROUTER: RouterKind = RouterKind::Rng;
-
-pub fn set_ivf_router(index: &mut Index) -> tantivy::Result<()> {
-    index.set_ivf_router(IVF_ROUTER)
-}
 
 /// Floor on reservoir capacity, so a tiny table still trains on whatever
 /// it has rather than on a couple of rows.

@@ -1300,7 +1300,7 @@ impl SearchQueryInput {
                 panic!("this `SearchQueryInput` instance is uninitialized")
             }
             SearchQueryInput::All => {
-                let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
+                let query = Box::new(ConstScoreQuery::new(AllQuery, 0.0));
                 Ok(builder.build_leaf(query, || "All Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::Boolean {

@@ -82,7 +82,7 @@ regex = { version = "1.12.3", default-features = false, features = [
   "perf",
   "unicode",
 ] }
-tantivy-fst = { git = "https://github.com/paradedb/fst.git" }
+tantivy-fst = { git = "https://github.com/paradedb/fst.git", rev = "1d2e473c6de63d17749030eb8538ba4d647f3430" }
 lazy_static = "1.5.0"
 macros = { path = "../macros" }
 half = "2.7.1"

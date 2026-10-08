@@ -120,9 +120,7 @@ pub struct TopKSearchResults {
 pub struct TopKSearch {
     pub results: TopKSearchResults,
     pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
-    /// Vector searches run ONE global probe loop across every segment, so
-    /// their instrumentation is a single JSON blob rather than a
-    /// per-segment map.
+    /// Shared router and probe-budget statistics for the entire search.
     pub vector_search: Option<serde_json::Value>,
 }
 
@@ -154,9 +152,37 @@ impl From<TopKSearchResults> for TopKSearch {
     }
 }
 
-/// The global probe loop's instrumentation, as the EXPLAIN-facing JSON.
-fn probe_stats_to_json(stats: &ProbeStats) -> serde_json::Value {
-    serde_json::to_value(stats).expect("ProbeStats should serialize to JSON")
+fn probe_stats_to_json(stats: &[ProbeStats]) -> serde_json::Value {
+    let Some(stats) = stats.first() else {
+        return serde_json::json!({});
+    };
+    serde_json::json!({
+        "routing": stats.routing,
+        "routing_ns": stats.routing_ns,
+        "work_charged": stats.work_charged,
+        "work_budget": stats.work_budget,
+        "termination": stats.termination,
+        "recall_estimate": stats.recall_estimate,
+        "bound_armed_count": stats.bound_armed_count,
+        "bound_armed_probe_sum": stats.bound_armed_probe_sum,
+    })
+}
+
+fn probe_stats_to_segment_info(
+    segment_ids: &[SegmentId],
+    stats: &[ProbeStats],
+) -> BTreeMap<SegmentId, serde_json::Value> {
+    assert_eq!(segment_ids.len(), stats.len());
+    segment_ids
+        .iter()
+        .zip(stats)
+        .map(|(id, stats)| {
+            (
+                *id,
+                serde_json::to_value(stats).expect("ProbeStats should serialize to JSON"),
+            )
+        })
+        .collect()
 }
 
 impl TopKSearchResults {
@@ -756,10 +782,7 @@ impl SearchIndexReader {
     pub fn weight(&self) -> Box<dyn Weight> {
         self.query
             .weight(if self.need_scores {
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: &self.searcher,
-                    statistics_provider: &self.searcher,
-                }
+                tantivy::query::EnableScoring::enabled_from_searcher(&self.searcher)
             } else {
                 tantivy::query::EnableScoring::Disabled {
                     schema: self.schema.tantivy_schema(),
@@ -1322,32 +1345,54 @@ impl SearchIndexReader {
                     self.searcher.segment_readers().len(),
                     "vector ORDER BY must run serially over the full segment snapshot"
                 );
-                // Fruit is `VectorSimilarityFruit` — hits plus ONE global
-                // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
+                let enable_scoring = EnableScoring::disabled_from_searcher(&self.searcher);
                 let fruit = match tie_break_count {
-                    0 => vector_search.search(&self.searcher, self.query()),
-                    1 => vector_search
-                        .with_tie_break(next())
-                        .search(&self.searcher, self.query()),
-                    2 => vector_search
-                        .with_tie_break((next(), next()))
-                        .search(&self.searcher, self.query()),
-                    3 => vector_search
-                        .with_tie_break((next(), next(), next()))
-                        .search(&self.searcher, self.query()),
-                    4 => vector_search
-                        .with_tie_break((next(), next(), next(), next()))
-                        .search(&self.searcher, self.query()),
+                    0 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search,
+                        &Executor::SingleThread,
+                        enable_scoring,
+                    ),
+                    1 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search.with_tie_break(next()),
+                        &Executor::SingleThread,
+                        enable_scoring,
+                    ),
+                    2 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search.with_tie_break((next(), next())),
+                        &Executor::SingleThread,
+                        enable_scoring,
+                    ),
+                    3 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search.with_tie_break((next(), next(), next())),
+                        &Executor::SingleThread,
+                        enable_scoring,
+                    ),
+                    4 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search.with_tie_break((next(), next(), next(), next())),
+                        &Executor::SingleThread,
+                        enable_scoring,
+                    ),
                     x => panic!(
                         "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1
                     ),
                 }
                 .expect("vector search should not fail");
-                let mut segment_info = BTreeMap::new();
+                let segment_ids: Vec<_> = self
+                    .searcher
+                    .segment_readers()
+                    .iter()
+                    .map(SegmentReader::segment_id)
+                    .collect();
+                let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
                 io_stats::attach(&mut segment_info);
                 TopKSearch::with_vector_search(
                     TopKSearchResults::new_for_score(fruit.results, None),

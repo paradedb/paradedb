@@ -20,7 +20,7 @@ use crate::api::{CTID_FIELD_NAME, HashSet};
 use crate::index::{index_settings, setup_tokenizers};
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
-use crate::postgres::storage::block::IndexFileEntry;
+use crate::postgres::storage::block::{IndexFileEntry, IndexFileRegistry};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
@@ -505,8 +505,8 @@ impl PgSearchRelation {
         MetaPage::open(self).settings()
     }
 
-    pub fn centroid_index(&self) -> tantivy::Result<Option<IndexFileEntry>> {
-        self.index_file(&tantivy::vector::CENTROIDS_FILEPATH)
+    pub fn centroid_index(&self) -> tantivy::Result<Option<tantivy::index::CentroidIndexMeta>> {
+        Ok(self.index_file_registry()?.centroid_index)
     }
 
     pub fn index_file(&self, path: &Path) -> tantivy::Result<Option<IndexFileEntry>> {
@@ -517,12 +517,16 @@ impl PgSearchRelation {
     }
 
     pub fn index_files(&self) -> tantivy::Result<Vec<IndexFileEntry>> {
+        Ok(self.index_file_registry()?.files)
+    }
+
+    fn index_file_registry(&self) -> tantivy::Result<IndexFileRegistry> {
         let Some(bytes_list) = MetaPage::open(self).index_files_bytes() else {
-            return Ok(Vec::new());
+            return Ok(IndexFileRegistry::default());
         };
         let bytes = unsafe { bytes_list.read_all() };
         if bytes.is_empty() {
-            return Ok(Vec::new());
+            return Ok(IndexFileRegistry::default());
         }
         Ok(serde_json::from_slice(&bytes)?)
     }

@@ -236,6 +236,12 @@ pub struct FileEntry {
     pub total_bytes: usize,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+pub struct IndexFileRegistry {
+    pub centroid_index: Option<tantivy::index::CentroidIndexMeta>,
+    pub files: Vec<IndexFileEntry>,
+}
+
 /// An immutable index-level file and its location in block storage.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct IndexFileEntry {

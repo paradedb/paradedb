@@ -1,12 +1,4 @@
--- Deleting every doc that carries a vector field, then merging (tantivy
--- c4582807). At the prior rev the merge SKIPPED the field's composite slots
--- when no live doc carried a vector, and every subsequent read of the field
--- failed with an InternalError; now the merge writes empty slots and the
--- field reads back as empty.
---
--- client_min_messages: the IVF merge emits a paradedb::ivf_build timings
--- NOTICE with nondeterministic millisecond values — keep it out of the
--- captured output.
+-- Merge segments after deleting every vector-bearing document.
 SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
@@ -20,13 +12,7 @@ CREATE TABLE delvec (
     vec   vector(16)
 );
 
--- Same merge choreography as vector_merge.sql: immutable-only
--- inserts, foreground-only merging, first candidate closes >= 10000 docs so
--- the target is IVF.
---
--- cluster_replication = 1 pins primary-only assignment: the layer_sizes budget
--- below is tuned to the on-disk vector footprint, which replica cells would
--- inflate. This test exercises the empty-slots merge path, not replication.
+-- Use immutable segments and foreground merges.
 -- Centroids train at CREATE INDEX over existing rows, so seed a
 -- vector-bearing corpus first (deleted along with the rest below).
 INSERT INTO delvec
@@ -40,8 +26,7 @@ CREATE INDEX delvec_idx ON delvec
         target_segment_count = 1,
         mutable_segment_rows = 0,
         layer_sizes = '600kb',
-        background_layer_sizes = '0',
-        cluster_replication = 1
+        background_layer_sizes = '0'
     );
 
 -- Interleave vector-bearing (odd id) and vector-less (even id) rows so every
@@ -64,23 +49,17 @@ FROM paradedb.vector_info('delvec_idx', 'vec');
 DELETE FROM delvec WHERE vec IS NOT NULL;
 VACUUM delvec;
 
--- Remerge with the (now vector-less) segment as a source: ~880kb after
--- deletes, so an 1100kb layer admits it, and the surviving corpus plus the
--- fresh vector-less rows overfill the extended layer. The merge target has
--- >= 10000 live docs, none carrying a vector — the field writes NO slots
--- and reads back as absent.
-ALTER INDEX delvec_idx SET (layer_sizes = '1100kb');
+-- Include the deleted vector rows and the new vector-less rows in one merge.
+ALTER INDEX delvec_idx SET (layer_sizes = '1500kb');
 INSERT INTO delvec
 SELECT g, md5(g::text), NULL
 FROM generate_series(24001, 30000) g;
 
--- The merge target carries only vector-less docs, so the field writes NO
--- slots there and vector_info skips that segment entirely: it reports
--- fewer segments than the index actually has. (Un-merged segments still
--- hold their tombstoned vector rows, which is why this is not zero.)
-SELECT (SELECT count(*) FROM paradedb.vector_info('delvec_idx', 'vec'))
-       < (SELECT count(*) FROM paradedb.index_info('delvec_idx'))
-       AS emptied_segment_has_no_vector_slots;
+SELECT count(*) = 1 AS merged_to_one_segment
+FROM paradedb.index_info('delvec_idx');
+SELECT bool_and(vector_num_vectors = 0 AND vector_total_memberships = 0)
+       AS merged_vector_field_is_empty
+FROM paradedb.vector_info('delvec_idx', 'vec');
 
 -- Vector ORDER BY on the emptied field: no error, zero results. Exhaustive
 -- probing, so the empty result cannot be an artifact of probe pruning.

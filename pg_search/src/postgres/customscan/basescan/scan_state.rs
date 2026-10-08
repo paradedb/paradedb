@@ -198,9 +198,13 @@ impl BaseScanState {
     /// Drop the active search results (whose scorers hold bitmap cursors),
     /// keeping the selected exec method: `reset()` re-binds it to the rebuilt
     /// reader after a rescan. Replacing the method here would leave the
-    /// default `UnknownScanStyle`, which panics on its next use.
+    /// default `UnknownScanStyle`, which panics on its next use. No reader means
+    /// the scan never executed: there are no scorers, and the exec method may
+    /// not even be bound yet.
     pub fn reset_exec_results(&mut self) {
-        self.exec_method_mut().reset(self);
+        if self.search_reader.is_some() {
+            self.exec_method_mut().reset(self);
+        }
     }
 
     /// Drop the current exec method (and with it any search results whose

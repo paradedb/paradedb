@@ -313,16 +313,16 @@ fn setup_anti_join(conn: &mut PgConnection) {
     DROP TABLE IF EXISTS wja_products;
     DROP TABLE IF EXISTS wja_orders;
     CREATE TABLE wja_products (id bigint PRIMARY KEY, age int, description text);
-    CREATE TABLE wja_orders (id bigint PRIMARY KEY, age int, price numeric(10, 2));
+    CREATE TABLE wja_orders (id bigint PRIMARY KEY, age int, price numeric(10, 2), tags text[]);
 
     INSERT INTO wja_products SELECT g, g, 'sturdy laptop' FROM generate_series(1, 5) g;
     -- Ages 1 and 2 match, anti-filtering products 1 and 2; 3..5 survive.
-    INSERT INTO wja_orders VALUES (1, 1, 11.50), (2, 2, 22.50);
+    INSERT INTO wja_orders VALUES (1, 1, 11.50, ARRAY['bulk']), (2, 2, 22.50, ARRAY['gift', 'rush']);
 
     CREATE INDEX wja_products_bm25 ON wja_products
     USING paradedb (id, age, (description::pdb.unicode_words));
     CREATE INDEX wja_orders_bm25 ON wja_orders
-    USING paradedb (id, age, price);
+    USING paradedb (id, age, price, (tags::pdb.literal));
     ANALYZE wja_products;
     ANALYZE wja_orders;
     "#
@@ -362,6 +362,51 @@ fn global_window_aggregates_over_pruned_anti_join(
         assert_eq!(*total_count, 3);
         assert_eq!(*total_price, None);
     }
+
+    Ok(())
+}
+
+/// A LATERAL unnest of the pruned side yields no rows, so the optimizer folds the
+/// join to an empty relation under the Top-K aggregate. The serialized plan loses
+/// that relation's schema; the aggregate has to empty out with it instead of
+/// resolving its columns against the empty schema at execution.
+#[rstest]
+fn global_window_aggregates_over_pruned_anti_join_unnest(
+    mut conn: PgConnection,
+) -> Result<(), sqlx::Error> {
+    setup_anti_join(&mut conn);
+
+    let query = r#"
+        SELECT p.id, tag, COUNT(*) OVER () AS total_count
+        FROM wja_products p
+        LEFT JOIN wja_orders o ON p.age = o.age
+        CROSS JOIN LATERAL unnest(o.tags) AS tag
+        WHERE p.description ||| 'laptop' AND o.age IS NULL
+        ORDER BY p.id, tag
+        LIMIT 10
+    "#;
+
+    let plan = explain(&mut conn, query);
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    let rows = query.fetch_result::<(i64, String, i64)>(&mut conn)?;
+    assert!(rows.is_empty(), "{rows:?}");
+
+    // The same shape with no window, forced onto the Top-K path.
+    "SET paradedb.joinscan_force_topk_as_agg = on".execute(&mut conn);
+    let query = r#"
+        SELECT p.id, tag
+        FROM wja_products p
+        LEFT JOIN wja_orders o ON p.age = o.age
+        CROSS JOIN LATERAL unnest(o.tags) AS tag
+        WHERE p.description ||| 'laptop' AND o.age IS NULL
+        ORDER BY p.id, tag
+        LIMIT 10
+    "#;
+
+    let plan = explain(&mut conn, query);
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    let rows = query.fetch_result::<(i64, String)>(&mut conn)?;
+    assert!(rows.is_empty(), "{rows:?}");
 
     Ok(())
 }

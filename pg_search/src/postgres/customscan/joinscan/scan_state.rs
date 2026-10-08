@@ -886,7 +886,8 @@ fn build_clause_df<'a>(
         //
         // Window aggregates always take this path: they are computed in that same
         // aggregate node (see `apply_topk_as_agg`), so planning declines a window
-        // query whose fetch is not statically known.
+        // query whose fetch is not statically known. If the fetch is not statically known, the
+        // fallback path can still compute sql window functions
         //
         // Otherwise DISTINCT is a GROUP BY and the sort is its own step.
         let (df, distinct_col_map, path_taken) = if (gucs::joinscan_force_topk_as_agg()
@@ -969,6 +970,8 @@ struct TopKAggSelectedExpressions<'a> {
     extra_sort_cols: Vec<Expr>,
     /// Expressions (and their output names) to be computed alongside the top-k
     additional_aggs: Vec<(String, Expr)>,
+    /// Constant expressions (and their output names) to be selected alongside the top-k
+    constants: Vec<(String, Expr)>,
 }
 impl<'a> TopKAggSelectedExpressions<'a> {
     fn new(join_clause: &'a JoinCSClause) -> Self {
@@ -981,6 +984,7 @@ impl<'a> TopKAggSelectedExpressions<'a> {
             sort_exprs: Vec::new(),
             extra_sort_cols: Vec::new(),
             additional_aggs: Vec::new(),
+            constants: Vec::new(),
         }
     }
 
@@ -1082,6 +1086,12 @@ impl<'a> TopKAggSelectedExpressions<'a> {
     /// Take the (column name, expr) pair of each additional aggregate to compute alongside the topk
     fn with_additional_aggs(mut self, additional: Vec<(String, Expr)>) -> Self {
         self.additional_aggs = additional;
+        self
+    }
+
+    /// Take the (column name, expr) pair of each constant to project alongside the results
+    fn with_constants(mut self, constants: Vec<(String, Expr)>) -> Self {
+        self.constants = constants;
         self
     }
 
@@ -1213,6 +1223,11 @@ impl<'a> TopKAggSelectedExpressions<'a> {
                 .iter()
                 .map(|(name, _)| col(name.as_str())),
         );
+        name_restoration_list.extend(
+            self.constants
+                .iter()
+                .map(|(name, expr)| expr.clone().alias(name)),
+        );
 
         Ok(FinalizedTopKAgg {
             select_list,
@@ -1285,6 +1300,7 @@ fn apply_topk_as_agg(
         .with_ctids(ctid_names, df.schema())?
         .with_sort_exprs(sort_exprs)
         .with_additional_aggs(all_window_exprs.exprs)
+        .with_constants(all_window_exprs.consts)
         .finalize()?;
 
     // The actual projected columns we'll need for the aggregate.
@@ -1301,16 +1317,7 @@ fn apply_topk_as_agg(
     aggregates.extend(finalized.additional_agg_list);
     let df = df.aggregate(vec![], aggregates)?;
     let df = df.unnest_columns(&[TOPK_AGG_ROWS_COL_NAME])?;
-
-    let mut name_restoration_list = finalized.name_restoration_list;
-    // fold in the const window expressions
-    name_restoration_list.extend(
-        all_window_exprs
-            .consts
-            .into_iter()
-            .map(|(name, expr)| expr.alias(name)),
-    );
-    let df = df.select(name_restoration_list)?;
+    let df = df.select(finalized.name_restoration_list)?;
 
     Ok((df, distinct_col_map))
 }

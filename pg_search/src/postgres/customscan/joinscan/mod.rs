@@ -687,7 +687,7 @@ impl JoinScan {
                 .is_none()
         {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: window functions require a statically known LIMIT and OFFSET",
+                "JoinScan not used: pdb.agg(...) window functions require a statically known LIMIT and OFFSET",
             ));
         }
 

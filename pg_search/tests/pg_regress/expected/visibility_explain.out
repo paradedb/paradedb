@@ -33,17 +33,22 @@ DECLARE
     leader boolean;
     setup_cost float8;
     divisor float8;
+    actual_count bigint;
+    expected_count bigint;
     enabled boolean;
+    include_doc_count boolean;
     line text;
     labels text[] := '{}';
 BEGIN
     EXECUTE 'EXPLAIN (FORMAT JSON) ' || query INTO plan;
     ASSERT NOT (plan #> '{0,Plan}') ? 'Visibility';
     ASSERT NOT (plan #> '{0,Plan}') ? 'Parallelism';
-    FOR workers, worker_limit, leader, setup_cost IN
+    FOR workers, worker_limit, leader, setup_cost, include_doc_count IN
         SELECT * FROM (VALUES (0), (4)) w(n), (VALUES (1), (4)) cap(n),
-            (VALUES (false), (true)) l(participates), (VALUES (0::float8), (1e9)) c(setup)
+            (VALUES (false), (true)) l(participates), (VALUES (0::float8), (1e9)) c(setup),
+            (VALUES (false), (true)) d(include_doc_count)
     LOOP
+        PERFORM set_config('paradedb.add_doc_count_to_aggs', include_doc_count::text, true);
         PERFORM set_config('max_parallel_workers_per_gather', workers::text, true);
         PERFORM set_config('max_parallel_workers', worker_limit::text, true);
         PERFORM set_config('parallel_leader_participation', leader::text, true);
@@ -80,6 +85,18 @@ BEGIN
                     ASSERT NOT leader AND worker_limit = 1 AND requested = 0;
                 END IF;
             END IF;
+            SELECT count(*) INTO actual_count FROM visibility_stats_docs
+                WHERE title === 'database' AND id <= 1234;
+            SELECT count(*) INTO expected_count FROM visibility_stats_docs
+                WHERE title = 'database' AND id <= 1234;
+            ASSERT actual_count = expected_count;
+            SELECT count(*) INTO actual_count FROM visibility_stats_docs
+                WHERE title === 'missing';
+            ASSERT actual_count = 0;
+            SELECT count(*) INTO actual_count FROM visibility_stats_docs
+                WHERE id @@@ paradedb.all();
+            SELECT count(*) INTO expected_count FROM visibility_stats_docs;
+            ASSERT actual_count = expected_count;
             visibility := plan #> '{0,Plan,Visibility}';
             skipped := (visibility ->> 'Segments Skipped')::bigint;
             checked := (visibility ->> 'Segments Checked')::bigint;

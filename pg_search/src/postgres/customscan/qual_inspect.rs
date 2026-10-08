@@ -23,6 +23,7 @@ use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{PushdownField, try_build_pushdown_qual};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::index::{any_leaf_partition_index, is_partitioned_index};
 use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
@@ -332,10 +333,15 @@ impl NegationContext {
     fn ensure_index(&mut self, oid: pg_sys::Oid) {
         if self.index_oid != Some(oid) || self.index_relation.is_none() {
             self.index_oid = Some(oid);
-            self.index_relation = Some(PgSearchRelation::with_lock(
-                oid,
-                pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-            ));
+            let index =
+                PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+            // A query above an Append names the partitioned parent, which has no storage to
+            // read a schema from (#4643). Its leaves share its definition, so one answers.
+            self.index_relation = if is_partitioned_index(oid) {
+                any_leaf_partition_index(&index)
+            } else {
+                Some(index)
+            };
         }
     }
 }

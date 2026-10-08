@@ -32,6 +32,7 @@ use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::index::is_partitioned_index;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
     VarContext, fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers,
@@ -740,6 +741,12 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 Some(res) => res,
                 None => return false,
             };
+
+            // A partitioned table is read by one scan per partition, so no single scan
+            // sees its whole Top K, and its index has no storage to read a schema from.
+            if is_partitioned_index(bm25_index.oid()) {
+                return false;
+            }
 
             let schema = match SearchIndexSchema::open(&bm25_index) {
                 Ok(s) => s,

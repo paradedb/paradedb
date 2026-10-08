@@ -273,15 +273,9 @@ jobs:
         with:
           ref: ${{ env.COMMIT_SHA }}
 
-      - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
-
       # The workload image and the run's `antithesis.source` are named after the repository
       - name: Resolve Registry Image Name From Repository
         run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
-
-      - name: Set Up Docker Buildx
-        uses: docker/setup-buildx-action@v4
 
       - name: Download Antithesis pg_search .deb
         uses: actions/download-artifact@v8
@@ -309,16 +303,20 @@ jobs:
       # Antithesis only supports x86_64 instruction set
       # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
       - name: Build and Push Workload Docker Image to Antithesis Registry
-        uses: docker/build-push-action@v7
+        uses: ./.github/actions/build-paradedb-image
         with:
+          ref: ${{ env.COMMIT_SHA }}
+          checkout_source: "false" # Use the checkout with the downloaded, verified dst package.
           context: docker
           platforms: linux/amd64
-          file: docker/Dockerfile.antithesis-${{ env.PG_VERSION }}
-          push: true
-          tags: ${{ steps.extract-workload-metadata.outputs.tags }}
+          dockerfile: docker/Dockerfile.antithesis-${{ env.PG_VERSION }}
+          push: "true"
+          load: "false"
+          image_tag: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
-          build-args: |
+          build_args: |
             COMMIT_SHA=${{ env.COMMIT_SHA }}
+          cache_scope: antithesis-pg${{ env.PG_VERSION }}-amd64
 
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/

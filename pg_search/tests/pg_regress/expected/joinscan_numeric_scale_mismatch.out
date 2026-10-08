@@ -282,8 +282,8 @@ EXPLAIN (COSTS OFF) SELECT COUNT(*) FROM (
   ORDER BY i.id
   LIMIT 1000
 ) sub;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i INNER p
@@ -291,16 +291,15 @@ EXPLAIN (COSTS OFF) SELECT COUNT(*) FROM (
          Limit: 1000
          Order By: i.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=1000), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[i, p]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(amt@1, amt@1)], projection=[ctid_0@0, id@2, ctid_1@3]
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"match","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
-(16 rows)
+           :     VisibilityFilterExec: tables=[i, p], pruned=[p]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(amt@1, amt@0)], projection=[ctid_0@0, id@2, ctid_1@4]
+           :         CooperativeExec
+           :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"match","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
+(15 rows)
 
 SELECT COUNT(*) AS numeric_bytes_pushdown_result FROM (
   SELECT i.id

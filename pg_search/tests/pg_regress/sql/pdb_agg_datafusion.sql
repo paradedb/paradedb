@@ -272,6 +272,12 @@ SELECT pdb.agg('{"terms": {"field": "category", "order": {"_key": "asc"}}, "aggs
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
+-- Test 1.22: a terms field that repeats on one path is turned down: the plan
+-- would give both of its levels one grouping id
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"again": {"terms": {"field": "category"}}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description ||| 'laptop';
+
 -- =====================================================================
 -- SECTION 2: empty inputs
 -- =====================================================================

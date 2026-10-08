@@ -688,6 +688,14 @@ fn pdb_agg_window_query_shapes(mut conn: PgConnection, #[case] shape: PdbAggShap
 #[rstest]
 #[case::unsupported_aggregation(r#"pdb.agg('{"histogram": {"field": "score", "interval": 2}}')"#)]
 #[case::terms_min_doc_count_zero(r#"pdb.agg('{"terms": {"field": "score", "min_doc_count": 0}}')"#)]
+#[case::terms_field_repeats_on_path(
+    r#"pdb.agg('{"terms": {"field": "category"}, "aggs": {"x": {"terms": {"field": "category"}}}}')"#
+)]
+#[case::terms_field_repeats_below_another(
+    r#"pdb.agg('{"terms": {"field": "category"},
+                "aggs": {"x": {"terms": {"field": "reviewer"},
+                               "aggs": {"y": {"terms": {"field": "category"}}}}}}')"#
+)]
 #[case::ambiguous_field(r#"pdb.agg('{"max": {"field": "id"}}')"#)]
 #[case::visibility(r#"pdb.agg('{"avg": {"field": "score"}}', 'raw')"#)]
 fn pdb_agg_window_declines(mut conn: PgConnection, #[case] call: &str) {

@@ -227,7 +227,7 @@ impl PdbAggRequest {
         let agg: Aggregation = serde_json::from_value(agg_json.clone())
             .map_err(|e| format!("invalid pdb.agg specification: {e}"))?;
         let mut fields = HashMap::default();
-        check_node(&agg, resolve, &mut fields)?;
+        check_node(&agg, resolve, &mut fields, &mut Vec::new())?;
         Ok(Self {
             agg,
             fields,
@@ -331,10 +331,12 @@ fn resolve_field(
 }
 
 /// Resolve every field of the spec and turn down what this backend cannot run.
+/// `path` holds the keys of the enclosing `terms` nodes, outermost first.
 fn check_node(
     agg: &Aggregation,
     resolve: &PdbAggFieldResolver,
     fields: &mut HashMap<String, PdbAggFieldRef>,
+    path: &mut Vec<PdbKeySpec>,
 ) -> Result<(), String> {
     match &agg.agg {
         AggregationVariants::Terms(terms) => {
@@ -348,9 +350,27 @@ fn check_node(
             }
             let field = resolve_field(resolve, fields, &terms.field, false)?;
             check_missing(&field, terms.missing.as_ref())?;
-            for sub in agg.sub_aggregation.values() {
-                check_node(sub, resolve, fields)?;
+            // The plan interns a key once, by field and `missing`, and lays a
+            // level out as the set of its keys. A key that repeats on one path
+            // gives two levels the same set, so the same grouping id, and the
+            // assembler reads both from one of them. Until the plan interns a
+            // repeated key per depth, turn the spec down.
+            let key = PdbKeySpec {
+                field,
+                missing: terms.missing.clone(),
+            };
+            if path.contains(&key) {
+                return Err(format!(
+                    "terms field '{}' repeats on one path of the spec, which is not supported \
+                     over joins",
+                    terms.field
+                ));
             }
+            path.push(key);
+            for sub in agg.sub_aggregation.values() {
+                check_node(sub, resolve, fields, path)?;
+            }
+            path.pop();
             if let Some(CustomOrder {
                 target: OrderTarget::SubAggregation(name),
                 ..

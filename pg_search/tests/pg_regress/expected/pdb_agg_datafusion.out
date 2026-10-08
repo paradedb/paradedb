@@ -477,6 +477,12 @@ WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
  {"buckets": [{"n": {"value": 6.0}, "hi": {"value": 5.0}, "lo": {"value": 3.0}, "key": "Electronics", "mean": {"value": 4.333333333333333}, "doc_count": 6}, {"n": {"value": 3.0}, "hi": {"value": 5.0}, "lo": {"value": 4.0}, "key": "Sports", "mean": {"value": 4.666666666666667}, "doc_count": 3}, {"n": {"value": 2.0}, "hi": {"value": 9.0}, "lo": {"value": 1.0}, "key": "Toys", "mean": {"value": 1.0}, "doc_count": 2}], "sum_other_doc_count": 0}
 (1 row)
 
+-- Test 1.22: a terms field that repeats on one path is turned down: the plan
+-- would give both of its levels one grouping id
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"again": {"terms": {"field": "category"}}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description ||| 'laptop';
+ERROR:  Cannot execute pdb.agg: terms field 'category' repeats on one path of the spec, which is not supported over joins
 -- =====================================================================
 -- SECTION 2: empty inputs
 -- =====================================================================

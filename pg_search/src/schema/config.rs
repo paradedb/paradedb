@@ -40,7 +40,7 @@ pub enum SearchFieldConfig {
         fieldnorms: bool,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pnorms: bool,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[serde(default = "default_as_true", skip_serializing_if = "is_true")]
         bitmap_postings: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
@@ -70,7 +70,7 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[serde(default = "default_as_true", skip_serializing_if = "is_true")]
         bitmap_postings: bool,
         #[serde(default = "default_as_true")]
         expand_dots: bool,
@@ -494,10 +494,6 @@ impl From<SearchFieldConfig> for TextOptions {
             } => {
                 validate_bm25_indexed(indexed, k1, b);
                 assert!(
-                    !bitmap_postings || indexed,
-                    "bitmap_postings=true requires indexed=true"
-                );
-                assert!(
                     !pnorms || (indexed && fieldnorms),
                     "pnorms=true requires indexed=true and fieldnorms=true"
                 );
@@ -606,10 +602,6 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 ..
             } => {
                 validate_bm25_indexed(indexed, k1, b);
-                assert!(
-                    !bitmap_postings || indexed,
-                    "bitmap_postings=true requires indexed=true"
-                );
                 if fast {
                     json_options = json_options.set_fast(normalizer.name());
                 }
@@ -750,6 +742,10 @@ impl Display for IndexRecordOption {
     }
 }
 
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
 fn default_as_true() -> bool {
     true
 }
@@ -767,6 +763,29 @@ fn default_as_freqs_and_positions() -> IndexRecordOption {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bitmap_defaults_preserve_opt_out_and_unindexed_fields() {
+        for kind in ["Text", "Json"] {
+            for (options, expected) in [
+                (json!({}), Some(true)),
+                (json!({"bitmap_postings": false}), Some(false)),
+                (json!({"bitmap_postings": true}), Some(true)),
+                (json!({"indexed": false, "fast": true}), None),
+            ] {
+                let config = SearchFieldConfig::from_json(json!({kind: options}));
+                let restored = SearchFieldConfig::from_json(serde_json::to_value(&config).unwrap());
+                assert_eq!(config, restored);
+                let indexing = match kind {
+                    "Text" => TextOptions::from(restored).get_indexing_options().cloned(),
+                    _ => JsonObjectOptions::from(restored)
+                        .get_text_indexing_options()
+                        .cloned(),
+                };
+                assert_eq!(indexing.map(|options| options.bitmap_postings()), expected);
+            }
+        }
+    }
 
     #[test]
     fn vector_quantization_accepts_default_and_explicit_schedules() {

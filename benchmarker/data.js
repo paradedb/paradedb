@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791420597181,
+  "lastUpdate": 1791423869486,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9562,6 +9562,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 20.378,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "44405294+sainad2222@users.noreply.github.com",
+            "name": "Sainath Singineedi",
+            "username": "sainad2222"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9d30d6b3682a714f1d37bf6ec8e25188481c0594",
+          "message": "fix: Skip per_tuple_cost penalty for search operators in the target list (#6461)\n\n# Ticket(s) Closed\n\n- Closes #6406\n\n## What\n\nSearch operators in the target list no longer get the\n`paradedb.per_tuple_cost` penalty.\n\n## Why\n\nThe cost support function charged `per_tuple_cost` for startup and per\nrow wherever the operator appeared. In the target list that can't\ninfluence path choice, but it still inflated the plan cost past every\nJIT threshold. The repro in the issue goes from a total cost of ~10 to\n600000010.\n\n## How\n\n`for_support_cost` checks whether the node being costed is in\n`root->processed_tlist`. If so, it reports `cpu_operator_cost` per row,\nsince heap evaluation is a set lookup once the match set is built. Quals\nkeep the existing penalty.\n\n## Tests\n\nNew pg_regress test `issue_6406_target_list_jit_cost` compares plan cost\nto `jit_above_cost` for a projected match (plain and inside a `CASE`),\nand checks that a qual forced onto the heap-filter path is still\npenalized. The projected cases fail on `main`.\n\n## AI Disclosure\nUsed claude for understanding the issues, identifying relevant code\npoint for changes, improving comments and almost entirely for testcases.",
+          "timestamp": "2026-10-07T18:00:48-07:00",
+          "tree_id": "eaefb9e063ae00d4649d93d426abe6d2bc9b39d6",
+          "url": "https://github.com/paradedb/paradedb/commit/9d30d6b3682a714f1d37bf6ec8e25188481c0594"
+        },
+        "date": 1791423866571,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.608,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.134,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.673,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 10.209,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 1.998,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.539,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.398,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 1.657,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.395,
             "unit": "ms"
           }
         ]

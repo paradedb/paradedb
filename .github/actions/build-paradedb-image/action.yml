@@ -1,5 +1,5 @@
 name: Build ParadeDB Image
-description: Build ParadeDB from source or a prebuilt Antithesis pg_search package
+description: Compile pg_search at a selected ref and build a ParadeDB workload image
 
 inputs:
   ref:
@@ -18,24 +18,12 @@ inputs:
     required: false
     default: "benchmarker-source-pg18-arm64"
 
-  checkout_source:
-    description: "Checkout ref into pg_search_source; disable to use the caller's checkout and artifacts"
+  antithesis:
+    description: "Build the instrumented dst profile for Antithesis (requires linux/amd64)"
     required: false
-    default: "true"
-  context:
-    description: "Docker build context (relative to the workspace)"
-    required: false
-    default: "pg_search_source"
-  dockerfile:
-    description: "Dockerfile path (relative to the workspace)"
-    required: false
-    default: "docker/Dockerfile.source"
+    default: "false"
   platforms:
     description: "Target platforms (empty uses the runner architecture)"
-    required: false
-    default: ""
-  build_args:
-    description: "Additional newline-separated Docker build arguments"
     required: false
     default: ""
   labels:
@@ -60,7 +48,6 @@ runs:
   using: composite
   steps:
     - name: Checkout pg_search Source at ref=${{ inputs.ref }}
-      if: inputs.checkout_source == 'true'
       uses: actions/checkout@v7
       with:
         ref: ${{ inputs.ref }}
@@ -74,7 +61,7 @@ runs:
     - name: Derive Short Commit
       id: commit_info
       shell: bash
-      working-directory: ${{ inputs.checkout_source == 'true' && 'pg_search_source' || '.' }}
+      working-directory: pg_search_source
       run: echo "short_commit=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
     - name: Set Up Docker Buildx
@@ -83,12 +70,12 @@ runs:
     - name: Build ParadeDB Image
       uses: docker/build-push-action@v7
       with:
-        context: ${{ inputs.context }}
-        file: ${{ inputs.dockerfile }}
+        context: pg_search_source
+        file: docker/Dockerfile.source
         platforms: ${{ inputs.platforms }}
         build-args: |
           BASE_IMAGE=${{ inputs.base_image }}
-          ${{ inputs.build_args }}
+          ANTITHESIS=${{ inputs.antithesis }}
         pull: true
         push: ${{ inputs.push == 'true' }}
         load: ${{ inputs.load == 'true' }}

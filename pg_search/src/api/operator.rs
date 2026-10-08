@@ -41,7 +41,7 @@ use crate::postgres::sequentialscan::MaybeInlineRow;
 use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
-use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
+use crate::postgres::var::{VarContext, find_json_path, find_var_relation, system_column_var};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
@@ -1243,23 +1243,6 @@ unsafe fn record_field(
             !(*colname).sval.is_null() && core::ffi::CStr::from_ptr((*colname).sval) == name
         })?;
         PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(position)
-    }
-}
-
-/// A Var for one of `base_var`'s relation's system columns, e.g. `ctid` or `tableoid`.
-unsafe fn system_column_var(
-    base_var: *mut pg_sys::Var,
-    varattno: pg_sys::AttrNumber,
-    vartype: pg_sys::Oid,
-) -> *mut pg_sys::Var {
-    unsafe {
-        let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-        (*var).varattno = varattno;
-        (*var).varattnosyn = (*var).varattno;
-        (*var).vartype = vartype;
-        (*var).vartypmod = -1;
-        (*var).varcollid = pg_sys::Oid::INVALID;
-        var
     }
 }
 

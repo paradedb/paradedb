@@ -1,6 +1,6 @@
 # Benchmark pg_search (Benchmarker)
 #
-# Runs the benchmarker suite on hn-ci, stackexchange, and wikipedia, indexing
+# Runs the benchmarker suite on hackernews, stackexchange, and wikipedia, indexing
 # with a pg_search compiled from this repo's source and overlaid onto a
 # released ParadeDB image. StackExchange and Wikipedia use their native
 # workloads from benchmarker dataset prefixes in S3. Heap-backed runs exclude
@@ -22,11 +22,11 @@ on:
       - "**/*.rs"
       - "**/*.toml"
   pull_request:
-    types: [labeled] # Opt in with `benchmark-benchmarker` (all) or `benchmark-benchmarker-{hn,stackexchange,wikipedia}`.
+    types: [labeled] # Opt in with `benchmark-benchmarker` (all) or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
   workflow_dispatch:
     inputs:
       dataset:
-        description: "Which dataset(s) to benchmark: 'all', 'hn-ci', 'stackexchange', or 'wikipedia'."
+        description: "Which dataset(s) to benchmark: 'all', 'hackernews', 'stackexchange', or 'wikipedia'."
         required: false
         type: string
         default: "all"
@@ -34,8 +34,8 @@ on:
         description: "pg_search commit/ref to benchmark. Defaults to the triggering ref (main on a manual run)."
         required: false
         default: ""
-      benchmarker_hn_ref:
-        description: "benchmarker repo ref for hn-ci (branch/tag/SHA)."
+      benchmarker_hackernews_ref:
+        description: "benchmarker repo ref for hackernews (branch/tag/SHA)."
         required: false
         default: "main"
       benchmarker_stackexchange_repo:
@@ -66,8 +66,8 @@ permissions:
 # No concurrency group: let every run complete and append to gh-pages history.
 
 jobs:
-  benchmark-hn:
-    name: Benchmarker (hn-ci)
+  benchmark-hackernews:
+    name: Benchmarker (hackernews)
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
@@ -76,17 +76,18 @@ jobs:
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
-      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hn-ci' || inputs.dataset == '')) ||
-      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hn'))
+      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hackernews' || inputs.dataset == '')) ||
+      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hackernews'))
     env:
-      DATASET: hn-ci
+      DATASET: hackernews
+      # Keep the existing archive key; the loader extracts into datasets/${DATASET}.
       DATASET_S3: s3://paradedb-benchmarker/datasets/hn-ci.tar.gz
       IMAGE_TAG: paradedb-source:ci
 
     steps:
       # The label triggers this run; remove it so it can be re-applied to re-run.
       - name: Maybe Remove Label
-        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hn')
+        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hackernews')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -94,7 +95,7 @@ jobs:
           gh pr edit "${PR_NUMBER}" \
             --repo "${GITHUB_REPOSITORY}" \
             --remove-label benchmark-benchmarker \
-            --remove-label benchmark-benchmarker-hn || true
+            --remove-label benchmark-benchmarker-hackernews || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -126,7 +127,7 @@ jobs:
         uses: ./.github/actions/setup-benchmarker
         with:
           repository: paradedb/benchmarker
-          ref: ${{ inputs.benchmarker_hn_ref || 'main' }}
+          ref: ${{ inputs.benchmarker_hackernews_ref || 'main' }}
 
       - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)
         working-directory: benchmarker
@@ -406,8 +407,8 @@ jobs:
 
   notify-slack-on-failure:
     name: Notify Slack on Failure
-    needs: [benchmark-hn, benchmark-datasets]
-    if: always() && (needs.benchmark-hn.result == 'failure' || needs.benchmark-datasets.result == 'failure') && github.event_name == 'push'
+    needs: [benchmark-hackernews, benchmark-datasets]
+    if: always() && (needs.benchmark-hackernews.result == 'failure' || needs.benchmark-datasets.result == 'failure') && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       actions: read

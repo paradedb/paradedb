@@ -3,7 +3,7 @@ description: Extract latency metrics, upload dashboards, publish to gh-pages, an
 
 inputs:
   dataset:
-    description: "Dataset name (e.g. hn-ci, stackexchange)"
+    description: "Dataset name (e.g. hackernews, stackexchange)"
     required: true
   short_commit:
     description: "Short commit SHA"

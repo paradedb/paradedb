@@ -485,7 +485,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         // index at all, whatever the targetlist holds, so this decides before the
         // clauses below report a narrower reason for the same decline.
         let (restrict_info, _) = restrict_info(args.input_rel());
-        if unsafe { missing_partial_index_predicate(index.rd_indpred, &restrict_info) } {
+        if missing_partial_index_predicate(index.rd_indpred, &restrict_info) {
             return Err("query does not imply the partial index predicate".into());
         }
 

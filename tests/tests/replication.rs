@@ -851,8 +851,7 @@ async fn test_background_merge_terminate_during_sync_replication() -> Result<()>
     }
     .await;
 
-    // Unstick the old implementation before the ephemeral server's Drop shuts it down.
-    // Do this even when the regression assertion fails.
+    // Let `Drop` stop the server even if the worker ignored SIGTERM.
     conn.execute("ALTER SYSTEM SET synchronous_standby_names = ''")
         .await?;
     conn.execute("SELECT pg_reload_conf()").await?;

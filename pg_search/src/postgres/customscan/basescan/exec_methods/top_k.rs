@@ -217,7 +217,7 @@ impl TopKScanExecState {
         // settings, then resolve it against this execution. Only Custom aggregates
         // (pdb.agg) carry a setting; standard SQL aggregates always use the default.
         let mvcc_enabled = AggregateType::resolve_visibility(combined_agg_types.iter())
-            .resolve_filtering(state.indexrel(), state.search_query_input());
+            .resolve_filtering(state.indexrel(), state.search_query_input(), None);
 
         // Convert aggregates to Tantivy Aggregations
         let mut aggregations: tantivy::aggregation::agg_req::Aggregations = Default::default();

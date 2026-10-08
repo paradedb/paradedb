@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791496930386,
+  "lastUpdate": 1791499572561,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9634,6 +9634,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 566.089,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "367b8b75f0ed54ae95159f3d8b572a7a280fdfb0",
+          "message": "fix: joinscan now declines pdb.agg() specs with repeated keys on the same path (#6744)\n\n## What\nAs a follow-up to #6684 and @mdashti's\n[comment](https://github.com/paradedb/paradedb/pull/6684#discussion_r4211401151),\nthis PR makes joinscan reject any query with a `pdb.agg()` spec that\ncontains repeated keys on the same path.\n\n## Why\nThis currently is a bug the shared aggregate and join scan code that\nproduces wrong outputs. Better to decline until that is fixed.\n\n## How\nWhile constructing the request, track the path and check for repeated\nkeys, erroring if any are found.\n\n## Tests\nNew regression and integration tests.",
+          "timestamp": "2026-10-08T15:19:18-06:00",
+          "tree_id": "29493a50ecb7ee09bfbcf8de46c985a0e238ec6e",
+          "url": "https://github.com/paradedb/paradedb/commit/367b8b75f0ed54ae95159f3d8b572a7a280fdfb0"
+        },
+        "date": 1791499568736,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 16.988,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 209.558,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 51.865,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 228.627,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 19.345,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 166.43,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 28.36,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 223.31,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 35.349,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 561.856,
             "unit": "ms"
           }
         ]

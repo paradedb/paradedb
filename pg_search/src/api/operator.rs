@@ -33,7 +33,9 @@ use crate::postgres::customscan::opexpr::{
     UnwrapFromExpr, expr_matches_node, vars_equal_ignoring_varno,
 };
 use crate::postgres::deparse::deparse_expr;
-use crate::postgres::index::{is_partitioned_index, leaf_partition_indexes};
+use crate::postgres::index::{
+    free_leaf_partition_indexes, is_partitioned_index, leaf_partition_index_oids,
+};
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -690,22 +692,24 @@ fn open_and_estimate_docs(
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
 ) -> Option<DocsEstimate> {
-    // A partitioned index has no storage of its own (#4643), so estimate each leaf
-    // partition and aggregate. A predicate above an Append covers every partition, which
-    // makes the summed counts the estimate for the whole tree.
+    // A partitioned index has no storage of its own (#4643). A predicate above an Append
+    // covers every partition, so one leaf stands in for the tree: its match ratio is the
+    // selectivity, and its counts scale by the number of leaves. Leaves are tried in order
+    // and the first that holds rows answers, so planning usually opens one partition, skips
+    // a leaf a `REINDEX` holds instead of waiting, and does not read an empty partition as
+    // matching nothing.
     if is_partitioned_index(indexrel.oid()) {
-        let mut aggregate = DocsEstimate {
-            matching_docs: 0,
-            total_docs: 0,
-            query_cost: 0,
-        };
-        for partition in leaf_partition_indexes(indexrel) {
-            let estimate = open_and_estimate_docs(&partition, search_query_input.clone(), None)?;
-            aggregate.matching_docs += estimate.matching_docs;
-            aggregate.total_docs += estimate.total_docs;
-            aggregate.query_cost += estimate.query_cost;
-        }
-        return Some(aggregate);
+        let leaves = leaf_partition_index_oids(indexrel);
+        let estimate = free_leaf_partition_indexes(&leaves).find_map(|leaf| {
+            open_and_estimate_docs(&leaf, search_query_input.clone(), None)
+                .filter(|estimate| estimate.total_docs > 0)
+        })?;
+        let scale = leaves.len() as u64;
+        return Some(DocsEstimate {
+            matching_docs: estimate.matching_docs.saturating_mul(leaves.len()),
+            total_docs: estimate.total_docs.saturating_mul(scale),
+            query_cost: estimate.query_cost.saturating_mul(scale),
+        });
     }
 
     let heap_rel = indexrel

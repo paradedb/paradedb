@@ -72,16 +72,15 @@ pub fn is_partitioned_index(index_oid: pg_sys::Oid) -> bool {
 
 /// The leaf partition indexes under `parent`, at any nesting depth. The parent itself and
 /// any intermediate partitioned index have no storage of their own, so only the leaves
-/// are returned, and a member left invalid by a failed `CREATE INDEX` is left out.
-pub fn leaf_partition_indexes(
-    parent: &PgSearchRelation,
-) -> impl Iterator<Item = PgSearchRelation> + use<> {
+/// are returned, and a member left invalid by a failed `CREATE INDEX` is left out. The
+/// catalog walk takes no locks; a caller locks the leaves it opens.
+pub fn leaf_partition_index_oids(parent: &PgSearchRelation) -> Vec<pg_sys::Oid> {
     let parent_oid = parent.oid();
     let inheritors = unsafe {
         PgList::<pg_sys::Oid>::from_pg(pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
             find_all_inheritors(
                 parent_oid,
-                pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+                pg_sys::NoLock as pg_sys::LOCKMODE,
                 std::ptr::null_mut(),
             )
         }))
@@ -92,9 +91,38 @@ pub fn leaf_partition_indexes(
             (unsafe { pg_sys::get_rel_relkind(oid) as u8 }) == pg_sys::RELKIND_INDEX
                 && unsafe { pg_sys::get_index_isvalid(oid) }
         })
-        .map(|oid| PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _))
-        .collect::<Vec<_>>()
+        .collect()
+}
+
+/// The leaf partition indexes under `parent`, each opened with `AccessShareLock` as it is
+/// reached, so a caller that needs one leaf locks one leaf.
+pub fn leaf_partition_indexes(
+    parent: &PgSearchRelation,
+) -> impl Iterator<Item = PgSearchRelation> + use<> {
+    leaf_partition_index_oids(parent)
         .into_iter()
+        .map(|oid| PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _))
+}
+
+/// The leaves in `leaves` whose `AccessShareLock` is free right now, each opened as it is
+/// reached. A leaf that a concurrent `REINDEX` holds is skipped rather than waited on, and
+/// so is one dropped since the catalog walk. A leaf's lock is released when the returned
+/// relation is dropped.
+pub fn free_leaf_partition_indexes(
+    leaves: &[pg_sys::Oid],
+) -> impl Iterator<Item = PgSearchRelation> + '_ {
+    let lockmode = pg_sys::AccessShareLock as pg_sys::LOCKMODE;
+    leaves.iter().filter_map(move |&oid| unsafe {
+        if !pg_sys::ConditionalLockRelationOid(oid, lockmode) {
+            return None;
+        }
+        // The walk took no lock, so the leaf may be gone by the time ours is granted.
+        let leaf = (pg_sys::get_rel_relkind(oid) as u8 == pg_sys::RELKIND_INDEX)
+            .then(|| PgSearchRelation::with_lock(oid, lockmode));
+        // The relation holds its own reference to the lock and releases it when dropped.
+        pg_sys::UnlockRelationOid(oid, lockmode);
+        leaf
+    })
 }
 
 /// The member of `parent_index_oid` attached to the partition `child_heap_oid`, however

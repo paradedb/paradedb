@@ -30,7 +30,9 @@ use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::index::{is_partitioned_index, partition_member_index};
+use crate::postgres::index::{
+    any_leaf_partition_index, is_partitioned_index, partition_member_index,
+};
 use crate::postgres::planner_warnings::{warn_filter_spilled, warn_sequential_scan};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
@@ -59,32 +61,17 @@ impl QueryCacheEntry {
     }
 }
 
-/// A query planned above an Append carries a partitioned index, which has no storage of
-/// its own (#4643). Rows from every partition then flow through one function call, so the
-/// match sets are built per partition, lazily, keyed by the `tableoid` the planner ships
-/// in the trailing record argument.
-enum CacheEntry {
-    Single(QueryCacheEntry),
-    Partitioned {
-        parent_index_oid: pg_sys::Oid,
-        by_child: HashMap<pg_sys::Oid, QueryCacheEntry>,
-    },
-}
-
-/// The same split for the inline-row fallback, whose matcher reads schema and storage
-/// from one concrete leaf index.
-enum InlineEntry {
-    Single(Box<RowMatcher>),
-    Partitioned {
-        parent_index_oid: pg_sys::Oid,
-        by_child: HashMap<pg_sys::Oid, RowMatcher>,
-    },
-}
+/// A query and the partition its rows come from. A query planned above an Append names
+/// a partitioned index, which has no storage of its own (#4643); rows from every partition
+/// then flow through one function call, and the `tableoid` the planner ships in the
+/// trailing record argument tells them apart. The match sets are built per key, lazily.
+/// Any other query has no `tableoid` and one entry.
+type CacheKey = (Vec<u8>, Option<pg_sys::Oid>);
 
 #[derive(Default)]
 struct Cache {
-    by_query: HashMap<Vec<u8>, CacheEntry>,
-    inline_rows: HashMap<Vec<u8>, InlineEntry>,
+    by_query: HashMap<CacheKey, QueryCacheEntry>,
+    inline_rows: HashMap<CacheKey, RowMatcher>,
 }
 
 #[allow(unused_variables)]
@@ -189,39 +176,22 @@ pub fn search_with_query_input_ctid_or_row(
     let query_datum = unsafe { pg_sys::pg_detoast_datum(query_datum.cast_mut_ptr()) };
 
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
-    let key = unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() };
+    let tableoid = unsafe { record_tableoid(fcinfo) };
+    let key = (
+        unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() },
+        tableoid,
+    );
 
-    let entry = cache.inline_rows.entry(key).or_insert_with(|| {
+    let matcher = cache.inline_rows.entry(key).or_insert_with(|| {
         let query = unsafe { deserialize_query(query_datum) };
-        let index_oid = query.index_oid().unwrap_or_else(|| {
-            panic!("pg_search: could not determine the index to use for this query")
+        // The matcher indexes the row itself, so a row without a `tableoid`, such as one from
+        // a derived relation, can be matched against any leaf of a partitioned index.
+        let index_relation = resolve_index(&query, tableoid, |parent| {
+            any_leaf_partition_index(parent)
+                .unwrap_or_else(|| report_missing_partition_index(None, parent.oid()))
         });
-        if is_partitioned_index(index_oid) {
-            return InlineEntry::Partitioned {
-                parent_index_oid: index_oid,
-                by_child: HashMap::default(),
-            };
-        }
-        let index_relation =
-            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-        InlineEntry::Single(Box::new(unsafe {
-            build_row_matcher(fcinfo, index_relation, query)
-        }))
+        unsafe { build_row_matcher(fcinfo, index_relation, query) }
     });
-
-    let matcher = match entry {
-        InlineEntry::Single(matcher) => matcher.as_mut(),
-        InlineEntry::Partitioned {
-            parent_index_oid,
-            by_child,
-        } => {
-            partition_entry(fcinfo, *parent_index_oid, by_child, |index_relation| {
-                let query = unsafe { deserialize_query(query_datum) };
-                unsafe { build_row_matcher(fcinfo, index_relation, query) }
-            })
-            .0
-        }
-    };
 
     unsafe { matcher.matches(row) }
 }
@@ -277,67 +247,39 @@ fn search_with_query_input_impl(
     // get the Cache attached to this instance of the function
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
 
-    let key = unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() };
-    if cache.by_query.get(&key).is_some_and(|entry| match entry {
-        CacheEntry::Single(entry) => !entry.is_valid(),
-        CacheEntry::Partitioned { by_child, .. } => {
-            by_child.values().any(|entry| !entry.is_valid())
-        }
-    }) {
+    let tableoid = unsafe { record_tableoid(fcinfo) };
+    let key = (
+        unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() },
+        tableoid,
+    );
+    if cache
+        .by_query
+        .get(&key)
+        .is_some_and(|entry| !entry.is_valid())
+    {
         cache.by_query.remove(&key);
     }
 
     let mut newly_built = false;
-    let entry = cache.by_query.entry(key).or_insert_with(|| {
+    let query_cache = cache.by_query.entry(key).or_insert_with(|| {
         newly_built = true;
         let search_query_input = unsafe { deserialize_query(query_datum) };
 
         // `empty()` cannot match any index document, including for a partial index.
         if matches!(&search_query_input, SearchQueryInput::Empty) {
-            return CacheEntry::Single(QueryCacheEntry {
+            return QueryCacheEntry {
                 matches: KeySet::None,
                 missing_values: None,
-            });
-        }
-
-        let index_oid = search_query_input.index_oid().unwrap_or_else(|| {
-            panic!("pg_search: could not determine the index to use for this query")
-        });
-
-        // The planner resolves a query above an Append to the parent partitioned index;
-        // its match sets are built per partition as rows arrive (#4643).
-        if is_partitioned_index(index_oid) {
-            return CacheEntry::Partitioned {
-                parent_index_oid: index_oid,
-                by_child: HashMap::default(),
             };
         }
 
-        let index_relation =
-            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-        CacheEntry::Single(build_query_cache_entry(
-            fcinfo,
-            ctid,
-            index_relation,
-            search_query_input,
-        ))
+        // A ctid only identifies a row within its own partition, so a match set over a
+        // partitioned index needs the row's `tableoid`.
+        let index_relation = resolve_index(&search_query_input, tableoid, |_| {
+            report_missing_row_identity()
+        });
+        build_query_cache_entry(fcinfo, ctid, index_relation, search_query_input)
     });
-
-    let query_cache = match entry {
-        CacheEntry::Single(query_cache) => query_cache,
-        CacheEntry::Partitioned {
-            parent_index_oid,
-            by_child,
-        } => {
-            let (query_cache, built) =
-                partition_entry(fcinfo, *parent_index_oid, by_child, |index_relation| {
-                    let search_query_input = unsafe { deserialize_query(query_datum) };
-                    build_query_cache_entry(fcinfo, ctid, index_relation, search_query_input)
-                });
-            newly_built |= built;
-            query_cache
-        }
-    };
 
     // Reaching this function at all means the search-operator predicate is being applied as a
     // per-row filter rather than an index scan, so warn whenever we evaluate a query here -- regardless of the
@@ -482,26 +424,28 @@ fn build_query_cache_entry(
     }
 }
 
-/// The entry for the partition this row came from, built on the partition's own index the
-/// first time a row from it arrives. The `bool` reports whether this call built it.
-fn partition_entry<T>(
-    fcinfo: pg_sys::FunctionCallInfo,
-    parent_index_oid: pg_sys::Oid,
-    by_child: &mut HashMap<pg_sys::Oid, T>,
-    build: impl FnOnce(PgSearchRelation) -> T,
-) -> (&mut T, bool) {
-    let child_heap_oid =
-        unsafe { record_tableoid(fcinfo) }.unwrap_or_else(|| report_missing_row_identity());
-    let mut built = false;
-    let entry = by_child.entry(child_heap_oid).or_insert_with(|| {
-        built = true;
-        build(
-            partition_member_index(child_heap_oid, parent_index_oid).unwrap_or_else(|| {
-                report_missing_partition_index(child_heap_oid, parent_index_oid)
-            }),
-        )
+/// The index a row is matched against: the query's own index, or, when that is a
+/// partitioned parent with no storage of its own (#4643), the member attached to the
+/// partition the row came from. For a row without a `tableoid`, `without_tableoid` decides
+/// from the parent.
+fn resolve_index(
+    query: &SearchQueryInput,
+    tableoid: Option<pg_sys::Oid>,
+    without_tableoid: impl FnOnce(&PgSearchRelation) -> PgSearchRelation,
+) -> PgSearchRelation {
+    let index_oid = query.index_oid().unwrap_or_else(|| {
+        panic!("pg_search: could not determine the index to use for this query")
     });
-    (entry, built)
+    let index_relation =
+        PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    if !is_partitioned_index(index_oid) {
+        return index_relation;
+    }
+    match tableoid {
+        Some(child_heap_oid) => partition_member_index(child_heap_oid, index_oid)
+            .unwrap_or_else(|| report_missing_partition_index(Some(child_heap_oid), index_oid)),
+        None => without_tableoid(&index_relation),
+    }
 }
 
 /// A [`RowMatcher`] in the function's own memory context, so it outlives this call.
@@ -524,9 +468,9 @@ unsafe fn deserialize_query(query_datum: *mut pg_sys::varlena) -> SearchQueryInp
     }
 }
 
-/// The `tableoid` shipped as the trailing column of the final record argument when the
-/// planner resolved a partitioned index (#4643). `None` when no such column exists, e.g.
-/// for a form without row identity.
+/// The `tableoid` shipped as a column of the trailing record argument when the planner
+/// resolved a partitioned index (#4643). `None` when the record has no such column, e.g.
+/// for a form without row identity or an unpartitioned index.
 unsafe fn record_tableoid(fcinfo: pg_sys::FunctionCallInfo) -> Option<pg_sys::Oid> {
     unsafe {
         // The record is the last argument of every heap-filter form.
@@ -552,15 +496,27 @@ fn report_missing_row_identity() -> ! {
     unreachable!()
 }
 
-/// A partition with no valid member of the partitioned index the query was planned with.
-fn report_missing_partition_index(child_heap_oid: pg_sys::Oid, parent_index_oid: pg_sys::Oid) -> ! {
-    ErrorReport::new(
-        PgSqlErrorCode::ERRCODE_UNDEFINED_OBJECT,
-        format!(
+/// A partition with no valid member of the partitioned index the query was planned with,
+/// or a partitioned index with no valid member at all.
+fn report_missing_partition_index(
+    child_heap_oid: Option<pg_sys::Oid>,
+    parent_index_oid: pg_sys::Oid,
+) -> ! {
+    let parent = PgSearchRelation::open(parent_index_oid);
+    let message = match child_heap_oid {
+        Some(child_heap_oid) => format!(
             "partition \"{}\" has no valid member of the partitioned index \"{}\"",
             PgSearchRelation::open(child_heap_oid).name(),
-            PgSearchRelation::open(parent_index_oid).name(),
+            parent.name(),
         ),
+        None => format!(
+            "partitioned index \"{}\" has no valid member index",
+            parent.name()
+        ),
+    };
+    ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_UNDEFINED_OBJECT,
+        message,
         function_name!(),
     )
     .report(PgLogLevel::ERROR);

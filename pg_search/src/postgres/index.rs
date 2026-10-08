@@ -125,6 +125,18 @@ pub fn free_leaf_partition_indexes(
     })
 }
 
+/// One leaf to stand in for the partitioned index `parent`, whose members all share its
+/// definition: the first whose lock is free, or the first leaf, once its lock is granted,
+/// when a `REINDEX` holds every one.
+pub fn any_leaf_partition_index(parent: &PgSearchRelation) -> Option<PgSearchRelation> {
+    let leaves = leaf_partition_index_oids(parent);
+    free_leaf_partition_indexes(&leaves).next().or_else(|| {
+        leaves
+            .first()
+            .map(|&oid| PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _))
+    })
+}
+
 /// The member of `parent_index_oid` attached to the partition `child_heap_oid`, however
 /// deeply the partition is nested. `None` if the partition has no valid member of that
 /// index (e.g. one left invalid by a failed `CREATE INDEX`).

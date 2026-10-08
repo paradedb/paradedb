@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791484467124,
+  "lastUpdate": 1791487163042,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9560,6 +9560,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 603.44,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83f203af1c01c75a93c0e94db1925ec97ffc4566",
+          "message": "perf: Count query matches directly on fully visible segments (#6737)\n\n# Ticket(s) Closed\n\nNone.\n\n## What\n\nA `COUNT` on an all-visible segment can simply use\n`weight.count(segment)` which uses Tantivy's buffered union popcnt\nimplementation.\n\nMatch-all queries retain `segment.num_docs()`. Segments requiring MVCC\nchecks retain the existing collector.\n\n## Tests\n\nValidated on main (`4a98581bf`): PostgreSQL 18 release build with Rust\n1.99.0, formatting, and four regression tests passed. All 906 Wikipedia\ncounts matched the recorded baseline with serial and forced-parallel\nsettings; 143 focused visibility/aggregate checks also passed.",
+          "timestamp": "2026-10-08T10:51:31-07:00",
+          "tree_id": "e8c13aaa47b4405b5d6444bfddf220914cbaf095",
+          "url": "https://github.com/paradedb/paradedb/commit/83f203af1c01c75a93c0e94db1925ec97ffc4566"
+        },
+        "date": 1791487158604,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 16.166,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 198.981,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 51.777,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 233.446,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 19.214,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 165.633,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 26.816,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 222.357,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 38.533,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 566.089,
             "unit": "ms"
           }
         ]

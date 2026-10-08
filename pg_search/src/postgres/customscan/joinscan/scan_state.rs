@@ -828,6 +828,11 @@ enum DistinctColEntry {
     Field(pg_sys::Index, String),
 }
 
+enum PathTaken {
+    TopKAsAgg,
+    Default,
+}
+
 fn build_clause_df<'a>(
     ctx: &'a SessionContext,
     join_clause: &'a JoinCSClause,
@@ -884,7 +889,7 @@ fn build_clause_df<'a>(
         // query whose fetch is not statically known.
         //
         // Otherwise DISTINCT is a GROUP BY and the sort is its own step.
-        let (df, distinct_col_map, expressions_evaluated) = if (gucs::joinscan_force_topk_as_agg()
+        let (df, distinct_col_map, path_taken) = if (gucs::joinscan_force_topk_as_agg()
             || !join_clause.window_aggs.is_empty())
             && let Some(fetch) = join_clause
                 .limit_offset
@@ -893,17 +898,17 @@ fn build_clause_df<'a>(
         {
             let (df, distinct_col_map) =
                 apply_topk_as_agg(df, join_clause, &private_data.output_columns, fetch)?;
-            (df, distinct_col_map, true)
+            (df, distinct_col_map, PathTaken::TopKAsAgg)
         } else {
             // if no static offset + k is known (so this branch is taken), we can still compute sql
             // window functions. (pdb.agg() window functions are rejected elsewhere)
             let df = apply_sql_window_functions(df, join_clause)?;
 
-            let (df, distinct_col_map, expressions_evaluated) =
+            let (df, distinct_col_map) =
                 apply_distinct_group_by(df, join_clause, &private_data.output_columns)?;
             // 5. Apply Sort
             let df = apply_sort(df, join_clause, &distinct_col_map)?;
-            (df, distinct_col_map, expressions_evaluated)
+            (df, distinct_col_map, PathTaken::Default)
         };
 
         // 6. Apply Limit (only when BOTH limit and offset are statically known at
@@ -926,7 +931,7 @@ fn build_clause_df<'a>(
             &distinct_col_map,
             &plan_sources,
             &private_data.output_columns,
-            expressions_evaluated,
+            path_taken,
         )
     };
     f.boxed_local()
@@ -1450,12 +1455,12 @@ fn apply_distinct_group_by(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-) -> Result<(DataFrame, DistinctColMap, bool)> {
+) -> Result<(DataFrame, DistinctColMap)> {
     if !join_clause.has_distinct {
-        return Ok((df, DistinctColMap::default(), false));
+        return Ok((df, DistinctColMap::default()));
     }
     let Some((key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
-        return Ok((df, DistinctColMap::default(), false));
+        return Ok((df, DistinctColMap::default()));
     };
 
     let group_exprs: Vec<Expr> = key_exprs
@@ -1491,7 +1496,7 @@ fn apply_distinct_group_by(
         .aggregate(group_exprs, agg_exprs)?
         .build()?;
     let df = DataFrame::new(state, aggregated);
-    Ok((df, distinct_col_map, true))
+    Ok((df, distinct_col_map))
 }
 
 /// Resolve a column reference after the DISTINCT GROUP BY has rewritten every
@@ -1801,7 +1806,7 @@ fn apply_output_projection(
     distinct_col_map: &DistinctColMap,
     plan_sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
-    expressions_already_evaluated: bool,
+    path_taken: PathTaken,
 ) -> Result<DataFrame> {
     let mut final_cols = Vec::new();
     if let Some(projection) = &join_clause.output_projection {
@@ -1811,19 +1816,18 @@ fn apply_output_projection(
                 match proj {
                     build::ChildProjection::Expression { .. }
                     | build::ChildProjection::WindowAgg { .. } => {
-                        // An entry over a window aggregate has no `col_N`: it was left
-                        // out of the DISTINCT key and is computed here, from the Top-K
-                        // aggregate node's output.
                         let e = match proj {
                             build::ChildProjection::Expression { pg_expr_string, .. } => unsafe {
                                 translate_child_projection_expr(pg_expr_string, join_clause)?
                             },
                             _ => build_projection_expr(proj, join_clause),
                         };
-                        if reads_window_agg(&e, join_clause) {
-                            e
-                        } else {
-                            col(&col_alias)
+                        // If the topk-as-agg path was taken, window aggs were evaluated alongside
+                        // topk. However, if this expression takes a window agg as input, it'll
+                        // still need to be evaluated here
+                        match path_taken {
+                            PathTaken::TopKAsAgg if reads_window_agg(&e, join_clause) => e,
+                            _ => col(&col_alias),
                         }
                     }
                     build::ChildProjection::Score { rti } => {
@@ -1849,13 +1853,14 @@ fn apply_output_projection(
                         let e = unsafe {
                             translate_child_projection_expr(pg_expr_string, join_clause)?
                         };
-                        // An expression over a window aggregate is still computed here:
-                        // the aggregate is an output of the Top-K aggregate node.
-                        if expressions_already_evaluated && !reads_window_agg(&e, join_clause) {
-                            let name = QualifiedName::from(e.qualified_name());
-                            name.into_col_expr()
-                        } else {
-                            e
+                        // If the topk-as-agg path was taken, any expression that doesn't read a
+                        // window agg ouptut has already been evaluated.
+                        match path_taken {
+                            PathTaken::TopKAsAgg if !reads_window_agg(&e, join_clause) => {
+                                let name = QualifiedName::from(e.qualified_name());
+                                name.into_col_expr()
+                            }
+                            _ => e,
                         }
                     }
                     _ => build_projection_expr(proj, join_clause),

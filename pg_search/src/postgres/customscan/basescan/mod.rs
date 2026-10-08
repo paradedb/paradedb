@@ -194,11 +194,8 @@ impl BaseScan {
         state.custom_state_mut().init_exec_method(csstate);
 
         if state.custom_state().need_snippets() {
-            let mut snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>> = state
-                .custom_state_mut()
-                .snippet_generators
-                .drain()
-                .collect();
+            let mut snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>> =
+                std::mem::take(&mut state.custom_state_mut().snippet_generators);
 
             // Pre-compute enhanced queries for snippet generation if we have join predicates
             let enhanced_query_for_snippets =

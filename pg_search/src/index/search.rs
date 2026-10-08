@@ -18,10 +18,11 @@
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use tantivy::Index;
+use tantivy::schema::{FieldEntry, FieldType};
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{
-    SearchTokenizer, create_normalizer_manager, create_tokenizer_manager,
-    register_normalizers_into, register_tokenizers_into,
+    SearchTokenizer, StoredFieldTokenizer, create_index_tokenizer_manager,
+    create_normalizer_manager, register_index_tokenizers_into, register_normalizers_into,
 };
 
 /// Install this index's tokenizers on a freshly opened `index` by replacing its managers.
@@ -32,8 +33,8 @@ use tokenizers::{
 /// analyzer registration for queries that never use it. Index writers still call it eagerly
 /// while constructing the index, before any reader exists.
 pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
-    let tokenizers = collect_search_tokenizers(index_relation)?;
-    index.set_tokenizers(create_tokenizer_manager(tokenizers));
+    let (tokenizers, stored_fields) = collect_search_tokenizers(index_relation)?;
+    index.set_tokenizers(create_index_tokenizer_manager(tokenizers, &stored_fields));
     index.set_fast_field_tokenizers(create_normalizer_manager());
     Ok(())
 }
@@ -48,19 +49,34 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
 /// query needs them, reader construction calls this method lazily because replacing the managers
 /// after that searcher exists would not update the managers it already holds.
 pub fn register_tokenizers(index_relation: &PgSearchRelation, index: &Index) -> Result<()> {
-    let tokenizers = collect_search_tokenizers(index_relation)?;
-    register_tokenizers_into(index.tokenizers(), tokenizers);
+    let (tokenizers, stored_fields) = collect_search_tokenizers(index_relation)?;
+    register_index_tokenizers_into(index.tokenizers(), tokenizers, &stored_fields);
     register_normalizers_into(index.fast_field_tokenizer());
     Ok(())
 }
 
+/// The tokenizer name persisted in the index's stored schema for a text (or JSON) field.
+fn stored_tokenizer_name(field_entry: &FieldEntry) -> Option<&str> {
+    match field_entry.field_type() {
+        FieldType::Str(options) => options.get_indexing_options().map(|i| i.tokenizer()),
+        FieldType::JsonObject(options) => {
+            options.get_text_indexing_options().map(|i| i.tokenizer())
+        }
+        _ => None,
+    }
+}
+
 /// Every tokenizer this index's fields can reference at query time, including the
-/// deprecated-name aliases older index versions were built with.
-fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<SearchTokenizer>> {
+/// deprecated-name aliases older index versions were built with, plus each field's tokenizer
+/// paired with the name the index's stored schema holds for it.
+fn collect_search_tokenizers(
+    index_relation: &PgSearchRelation,
+) -> Result<(Vec<SearchTokenizer>, Vec<StoredFieldTokenizer>)> {
     let schema = index_relation.schema()?;
     let categorized_fields = schema.categorized_fields();
 
     let mut tokenizers: Vec<SearchTokenizer> = Vec::new();
+    let mut stored_fields: Vec<StoredFieldTokenizer> = Vec::new();
     for (search_field, _) in categorized_fields.iter() {
         if search_field.is_ctid() {
             continue;
@@ -69,6 +85,12 @@ fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<Se
         let config = search_field.field_config();
         if let Some(tokenizer) = config.tokenizer() {
             tokenizers.push(tokenizer.clone());
+            if let Some(stored_name) = stored_tokenizer_name(search_field.field_entry()) {
+                stored_fields.push(StoredFieldTokenizer {
+                    tokenizer: tokenizer.clone(),
+                    stored_name: stored_name.to_string(),
+                });
+            }
 
             match tokenizer {
                 // <= `0.20.5`, `unicode_words` was accidentally named `remove_emojis`, so we need to register the old name for backwards compatibility
@@ -136,7 +158,7 @@ fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<Se
     // In 0.20.0 we changed the default tokenizer from `simple` to `unicode_words`
     tokenizers.push(SearchTokenizer::Simple(SearchTokenizerFilters::default()));
 
-    Ok(with_regex_legacy_names(tokenizers))
+    Ok((with_regex_legacy_names(tokenizers), stored_fields))
 }
 
 /// Regex tokenizers used to be named without their pattern, so every regex tokenizer with the

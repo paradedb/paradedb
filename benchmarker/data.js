@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791425053655,
+  "lastUpdate": 1791425683235,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9710,6 +9710,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 20.677,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "93437997+IamYipi@users.noreply.github.com",
+            "name": "Javier Garcia",
+            "username": "IamYipi"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aebd4a15cf44ac303c7ae1cfa1dbeefda2c0811d",
+          "message": "fix: bound NUMERIC scale when routing a field to Numeric64 (#6387)\n\nFixes #6101.\n\n## Problem\n\nA `Numeric64` field is backed by `decimal_bytes::Decimal64NoScale`,\nwhich encodes scales in `-18..=18`.\n`SearchFieldType::try_from_type_info` checked the precision against that\nencoder's limit but not the scale, so a PostgreSQL type whose scale the\nencoder cannot represent still selected `Numeric64` — and only failed\nlater, when a value was actually encoded.\n\n## Reproduced\n\nOn `main` at `b89b660`, PostgreSQL 18 via pgrx:\n\n```sql\nCREATE TABLE t (id int, value numeric(3,19));\nINSERT INTO t VALUES (1, 0.0000000000000000123);\nCREATE INDEX t_idx ON t USING bm25 (id, value);\n```\n\n```\nERROR:  could not parse field `value`: NUMERIC conversion error: Failed to convert\nNUMERIC '0.0000000000000000123' to I64 with scale 19: Failed to scale ... with scale 19:\nInvalidFormat(\"Scale 19 exceeds maximum 18 for Decimal64NoScale\")\n```\n\nThe boundary is exactly 18 — `numeric(3,18)` works — and negative scales\nfail symmetrically. The empty-index lifecycle fails at a different\npoint: `CREATE INDEX` and `INSERT` both succeed, and the first search\nfails when the mutable segment is materialized through the same\nconversion.\n\n## Fix\n\nBound the scale as well as the precision when selecting `Numeric64`,\nusing `MAX_DECIMAL64_NO_SCALE_SCALE` — the same constant\n`Decimal64NoScale` validates against internally, so the two checks\ncannot drift apart again, which is how they came to disagree in the\nfirst place:\n\n```rust\n&& i32::from(scale).abs() <= MAX_DECIMAL64_NO_SCALE_SCALE\n```\n\nTypes outside the encoder's range fall back to `NumericBytes`, which\nalready handles them. The precision bound is unchanged.\n\nI also updated the two-line routing summary at the top of\n`numeric_pushdown.sql`, which described the old precision-only rule.\n\n## Tests\n\nNew `numeric_typmod_scale` regression test covering what the issue asks\nfor:\n\n- scale 18 (on the boundary, stays on `Numeric64`), 19 and −19 (fall\nback to `NumericBytes`)\n- the precision bound, to show it is unaffected\n- both lifecycles: populated table → `CREATE INDEX`, and empty index →\n`INSERT` → search\n\nVerified on PostgreSQL 18 via pgrx:\n\n```\ncargo pgrx regress --package pg_search pg18 numeric_typmod_scale   -> PASS\n  ... with the fix reverted                                        -> FAIL\ncargo pgrx regress --package pg_search pg18 --auto                 -> passed=368 failed=1\ncargo pgrx regress --package pg_search pg18 numeric_pushdown       -> PASS\n```\n\n`cargo fmt --check` and `cargo clippy` are clean on the changed file.\n\nThe single failure in the full run is `issue_3678`, which is about\nparallel path selection and `pdb.score()`. It fails identically on a\nclean checkout of `main` in my environment (64 cores), so it looks\nenvironment-sensitive here rather than related to this change.\n\n## Note\n\nI could not add a unit test for the routing decision:\n`try_from_type_info` reaches real PostgreSQL symbols, so a `cargo test\n--lib` binary fails to link them, which is presumably why there is no\nexisting unit coverage for it. Extracting the predicate into a pure\nhelper would make it unit-testable, but that felt like a wider change\nthan this fix warrants — happy to do it if you would prefer that shape.",
+          "timestamp": "2026-10-07T18:31:11-07:00",
+          "tree_id": "0e7d862e1c649395daed1b313ee14586f89b2bef",
+          "url": "https://github.com/paradedb/paradedb/commit/aebd4a15cf44ac303c7ae1cfa1dbeefda2c0811d"
+        },
+        "date": 1791425680448,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.613,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.657,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 10.26,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 2.012,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.606,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.915,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.522,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 1.657,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.387,
             "unit": "ms"
           }
         ]

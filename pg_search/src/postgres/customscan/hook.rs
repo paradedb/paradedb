@@ -31,6 +31,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathl
 use crate::postgres::node::NodeExt;
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::search_operator_relations;
 use crate::postgres::utils::pg_search_extension_installed;
 use once_cell::sync::Lazy;
 use pgrx::{PgList, PgMemoryContexts, pg_guard, pg_sys};
@@ -498,11 +499,16 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 
     // Call the previous planner hook (e.g., Citus) or standard planner
     // PREV_PLANNER_HOOK is defined at module level to ensure proper hook chaining
-    let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
-        prev_hook(parse, query_string, cursor_options, bound_params)
-    } else {
-        pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
-    };
+    //
+    // The relations the query applies a search operator to are recorded while the quals are
+    // still as written, for the scans planned inside this call.
+    let result = search_operator_relations::record_during(parse, || {
+        if let Some(prev_hook) = PREV_PLANNER_HOOK {
+            prev_hook(parse, query_string, cursor_options, bound_params)
+        } else {
+            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
+        }
+    });
 
     // Emit collected warnings
     emit_planner_warnings();
@@ -794,10 +800,10 @@ unsafe fn replace_windowfuncs_in_query(
 
 // Helper function to recursively replace WindowFunc nodes in an expression
 //
-// Note: This follows a similar recursive pattern to replace_window_agg_with_const() in mod.rs,
+// Note: This follows a similar recursive pattern to replace_window_agg_with_placeholder() in mod.rs,
 // but operates at a different stage:
 // - This function: Planning stage - replaces WindowFunc → window_agg() placeholder
-// - That function: Execution stage - replaces window_agg() → Const placeholder for value injection
+// - That function: Execution stage - replaces window_agg() → Var placeholder for value injection
 //
 // TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
 // See https://github.com/paradedb/paradedb/issues/3455

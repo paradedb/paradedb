@@ -11,8 +11,7 @@ To disable, append `lowercase=false` to the tokenizer's arguments:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('lowercase=false')))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple('lowercase=false')));
 ```
 
 To demonstrate this token filter, let's compare the output of the following two statements:

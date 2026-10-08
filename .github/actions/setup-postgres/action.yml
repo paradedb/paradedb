@@ -1,7 +1,19 @@
 name: Set Up PostgreSQL
-description: Configure the PostgreSQL APT repository (PGDG) and install PostgreSQL packages
+description: Set up system or pgrx-managed PostgreSQL with the required pgvector dependency
 
 inputs:
+  pg_impl:
+    description: "PostgreSQL installation: system or pgrx"
+    required: false
+    default: "system"
+  initialize_pgrx:
+    description: "Initialize cargo-pgrx for PostgreSQL; requires cargo-pgrx to be installed first"
+    required: false
+    default: "true"
+  pgrx_cache_hit:
+    description: "Use restored pgrx PostgreSQL binaries instead of downloading and compiling"
+    required: false
+    default: "false"
   pg_version:
     description: "PostgreSQL major version to install (e.g. 17, 18)"
     required: true
@@ -10,10 +22,16 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  pg_config:
+    description: "Absolute path to the configured PostgreSQL pg_config"
+    value: ${{ steps.postgres.outputs.pg_config }}
+
 runs:
   using: composite
   steps:
     - name: Configure PGDG APT repository
+      if: inputs.pg_impl == 'system'
       shell: bash
       run: |
         set -euo pipefail
@@ -24,13 +42,71 @@ runs:
           | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
 
     - name: Install PostgreSQL Packages
+      if: inputs.pg_impl == 'system'
       uses: paradedb/actions/apt-install@v14
       with:
         packages: >-
           postgresql-${{ inputs.pg_version }}
           postgresql-server-dev-${{ inputs.pg_version }}
+          postgresql-${{ inputs.pg_version }}-pgvector
+          libicu-dev
           ${{ inputs.extra_packages }}
 
-    - name: Configure PostgreSQL PATH
+    - name: Initialize pgrx-managed PostgreSQL
+      if: inputs.pg_impl == 'pgrx' && inputs.initialize_pgrx == 'true'
       shell: bash
-      run: echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> "$GITHUB_PATH"
+      env:
+        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+        PGRX_CACHE_HIT: ${{ inputs.pgrx_cache_hit }}
+      run: |
+        set -euo pipefail
+        if [ "$PGRX_CACHE_HIT" != 'true' ]; then
+          cargo pgrx init "--pg${INPUTS_PG_VERSION}=download" --configure-flag="--without-readline"
+        else
+          # Only compiled binaries are cached; recreate pgrx config and database state.
+          configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
+          test -x "${configs[0]}"
+          cargo pgrx init "--pg${INPUTS_PG_VERSION}=${configs[0]}"
+        fi
+
+    - name: Configure PostgreSQL PATH
+      id: postgres
+      shell: bash
+      env:
+        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+        INPUTS_PG_IMPL: ${{ inputs.pg_impl }}
+      run: |
+        set -euo pipefail
+        case "$INPUTS_PG_IMPL" in
+          system) PG_CONFIG="/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config" ;;
+          pgrx)
+            configs=("$HOME"/.pgrx/"${INPUTS_PG_VERSION}".*/pgrx-install/bin/pg_config)
+            PG_CONFIG="${configs[0]}"
+            ;;
+          *) echo "Unsupported PostgreSQL installation: $INPUTS_PG_IMPL" >&2; exit 1 ;;
+        esac
+        test -x "$PG_CONFIG"
+        echo "$(dirname "$PG_CONFIG")" >> "$GITHUB_PATH"
+        echo "pg_config=$PG_CONFIG" >> "$GITHUB_OUTPUT"
+
+    - name: Initialize pgrx for System PostgreSQL
+      if: inputs.pg_impl == 'system' && inputs.initialize_pgrx == 'true'
+      shell: bash
+      env:
+        INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+        PG_CONFIG: ${{ steps.postgres.outputs.pg_config }}
+      run: cargo pgrx init "--pg${INPUTS_PG_VERSION}=${PG_CONFIG}"
+
+    # System packages cannot install into pgrx's private PostgreSQL prefix, so we compile it from source.
+    - name: Install pgvector Dependency (pgrx)
+      if: inputs.pg_impl == 'pgrx'
+      shell: bash
+      env:
+        PG_CONFIG: ${{ steps.postgres.outputs.pg_config }}
+      run: |
+        set -euo pipefail
+        SOURCE_DIR="$(mktemp -d)"
+        trap 'rm -rf "$SOURCE_DIR"' EXIT
+        git clone --depth 1 --branch v0.8.6 https://github.com/pgvector/pgvector.git "$SOURCE_DIR"
+        make -C "$SOURCE_DIR" PG_CONFIG="$PG_CONFIG" -j "$(nproc)"
+        make -C "$SOURCE_DIR" PG_CONFIG="$PG_CONFIG" install

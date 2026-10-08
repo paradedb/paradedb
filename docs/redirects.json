@@ -1,5 +1,21 @@
 [
   {
+    "source": "/operate/deploy/logical-replication/configuration",
+    "destination": "/operate/deploy/logical-replication/schema-changes"
+  },
+  {
+    "source": "/operate/deploy/ci/gitlab-ci",
+    "destination": "/operate/deploy/ci/gitlab-pipelines"
+  },
+  {
+    "source": "/start/connect-your-app",
+    "destination": "/start/configure-your-environment"
+  },
+  {
+    "source": "/concepts/how-the-paradedb-index-works",
+    "destination": "/concepts/architecture"
+  },
+  {
     "source": "/welcome/introduction",
     "destination": "/start/introduction"
   },
@@ -37,7 +53,7 @@
   },
   {
     "source": "/documentation/getting-started/environment",
-    "destination": "/start/connect-your-app"
+    "destination": "/start/configure-your-environment"
   },
   {
     "source": "/documentation/getting-started/queries",
@@ -357,7 +373,7 @@
   },
   {
     "source": "/documentation/aggregates/tuning",
-    "destination": "/operate/performance-tuning/aggregates"
+    "destination": "/operate/performance-tuning/reads"
   },
   {
     "source": "/documentation/aggregates/limitations",
@@ -429,11 +445,11 @@
   },
   {
     "source": "/deploy/logical-replication/operational-guide",
-    "destination": "/operate/deploy/logical-replication/operational-guide"
+    "destination": "/operate/deploy/logical-replication/bootstrapping"
   },
   {
     "source": "/deploy/logical-replication/configuration",
-    "destination": "/operate/deploy/logical-replication/configuration"
+    "destination": "/operate/deploy/logical-replication/schema-changes"
   },
   {
     "source": "/deploy/logical-replication/multi-database",
@@ -452,12 +468,12 @@
     "destination": "/operate/deploy/upgrading"
   },
   {
-    "source": "/deploy/third-party-extensions",
-    "destination": "/operate/deploy/third-party-extensions"
+    "source": "/deploy/citus",
+    "destination": "/reference/sharding/citus"
   },
   {
-    "source": "/deploy/citus",
-    "destination": "/operate/deploy/citus"
+    "source": "/operate/deploy/citus",
+    "destination": "/reference/sharding/citus"
   },
   {
     "source": "/deploy/ci/github-actions",
@@ -465,7 +481,11 @@
   },
   {
     "source": "/deploy/ci/gitlab-ci",
-    "destination": "/operate/deploy/ci/gitlab-ci"
+    "destination": "/operate/deploy/ci/gitlab-pipelines"
+  },
+  {
+    "source": "/changelog/0.25.10",
+    "destination": "/project/changelog/0.25.10"
   },
   {
     "source": "/changelog/0.25.9",
@@ -994,5 +1014,13 @@
   {
     "source": "/changelog/deprecated",
     "destination": "/project/changelog/deprecated"
+  },
+  {
+    "source": "/operate/performance-tuning/aggregates",
+    "destination": "/operate/performance-tuning/reads"
+  },
+  {
+    "source": "/operate/deploy/logical-replication/operational-guide",
+    "destination": "/operate/deploy/logical-replication/bootstrapping"
   }
 ]

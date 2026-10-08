@@ -300,7 +300,7 @@ WHERE discarded_at IS NULL AND id @@@ paradedb.all() AND amt_78 > -20500 AND amt
    Index: amounts_idx
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"amt_78","lower_bound":{"excluded":"-20500"},"upper_bound":null}},{"range":{"field":"amt_78","lower_bound":null,"upper_bound":{"excluded":"-20300"}}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT count(*) FROM amounts

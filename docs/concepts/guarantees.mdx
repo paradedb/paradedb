@@ -7,27 +7,24 @@ canonical: https://www.paradedb.com/docs/concepts/guarantees
 ### ACID
 
 All reads and writes go through Postgres’ transaction engine. This means that inserts, updates, and deletes to indexed columns are atomic, consistent, and respect Postgres' [isolation levels](https://www.postgresql.org/docs/current/transaction-iso.html).
-As of `0.24.0`, transactions in ParadeDB Community are also durable, meaning they are write-ahead (WAL) logged and will survive crashes.
 
 ### Concurrency
 
-ParadeDB is designed to support concurrent reads and writes in the same way that Postgres does — by adhering to Postgres' [multi-version
-concurrency control (MVCC)](https://www.postgresql.org/docs/current/mvcc.html) rules. We maintain an internal testing suite that rigorously measures the read and write throughput of the ParadeDB
-index under concurrent load.
+ParadeDB supports concurrent reads and writes in the same way that vanilla Postgres does, by following Postgres' [multi-version concurrency control (MVCC)](https://www.postgresql.org/docs/current/mvcc.html) rules. We maintain an internal testing suite that rigorously measures the read and write throughput of the ParadeDB index under concurrent load.
 
-Both read and write throughput under concurrent load can be improved by tuning Postgres' settings. For instance, read throughput can be improved
-by configuring the [`max_parallel_workers` pool](/operate/performance-tuning/reads#raise-parallel-workers) and [buffer cache size](/operate/performance-tuning/reads#raise-shared-buffers),
-whereas writes can be improved by increasing [per-statement memory](/operate/performance-tuning/writes#increase-work-memory-for-bulk-updates).
+Both read and write throughput can be improved by tuning Postgres' settings. For instance, read throughput can be improved
+by configuring the [`max_parallel_workers` pool](/operate/performance-tuning/reads#increasing-parallel-workers) and [buffer cache size](/operate/performance-tuning/reads#increasing-shared-buffers),
+whereas writes can be improved by increasing [per-statement memory](/operate/performance-tuning/writes#increasing-work-memory-for-bulk-updates).
 
 ### Correctness vs. Performance
 
-By default, ParadeDB favors correctness, even when it comes at the cost of slower query execution. For `pdb.agg`, transaction visibility filtering is enabled by default. If your workload can tolerate potentially stale aggregate results, you can skip it with `visibility => 'raw'` to improve performance, or let the query's size decide with `visibility => 'threshold'`.
+By default, ParadeDB favors correctness, even when it comes at the cost of slower query execution. For [facets](/reference/aggregates/facets), transaction visibility filtering is enabled by default. If your workload can tolerate potentially stale aggregate results, you can skip it with `visibility => 'raw'` to improve performance, or let the query's size determine whether to apply visibility filtering with `visibility => 'threshold'`.
 
 ### Replication Safety
 
-ParadeDB distinguishes between logical replication and physical replication.
+Postgres distinguishes between logical replication and physical replication.
 
-Logical replication refers to replicating changes from a standard Postgres primary (e.g. AWS RDS) into a ParadeDB instance. This is commonly used when ParadeDB acts as a search node built from upstream Postgres changes.
+[Logical replication](/operate/deploy/logical-replication/getting-started) refers to replicating changes from a standard Postgres primary (e.g. AWS RDS) into a ParadeDB instance. This is commonly used when ParadeDB acts as a search node built from upstream Postgres changes.
 
 Physical replication refers to running ParadeDB itself in a multi-node, high-availability (HA) setup using write-ahead log (WAL) shipping.
 

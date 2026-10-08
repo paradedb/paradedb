@@ -18,7 +18,7 @@
 use crate::index::mvcc::PinCushion;
 use crate::index::reader::io_stats;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{FileEntry, VECTOR_VEC_EXT};
+use crate::postgres::storage::block::{FileEntry, LinkedList, VECTOR_VEC_EXT, bm25_max_free_space};
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
@@ -56,14 +56,32 @@ impl SegmentComponentReader {
         entry: FileEntry,
         component: Option<tantivy::index::SegmentComponent>,
         protection: ReadProtection,
+        io_stats: Option<io_stats::ComponentStats>,
     ) -> Self {
-        let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+        let mut block_list =
+            LinkedBytesList::open(indexrel, entry.starting_block).with_length(entry.total_bytes);
+        block_list.bman_mut().set_io_stats(io_stats);
 
         Self {
             block_list,
             entry,
             component,
             protection,
+        }
+    }
+
+    pub(crate) unsafe fn new_uncommitted(
+        indexrel: &PgSearchRelation,
+        entry: FileEntry,
+        io_stats: Option<io_stats::ComponentStats>,
+    ) -> Self {
+        let mut block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+        block_list.bman_mut().set_io_stats(io_stats);
+        Self {
+            block_list,
+            entry,
+            component: None,
+            protection: ReadProtection::Unpublished,
         }
     }
 
@@ -88,22 +106,15 @@ impl SegmentComponentReader {
 
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
-        match &self.component {
-            Some(component) => io_stats::record(component, || self.read_bytes_raw(range)),
-            None => self.read_bytes_raw(range),
-        }
-    }
-
-    fn storage_block_len(&self) -> Option<usize> {
-        Some(crate::postgres::storage::block::bm25_max_free_space())
+        self.read_bytes_raw(range)
     }
 
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {
-        let read = || Ok(unsafe { self.block_list.get_byte(offset) });
-        match &self.component {
-            Some(component) => io_stats::record(component, read),
-            None => read(),
-        }
+        Ok(unsafe { self.block_list.get_byte(offset) })
+    }
+
+    fn storage_block_len(&self) -> Option<usize> {
+        Some(bm25_max_free_space())
     }
 }
 
@@ -146,8 +157,13 @@ mod tests {
         let file_entry = writer.file_entry();
         writer.terminate().unwrap();
 
-        let reader =
-            SegmentComponentReader::new(&indexrel, file_entry, None, ReadProtection::Unpublished);
+        let reader = SegmentComponentReader::new(
+            &indexrel,
+            file_entry,
+            None,
+            ReadProtection::Unpublished,
+            None,
+        );
 
         assert_eq!(reader.len(), bytes.len());
         assert_eq!(
@@ -172,6 +188,7 @@ mod tests {
                 VECTOR_VEC_EXT.to_owned(),
             )),
             ReadProtection::Unpublished,
+            None,
         );
         assert_eq!(
             vector_reader.read_bytes(0..bytes.len()).unwrap().as_ref(),
@@ -190,6 +207,7 @@ mod tests {
             entry.file_entry,
             None,
             ReadProtection::IndexFile,
+            None,
         );
         let retained = vector_reader.read_bytes(1..33).unwrap();
         let retained_clone = retained.clone();
@@ -228,5 +246,59 @@ mod tests {
         drop(index_reader);
         assert_eq!(index_retained.as_ref(), &bytes[1..33]);
         assert_eq!(index_retained_clone.as_ref(), &bytes[1..33]);
+    }
+
+    #[pg_test]
+    unsafe fn test_endpoint_reads() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::with_lock(relation_oid, pg_sys::AccessShareLock as _);
+        let page_size = bm25_max_free_space();
+        for len in [
+            0,
+            1,
+            page_size - 1,
+            page_size,
+            page_size + 1,
+            2 * page_size,
+            100_000,
+        ] {
+            let bytes: Vec<u8> = (1..=255).cycle().take(len).collect();
+            let segment = format!("{}.term", uuid::Uuid::new_v4());
+            let path = Path::new(segment.as_str());
+            let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
+            writer.write_all(&bytes).unwrap();
+            let file_entry = writer.file_entry();
+            writer.terminate().unwrap();
+
+            for finalized in [false, true] {
+                let reader = if finalized {
+                    SegmentComponentReader::new(
+                        &indexrel,
+                        file_entry,
+                        None,
+                        ReadProtection::Unpublished,
+                        None,
+                    )
+                } else {
+                    SegmentComponentReader::new_uncommitted(&indexrel, file_entry, None)
+                };
+                assert_eq!(reader.storage_block_len(), Some(page_size));
+                assert_eq!(reader.len(), len);
+                let tail = len.saturating_sub(24);
+                assert_eq!(
+                    reader.read_bytes(tail..len + 1).unwrap().as_ref(),
+                    &bytes[tail..]
+                );
+                for offset in (0..len).step_by(page_size.saturating_sub(1)).rev() {
+                    assert_eq!(reader.read_byte(offset).unwrap(), bytes[offset]);
+                }
+                assert_eq!(reader.read_bytes(0..len).unwrap().as_ref(), bytes);
+            }
+        }
     }
 }

@@ -4,12 +4,14 @@ description: "ParadeDB release notes for 0.21.5"
 noindex: true
 ---
 
+See GitHub release: [v0.21.5](https://github.com/paradedb/paradedb/releases/tag/v0.21.5)
+
 ## Stability Improvements 💪
 
 - Fixed a rare query hang caused by an upstream Tantivy change
 - Fixed an issue where `pg_dump`/`pg_restore` would not work if a `pdb.*` tokenizer contained filters
 
-## New Features 🎉
+## New Features ✨
 
 ### Columnar Storage for Literal Normalized Fields
 
@@ -48,5 +50,3 @@ LIMIT 10;
   This change does not apply to indexes that have already been created. After
   upgrading to `0.21.5`, you will need to reindex to use this feature.
 </Note>
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.21.5).

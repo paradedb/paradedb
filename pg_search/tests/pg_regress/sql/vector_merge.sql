@@ -59,7 +59,7 @@ JOIN paradedb.index_info('remerge_idx') i USING (segno)
 WHERE v.vector_format = 'ivf';
 
 -- Every vector belongs to exactly one cluster.
-SELECT sum(vector_total_memberships) = sum(vector_num_vectors)
+SELECT sum(vector_total_rows) = sum(vector_num_vectors)
          AS one_membership_per_vector
 FROM paradedb.vector_info('remerge_idx', 'vec')
 WHERE vector_format = 'ivf';

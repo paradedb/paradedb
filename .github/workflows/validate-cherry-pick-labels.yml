@@ -15,8 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check for explicit cherry pick behavior
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
+          labels="${PR_LABELS}"
           echo "Labels: $labels"
 
           has_cherry_pick=$(echo "$labels" | jq 'any(.[]; startswith("cherry-pick/"))')

@@ -25,7 +25,9 @@ use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, expr_is_securely_promotable, extract_quals,
+};
 use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
@@ -44,6 +46,7 @@ use pgrx::pg_sys::{
 };
 use pgrx::prelude::*;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
+use tantivy::aggregation::bucket::FilterAggregation;
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
     SumAggregation,
@@ -112,9 +115,11 @@ impl SolvePostgresExpressions for AggregateType {
         }
     }
 
+    /// Does not reset `expr_context`: the aggregate scan resets it once before solving its query
+    /// and every aggregate's `FILTER` in the same pass (rule 2 in `solve_expr.rs`).
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         if let Some(filter) = self.filter_expr_mut() {
-            filter.solve_postgres_expressions(expr_context);
+            filter.solve_postgres_expressions_no_reset(expr_context);
         }
     }
 }
@@ -146,6 +151,14 @@ impl AggregateType {
                 true,
             )
         };
+        // SECURITY: PostgreSQL evaluates FILTER after RLS; as a heap filter it would run first.
+        if qual_state.uses_heap_expr
+            && !expr_is_securely_promotable(root, heap_rti, (*aggref).aggfilter.cast())
+        {
+            bail!(
+                "aggregate FILTER has a predicate that must be evaluated after row-level security policies"
+            );
+        }
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
 
         // Check for pdb.agg() custom aggregate (any overload)
@@ -703,10 +716,9 @@ impl From<AggregateType> for Aggregation {
 impl From<AggregateType> for AggregationVariants {
     fn from(val: AggregateType) -> Self {
         match val {
-            AggregateType::CountAny { .. } => AggregationVariants::Count(CountAggregation {
-                field: CTID_FIELD_NAME.to_string(),
-                missing: None,
-            }),
+            AggregateType::CountAny { .. } => {
+                AggregationVariants::Filter(FilterAggregation::new("*".to_string()))
+            }
             AggregateType::Count { field, missing, .. } => {
                 AggregationVariants::Count(CountAggregation { field, missing })
             }

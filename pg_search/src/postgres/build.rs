@@ -27,7 +27,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
-use crate::schema::{SearchFieldConfig, SearchFieldType};
+use crate::schema::{MIN_QUANTIZATION_DIMENSIONS, SearchFieldConfig, SearchFieldType};
 use crate::vector::clusterer::VectorSampler;
 use anyhow::Result;
 use pgrx::*;
@@ -55,9 +55,7 @@ pub extern "C-unwind" fn ambuild(
     index_relation.set_need_wal(false);
 
     unsafe {
-        // Vector fields require centroids at index CREATION (tantivy's V3
-        // format trains once, index-wide), so `create_index` gets the heap
-        // to sample and train from.
+        // Train global centroids before building segments.
         build_empty(&index_relation, Some((&heap_relation, index_info)));
     }
 
@@ -248,6 +246,22 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
+    let vector_configs = options.vector_config();
+    for (field_name, config) in vector_configs.iter().flatten() {
+        validate_field_config(field_name, config, options, |t| {
+            matches!(t, SearchFieldType::Vector(..))
+        });
+        let Some(SearchFieldType::Vector(_, schema_dims, _)) = options.get_field_type(field_name)
+        else {
+            unreachable!("vector field validation accepted a non-vector field")
+        };
+        if config.quantization_layers().is_some() && schema_dims < MIN_QUANTIZATION_DIMENSIONS {
+            panic!(
+                "quantization requires dimension ≥ 64; the quantization error model is not validated below this"
+            );
+        }
+    }
+
     // Validate that `sort_by` and `partition_by` fields are single-valued
     let check_single_valued = |field_name: &FieldName, context: &str| {
         if options.get_field_type(field_name).is_none() {
@@ -338,7 +352,7 @@ fn create_index(
     let options = index_relation.options();
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
-    let settings = index_settings(options, &schema);
+    let settings = index_settings(options, &schema)?;
     let sampler = VectorSampler::new(&schema, options);
     let centroid_producer: Option<Arc<dyn CentroidProducer>> = if sampler.is_empty() {
         None
@@ -355,7 +369,7 @@ fn create_index(
     if let Some(centroid_producer) = centroid_producer {
         index_builder = index_builder
             .centroid_producer(centroid_producer)
-            .ivf_router(crate::vector::clusterer::IVF_ROUTER)?;
+            .ivf_router(options.vector_router().into())?;
     }
     let _ = index_builder.create(directory)?;
     Ok(())
@@ -442,7 +456,7 @@ mod tests {
     use tantivy::schema::{FAST, NumericOptions, Schema};
 
     #[pg_test]
-    fn vector_centroid_count_matches_ratio() {
+    fn vector_centroids_are_shared_across_segments() {
         Spi::run(
             r#"
             CREATE EXTENSION IF NOT EXISTS vector;
@@ -453,13 +467,13 @@ mod tests {
             FROM generate_series(1, 4096) i;
             CREATE INDEX centroid_count_idx ON centroid_count
                 USING paradedb (id, vec vector_cosine_ops)
-                WITH (centroid_ratio = 0.015625, target_segment_count = 4);
+                WITH (max_leaf_size = 64, training_sample_ratio = 1.0, target_segment_count = 4);
             "#,
         )
         .unwrap();
         assert_eq!(
             Spi::get_one::<bool>(
-                "SELECT count(*) > 0 AND bool_and(vector_num_centroids = 64) \
+                "SELECT count(*) > 0 AND count(DISTINCT vector_num_centroids) = 1 AND min(vector_num_centroids) >= 64 \
                  FROM paradedb.vector_info('centroid_count_idx', 'vec')"
             )
             .unwrap(),

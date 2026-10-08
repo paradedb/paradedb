@@ -17,7 +17,7 @@
 
 //! CREATE INDEX-time centroid training.
 //!
-//! Centroids are an index-level artifact under tantivy's V3 vector format:
+//! Centroids are an index-level artifact:
 //! trained ONCE, over a sample of the whole corpus, installed at index
 //! creation like the schema and settings, and never retrained — segments
 //! only assign against them (at commit and merge, inside tantivy). This
@@ -27,7 +27,7 @@
 //! `IndexBuilder::centroid_producer`.
 
 use crate::api::{FieldName, HashMap};
-use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::options::{BM25IndexOptions, VectorRouter};
 use crate::vector::PgVector;
 use anyhow::{Result, bail};
 use pgrx::{FromDatum, pg_sys};
@@ -38,7 +38,14 @@ use tantivy::vector::{
     CentroidProducer, IvfCentroids, IvfMatrix, Metric, RouterKind, VectorOptions,
 };
 
-pub const IVF_ROUTER: RouterKind = RouterKind::Rng;
+impl From<VectorRouter> for RouterKind {
+    fn from(router: VectorRouter) -> Self {
+        match router {
+            VectorRouter::Graph => RouterKind::Rng,
+            VectorRouter::Ivf => RouterKind::Stacked,
+        }
+    }
+}
 
 /// Floor on reservoir capacity, so a tiny table still trains on whatever
 /// it has rather than on a couple of rows.
@@ -105,9 +112,7 @@ pub struct VectorSampler {
 
 impl VectorSampler {
     pub fn new(schema: &Schema, options: &BM25IndexOptions) -> Self {
-        let sample_fraction = (f64::from(options.centroid_ratio())
-            * options.training_samples_per_centroid() as f64)
-            .min(1.0);
+        let sample_fraction = f64::from(options.training_sample_ratio());
         let attributes = options.attributes();
         let fields = schema
             .fields()
@@ -221,11 +226,8 @@ impl VectorSampler {
             .map(|field| (field.spec.field_name.as_str(), field.seen))
     }
 
-    /// Train each field's centroids over its reservoir. `centroid_ratio`
-    /// and the target centroid count are resolved against the TRUE row
-    /// count (`seen`), not the reservoir size.
+    /// Train each field's centroids over its reservoir.
     pub fn train(self, options: &BM25IndexOptions) -> Result<TrainedCentroidProducer> {
-        let centroid_ratio = options.centroid_ratio();
         let mut fields = HashMap::default();
         for sampled in self.fields {
             let spec = sampled.spec;
@@ -237,11 +239,6 @@ impl VectorSampler {
                     spec.field_name
                 );
             }
-            let num_centroids = ((sampled.seen as f64) * f64::from(centroid_ratio))
-                .ceil()
-                .max(1.0) as usize;
-            let num_centroids = num_centroids.clamp(1, sampled_rows);
-
             let mut values = sampled.rows;
             debug_assert_eq!(values.len(), sampled_rows * spec.dim);
             let angular = matches!(spec.metric, Metric::Cosine | Metric::Dot);
@@ -265,9 +262,7 @@ impl VectorSampler {
             let mut config = HierarchicalSuperKMeansConfig::default();
             config.base.suppress_warnings = true;
             config.base.angular = angular;
-            config.max_leaf_size = (sampled_rows as f64 / num_centroids as f64)
-                .round()
-                .max(1.0) as usize;
+            config.max_leaf_size = options.max_leaf_size();
             let mut clusterer = HierarchicalSuperKMeans::with_config(spec.dim, config);
             let centroids = clusterer.train_owned(values, sampled_rows);
             if centroids.is_empty() || !centroids.len().is_multiple_of(spec.dim) {

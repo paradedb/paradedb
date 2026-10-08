@@ -1,4 +1,4 @@
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SELECT
     p.id,
     p.title,
     p.creation_date
@@ -7,8 +7,8 @@ WHERE
     p.owner_user_id IN (
         SELECT id
         FROM users
-        WHERE about_me ||| 'java'
-        AND display_name ||| 'David John Alex'
+        WHERE to_tsvector('english', about_me) @@ plainto_tsquery('english', 'java')
+        AND to_tsvector('english', display_name) @@ plainto_tsquery('english', 'David John Alex')
     )
 ORDER BY
     p.title ASC

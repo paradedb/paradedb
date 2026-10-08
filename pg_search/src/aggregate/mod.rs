@@ -15,11 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod count_all_collector;
 pub mod exec;
 
 use std::error::Error;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
+use crate::aggregate::count_all_collector::CountAllCollector;
 use crate::aggregate::exec::AggregationExec;
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
@@ -33,11 +36,16 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::customscan::aggregatescan::build::{
+    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey,
+};
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
+use crate::postgres::customscan::parallel::{WorkerDecisionReason, aggregate_nworkers};
+use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -47,6 +55,7 @@ use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 use crate::query::tid_bitmap_stream::{BitmapCell, BitmapCursorSource};
 use crate::schema::SearchIndexSchema;
 
+use parking_lot::Mutex;
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::Aggregations;
@@ -66,6 +75,71 @@ pub enum AggregateRequest {
     Json(Aggregations),
 }
 
+impl AggregateRequest {
+    /// Estimates the number of logical operations needed to aggregate each matching document.
+    /// Each collector update counts as one operation; string cardinality also includes
+    /// sorting its distinct values. The caller multiplies this count by estimated matching
+    /// documents and cpu_operator_cost. Value multiplicity is not included.
+    pub(crate) fn updates_per_doc(&self, reader: &SearchIndexReader) -> Option<usize> {
+        let mut updates_per_doc = 0;
+        match self {
+            AggregateRequest::Sql(clause) => {
+                if clause.is_bare_doc_count() {
+                    return Some(0);
+                }
+                if clause.has_filter() {
+                    return None;
+                }
+                updates_per_doc += clause.grouping_columns().len();
+                for aggregate in clause.aggregates() {
+                    if clause.can_use_doc_count(aggregate) {
+                        continue;
+                    }
+                    updates_per_doc += if matches!(aggregate, AggregateType::CountAny { .. }) {
+                        1
+                    } else {
+                        tantivy_updates_per_doc(&aggregate.clone().into(), reader)?
+                    };
+                }
+            }
+            AggregateRequest::Json(aggregations) => {
+                for aggregation in aggregations.values() {
+                    updates_per_doc += tantivy_updates_per_doc(aggregation, reader)?;
+                }
+            }
+        }
+        Some(updates_per_doc)
+    }
+}
+
+fn tantivy_updates_per_doc(aggregation: &Aggregation, reader: &SearchIndexReader) -> Option<usize> {
+    if matches!(aggregation.agg, AggregationVariants::Filter(_)) {
+        return None;
+    }
+    let mut updates = 1;
+    if let AggregationVariants::Cardinality(cardinality) = &aggregation.agg
+        && reader
+            .schema()
+            .search_field(&cardinality.field)
+            .is_some_and(|field| field.is_text())
+    {
+        // String cardinality sorts distinct term IDs before resolving and hashing them.
+        // Without distinct-value statistics, allow one value per document in the largest
+        // segment: sorting N values adds ceil(log2(N)) comparisons per value.
+        let segment_docs = reader
+            .segment_readers()
+            .iter()
+            .map(|segment| segment.max_doc())
+            .max()
+            .unwrap_or(0);
+        updates += (segment_docs.max(1) as f64).log2().ceil() as usize;
+    }
+    for child in aggregation.sub_aggregation.values() {
+        updates += tantivy_updates_per_doc(child, reader)?;
+    }
+    Some(updates)
+}
+
 impl TryInto<Aggregations> for AggregateRequest {
     type Error = anyhow::Error;
 
@@ -82,22 +156,77 @@ impl TryInto<Aggregations> for AggregateRequest {
 struct State {
     // these require the Spinlock mutex for atomic access (read and write)
     mutex: Spinlock,
+    _pad: [u8; 4],
     nlaunched: usize,
     remaining_segments: usize,
 }
+
+// SAFETY: State is #[repr(C)] with explicit padding. All fields are
+// integer types (Spinlock = i32 wrapper, usize). Every bit pattern is valid.
+unsafe impl bytemuck::Zeroable for State {}
+unsafe impl bytemuck::Pod for State {}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Config {
     indexrelid: pg_sys::Oid,
+    _pad1: [u8; 4],
     total_segments: usize,
-    solve_mvcc: bool,
-
+    solve_mvcc: u8,
+    collect_visibility_stats: u8,
+    _pad2: [u8; 6],
     memory_limit: u64,
     bucket_limit: u32,
+    _pad3: [u8; 4],
+}
+
+// SAFETY: Config is #[repr(C)] with explicit padding. All fields are
+// integer types (Oid = u32 wrapper, usize, u8, u64, u32). Every bit
+// pattern is valid.
+unsafe impl bytemuck::Zeroable for Config {}
+unsafe impl bytemuck::Pod for Config {}
+
+impl Config {
+    fn new(
+        indexrelid: pg_sys::Oid,
+        total_segments: usize,
+        solve_mvcc: bool,
+        collect_visibility_stats: bool,
+        memory_limit: u64,
+        bucket_limit: u32,
+    ) -> Self {
+        Self {
+            indexrelid,
+            _pad1: [0; 4],
+            total_segments,
+            solve_mvcc: solve_mvcc as u8,
+            collect_visibility_stats: collect_visibility_stats as u8,
+            _pad2: [0; 6],
+            memory_limit,
+            bucket_limit,
+            _pad3: [0; 4],
+        }
+    }
+
+    fn solve_mvcc(&self) -> bool {
+        self.solve_mvcc != 0
+    }
+
+    fn collect_visibility_stats(&self) -> bool {
+        self.collect_visibility_stats != 0
+    }
 }
 
 impl State {
+    fn new(nlaunched: usize, remaining_segments: usize) -> Self {
+        Self {
+            mutex: Spinlock::new(),
+            _pad: [0; 4],
+            nlaunched,
+            remaining_segments,
+        }
+    }
+
     fn set_launched_workers(&mut self, nlaunched: usize) {
         let _lock = self.mutex.acquire();
         self.nlaunched = nlaunched;
@@ -110,19 +239,44 @@ impl State {
 }
 
 type NumDeletedDocs = u32;
+
+#[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
+#[repr(C)]
+struct SegmentDeletedDocs {
+    segment_id_bytes: [u8; 16],
+    deleted_docs: u32,
+}
+
+impl SegmentDeletedDocs {
+    fn new(id: SegmentId, deleted: NumDeletedDocs) -> Self {
+        Self {
+            segment_id_bytes: *id.uuid_bytes(),
+            deleted_docs: deleted,
+        }
+    }
+
+    fn segment_id(&self) -> SegmentId {
+        SegmentId::from_bytes(self.segment_id_bytes)
+    }
+}
+
 struct ParallelAggregation {
     state: State,
     config: Config,
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
     bitmap_handle_bytes: Vec<u8>,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    segment_ids: Vec<SegmentDeletedDocs>,
     ambulkdelete_epoch: u32,
 }
 
 impl ParallelStateType for State {}
 impl ParallelStateType for Config {}
-impl ParallelStateType for (SegmentId, NumDeletedDocs) {}
+impl ParallelStateType for SegmentDeletedDocs {}
+
+const _: () = assert!(size_of::<State>() == 24);
+const _: () = assert!(size_of::<Config>() == 40);
+const _: () = assert!(size_of::<SegmentDeletedDocs>() == 20);
 
 impl ParallelProcess for ParallelAggregation {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
@@ -145,25 +299,23 @@ impl ParallelAggregation {
         query: &SearchQueryInput,
         aggregation: &AggregateRequest,
         solve_mvcc: bool,
+        collect_visibility_stats: bool,
         memory_limit: u64,
         bucket_limit: u32,
-        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+        segment_ids: Vec<SegmentDeletedDocs>,
         ambulkdelete_epoch: u32,
         bitmap_handle: Option<SharedBitmapHandle>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            state: State {
-                mutex: Spinlock::new(),
-                nlaunched: 0,
-                remaining_segments: segment_ids.len(),
-            },
-            config: Config {
+            state: State::new(0, segment_ids.len()),
+            config: Config::new(
                 indexrelid,
-                total_segments: segment_ids.len(),
+                segment_ids.len(),
                 solve_mvcc,
+                collect_visibility_stats,
                 memory_limit,
                 bucket_limit,
-            },
+            ),
             agg_req_bytes: serde_json::to_vec(&aggregation)?,
             query_bytes: serde_json::to_vec(query)?,
             bitmap_handle_bytes: postcard::to_allocvec(&bitmap_handle)?,
@@ -178,7 +330,7 @@ struct ParallelAggregationWorker<'a> {
     config: Config,
     aggregation: Option<AggregateRequest>,
     query: SearchQueryInput,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    segment_ids: Vec<SegmentDeletedDocs>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
     /// The owner's published claim table, attached lazily by bgworkers (the
@@ -219,23 +371,25 @@ impl<'a> ParallelAggregationWorker<'a> {
     fn new_local(
         aggregation: AggregateRequest,
         query: SearchQueryInput,
-        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+        segment_ids: Vec<SegmentDeletedDocs>,
         ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
         solve_mvcc: bool,
+        collect_visibility_stats: bool,
         memory_limit: u64,
         bucket_limit: u32,
         state: &'a mut State,
     ) -> Self {
         Self {
             state,
-            config: Config {
+            config: Config::new(
                 indexrelid,
-                total_segments: segment_ids.len(),
+                segment_ids.len(),
                 solve_mvcc,
+                collect_visibility_stats,
                 memory_limit,
                 bucket_limit,
-            },
+            ),
             aggregation: Some(aggregation),
             query,
             segment_ids,
@@ -272,8 +426,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         self.state.remaining_segments -= 1;
         self.segment_ids
             .get(self.state.remaining_segments)
-            .cloned()
-            .map(|(segment_id, _)| segment_id)
+            .map(|entry| entry.segment_id())
     }
 
     fn execute_aggregate(
@@ -281,7 +434,8 @@ impl<'a> ParallelAggregationWorker<'a> {
         worker_style: QueryWorkerStyle,
         expr_context: Option<*mut pg_sys::ExprContext>,
         planstate: Option<*mut pg_sys::PlanState>,
-    ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
+        existing_reader: Option<&SearchIndexReader>,
+    ) -> anyhow::Result<Option<(IntermediateAggregationResults, VisibilityStats)>> {
         let segment_ids = self.checkout_segments(worker_style.worker_number());
         if segment_ids.is_empty() {
             return Ok(None);
@@ -299,24 +453,35 @@ impl<'a> ParallelAggregationWorker<'a> {
             standalone_context.as_ptr()
         };
 
-        let reader = SearchIndexReader::open_with_context(
-            &indexrel,
-            self.query.clone(),
-            false,
-            MvccSatisfies::ParallelWorker(SegmentView::from_unordered_ids(
-                segment_ids.iter().copied(),
-            )),
-            NonNull::new(context_ptr),
-            planstate.and_then(NonNull::new),
-            self.query.needs_tokenizer(),
-        )?;
+        let opened_reader;
+        let reader = if let Some(reader) = existing_reader {
+            reader
+        } else {
+            opened_reader = SearchIndexReader::open_with_context(
+                &indexrel,
+                self.query.clone(),
+                false,
+                MvccSatisfies::ParallelWorker(SegmentView::from_unordered_ids(
+                    segment_ids.iter().copied(),
+                )),
+                NonNull::new(context_ptr),
+                planstate.and_then(NonNull::new),
+                self.query.needs_tokenizer(),
+                None,
+            )?;
+            &opened_reader
+        };
 
         let use_min_sentinel_fields = match self.aggregation.as_ref() {
             Some(AggregateRequest::Sql(clause)) => clause.use_min_sentinel_fields(),
             _ => HashSet::default(),
         };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
+        let count_all = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
+                if clause.is_bare_doc_count()
+                    && matches!(clause.aggregates().next(), Some(AggregateType::CountAny { .. })));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
+        let include_doc_count = aggregations.contains_key(DocCountKey::NAME);
         let schema = indexrel.schema()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
@@ -331,13 +496,31 @@ impl<'a> ParallelAggregationWorker<'a> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should belong to a heap relation");
-        let (base_collector, vischeck) =
-            aggregations.plan(&reader, &heaprel, self.config.solve_mvcc, limits);
+        let visibility_stats = self
+            .config
+            .collect_visibility_stats()
+            .then(|| Arc::new(Mutex::new(VisibilityStats::default())));
+        let (base_collector, vischeck) = aggregations.plan(
+            reader,
+            &heaprel,
+            self.config.solve_mvcc(),
+            limits,
+            visibility_stats.clone(),
+        );
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
-            let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
-            reader.collect(InterruptableCollector::new(mvcc_collector))
+            if count_all {
+                reader.collect(CountAllCollector::new(
+                    base_collector,
+                    vischeck,
+                    self.query.is_match_all(),
+                    include_doc_count,
+                ))
+            } else {
+                let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
+                reader.collect(InterruptableCollector::new(mvcc_collector))
+            }
         } else {
             reader.collect(InterruptableCollector::new(base_collector))
         };
@@ -346,7 +529,10 @@ impl<'a> ParallelAggregationWorker<'a> {
             unsafe { pg_sys::ParallelWorkerNumber },
             start.elapsed()
         );
-        Ok(Some(intermediate_results))
+        let stats = visibility_stats
+            .map(|stats| std::mem::take(&mut *stats.lock()))
+            .unwrap_or_default();
+        Ok(Some((intermediate_results, stats)))
     }
 }
 
@@ -369,7 +555,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("wrong type for query_bytes")
             .expect("missing query_bytes value");
         let segment_ids = state_manager
-            .slice::<(SegmentId, NumDeletedDocs)>(4)
+            .slice::<SegmentDeletedDocs>(4)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
         let ambulkdelete_epoch = state_manager
@@ -408,8 +594,12 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             std::thread::yield_now();
         }
 
-        let result =
-            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number), None, None);
+        let result = self.execute_aggregate(
+            QueryWorkerStyle::ParallelWorker(worker_number),
+            None,
+            None,
+            None,
+        );
         if !self.attached_area.is_null() {
             unsafe { pg_sys::dsa_detach(self.attached_area) };
             self.attached_area = std::ptr::null_mut();
@@ -434,13 +624,9 @@ pub fn execute_aggregate(
     expr_context: *mut pg_sys::ExprContext,
     planstate: *mut pg_sys::PlanState,
     mut bitmap_exec: Option<&mut BitmapExec>,
+    mut visibility_stats: Option<&mut VisibilityStats>,
+    mut parallelism: Option<&mut AggregateParallelism>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
-    // Resolve `visibility` to a single decision for this execution before anything
-    // branches on it. `threshold` estimates the query's matching row count here
-    // rather than at plan time so that the `paradedb.aggregate()` UDF, which the
-    // planner never sees, resolves the same way as the custom scan paths.
-    let solve_mvcc = visibility.resolve_filtering(index, &query);
-
     if index.created_by_version().stores_datetimes_in_i64() {
         // We need to rewrite date_histogram requests to regular histogram requests because we are
         // no longer storing dates in tantivy's DateTime.
@@ -480,7 +666,10 @@ pub fn execute_aggregate(
             NonNull::new(expr_context),
             NonNull::new(planstate),
             query.needs_tokenizer(),
+            None,
         )?;
+
+        let solve_mvcc = visibility.resolve_filtering(index, &query, Some(&reader));
 
         // Fast path: a bare doc count without MVCC filtering is answerable by
         // `Weight::count` — a stored-doc_freq metadata read for term queries
@@ -496,6 +685,9 @@ pub fn execute_aggregate(
                 && let Some(source) = bitmap_exec.private_source()
             {
                 cell.fill(source);
+            }
+            if let Some(stats) = parallelism {
+                stats.worker_selection_reason = Some(WorkerDecisionReason::DocumentCount);
             }
             let count = reader.count_matched_docs()?;
             let mut results = AggregationResults::default();
@@ -514,11 +706,14 @@ pub fn execute_aggregate(
             return Ok(results);
         }
 
+        let (nworkers, parallel_cost) =
+            aggregate_nworkers(index, &reader, &query, &agg_req, solve_mvcc);
+
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
             .segment_readers()
             .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
         // Publish the bitmap claim table for the worker pool: rebuild the
         // leader's bitmap into this scan's own DSA area, prepare one iterator
@@ -530,7 +725,8 @@ pub fn execute_aggregate(
             if consumers == 0 {
                 return None;
             }
-            let segments: Vec<SegmentId> = segment_ids.iter().map(|(id, _)| *id).collect();
+            let segments: Vec<SegmentId> =
+                segment_ids.iter().map(|entry| entry.segment_id()).collect();
             let handle = bitmap_exec.shared_source(consumers, &segments)?;
             if let Some(cell) = query.bitmap_cell()
                 && let Some(source) = bitmap_exec.source()
@@ -545,6 +741,7 @@ pub fn execute_aggregate(
             &query,
             &agg_req,
             solve_mvcc,
+            visibility_stats.is_some(),
             memory_limit,
             bucket_limit,
             segment_ids,
@@ -552,13 +749,14 @@ pub fn execute_aggregate(
             bitmap_handle,
         )?;
 
-        // limit number of workers to the number of segments
-        let mut nworkers =
-            (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
-
-        if nworkers > 0 && pg_sys::parallel_leader_participation {
-            // make sure to account for the leader being a worker too
-            nworkers -= 1;
+        if let Some(stats) = parallelism.as_deref_mut() {
+            stats.workers_requested = nworkers;
+            stats.worker_selection_reason = Some(if parallel_cost.is_some() {
+                WorkerDecisionReason::CostModel
+            } else {
+                WorkerDecisionReason::PerSegment
+            });
+            stats.cost = parallel_cost;
         }
         pgrx::debug1!(
             "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
@@ -574,6 +772,9 @@ pub fn execute_aggregate(
             // signal our workers with the number of workers actually launched
             // they need this before they can begin checking out the correct segment counts
             let mut nlaunched = process.launched_workers();
+            if let Some(stats) = parallelism {
+                stats.workers_launched = nlaunched;
+            }
             pgrx::debug1!("launched {nlaunched} workers");
             if pg_sys::parallel_leader_participation {
                 nlaunched += 1;
@@ -596,19 +797,28 @@ pub fn execute_aggregate(
                 if let Some(source) = leader_bitmap_source.clone() {
                     worker.attach_bitmap_source(source);
                 }
-                if let Some(result) = worker.execute_aggregate(
+                if let Some((result, stats)) = worker.execute_aggregate(
                     QueryWorkerStyle::ParallelLeader,
                     Some(expr_context),
                     Some(planstate),
+                    None,
                 )? {
+                    if let Some(output) = visibility_stats.as_deref_mut() {
+                        output.merge(stats);
+                    }
                     agg_results.push(Ok(result));
                 }
             }
 
             // wait for workers to finish, collecting their intermediate aggregate results
             for (_worker_number, message) in process {
-                let worker_results =
-                    postcard::from_bytes::<IntermediateAggregationResults>(&message)?;
+                let (worker_results, stats) = postcard::from_bytes::<(
+                    IntermediateAggregationResults,
+                    VisibilityStats,
+                )>(&message)?;
+                if let Some(output) = visibility_stats.as_deref_mut() {
+                    output.merge(stats);
+                }
 
                 agg_results.push(Ok(worker_results));
             }
@@ -638,13 +848,9 @@ pub fn execute_aggregate(
             let segment_ids = reader
                 .segment_readers()
                 .iter()
-                .map(|r| (r.segment_id(), r.num_deleted_docs()))
+                .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
                 .collect::<Vec<_>>();
-            let mut state = State {
-                mutex: Spinlock::default(),
-                nlaunched: 1,
-                remaining_segments: segment_ids.len(),
-            };
+            let mut state = State::new(1, segment_ids.len());
             let mut worker = ParallelAggregationWorker::new_local(
                 agg_req.clone(),
                 query,
@@ -652,16 +858,21 @@ pub fn execute_aggregate(
                 ambulkdelete_epoch,
                 index.oid(),
                 solve_mvcc,
+                visibility_stats.is_some(),
                 memory_limit as _,
                 bucket_limit as _,
                 &mut state,
             );
 
-            if let Some(agg_results) = worker.execute_aggregate(
+            if let Some((agg_results, stats)) = worker.execute_aggregate(
                 QueryWorkerStyle::NonParallel,
                 Some(expr_context),
                 Some(planstate),
+                Some(&reader),
             )? {
+                if let Some(output) = visibility_stats {
+                    output.merge(stats);
+                }
                 Ok(agg_results.into_final_result(
                     {
                         let mut aggregations: Aggregations = agg_req.try_into()?;
@@ -1047,16 +1258,14 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::api::CTID_FIELD_NAME;
-    use crate::index::fast_fields_helper::FFType;
-    use crate::postgres::heap::VisibilityChecker;
+    use crate::postgres::heap::{VisibilityChecker, VisibilityMask};
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
     use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
 
     pub struct MVCCFilterCollector<C: Collector> {
         inner: C,
-        lock: Arc<Mutex<VisibilityChecker>>,
+        pub(super) lock: Arc<Mutex<VisibilityChecker>>,
     }
 
     unsafe impl<C: Collector> Send for MVCCFilterCollector<C> {}
@@ -1073,25 +1282,21 @@ pub mod mvcc_collector {
         ) -> tantivy::Result<Self::Child> {
             let inner = self.inner.for_segment(segment_local_id, segment)?;
             let requires_scoring = self.inner.requires_scoring();
+            let lock = VisibilityChecker::for_segment_arc(&self.lock, segment_local_id)?;
+            // All-visible segments forward documents directly and need no batch buffers.
+            let capacity = if lock.is_some() { BATCH_SIZE } else { 0 };
 
             Ok(MVCCFilterSegmentCollector {
                 inner,
-                lock: self.lock.clone(),
-                ctid_ff: FFType::new(segment.fast_fields(), CTID_FIELD_NAME),
-                doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                lock,
+                segment_ord: segment_local_id,
+                doc_buffer: Vec::with_capacity(capacity),
                 score_buffer: if requires_scoring {
-                    Vec::with_capacity(BATCH_SIZE)
+                    Vec::with_capacity(capacity)
                 } else {
                     Vec::new()
                 },
-                ctids_buffer: Vec::with_capacity(BATCH_SIZE),
-                visibility_buffer: Vec::with_capacity(BATCH_SIZE),
-                filtered_doc_buffer: Vec::with_capacity(BATCH_SIZE),
-                filtered_score_buffer: if requires_scoring {
-                    Vec::with_capacity(BATCH_SIZE)
-                } else {
-                    Vec::new()
-                },
+                visibility_buffer: Vec::with_capacity(capacity),
                 requires_scoring,
             })
         }
@@ -1120,20 +1325,15 @@ pub mod mvcc_collector {
 
     pub struct MVCCFilterSegmentCollector<SC: SegmentCollector> {
         inner: SC,
-        lock: Arc<Mutex<VisibilityChecker>>,
-        ctid_ff: FFType,
+        lock: Option<Arc<Mutex<VisibilityChecker>>>,
+        segment_ord: SegmentOrdinal,
 
         // Incoming buffers
         doc_buffer: Vec<DocId>,
         score_buffer: Vec<Score>,
 
-        // Processing buffers
-        ctids_buffer: Vec<Option<u64>>,
-        visibility_buffer: Vec<Option<u64>>,
-
-        // Outgoing buffers
-        filtered_doc_buffer: Vec<DocId>,
-        filtered_score_buffer: Vec<Score>,
+        // Entry i records whether doc_buffer[i] is visible to the query snapshot.
+        visibility_buffer: Vec<bool>,
 
         requires_scoring: bool,
     }
@@ -1146,43 +1346,52 @@ pub mod mvcc_collector {
                 return;
             }
 
-            // Get the ctids for these docs.
-            self.ctids_buffer.resize(self.doc_buffer.len(), None);
-            self.ctid_ff
-                .as_u64s(&self.doc_buffer, &mut self.ctids_buffer);
-
-            // Determine which ctids are visible.
-            let mut vischeck = self.lock.lock();
-            self.visibility_buffer.resize(self.doc_buffer.len(), None);
-            vischeck.check_batch(&self.ctids_buffer, &mut self.visibility_buffer);
+            // Determine which docs are visible.
+            let mut vischeck = self
+                .lock
+                .as_ref()
+                .expect("buffered docs need visibility checks")
+                .lock();
+            let mask = vischeck.check_segment_docs_mask(
+                self.segment_ord,
+                &self.doc_buffer,
+                &mut self.visibility_buffer,
+            );
             drop(vischeck);
 
-            // Filter visible docs.
-            self.filtered_doc_buffer.clear();
-            if self.requires_scoring {
-                self.filtered_score_buffer.clear();
-            }
-
-            for (i, visible_ctid) in self.visibility_buffer.iter().enumerate() {
-                if visible_ctid.is_some() {
-                    self.filtered_doc_buffer.push(self.doc_buffer[i]);
+            match mask {
+                VisibilityMask::All { .. } => {
+                    // Forward directly without filtering when all buffered docs are visible.
                     if self.requires_scoring {
-                        self.filtered_score_buffer.push(self.score_buffer[i]);
+                        for (&doc, &score) in self.doc_buffer.iter().zip(self.score_buffer.iter()) {
+                            self.inner.collect(doc, score);
+                        }
+                    } else {
+                        self.inner.collect_block(&self.doc_buffer);
                     }
                 }
-            }
-
-            // Pass to inner collector
-            if self.requires_scoring {
-                for (doc, score) in self
-                    .filtered_doc_buffer
-                    .iter()
-                    .zip(self.filtered_score_buffer.iter())
-                {
-                    self.inner.collect(*doc, *score);
+                VisibilityMask::Some(mask) => {
+                    // In-place compaction of visible docs.
+                    let mut write_idx = 0;
+                    for (read_idx, &is_vis) in mask.iter().enumerate() {
+                        if is_vis {
+                            self.doc_buffer[write_idx] = self.doc_buffer[read_idx];
+                            if self.requires_scoring {
+                                self.score_buffer[write_idx] = self.score_buffer[read_idx];
+                            }
+                            write_idx += 1;
+                        }
+                    }
+                    self.doc_buffer.truncate(write_idx);
+                    if self.requires_scoring {
+                        self.score_buffer.truncate(write_idx);
+                        for (&doc, &score) in self.doc_buffer.iter().zip(self.score_buffer.iter()) {
+                            self.inner.collect(doc, score);
+                        }
+                    } else if !self.doc_buffer.is_empty() {
+                        self.inner.collect_block(&self.doc_buffer);
+                    }
                 }
-            } else if !self.filtered_doc_buffer.is_empty() {
-                self.inner.collect_block(&self.filtered_doc_buffer);
             }
 
             self.doc_buffer.clear();
@@ -1196,6 +1405,10 @@ pub mod mvcc_collector {
         type Fruit = SC::Fruit;
 
         fn collect(&mut self, doc: DocId, score: Score) {
+            if self.lock.is_none() {
+                self.inner.collect(doc, score);
+                return;
+            }
             self.doc_buffer.push(doc);
             if self.requires_scoring {
                 self.score_buffer.push(score);
@@ -1207,6 +1420,10 @@ pub mod mvcc_collector {
         }
 
         fn collect_block(&mut self, docs: &[DocId]) {
+            if self.lock.is_none() {
+                self.inner.collect_block(docs);
+                return;
+            }
             self.doc_buffer.extend_from_slice(docs);
             if self.requires_scoring {
                 // collect_block does not provide scores, but we must maintain score_buffer alignment.
@@ -1223,5 +1440,68 @@ pub mod mvcc_collector {
             self.flush();
             self.inner.harvest()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn segment_deleted_docs_round_trips() {
+        let id = SegmentId::generate_random();
+        let entry = SegmentDeletedDocs::new(id, 42);
+
+        assert_eq!(entry.segment_id(), id);
+        assert_eq!(entry.deleted_docs, 42);
+    }
+
+    #[test]
+    fn segment_deleted_docs_bytes_match_fields() {
+        let entry = SegmentDeletedDocs {
+            segment_id_bytes: [1; 16],
+            deleted_docs: 99,
+        };
+        let bytes = bytemuck::bytes_of(&entry);
+        assert_eq!(bytes.len(), size_of::<SegmentDeletedDocs>());
+        assert_eq!(&bytes[..16], &[1u8; 16]);
+    }
+
+    #[test]
+    fn config_solve_mvcc_accessor() {
+        let mut config: Config = bytemuck::Zeroable::zeroed();
+        assert!(!config.solve_mvcc());
+        config.solve_mvcc = 1;
+        assert!(config.solve_mvcc());
+        config.solve_mvcc = 2;
+        assert!(config.solve_mvcc());
+    }
+
+    #[test]
+    fn config_collect_visibility_stats_accessor() {
+        let mut config: Config = bytemuck::Zeroable::zeroed();
+        assert!(!config.collect_visibility_stats());
+        config.collect_visibility_stats = 1;
+        assert!(config.collect_visibility_stats());
+        config.collect_visibility_stats = 2;
+        assert!(config.collect_visibility_stats());
+    }
+
+    #[test]
+    fn config_zeroed_has_no_uninit_padding() {
+        let config: Config = bytemuck::Zeroable::zeroed();
+        let bytes = bytemuck::bytes_of(&config);
+        assert_eq!(bytes[4..8], [0; 4]);
+        assert_eq!(bytes[18..24], [0; 6]);
+        assert_eq!(bytes[36..40], [0; 4]);
+        assert_eq!(bytes.len(), 40);
+    }
+
+    #[test]
+    fn state_zeroed_has_no_uninit_padding() {
+        let state: State = bytemuck::Zeroable::zeroed();
+        let bytes = bytemuck::bytes_of(&state);
+        assert_eq!(bytes[4..8], [0; 4]);
+        assert_eq!(bytes.len(), 24);
     }
 }

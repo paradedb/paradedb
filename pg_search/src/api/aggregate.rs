@@ -63,6 +63,7 @@ use crate::aggregate::{AggregateRequest, execute_aggregate};
 use crate::api::operator::estimate_matching_rows;
 use crate::api::version::VersionInfo;
 use crate::gucs;
+use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
@@ -114,6 +115,8 @@ fn aggregate_impl(
         standalone_context.as_ptr(),
         std::ptr::null_mut(), // No planstate in API context
         None,                 // No bitmap intersection in API context
+        None,                 // No EXPLAIN instrumentation
+        None,
     )?;
 
     if aggregate.0.is_empty() {
@@ -538,8 +541,8 @@ impl MvccVisibility {
     /// show it on the other.
     ///
     /// `Threshold` estimates each query's matching row count, which costs one
-    /// extra single-segment index open per source. The largest estimate stands
-    /// for the query, since that is where a heap check costs and where a dead
+    /// single-segment index open per source unless a reader is supplied. The largest
+    /// estimate stands for the query, since that is where a heap check costs and a dead
     /// tuple hides best. Anything that cannot be estimated falls back to
     /// checking: an unknown row count must not silently downgrade accuracy.
     ///
@@ -549,18 +552,24 @@ impl MvccVisibility {
     /// the accurate side of the branch is the safe place to land.
     pub fn resolve_filtering_for_sources<'a>(
         &self,
-        sources: impl IntoIterator<Item = (&'a PgSearchRelation, &'a SearchQueryInput)>,
+        sources: impl IntoIterator<
+            Item = (
+                &'a PgSearchRelation,
+                &'a SearchQueryInput,
+                Option<&'a SearchIndexReader>,
+            ),
+        >,
     ) -> bool {
         match self {
             MvccVisibility::Transaction => true,
             MvccVisibility::Raw => false,
             MvccVisibility::Threshold => {
                 let mut largest = 0;
-                for (indexrel, query) in sources {
+                for (indexrel, query, reader) in sources {
                     if query.has_heap_filters() || query.has_postgres_expressions() {
                         return true;
                     }
-                    match estimate_matching_rows(indexrel, query.clone()) {
+                    match estimate_matching_rows(indexrel, query.clone(), reader) {
                         Some(rows) => largest = largest.max(rows),
                         None => return true,
                     }
@@ -603,8 +612,13 @@ impl MvccVisibility {
     }
 
     /// [`Self::resolve_filtering_for_sources`] for a single index.
-    pub fn resolve_filtering(&self, indexrel: &PgSearchRelation, query: &SearchQueryInput) -> bool {
-        self.resolve_filtering_for_sources(std::iter::once((indexrel, query)))
+    pub fn resolve_filtering(
+        &self,
+        indexrel: &PgSearchRelation,
+        query: &SearchQueryInput,
+        reader: Option<&SearchIndexReader>,
+    ) -> bool {
+        self.resolve_filtering_for_sources(std::iter::once((indexrel, query, reader)))
     }
 }
 

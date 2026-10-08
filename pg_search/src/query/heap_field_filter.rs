@@ -561,6 +561,8 @@ impl Scorer for HeapFilterScorer {
 impl DocSet for HeapFilterScorer {
     fn advance(&mut self) -> DocId {
         loop {
+            pgrx::check_for_interrupts!();
+
             let doc = self.indexed_scorer.advance();
 
             if doc == TERMINATED {

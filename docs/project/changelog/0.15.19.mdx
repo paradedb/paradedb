@@ -4,6 +4,8 @@ description: "ParadeDB release notes for 0.15.19"
 noindex: true
 ---
 
+See GitHub release: [v0.15.19](https://github.com/paradedb/paradedb/releases/tag/v0.15.19)
+
 ## Stability Improvements 💪
 
 - Fixed an issue where the custom scan would throw an error instead of gracefully falling back to an index scan when boolean predicates were used
@@ -17,7 +19,7 @@ noindex: true
 - Reduced index size and improved write throughput by eliminating some extra write overhead
 - The custom scan can now use fast fields when both string and numeric fields are present in the output columns
 
-## New Features 🎉
+## New Features ✨
 
 - Introduced `paradedb.snippet_positions` which returns the byte offsets of highlighted text
 - Introduced support for the Jieba tokenizer
@@ -25,7 +27,3 @@ noindex: true
 ## New Contributors 👋
 
 - [@mpr1255](https://github.com/mpr1255) made their first contribution in [#2491](https://github.com/paradedb/paradedb/pull/2491)
-
-## Full Changelog
-
-The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.15.19).

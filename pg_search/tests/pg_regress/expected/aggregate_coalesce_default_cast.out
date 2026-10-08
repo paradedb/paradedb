@@ -328,14 +328,14 @@ SELECT id, AVG(COALESCE(n, 2)) OVER () FROM cdc_int WHERE id @@@ pdb.all() ORDER
 -- Still pushed down: COUNT with a non-null default counts every row, whatever the column holds.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(COALESCE(n, 1.5)) FROM cdc_int WHERE id @@@ pdb.all();
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+                            QUERY PLAN                            
+------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.cdc_int
    Output: pdb.agg_fn('COUNT'::text)
    Index: cdc_int_idx
    Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(COALESCE(n, 1.5)) FROM cdc_int WHERE id @@@ pdb.all();
@@ -346,14 +346,14 @@ SELECT COUNT(COALESCE(n, 1.5)) FROM cdc_int WHERE id @@@ pdb.all();
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(COALESCE(metadata->>'brand', '0')) FROM cdc_json_none WHERE id @@@ pdb.all();
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+                            QUERY PLAN                            
+------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.cdc_json_none
    Output: pdb.agg_fn('COUNT'::text)
    Index: cdc_json_none_idx
    Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT COUNT(COALESCE(metadata->>'brand', '0')) FROM cdc_json_none WHERE id @@@ pdb.all();

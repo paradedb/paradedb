@@ -86,6 +86,14 @@ class ArrayDemo(Base):
     categories: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
 
 
+class MockItemGeo(Base):
+    """Read-only geometric-filter fixture; location is referenced as raw SQL."""
+
+    __tablename__ = "mock_items_geo"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    description: Mapped[str] = mapped_column(Text)
+
+
 engine = create_engine(DATABASE_URL, future=True)
 
 __all__ = [
@@ -93,6 +101,7 @@ __all__ = [
     "ArrayDemo",
     "Base",
     "MockItem",
+    "MockItemGeo",
     "Order",
     "engine",
 ]

@@ -31,7 +31,7 @@ SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag;
    Index: agg_heap_bool_idx
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"category","value":"a"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"flag"}]}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag;
@@ -50,7 +50,7 @@ SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag = false;
    Index: agg_heap_bool_idx
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"category","value":"a"}}}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"flag"}]}}]}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag = false;
@@ -69,7 +69,7 @@ SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND NOT flag;
    Index: agg_heap_bool_idx
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"category","value":"a"}}}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"flag"}]}}]}}]}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND NOT flag;

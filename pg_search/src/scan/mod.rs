@@ -42,6 +42,7 @@ mod udf_codec;
 pub mod visibility_ctid_resolver_rule;
 
 pub use batch_scanner::Scanner;
+pub use execution_plan::CtidResolver;
 pub use info::{GlobalPredicateIndex, ScanInfo, ScanMode, TagIndex, TaggedQuery};
 pub use table_provider::PgSearchTableProvider;
 pub(crate) use table_provider::VisibilityMode;

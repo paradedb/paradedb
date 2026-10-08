@@ -119,7 +119,7 @@ SELECT count(*) FROM mock_items WHERE description ||| 'keyboard' AND paradedb.sc
    Index: search_idx
    Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (6 rows)
 
 SELECT count(*) FROM mock_items WHERE description ||| 'keyboard' AND paradedb.score(id) > 0;

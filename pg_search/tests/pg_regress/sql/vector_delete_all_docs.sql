@@ -57,7 +57,7 @@ FROM generate_series(24001, 30000) g;
 
 SELECT count(*) = 1 AS merged_to_one_segment
 FROM paradedb.index_info('delvec_idx');
-SELECT bool_and(vector_num_vectors = 0 AND vector_total_memberships = 0)
+SELECT bool_and(vector_num_vectors = 0 AND vector_total_rows = 0)
        AS merged_vector_field_is_empty
 FROM paradedb.vector_info('delvec_idx', 'vec');
 

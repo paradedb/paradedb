@@ -32,7 +32,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHER
    Index: idxuse_alias
    Tantivy Query: {"with_index":{"query":{"match":{"field":"t","value":"this is a test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(literal) ||| 'this is a test';
@@ -42,7 +42,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHER
    Index: idxuse_alias
    Tantivy Query: {"with_index":{"query":{"match":{"field":"literal","value":"this is a test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(simple) ||| 'this is a test';
@@ -52,7 +52,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHER
    Index: idxuse_alias
    Tantivy Query: {"with_index":{"query":{"match":{"field":"simple","value":"this is a test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(ngram_2_3) ||| 'this is a test';
@@ -62,7 +62,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHER
    Index: idxuse_alias
    Tantivy Query: {"with_index":{"query":{"match":{"field":"ngram_2_3","value":"this is a test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(ngram_3_5) ||| 'this is a test';
@@ -72,7 +72,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHER
    Index: idxuse_alias
    Tantivy Query: {"with_index":{"query":{"match":{"field":"ngram_3_5","value":"this is a test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"filter":"*"}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(no_such_alias) ||| 'this is a test';

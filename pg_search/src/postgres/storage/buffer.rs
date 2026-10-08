@@ -89,7 +89,9 @@ mod block_tracker {
     > = OnceLock::new();
 
     macro_rules! track {
-        ($style:ident, $blockno:expr) => {
+        // `{{ }}` makes the body a block: without it the tracker's lock guard would stay held
+        // until the end of the caller's scope.
+        ($style:ident, $blockno:expr) => {{
             use std::collections::hash_map::Entry;
 
             let blockno = block_tracker::TrackedBlock::$style($blockno);
@@ -156,15 +158,15 @@ mod block_tracker {
                     slot.insert(Some(std::backtrace::Backtrace::force_capture()));
                 }
             }
-        };
+        }};
     }
 
     macro_rules! forget {
-        ($blockno:expr) => {
+        ($blockno:expr) => {{
             let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
             let mut lock = map.lock();
             lock.remove(&block_tracker::TrackedBlock::Drop($blockno));
-        };
+        }};
     }
 
     pub(super) use forget;
@@ -191,6 +193,10 @@ mod block_tracker {
 #[derive(Debug)]
 pub struct Buffer {
     pub(super) pg_buffer: pg_sys::Buffer,
+    /// Read while the buffer is pinned, so `Drop` never asks Postgres for it: after an abort
+    /// releases the pin, `BufferGetBlockNumber` fails `Assert(BufferIsPinned)`.
+    #[cfg(feature = "block_tracker")]
+    blockno: pg_sys::BlockNumber,
 }
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
@@ -201,7 +207,7 @@ impl Drop for Buffer {
         unsafe {
             if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 // block_tracker bookkeeping must run unconditionally
-                block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
+                block_tracker::forget!(self.blockno);
 
                 // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics.
                 // InterruptHoldoffCount check is a PostgreSQL-level indicator of error handling.
@@ -234,7 +240,11 @@ impl Buffer {
             "buffer cannot be allocated outside of a transaction"
         );
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
-        Self { pg_buffer }
+        Self {
+            pg_buffer,
+            #[cfg(feature = "block_tracker")]
+            blockno: unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) },
+        }
     }
 
     pub fn page(&self) -> Page<'_> {
@@ -255,7 +265,7 @@ impl Buffer {
         pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
         let pg_buffer =
             std::mem::replace(&mut self.pg_buffer, pg_sys::InvalidBuffer as pg_sys::Buffer);
-        block_tracker::forget!(pg_sys::BufferGetBlockNumber(pg_buffer));
+        block_tracker::forget!(self.blockno);
         ImmutablePage {
             pinned_buffer: PinnedBuffer::new(pg_buffer),
             pg_page: std::ptr::null_mut(),
@@ -388,6 +398,8 @@ impl BufferMut {
             &mut self.inner,
             Buffer {
                 pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+                #[cfg(feature = "block_tracker")]
+                blockno: pg_sys::InvalidBlockNumber,
             },
         );
         unsafe { inner.into_immutable_page() }
@@ -429,6 +441,9 @@ impl BufferMut {
 #[derive(Debug)]
 pub struct PinnedBuffer {
     pg_buffer: pg_sys::Buffer,
+    /// See [`Buffer`]'s field of the same name.
+    #[cfg(feature = "block_tracker")]
+    blockno: pg_sys::BlockNumber,
 }
 
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
@@ -438,7 +453,7 @@ impl Drop for PinnedBuffer {
     fn drop(&mut self) {
         unsafe {
             // block_tracker bookkeeping must run unconditionally
-            block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
+            block_tracker::forget!(self.blockno);
 
             // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics
             if crate::postgres::utils::IsTransactionState() && !std::thread::panicking() {
@@ -451,7 +466,11 @@ impl Drop for PinnedBuffer {
 impl PinnedBuffer {
     pub fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
-        Self { pg_buffer }
+        Self {
+            pg_buffer,
+            #[cfg(feature = "block_tracker")]
+            blockno: unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) },
+        }
     }
 
     pub fn number(self) -> pg_sys::BlockNumber {
@@ -812,6 +831,10 @@ impl Clone for BufferManager {
 }
 
 impl BufferManager {
+    pub fn set_io_stats(&mut self, stats: Option<crate::index::reader::io_stats::ComponentStats>) {
+        self.rbufacc.io_stats = stats;
+    }
+
     pub fn new(rel: &PgSearchRelation) -> Self {
         Self {
             rbufacc: RelationBufferAccess::open(rel),
@@ -857,7 +880,7 @@ impl BufferManager {
         BufferMut {
             style: XlogFlag::NewBuffer.into_style(self.rbufacc.rel()),
             dirty: false,
-            inner: Buffer { pg_buffer },
+            inner: Buffer::new(pg_buffer),
         }
     }
 
@@ -892,7 +915,7 @@ impl BufferManager {
                 // so we avoid the diff calculation by using NewBuffer
                 style: XlogFlag::NewBuffer.into_style(&rel),
                 dirty: false,
-                inner: Buffer { pg_buffer },
+                inner: Buffer::new(pg_buffer),
             }
         });
 
@@ -922,7 +945,7 @@ impl BufferManager {
                         BufferMut {
                             style: XlogFlag::NewBuffer.into_style(&rel),
                             dirty: false,
-                            inner: Buffer { pg_buffer },
+                            inner: Buffer::new(pg_buffer),
                         }
                     },
                 ));
@@ -935,8 +958,9 @@ impl BufferManager {
     }
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
+        let pg_buffer = self.rbufacc.get_buffer(blockno, None);
         block_tracker::track!(Pinned, blockno);
-        PinnedBuffer::new(self.rbufacc.get_buffer(blockno, None))
+        PinnedBuffer::new(pg_buffer)
     }
 
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {
@@ -992,119 +1016,125 @@ impl BufferManager {
         let locator = (*relation).rd_node;
         #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
         let locator = (*relation).rd_locator;
-        let (pg_buffer, pg_page, recent_hit) = pg_sys::ffi::pg_guard_ffi_boundary(|| {
-            unsafe extern "C-unwind" {
-                #[link_name = "ReadBufferExtended"]
-                fn read_buffer_extended(
-                    rel: pg_sys::Relation,
-                    fork: pg_sys::ForkNumber::Type,
-                    blockno: pg_sys::BlockNumber,
-                    mode: pg_sys::ReadBufferMode::Type,
-                    strategy: pg_sys::BufferAccessStrategy,
-                ) -> pg_sys::Buffer;
-                #[cfg(feature = "pg15")]
-                #[link_name = "ReadRecentBuffer"]
-                fn read_recent_buffer(
-                    locator: pg_sys::RelFileNode,
-                    fork: pg_sys::ForkNumber::Type,
-                    blockno: pg_sys::BlockNumber,
-                    buffer: pg_sys::Buffer,
-                ) -> bool;
-                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-                #[link_name = "ReadRecentBuffer"]
-                fn read_recent_buffer(
-                    locator: pg_sys::RelFileLocator,
-                    fork: pg_sys::ForkNumber::Type,
-                    blockno: pg_sys::BlockNumber,
-                    buffer: pg_sys::Buffer,
-                ) -> bool;
-                #[link_name = "pgstat_assoc_relation"]
-                fn associate_relation_stats(relation: pg_sys::Relation);
-                #[cfg(any(feature = "pg16", feature = "pg17"))]
-                #[link_name = "pgstat_count_io_op"]
-                fn count_io_hit(
-                    object: pg_sys::IOObject::Type,
-                    context: pg_sys::IOContext::Type,
-                    operation: pg_sys::IOOp::Type,
-                );
-                #[cfg(feature = "pg18")]
-                #[link_name = "pgstat_count_io_op"]
-                fn count_io_hit(
-                    object: pg_sys::IOObject::Type,
-                    context: pg_sys::IOContext::Type,
-                    operation: pg_sys::IOOp::Type,
-                    count: u32,
-                    bytes: u64,
-                );
-                #[link_name = "LockBuffer"]
-                fn lock_buffer(buffer: pg_sys::Buffer, mode: i32);
-                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-                #[link_name = "BufferGetPage__pgrx_cshim"]
-                fn buffer_get_page(buffer: pg_sys::Buffer) -> pg_sys::Page;
-            }
-
-            // Only raw C calls and scalar values may cross this longjmp boundary.
-            let recent_hit =
-                recent_buffer > 0 && read_recent_buffer(locator, fork, blockno, recent_buffer);
-            let buffer = if recent_hit {
-                if (*relation).pgstat_info.is_null() && (*relation).pgstat_enabled {
-                    associate_relation_stats(relation);
-                }
-                if !(*relation).pgstat_info.is_null() {
+        let read = || {
+            pg_sys::ffi::pg_guard_ffi_boundary(|| {
+                unsafe extern "C-unwind" {
+                    #[link_name = "ReadBufferExtended"]
+                    fn read_buffer_extended(
+                        rel: pg_sys::Relation,
+                        fork: pg_sys::ForkNumber::Type,
+                        blockno: pg_sys::BlockNumber,
+                        mode: pg_sys::ReadBufferMode::Type,
+                        strategy: pg_sys::BufferAccessStrategy,
+                    ) -> pg_sys::Buffer;
                     #[cfg(feature = "pg15")]
-                    {
-                        (*(*relation).pgstat_info).t_counts.t_blocks_fetched += 1;
-                        (*(*relation).pgstat_info).t_counts.t_blocks_hit += 1;
-                    }
+                    #[link_name = "ReadRecentBuffer"]
+                    fn read_recent_buffer(
+                        locator: pg_sys::RelFileNode,
+                        fork: pg_sys::ForkNumber::Type,
+                        blockno: pg_sys::BlockNumber,
+                        buffer: pg_sys::Buffer,
+                    ) -> bool;
                     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-                    {
-                        (*(*relation).pgstat_info).counts.blocks_fetched += 1;
-                        (*(*relation).pgstat_info).counts.blocks_hit += 1;
+                    #[link_name = "ReadRecentBuffer"]
+                    fn read_recent_buffer(
+                        locator: pg_sys::RelFileLocator,
+                        fork: pg_sys::ForkNumber::Type,
+                        blockno: pg_sys::BlockNumber,
+                        buffer: pg_sys::Buffer,
+                    ) -> bool;
+                    #[link_name = "pgstat_assoc_relation"]
+                    fn associate_relation_stats(relation: pg_sys::Relation);
+                    #[cfg(any(feature = "pg16", feature = "pg17"))]
+                    #[link_name = "pgstat_count_io_op"]
+                    fn count_io_hit(
+                        object: pg_sys::IOObject::Type,
+                        context: pg_sys::IOContext::Type,
+                        operation: pg_sys::IOOp::Type,
+                    );
+                    #[cfg(feature = "pg18")]
+                    #[link_name = "pgstat_count_io_op"]
+                    fn count_io_hit(
+                        object: pg_sys::IOObject::Type,
+                        context: pg_sys::IOContext::Type,
+                        operation: pg_sys::IOOp::Type,
+                        count: u32,
+                        bytes: u64,
+                    );
+                    #[link_name = "LockBuffer"]
+                    fn lock_buffer(buffer: pg_sys::Buffer, mode: i32);
+                    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                    #[link_name = "BufferGetPage__pgrx_cshim"]
+                    fn buffer_get_page(buffer: pg_sys::Buffer) -> pg_sys::Page;
+                }
+
+                // Only raw C calls and scalar values may cross this longjmp boundary.
+                let recent_hit =
+                    recent_buffer > 0 && read_recent_buffer(locator, fork, blockno, recent_buffer);
+                let buffer = if recent_hit {
+                    if (*relation).pgstat_info.is_null() && (*relation).pgstat_enabled {
+                        associate_relation_stats(relation);
                     }
+                    if !(*relation).pgstat_info.is_null() {
+                        #[cfg(feature = "pg15")]
+                        {
+                            (*(*relation).pgstat_info).t_counts.t_blocks_fetched += 1;
+                            (*(*relation).pgstat_info).t_counts.t_blocks_hit += 1;
+                        }
+                        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                        {
+                            (*(*relation).pgstat_info).counts.blocks_fetched += 1;
+                            (*(*relation).pgstat_info).counts.blocks_hit += 1;
+                        }
+                    }
+                    #[cfg(any(feature = "pg16", feature = "pg17"))]
+                    count_io_hit(
+                        pg_sys::IOObject::IOOBJECT_RELATION,
+                        pg_sys::IOContext::IOCONTEXT_NORMAL,
+                        pg_sys::IOOp::IOOP_HIT,
+                    );
+                    #[cfg(feature = "pg18")]
+                    count_io_hit(
+                        pg_sys::IOObject::IOOBJECT_RELATION,
+                        pg_sys::IOContext::IOCONTEXT_NORMAL,
+                        pg_sys::IOOp::IOOP_HIT,
+                        1,
+                        0,
+                    );
+                    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                    {
+                        pg_sys::VacuumPageHit += 1;
+                    }
+                    if pg_sys::VacuumCostActive {
+                        pg_sys::VacuumCostBalance += pg_sys::VacuumCostPageHit;
+                    }
+                    recent_buffer
+                } else {
+                    read_buffer_extended(
+                        relation,
+                        fork,
+                        blockno,
+                        pg_sys::ReadBufferMode::RBM_NORMAL,
+                        std::ptr::null_mut(),
+                    )
+                };
+                if !published {
+                    lock_buffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
                 }
-                #[cfg(any(feature = "pg16", feature = "pg17"))]
-                count_io_hit(
-                    pg_sys::IOObject::IOOBJECT_RELATION,
-                    pg_sys::IOContext::IOCONTEXT_NORMAL,
-                    pg_sys::IOOp::IOOP_HIT,
-                );
-                #[cfg(feature = "pg18")]
-                count_io_hit(
-                    pg_sys::IOObject::IOOBJECT_RELATION,
-                    pg_sys::IOContext::IOCONTEXT_NORMAL,
-                    pg_sys::IOOp::IOOP_HIT,
-                    1,
-                    0,
-                );
-                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                {
-                    pg_sys::VacuumPageHit += 1;
+                #[cfg(feature = "pg15")]
+                let page = pg_sys::BufferGetPage(buffer);
+                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                let page = buffer_get_page(buffer);
+                if !published {
+                    lock_buffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
                 }
-                if pg_sys::VacuumCostActive {
-                    pg_sys::VacuumCostBalance += pg_sys::VacuumCostPageHit;
-                }
-                recent_buffer
-            } else {
-                read_buffer_extended(
-                    relation,
-                    fork,
-                    blockno,
-                    pg_sys::ReadBufferMode::RBM_NORMAL,
-                    std::ptr::null_mut(),
-                )
-            };
-            if !published {
-                lock_buffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
-            }
-            #[cfg(feature = "pg15")]
-            let page = pg_sys::BufferGetPage(buffer);
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-            let page = buffer_get_page(buffer);
-            if !published {
-                lock_buffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
-            }
-            (buffer, page, recent_hit)
-        });
+                (buffer, page, recent_hit)
+            })
+        };
+        let (pg_buffer, pg_page, recent_hit) = match &self.rbufacc.io_stats {
+            Some(stats) => stats.buffer(read),
+            None => read(),
+        };
         if predict && pg_buffer > 0 {
             self.recent_buffer.store(
                 (u64::from(blockno) << 32) | pg_buffer as u64,
@@ -1234,10 +1264,37 @@ impl BufferManager {
     }
 
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
+        /// Forgets a block tracked before `LockBufferForCleanup` if that call errors out: pgrx
+        /// runs `Drop` handlers when a function it wraps raises an ERROR.
+        struct InFlightCleanupGuard {
+            #[cfg_attr(not(feature = "block_tracker"), allow(dead_code))]
+            blockno: pg_sys::BlockNumber,
+            active: bool,
+        }
+
+        // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the guard exists to run
+        // while an ERROR unwinds, and its body is only tracker bookkeeping.
+        impl Drop for InFlightCleanupGuard {
+            fn drop(&mut self) {
+                if self.active {
+                    block_tracker::forget!(self.blockno);
+                }
+            }
+        }
+
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             block_tracker::track!(Cleanup, blockno);
+            let mut guard = InFlightCleanupGuard {
+                blockno,
+                active: true,
+            };
+
             pg_sys::LockBufferForCleanup(pg_buffer);
+
+            // Hand over tracking responsibility to BufferMut's Drop
+            guard.active = false;
+
             BufferMut {
                 style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),
                 dirty: false,
@@ -1284,7 +1341,7 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     let mut buffer = BufferMut {
         style: XlogFlag::NewBuffer.into_style(rel),
         dirty: false,
-        inner: Buffer { pg_buffer },
+        inner: Buffer::new(pg_buffer),
     };
     let mut page = buffer.init_page();
     let special = page.special_mut::<BM25PageSpecialData>();

@@ -18,18 +18,82 @@ If you used `edge_ngram` at search time too, typing `"sho"` would produce `s`, `
 
 Set `search_tokenizer` as a `WITH` option on the index to define a default search-time tokenizer for all text and JSON fields:
 
-```sql
-CREATE INDEX search_idx ON products
-USING paradedb (
-  id,
-  (title::pdb.edge_ngram(1, 10))
-) WITH (key_field='id', search_tokenizer='unicode_words');
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (description::pdb.edge_ngram(1, 10)))
+WITH (search_tokenizer = 'unicode_words');
 ```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx", { searchTokenizer: tokenizer.unicodeWords() })
+  .on(
+    mockItems.id,
+    indexing.paradedbField(mockItems.description, tokenizer.edgeNgram(1, 10)),
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+from paradedb.search import Tokenizer
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={'id': {}, 'description': {'tokenizer': Tokenizer.edge_ngram(min_gram=1, max_gram=10)}},
+            name="search_idx",
+            search_tokenizer=Tokenizer.unicode_words(),
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import tokenizer
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description, tokenizer=tokenizer.edge_ngram(min_gram=1, max_gram=10)),
+    postgresql_using="paradedb",
+    postgresql_with={'search_tokenizer': 'unicode_words'},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: { tokenizer: ParadeDB::Tokenizer.edge_ngram(1, 10) },
+  },
+  name: :search_idx,
+  index_options: { search_tokenizer: "unicode_words" }
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description, Tokenizer.EdgeNgram(1, 10))
+    .HasSearchTokenizer(Tokenizer.Unicode());
+```
+
+</CodeGroup>
 
 With this configuration:
 
-- **Index time**: `title` is tokenized into edge ngrams
-- **Search time**: queries against `title` automatically use the `unicode_words` tokenizer
+- **Index time**: `description` is tokenized into edge ngrams
+- **Search time**: queries against `description` automatically use the `unicode_words` tokenizer
 
 The `search_tokenizer` value can include parameters, e.g. `search_tokenizer='simple(lowercase=false)'`.
 
@@ -51,7 +115,7 @@ INSERT INTO products (title) VALUES
 
 CREATE INDEX idx_products ON products USING paradedb
     (id, (title::pdb.edge_ngram(1, 10)))
-    WITH (key_field = 'id', search_tokenizer = 'unicode_words');
+    WITH (search_tokenizer = 'unicode_words');
 
 -- "sho" stays as one token → matches shoes, shorts, shoelaces
 SELECT id, title FROM products WHERE title ||| 'sho' ORDER BY id;

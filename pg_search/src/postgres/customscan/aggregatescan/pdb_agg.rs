@@ -33,7 +33,9 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
-use arrow_array::{Array, ArrayRef, Int64Array, RecordBatch, UInt64Array, new_null_array};
+use arrow_array::{
+    Array, ArrayRef, Int64Array, RecordBatch, RecordBatchOptions, UInt64Array, new_null_array,
+};
 use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion::common::{DataFusionError, Result};
 use decimal_bytes::Decimal;
@@ -208,6 +210,14 @@ pub struct PdbAggRequest {
     pub agg_json: serde_json::Value,
 }
 
+impl PartialEq for PdbAggRequest {
+    /// `agg_json` is left out: it is `agg` as written, so two requests with the
+    /// same `agg` compute the same document.
+    fn eq(&self, other: &Self) -> bool {
+        self.agg == other.agg && self.fields == other.fields && self.visibility == other.visibility
+    }
+}
+
 impl PdbAggRequest {
     pub fn lower(
         agg_json: serde_json::Value,
@@ -217,7 +227,7 @@ impl PdbAggRequest {
         let agg: Aggregation = serde_json::from_value(agg_json.clone())
             .map_err(|e| format!("invalid pdb.agg specification: {e}"))?;
         let mut fields = HashMap::default();
-        check_node(&agg, resolve, &mut fields)?;
+        check_node(&agg, resolve, &mut fields, &mut Vec::new())?;
         Ok(Self {
             agg,
             fields,
@@ -321,10 +331,12 @@ fn resolve_field(
 }
 
 /// Resolve every field of the spec and turn down what this backend cannot run.
+/// `path` holds the keys of the enclosing `terms` nodes, outermost first.
 fn check_node(
     agg: &Aggregation,
     resolve: &PdbAggFieldResolver,
     fields: &mut HashMap<String, PdbAggFieldRef>,
+    path: &mut Vec<PdbKeySpec>,
 ) -> Result<(), String> {
     match &agg.agg {
         AggregationVariants::Terms(terms) => {
@@ -338,9 +350,27 @@ fn check_node(
             }
             let field = resolve_field(resolve, fields, &terms.field, false)?;
             check_missing(&field, terms.missing.as_ref())?;
-            for sub in agg.sub_aggregation.values() {
-                check_node(sub, resolve, fields)?;
+            // The plan interns a key once, by field and `missing`, and lays a
+            // level out as the set of its keys. A key that repeats on one path
+            // gives two levels the same set, so the same grouping id, and the
+            // assembler reads both from one of them. Until the plan interns a
+            // repeated key per depth, turn the spec down.
+            let key = PdbKeySpec {
+                field,
+                missing: terms.missing.clone(),
+            };
+            if path.contains(&key) {
+                return Err(format!(
+                    "terms field '{}' repeats on one path of the spec, which is not supported \
+                     over joins",
+                    terms.field
+                ));
             }
+            path.push(key);
+            for sub in agg.sub_aggregation.values() {
+                check_node(sub, resolve, fields, path)?;
+            }
+            path.pop();
             if let Some(CustomOrder {
                 target: OrderTarget::SubAggregation(name),
                 ..
@@ -446,10 +476,25 @@ struct PdbAggEntryLayout {
     datetime_fields: HashSet<String>,
 }
 
+/// What one column of a [`PdbAggPlan`]'s output holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PdbAggColumn {
+    /// A SQL group key, by its position among them.
+    GroupKey(usize),
+    /// A standard aggregate, by its position among them.
+    StdAgg(usize),
+    /// `__grouping_id`, present when any spec groups.
+    GroupingId,
+    /// A terms key, by its position in `keys`.
+    Key(usize),
+    /// A metric, by its position in `metrics`.
+    Metric(usize),
+}
+
 /// The grouping-set plan for every `pdb.agg()` in a query, plus where each piece
-/// lands in the final DataFusion output. The output column order is:
-/// SQL group keys, standard aggregates, `__grouping_id` (when any spec groups),
-/// interned terms keys, interned metrics.
+/// lands in the final DataFusion output. [`PdbAggPlan::columns`] is the output
+/// column order: SQL group keys, standard aggregates, `__grouping_id` (when any
+/// spec groups), interned terms keys, interned metrics.
 #[derive(Debug, Clone)]
 pub struct PdbAggPlan {
     pub keys: Vec<PdbKeySpec>,
@@ -690,17 +735,41 @@ impl PdbAggPlan {
         }
     }
 
+    /// The output columns, in order. Whatever lays rows out for the assembler
+    /// goes by this, and so does every column position below.
+    pub fn columns(&self) -> impl Iterator<Item = PdbAggColumn> + '_ {
+        (0..self.num_outer_group_cols)
+            .map(PdbAggColumn::GroupKey)
+            .chain((0..self.num_std_aggs).map(PdbAggColumn::StdAgg))
+            .chain(self.has_grouping_sets().then_some(PdbAggColumn::GroupingId))
+            .chain((0..self.keys.len()).map(PdbAggColumn::Key))
+            .chain((0..self.metrics.len()).map(PdbAggColumn::Metric))
+    }
+
+    fn column_of(&self, column: PdbAggColumn) -> Option<usize> {
+        self.columns().position(|c| c == column)
+    }
+
     pub fn grouping_id_col(&self) -> Option<usize> {
-        self.has_grouping_sets().then_some(self.num_root_cols())
+        self.column_of(PdbAggColumn::GroupingId)
     }
 
     fn key_col(&self, key_idx: usize) -> usize {
-        self.num_root_cols() + 1 + key_idx
+        self.column_of(PdbAggColumn::Key(key_idx))
+            .unwrap_or_else(|| pgrx::error!("BUG: the plan has no key {key_idx}"))
     }
 
     fn metric_col(&self, metric_idx: usize) -> usize {
-        let grouping_id = usize::from(self.has_grouping_sets());
-        self.num_root_cols() + grouping_id + self.keys.len() + metric_idx
+        self.column_of(PdbAggColumn::Metric(metric_idx))
+            .unwrap_or_else(|| pgrx::error!("BUG: the plan has no metric {metric_idx}"))
+    }
+
+    /// The metric an output column holds.
+    fn metric_at(&self, col: usize) -> usize {
+        match self.columns().nth(col) {
+            Some(PdbAggColumn::Metric(metric_idx)) => metric_idx,
+            other => pgrx::error!("BUG: output column {col} holds {other:?}, not a metric"),
+        }
     }
 
     /// The `__grouping_id` DataFusion assigns to a level: one bit per grouping
@@ -714,6 +783,54 @@ impl PdbAggPlan {
 
     pub fn root_grouping_id(&self) -> u64 {
         self.grouping_id_for_level(0)
+    }
+
+    /// Per level, the metrics (positions into `metrics`) the assembler reads
+    /// from that level's rows. Grouping sets compute every metric at every
+    /// level; a caller that aggregates level by level can skip the rest.
+    pub fn metrics_by_level(&self) -> Vec<Vec<usize>> {
+        let mut by_level = vec![Vec::new(); self.levels.len()];
+        for entry in &self.entries {
+            self.collect_metrics_by_level(&entry.root, 0, &mut by_level);
+        }
+        for metrics in &mut by_level {
+            metrics.sort_unstable();
+            metrics.dedup();
+        }
+        by_level
+    }
+
+    fn collect_metrics_by_level(
+        &self,
+        node: &PdbAggNodeLayout,
+        parent_level: usize,
+        by_level: &mut [Vec<usize>],
+    ) {
+        match node {
+            PdbAggNodeLayout::Terms {
+                level,
+                doc_count_col,
+                sub,
+                ..
+            } => {
+                by_level[*level].push(self.metric_at(*doc_count_col));
+                for (_, sub) in sub {
+                    self.collect_metrics_by_level(sub, *level, by_level);
+                }
+            }
+            PdbAggNodeLayout::Metric {
+                count_col,
+                value_col,
+                ..
+            } => {
+                by_level[parent_level].extend(
+                    count_col
+                        .iter()
+                        .chain(value_col)
+                        .map(|col| self.metric_at(*col)),
+                );
+            }
+        }
     }
 }
 
@@ -1087,7 +1204,13 @@ pub fn assemble_pdb_agg_rows(
                 }
             })
             .collect();
-        let root_batch = RecordBatch::try_new(null_schema, columns)?;
+        // A query of only `pdb.agg()` entries has no root columns, and a batch
+        // without columns needs its row count spelled out.
+        let root_batch = RecordBatch::try_new_with_options(
+            null_schema,
+            columns,
+            &RecordBatchOptions::new().with_row_count(Some(1)),
+        )?;
         return Ok(AssembledPdbAggRows { root_batch, json });
     }
 
@@ -1111,9 +1234,11 @@ pub fn assemble_pdb_agg_rows(
     Ok(AssembledPdbAggRows { root_batch, json })
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::prelude::*;
     use serde_json::json;
 
     fn field(name: &str) -> PdbAggFieldRef {
@@ -1156,7 +1281,7 @@ mod tests {
         PdbAggPlan::build(&[(1, &spec, false)], 1, 1).expect("fits the grouping id")
     }
 
-    #[test]
+    #[pg_test]
     fn grouping_ids_follow_datafusion_bit_order() {
         let plan = nested_plan();
         assert_eq!(plan.keys.len(), 2);
@@ -1168,7 +1293,7 @@ mod tests {
         assert_eq!(plan.grouping_id_for_level(2), 0b000);
     }
 
-    #[test]
+    #[pg_test]
     fn output_columns_follow_the_documented_order() {
         let plan = nested_plan();
         // [g, agg_0, __grouping_id, k0, k1, m...]
@@ -1188,7 +1313,7 @@ mod tests {
         assert_eq!(key_cols, &[0, 3, 4]);
     }
 
-    #[test]
+    #[pg_test]
     fn stats_are_shared_across_nodes_but_not_across_filters() {
         let spec = request(
             json!({
@@ -1220,7 +1345,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[pg_test]
     fn metrics_without_terms_need_no_grouping_sets() {
         let spec = request(json!({"sum": {"field": "v"}}), &["v"]);
         let plan = PdbAggPlan::build(&[(0, &spec, false)], 1, 0).expect("fits the grouping id");
@@ -1229,14 +1354,14 @@ mod tests {
         assert_eq!(plan.metric_col(0), 1);
     }
 
-    #[test]
+    #[pg_test]
     fn grouping_expressions_are_capped_at_the_id_width() {
         let spec = request(json!({"terms": {"field": "a"}}), &["a"]);
         assert!(PdbAggPlan::build(&[(0, &spec, false)], MAX_GROUP_EXPRS - 1, 0).is_ok());
         assert!(PdbAggPlan::build(&[(0, &spec, false)], MAX_GROUP_EXPRS, 0).is_err());
     }
 
-    #[test]
+    #[pg_test]
     fn null_keys_take_the_column_sentinel() {
         let text = PdbAggFieldRef {
             field_type: SearchFieldType::Text(pg_sys::TEXTOID),

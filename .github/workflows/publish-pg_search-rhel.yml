@@ -1,9 +1,7 @@
 # workflows/publish-pg_search-rhel.yml
 #
 # Publish pg_search (Red Hat)
-# Build and publish the pg_search extension as .rpm to GitHub Releases. This
-# workflow is triggered on creation of a GitHub Tag, but beta releases get filtered
-# out by the `if` condition of the job.
+# Build and publish the pg_search extension as signed .rpm packages to GitHub Releases.
 
 name: Publish pg_search (Red Hat)
 
@@ -14,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        description: "The existing GitHub Release version to upload to, without the v prefix (e.g. 0.25.9). Builds the selected branch or tag."
         required: true
         default: ""
 
@@ -39,6 +37,7 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
     container:
       image: ${{ matrix.image }}
     defaults:
@@ -53,8 +52,8 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 15
             arch: x86_64
@@ -62,15 +61,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi9:latest
             pg_version: 15
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 16
             arch: x86_64
@@ -78,15 +77,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi9:latest
             pg_version: 16
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 17
             arch: x86_64
@@ -94,15 +93,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi9:latest
             pg_version: 17
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi9:latest
             pg_version: 18
             arch: x86_64
@@ -110,7 +109,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi9:latest
             pg_version: 18
             arch: aarch64
@@ -118,8 +117,8 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 15
             arch: x86_64
@@ -127,15 +126,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi10:latest
             pg_version: 15
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 16
             arch: x86_64
@@ -143,15 +142,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi10:latest
             pg_version: 16
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 17
             arch: x86_64
@@ -159,15 +158,15 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi10:latest
             pg_version: 17
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_family: c8a+c8i
+            runner_image: ubuntu26-full-x64
             image: redhat/ubi10:latest
             pg_version: 18
             arch: x86_64
@@ -175,7 +174,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu26-full-arm64
             image: redhat/ubi10:latest
             pg_version: 18
             arch: aarch64
@@ -235,16 +234,18 @@ jobs:
           gh --version
 
       - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache: false # Disable cache on publish workflows
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version
+        env:
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          if [ -z "${INPUTS_VERSION}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
               VERSION=${GITHUB_REF#refs/tags/v}
             else
@@ -252,7 +253,7 @@ jobs:
               VERSION="0.0.0"
             fi
           else
-            VERSION=${{ github.event.inputs.version }}
+            VERSION="${INPUTS_VERSION}"
           fi
           echo "GitHub Tag Version: $VERSION"
 
@@ -298,7 +299,9 @@ jobs:
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
-        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        env:
+          STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
+        run: cargo install --locked cargo-pgrx --version "${STEP_PGRX_VERSION}" --debug
 
       - name: Initialize pgrx Environment
         working-directory: pg_search/
@@ -313,6 +316,9 @@ jobs:
           cargo pgrx package --pg-config $PG_CONFIG_PATH
 
       - name: Create .rpm Package
+        env:
+          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          STEP_VERSION_CURRENT_DATE: ${{ steps.version.outputs.current_date }}
         run: |
           echo "Configuring RPM build environment..."
           rpmdev-setuptree
@@ -321,11 +327,11 @@ jobs:
           spec_file=~/rpmbuild/SPECS/pg_search.spec
           cat <<EOF > $spec_file
           Name:           pg_search_${{ matrix.pg_version }}
-          Version:        ${{ steps.version.outputs.tag_version }}
+          Version:        ${STEP_VERSION_TAG_VERSION}
           Release:        1%{?dist}
           Summary:        One Postgres for your application data, full-text search, vector retrieval, and aggregations
           License:        GNU Affero General Public License v3.0
-          URL:            ${{ github.server_url }}/${{ github.repository }}
+          URL:            ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}
 
           BuildRequires:  postgresql${{ matrix.pg_version }}-devel
           BuildRequires:  openblas-devel
@@ -355,7 +361,7 @@ jobs:
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
 
           %changelog
-          * ${{ steps.version.outputs.current_date }} ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
+          * ${STEP_VERSION_CURRENT_DATE} ParadeDB <support@paradedb.com> - ${STEP_VERSION_TAG_VERSION}
           - Latest RPM Release
           * Sat Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
           - Initial RPM Release
@@ -369,7 +375,7 @@ jobs:
           rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.2 # Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the .rpm. Works without GitHub Enterprise;
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.
@@ -383,10 +389,11 @@ jobs:
         id: upload_url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }})
+            "/repos/${GITHUB_REPOSITORY}/releases/tags/v""${STEP_VERSION_TAG_VERSION}")
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')

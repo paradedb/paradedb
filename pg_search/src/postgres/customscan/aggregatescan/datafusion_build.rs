@@ -27,7 +27,7 @@
 use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{CompareOp, FilterExpr};
 use crate::api::operator::expr_contains_search_predicate;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
@@ -46,6 +46,7 @@ use crate::postgres::customscan::pullup::{
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
+    has_leaky_heap_filter,
 };
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::node::NodeExt;
@@ -95,7 +96,7 @@ impl JoinAggSource {
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| match &f.field {
-                WhichFastField::Score | WhichFastField::Junk(_) => None,
+                WhichFastField::Score(_) | WhichFastField::Junk(_) => None,
                 _ => Some(f.field.name()),
             })
     }
@@ -107,8 +108,8 @@ impl JoinAggSource {
 }
 
 /// An index field name resolved to one of the join sources.
-pub struct ResolvedSourceField<'a> {
-    pub source: &'a JoinAggSource,
+pub struct ResolvedSourceField {
+    pub source_rti: pg_sys::Index,
     pub attno: pg_sys::AttrNumber,
     /// The name as the index knows it, without a table qualifier.
     pub field_name: String,
@@ -116,15 +117,44 @@ pub struct ResolvedSourceField<'a> {
     pub is_array: bool,
 }
 
+/// What field resolution reads of a join source, so the aggregate scan's and
+/// JoinScan's sources resolve through the same code.
+#[derive(Clone)]
+pub struct ResolutionSource<'a> {
+    rti: pg_sys::Index,
+    alias: &'a Option<String>,
+    bm25_index: Option<PgSearchRelation>,
+}
+
+impl<'a> From<&'a JoinAggSource> for ResolutionSource<'a> {
+    fn from(value: &'a JoinAggSource) -> Self {
+        Self {
+            rti: value.rti,
+            alias: &value.alias,
+            bm25_index: value.bm25_index.clone(),
+        }
+    }
+}
+
+impl<'a> From<&'a JoinSource> for ResolutionSource<'a> {
+    fn from(value: &'a JoinSource) -> Self {
+        Self {
+            rti: value.scan_info.heap_rti,
+            alias: &value.scan_info.alias,
+            bm25_index: Some(PgSearchRelation::open(value.scan_info.indexrelid)),
+        }
+    }
+}
+
 /// Resolve an index field name against the join sources.
 ///
 /// A bare name must match exactly one indexed table. `alias.field` picks the
 /// table when the same field name exists in several; the bare lookup runs first
 /// because an index field name can itself contain a dot (a JSON sub-field).
-pub fn resolve_source_field<'a>(
-    sources: &'a [JoinAggSource],
+pub fn resolve_source_field(
+    sources: &[ResolutionSource<'_>],
     field: &str,
-) -> Result<ResolvedSourceField<'a>, String> {
+) -> Result<ResolvedSourceField, String> {
     let (mut candidates, mut reasons) = source_field_candidates(sources, field);
     let mut field_name = field.to_string();
     if candidates.is_empty()
@@ -150,7 +180,7 @@ pub fn resolve_source_field<'a>(
         1 => {
             let (source, resolved) = candidates.remove(0);
             Ok(ResolvedSourceField {
-                source,
+                source_rti: source.rti,
                 attno: resolved.attno,
                 field_name,
                 field_type: resolved.field_type,
@@ -165,10 +195,13 @@ pub fn resolve_source_field<'a>(
 }
 
 /// The sources that carry `field`, and the reasons the others turned it down.
-fn source_field_candidates<'a>(
-    sources: &'a [JoinAggSource],
+fn source_field_candidates<'a, 'b>(
+    sources: &'b [ResolutionSource<'a>],
     field: &str,
-) -> (Vec<(&'a JoinAggSource, ResolvedIndexField)>, Vec<String>) {
+) -> (
+    Vec<(&'b ResolutionSource<'a>, ResolvedIndexField)>,
+    Vec<String>,
+) {
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {
@@ -196,12 +229,8 @@ unsafe fn collect_source_fields(
     let Some(bm25) = bm25_index else {
         return Vec::new();
     };
-    let Ok(schema) = bm25.schema() else {
-        return Vec::new();
-    };
     let heaprel = PgSearchRelation::open(relid);
     let tupdesc = heaprel.tuple_desc();
-    let categorized = schema.categorized_fields();
     let mut fields = Vec::new();
     for attno in 1..=tupdesc.len() {
         if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, bm25) {
@@ -211,15 +240,16 @@ unsafe fn collect_source_fields(
             });
         } else {
             let att = tupdesc.get(attno - 1).unwrap();
-            let col_name = att.name();
-            if let Some(search_field) = schema.search_field(col_name)
-                && search_field.is_fast()
-                && let Some((_, data)) = categorized.iter().find(|(sf, _)| sf == &search_field)
-                && data.is_array
+            if let Some(
+                field @ WhichFastField::Named {
+                    cardinality: FieldCardinality::List,
+                    ..
+                },
+            ) = resolve_fast_field_by_name(att.name(), bm25)
             {
                 fields.push(FieldInfo {
                     attno: attno as pg_sys::AttrNumber,
-                    field: WhichFastField::Array(col_name.to_string(), search_field.field_type()),
+                    field,
                 });
             }
         }
@@ -584,6 +614,19 @@ unsafe fn build_scan_node(
                 return Err("query does not imply the partial index predicate".into());
             }
             classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
+
+            // SECURITY: nothing runs above this scan, so a leaky filter would run before RLS.
+            if has_leaky_heap_filter(root, rel, rti, bm25_index, &classified.search_ri) {
+                pgrx::debug1!(
+                    "agg-on-join: declining RTI {} ({}); a WHERE predicate must be \
+                     evaluated after row-level security policies",
+                    rti,
+                    source.alias.as_deref().unwrap_or("unknown"),
+                );
+                return Err(
+                    "a WHERE predicate must be evaluated after row-level security policies".into(),
+                );
+            }
         }
     }
 
@@ -1529,8 +1572,8 @@ impl FilterExpr {
                         .targetlist()
                         .group_columns
                         .iter()
-                        .find(|gc| gc.plan_position == pp && gc.attno == attno)
-                        .map(|gc| Self::GroupRef(gc.field_name.clone())),
+                        .position(|gc| gc.plan_position == pp && gc.attno == attno)
+                        .map(Self::GroupRef),
                 }
             }
             pg_sys::NodeTag::T_Const => {

@@ -310,6 +310,8 @@ mod tests {
         struct CallDuringDrop {
             writer: SegmentComponentWriter,
         }
+        // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the test needs this body
+        // to run while unwinding.
         impl Drop for CallDuringDrop {
             fn drop(&mut self) {
                 if !std::thread::panicking() {

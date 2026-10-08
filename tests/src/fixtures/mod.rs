@@ -18,6 +18,7 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+pub mod backend;
 pub mod db;
 pub mod fault_grace;
 pub mod querygen;
@@ -29,6 +30,7 @@ use rstest::*;
 use sqlx::{self, PgConnection};
 use std::sync::Once;
 
+pub use crate::fixtures::backend::*;
 pub use crate::fixtures::db::*;
 pub use crate::fixtures::tables::*;
 
@@ -44,7 +46,7 @@ pub fn database() -> Db {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .try_init();
     ensure_dst_init();
-    block_on(async { Db::new().await })
+    block_on(Box::pin(Db::new()))
 }
 
 /// Render a database error the way `sqlx::Error`'s `Display` did before 0.9.

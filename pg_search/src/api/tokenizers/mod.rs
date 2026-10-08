@@ -27,7 +27,6 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 use pgrx::{FromDatum, IntoDatum, pg_sys};
 use std::marker::PhantomData;
 use tokenizers::SearchTokenizer;
-use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 
 pub(crate) mod definitions;
@@ -36,8 +35,8 @@ mod typmod;
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
 pub use crate::api::tokenizers::typmod::{
-    AliasTypmod, EdgeNgramTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod,
-    RegexTypmod, Typmod, UncheckedTypmod, UnicodeWordsTypmod,
+    AliasTypmod, ChineseCompatibleTypmod, EdgeNgramTypmod, GenericTypmod, JiebaTypmod,
+    LinderaTypmod, NgramTypmod, RegexTypmod, Typmod, UncheckedTypmod, UnicodeWordsTypmod,
 };
 
 // if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
@@ -72,9 +71,13 @@ pub fn type_can_be_tokenized(oid: pg_sys::Oid) -> bool {
 #[inline]
 pub fn try_get_alias(oid: pg_sys::Oid, typmod: Typmod) -> Option<String> {
     if type_is_alias(oid) {
-        AliasTypmod::try_from(typmod).ok()?.alias()
+        AliasTypmod::try_from(typmod)
+            .unwrap_or_else(|e| e.report())
+            .alias()
     } else if type_is_tokenizer(oid) {
-        UncheckedTypmod::try_from(typmod).ok()?.alias()
+        UncheckedTypmod::try_from(typmod)
+            .unwrap_or_else(|e| e.report())
+            .alias()
     } else {
         None
     }
@@ -114,9 +117,10 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
         "literal_normalized" => {
             SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default())
         }
-        "chinese_compatible" => {
-            SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default())
-        }
+        "chinese_compatible" => SearchTokenizer::ChineseCompatible {
+            chinese_convert: None,
+            filters: SearchTokenizerFilters::default(),
+        },
         "regex_pattern" => SearchTokenizer::RegexTokenizer {
             pattern: "".to_string(),
             filters: Default::default(),
@@ -199,7 +203,8 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
-        SearchTokenizer::RegexTokenizer { pattern, filters } => {
+        SearchTokenizer::RegexTokenizer { pattern, filters }
+        | SearchTokenizer::RegexTokenizerDeprecated { pattern, filters } => {
             if let Some(Ok(r)) = parsed.try_get("pattern", 0).and_then(|p| p.as_regex()) {
                 *pattern = r.as_str().to_string();
             }
@@ -245,21 +250,7 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             if let Some(v) = parsed.get("search_mode").and_then(|p| p.as_bool()) {
                 *search_mode = v;
             }
-            *chinese_convert = parsed
-                .get("chinese_convert")
-                .and_then(|p| p.as_str())
-                .map(|s| {
-                    let lcase = s.to_lowercase();
-                    match lcase.as_str() {
-                        "t2s" => ConvertMode::T2S,
-                        "s2t" => ConvertMode::S2T,
-                        "tw2s" => ConvertMode::TW2S,
-                        "tw2sp" => ConvertMode::TW2SP,
-                        "s2tw" => ConvertMode::S2TW,
-                        "s2twp" => ConvertMode::S2TWP,
-                        other => panic!("unknown chinese convert mode: {other}"),
-                    }
-                });
+            *chinese_convert = typmod::parse_chinese_convert(parsed);
             *filters = SearchTokenizerFilters::from(parsed);
         }
         SearchTokenizer::UnicodeWords {
@@ -275,11 +266,17 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
+        SearchTokenizer::ChineseCompatible {
+            chinese_convert,
+            filters,
+        } => {
+            *chinese_convert = typmod::parse_chinese_convert(parsed);
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
         SearchTokenizer::ICUTokenizer(filters)
         | SearchTokenizer::Simple(filters)
         | SearchTokenizer::WhiteSpace(filters)
         | SearchTokenizer::SourceCode(filters)
-        | SearchTokenizer::ChineseCompatible(filters)
         | SearchTokenizer::LiteralNormalized(filters) => {
             *filters = SearchTokenizerFilters::from(parsed);
         }
@@ -318,9 +315,13 @@ pub fn search_field_config_from_type(
 
     let normalizer = tokenizer.normalizer().unwrap_or_default();
 
-    let parsed_typmod = typmod::load_typmod(typmod).unwrap_or_default();
+    let parsed_typmod = typmod::load_typmod(typmod).unwrap_or_else(|e| e.report());
 
     let parsed_fieldnorms = parsed_typmod.get("fieldnorms").and_then(|p| p.as_bool());
+    let pnorms = parsed_typmod
+        .get("pnorms")
+        .and_then(|p| p.as_bool())
+        .unwrap_or(false);
     // columnar=true/false is our renaming of Tantivy's `fast` option
     // fast is default to true for any field that's not text or JSON
     // if it is text or JSON, it also default to true for literal and literal_normalized
@@ -355,6 +356,7 @@ pub fn search_field_config_from_type(
     let b = parsed_typmod.get("b").and_then(|p| p.as_f32());
 
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
+        assert!(!pnorms, "pnorms=true is only supported for text fields");
         Some(SearchFieldConfig::Json {
             indexed: true,
             fast,
@@ -373,6 +375,7 @@ pub fn search_field_config_from_type(
             indexed: true,
             fast,
             fieldnorms,
+            pnorms,
             tokenizer,
             search_tokenizer,
             record,
@@ -393,9 +396,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             positions,
             filters,
         } => {
-            let ngram_typmod = NgramTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let ngram_typmod = NgramTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *min_gram = ngram_typmod.min_gram;
             *max_gram = ngram_typmod.max_gram;
             *prefix_only = ngram_typmod.prefix_only;
@@ -408,26 +409,22 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             token_chars,
             filters,
         } => {
-            let edge_ngram_typmod = EdgeNgramTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let edge_ngram_typmod =
+                EdgeNgramTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *min_gram = edge_ngram_typmod.min_gram;
             *max_gram = edge_ngram_typmod.max_gram;
             *token_chars = edge_ngram_typmod.token_chars;
             *filters = edge_ngram_typmod.filters;
         }
-        SearchTokenizer::RegexTokenizer { pattern, filters } => {
-            let regex_typmod = RegexTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+        SearchTokenizer::RegexTokenizer { pattern, filters }
+        | SearchTokenizer::RegexTokenizerDeprecated { pattern, filters } => {
+            let regex_typmod = RegexTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *pattern = regex_typmod.pattern.to_string();
             *filters = regex_typmod.filters;
         }
 
         SearchTokenizer::LinderaDeprecated(style, filters) => {
-            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *style = lindera_typmod.language;
             *filters = lindera_typmod.filters;
         }
@@ -438,9 +435,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             nfkc,
             reading_form,
         } => {
-            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *language = lindera_typmod.language;
             *filters = lindera_typmod.filters;
             *keep_whitespace = lindera_typmod.keep_whitespace;
@@ -460,9 +455,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             filters,
             keep_whitespace,
         } => {
-            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *filters = lindera_typmod.filters;
             *keep_whitespace = lindera_typmod.keep_whitespace;
         }
@@ -473,15 +466,24 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::Simple(filters)
         | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)
-        | SearchTokenizer::ChineseCompatible(filters)
         | SearchTokenizer::ChineseLinderaDeprecated(filters)
         | SearchTokenizer::JapaneseLinderaDeprecated(filters)
         | SearchTokenizer::KoreanLinderaDeprecated(filters) => {
             // | SearchTokenizer::Jieba(filters) =>  {
-            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *filters = generic_typmod.filters;
+        }
+
+        SearchTokenizer::ChineseCompatible {
+            chinese_convert,
+            filters,
+        } => {
+            let chinese_compatible_typmod = ChineseCompatibleTypmod::try_from(typmod)
+                .unwrap_or_else(|e| {
+                    panic!("{}", e);
+                });
+            *filters = chinese_compatible_typmod.filters;
+            *chinese_convert = chinese_compatible_typmod.chinese_convert;
         }
 
         SearchTokenizer::Jieba {
@@ -489,18 +491,14 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             search_mode,
             filters,
         } => {
-            let jieba_typmod = JiebaTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let jieba_typmod = JiebaTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *filters = jieba_typmod.filters;
             *chinese_convert = jieba_typmod.chinese_convert;
             *search_mode = jieba_typmod.search_mode;
         }
 
         SearchTokenizer::ICUTokenizer(filters) => {
-            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *filters = generic_typmod.filters;
         }
 
@@ -512,9 +510,8 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             remove_emojis,
             filters,
         } => {
-            let unicode_typmod = UnicodeWordsTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
+            let unicode_typmod =
+                UnicodeWordsTypmod::try_from(typmod).unwrap_or_else(|e| e.report());
             *remove_emojis = unicode_typmod.remove_emojis;
             *filters = unicode_typmod.filters;
         }

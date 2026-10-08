@@ -511,6 +511,21 @@ fn assert_pdb_aggs_in_topk_agg(plan: &str, distinct_specs: usize) {
             "categories": {"terms": {"field": "category"}}
         }}"#
 )]
+// A key repeats across sibling nodes rather than on one path: both read the
+// same level.
+#[case::sibling_terms_on_one_field(
+    r#"{"terms": {"field": "category"},
+        "aggs": {
+            "top_reviewers": {"terms": {"field": "reviewer", "size": 2}},
+            "all_reviewers": {"terms": {"field": "reviewer", "order": {"_key": "asc"}}}
+        }}"#
+)]
+// The same field on one path under another `missing` is another key, so each
+// outer bucket holds one inner bucket and the NULL rows take both literals.
+#[case::repeated_field_with_different_missing(
+    r#"{"terms": {"field": "category", "missing": "outer"},
+        "aggs": {"again": {"terms": {"field": "category", "missing": "inner"}}}}"#
+)]
 fn pdb_agg_window_matches_aggregate_scan(mut conn: PgConnection, #[case] spec: &str) {
     setup_pdb_agg(&mut conn);
 
@@ -695,6 +710,9 @@ fn pdb_agg_window_query_shapes(mut conn: PgConnection, #[case] shape: PdbAggShap
     r#"pdb.agg('{"terms": {"field": "category"},
                 "aggs": {"x": {"terms": {"field": "reviewer"},
                                "aggs": {"y": {"terms": {"field": "category"}}}}}}')"#
+)]
+#[case::terms_field_repeats_qualified(
+    r#"pdb.agg('{"terms": {"field": "category"}, "aggs": {"x": {"terms": {"field": "p.category"}}}}')"#
 )]
 #[case::ambiguous_field(r#"pdb.agg('{"max": {"field": "id"}}')"#)]
 #[case::visibility(r#"pdb.agg('{"avg": {"field": "score"}}', 'raw')"#)]

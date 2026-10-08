@@ -491,6 +491,24 @@ SELECT pdb.agg('{"sum": {"field": "p.price_num"}}')
 FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.id
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
+-- Test 4.8: a terms key repeated on one path does not lower. ORDER BY an
+-- aggregate with LIMIT would otherwise route to DataFusion for its Top-K; the
+-- query stays on Tantivy, which returns the nested buckets
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*), pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"again": {"terms": {"field": "brand"}}}}')
+FROM pa_products
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 2;
+
+SELECT category, COUNT(*), pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"again": {"terms": {"field": "brand"}}}}')
+FROM pa_products
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 2;
+
 -- =====================================================================
 -- SECTION 5: MPP
 -- =====================================================================

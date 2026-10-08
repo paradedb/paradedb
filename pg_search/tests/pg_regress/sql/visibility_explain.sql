@@ -42,7 +42,7 @@ BEGIN
     ASSERT NOT (plan #> '{0,Plan}') ? 'Parallelism';
     FOR workers, worker_limit, leader, setup_cost, include_doc_count IN
         SELECT * FROM (VALUES (0), (4)) w(n), (VALUES (1), (4)) cap(n),
-            (VALUES (false), (true)) l(participates), (VALUES (0::float8), (1e9)) c(setup),
+            (VALUES (false), (true)) l(participates), (VALUES (0::float8), (50), (1e9)) c(setup),
             (VALUES (false), (true)) d(include_doc_count)
     LOOP
         PERFORM set_config('paradedb.add_doc_count_to_aggs', include_doc_count::text, true);
@@ -76,7 +76,7 @@ BEGIN
                     IF requested > 0 THEN
                         divisor := requested + leader::int;
                         ASSERT abs((parallelism ->> 'Parallel Threshold')::float8 -
-                            (setup_cost + requested * 0.1) / (1 - 1 / divisor)) < 0.01;
+                            50 * (setup_cost + requested * 0.1) / (1 - 1 / divisor)) < 0.01;
                     END IF;
                 ELSE
                     ASSERT NOT leader AND worker_limit = 1 AND requested = 0;

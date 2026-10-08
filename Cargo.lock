@@ -5113,8 +5113,7 @@ dependencies = [
  "serde_path_to_error",
  "stable_deref_trait",
  "strum 0.28.0",
- "superkmeans-rs 0.1.0",
- "superkmeans-rs 0.2.0",
+ "superkmeans-rs",
  "tantivy",
  "tantivy-fst",
  "thiserror 2.0.19",
@@ -7057,19 +7056,6 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "superkmeans-rs"
-version = "0.1.0"
-source = "git+https://github.com/paradedb/superkmeans-rs?rev=b89e83196143acd518f1d8212ec1f53474e936d4#b89e83196143acd518f1d8212ec1f53474e936d4"
-dependencies = [
- "matrixmultiply",
- "pkg-config",
- "rand 0.8.7",
- "rand_chacha 0.3.1",
- "rand_distr",
- "rayon",
-]
-
-[[package]]
-name = "superkmeans-rs"
 version = "0.2.0"
 source = "git+https://github.com/paradedb/superkmeans-rs?rev=c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64#c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64"
 dependencies = [
@@ -7199,7 +7185,7 @@ dependencies = [
  "serde_json",
  "sketches-ddsketch 0.4.1",
  "smallvec",
- "superkmeans-rs 0.2.0",
+ "superkmeans-rs",
  "tantivy-bitpacker",
  "tantivy-columnar",
  "tantivy-common",

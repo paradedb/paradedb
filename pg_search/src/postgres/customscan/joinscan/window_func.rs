@@ -17,6 +17,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{MvccVisibility, is_agg_funcoid};
+use crate::postgres::customscan::aggregatescan::datafusion_exec::{
+    self, numeric_avg_func_with_args, numeric_sum_func_with_args,
+};
 use crate::postgres::customscan::joinscan::scan_state::{
     null_if_source_exists, resolve_var_to_df_col,
 };
@@ -24,7 +27,7 @@ use crate::schema::SearchFieldType;
 use datafusion::common::internal_datafusion_err;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::expr::WindowFunction;
-use datafusion::logical_expr::{Expr, Literal, WindowFunctionDefinition};
+use datafusion::logical_expr::{Expr, WindowFunctionDefinition};
 use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
@@ -80,7 +83,6 @@ impl SqlWindowAggDef {
     }
 
     pub fn as_window_expr(&self, join_clause: &JoinCSClause) -> Result<Expr> {
-        use crate::customscan::datafusion::numeric_agg;
         use datafusion::functions_aggregate::{average, count, min_max, sum};
 
         let col_expr = match self.col_info() {
@@ -123,22 +125,15 @@ impl SqlWindowAggDef {
             SupportedWindowAggType::Sum => {
                 let ce = col_expr.expect("should always have a column expression for SUM");
                 match numeric_field {
-                    None => Ok(Expr::from(WindowFunction::new(
-                        WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
-                        vec![ce],
-                    ))),
-                    Some(SearchFieldType::Numeric64(_, scale)) => {
+                    Some(field_type) => {
+                        let (udaf, args) = numeric_sum_func_with_args(ce, field_type);
                         Ok(Expr::from(WindowFunction::new(
-                            WindowFunctionDefinition::AggregateUDF(
-                                numeric_agg::numeric64_sum_udaf(),
-                            ),
-                            vec![ce, scale.lit()],
+                            WindowFunctionDefinition::AggregateUDF(udaf),
+                            args,
                         )))
                     }
-                    Some(_) => Ok(Expr::from(WindowFunction::new(
-                        WindowFunctionDefinition::AggregateUDF(
-                            numeric_agg::numeric_bytes_sum_udaf(),
-                        ),
+                    None => Ok(Expr::from(WindowFunction::new(
+                        WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
                         vec![ce],
                     ))),
                 }
@@ -150,20 +145,13 @@ impl SqlWindowAggDef {
                         WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
                         vec![ce],
                     ))),
-                    Some(SearchFieldType::Numeric64(_, scale)) => {
+                    Some(field_type) => {
+                        let (udaf, args) = numeric_avg_func_with_args(ce, field_type);
                         Ok(Expr::from(WindowFunction::new(
-                            WindowFunctionDefinition::AggregateUDF(
-                                numeric_agg::numeric64_avg_udaf(),
-                            ),
-                            vec![ce, scale.lit()],
+                            WindowFunctionDefinition::AggregateUDF(udaf),
+                            args,
                         )))
                     }
-                    Some(_) => Ok(Expr::from(WindowFunction::new(
-                        WindowFunctionDefinition::AggregateUDF(
-                            numeric_agg::numeric_bytes_avg_udaf(),
-                        ),
-                        vec![ce],
-                    ))),
                 }
             }
             SupportedWindowAggType::Min => Ok(Expr::from(WindowFunction::new(
@@ -183,7 +171,6 @@ impl SqlWindowAggDef {
     }
 
     pub fn as_aggregate_expr(&self, join_clause: &JoinCSClause) -> Result<Expr> {
-        use crate::customscan::datafusion::numeric_agg;
         use datafusion::functions_aggregate::{average, count, min_max, sum};
 
         let col_expr = match self.col_info() {
@@ -227,20 +214,14 @@ impl SqlWindowAggDef {
                 let ce = col_expr.expect("should always have a column expression for SUM");
                 match numeric_field {
                     None => Ok(sum::sum_udaf().call(vec![ce])),
-                    Some(SearchFieldType::Numeric64(_, scale)) => {
-                        Ok(numeric_agg::numeric64_sum_udaf().call(vec![ce, scale.lit()]))
-                    }
-                    Some(_) => Ok(numeric_agg::numeric_bytes_sum_udaf().call(vec![ce])),
+                    Some(field_type) => Ok(datafusion_exec::numeric_sum(ce, field_type)),
                 }
             }
             SupportedWindowAggType::Avg => {
                 let ce = col_expr.expect("should always have a column expression for AVG");
                 match numeric_field {
                     None => Ok(average::avg_udaf().call(vec![ce])),
-                    Some(SearchFieldType::Numeric64(_, scale)) => {
-                        Ok(numeric_agg::numeric64_avg_udaf().call(vec![ce, scale.lit()]))
-                    }
-                    Some(_) => Ok(numeric_agg::numeric_bytes_avg_udaf().call(vec![ce])),
+                    Some(field_type) => Ok(datafusion_exec::numeric_avg(ce, field_type)),
                 }
             }
             SupportedWindowAggType::Min => Ok(min_max::min_udaf().call(vec![

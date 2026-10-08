@@ -2064,6 +2064,100 @@ EXECUTE window_join_param_limit(3);
 
 DEALLOCATE window_join_param_limit;
 RESET plan_cache_mode;
+-- Test 27g: DISTINCT with SQL window aggregates over a JOIN. The DISTINCT
+-- folds into the Top-K aggregate (distinct_topk_as_agg), and the window
+-- aggregates sit beside it in the same node. The window frame is the join
+-- before DISTINCT: product 1 has two reviews, so the count is 4 while DISTINCT
+-- leaves three ids. An entry that is a function of a window aggregate stays
+-- out of the distinct key and is computed after the aggregate.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) OVER () + 1 AS total_plus_one
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, (pdb.window_agg('count(*) OVER ()'::text)), ((pdb.window_agg('count(*) OVER ()'::text) + 1))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 2
+   Distinct: true
+   Order By: p.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, window_agg_1@1 as col_2, window_agg_1@1 + 1 as col_3, get_field(__topk@0, c1) as ctid_0]
+     :   GlobalLimitExec: skip=0, fetch=2
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(DISTINCT col_1, p_0.ctid_0, 2, [1]) ORDER BY [col_1 DESC NULLS FIRST] as __topk, count(1) as window_agg_1]
+     :         VisibilityFilterExec: tables=[p, r], pruned=[r]
+     :           ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[id@1, ctid_0@0, ctid_1@3]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(19 rows)
+
+SELECT DISTINCT
+    p.id,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) OVER () + 1 AS total_plus_one
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+ id | total_count | total_plus_one 
+----+-------------+----------------
+  5 |           4 |              5
+  3 |           4 |              5
+(2 rows)
+
+-- A DISTINCT target list of window aggregates alone leaves no key: every row
+-- is one group, so one row comes back.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 3;
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: (pdb.window_agg('count(*) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Distinct: true
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[window_agg_1@1 as col_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(DISTINCT __distinct, 3, []) as __topk, count(1) as window_agg_1]
+     :         VisibilityFilterExec: tables=[p, r], pruned=[p, r]
+     :           ProjectionExec: expr=[true as __distinct, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[ctid_0@1, ctid_1@3]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT DISTINCT COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 3;
+ total_count 
+-------------
+           4
+(1 row)
+
 -- Test 28: Window function in subquery
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *

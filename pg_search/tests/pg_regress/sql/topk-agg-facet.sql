@@ -1117,6 +1117,48 @@ DEALLOCATE window_join_param_limit;
 
 RESET plan_cache_mode;
 
+-- Test 27g: DISTINCT with SQL window aggregates over a JOIN. The DISTINCT
+-- folds into the Top-K aggregate (distinct_topk_as_agg), and the window
+-- aggregates sit beside it in the same node. The window frame is the join
+-- before DISTINCT: product 1 has two reviews, so the count is 4 while DISTINCT
+-- leaves three ids. An entry that is a function of a window aggregate stays
+-- out of the distinct key and is computed after the aggregate.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) OVER () + 1 AS total_plus_one
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+SELECT DISTINCT
+    p.id,
+    COUNT(*) OVER () AS total_count,
+    COUNT(*) OVER () + 1 AS total_plus_one
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY p.id DESC
+LIMIT 2;
+
+-- A DISTINCT target list of window aggregates alone leaves no key: every row
+-- is one group, so one row comes back.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 3;
+
+SELECT DISTINCT COUNT(*) OVER () AS total_count
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+LIMIT 3;
+
 -- Test 28: Window function in subquery
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *

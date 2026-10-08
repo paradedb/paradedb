@@ -60,7 +60,6 @@ repos:
     rev: v3.8.1
     hooks:
       - id: prettier
-        additional_dependencies: ["prettier@3.9.9"]
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.49.1

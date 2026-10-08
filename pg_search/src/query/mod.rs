@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod builder;
+pub(crate) mod estimate;
 pub mod estimate_tree;
 pub mod heap_field_filter;
 mod more_like_this;
@@ -378,6 +379,49 @@ impl SearchQueryInput {
                 expr_state: PostgresPointer::default(),
                 expr_desc,
             },
+        }
+    }
+
+    pub(crate) fn supports_statistics_estimation(&self) -> bool {
+        // Check the input too: parsed queries can compile to terms but must use the old estimator.
+        match self {
+            Self::All => true,
+            Self::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => must
+                .iter()
+                .chain(should)
+                .chain(must_not)
+                .all(Self::supports_statistics_estimation),
+            Self::WithIndex { query, .. }
+            | Self::ConstScore { query, .. }
+            | Self::Boost { query, .. } => query.supports_statistics_estimation(),
+            Self::FieldedQuery { query, .. } => {
+                let mut query = query;
+                while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                    query = inner;
+                }
+                matches!(
+                    query,
+                    pdb::Query::All
+                        | pdb::Query::Term { .. }
+                        | pdb::Query::Match {
+                            distance: None | Some(0),
+                            ..
+                        }
+                        | pdb::Query::MatchArray {
+                            distance: None | Some(0),
+                            ..
+                        }
+                        | pdb::Query::Phrase { .. }
+                        | pdb::Query::PhraseArray { .. }
+                        | pdb::Query::TokenizedPhrase { .. }
+                )
+            }
+            _ => false,
         }
     }
 
@@ -1043,9 +1087,7 @@ fn check_range_bounds(
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Excluded(PdbOwnedValue::Date(date)),
-        ) => Bound::Included(PdbOwnedValue::Date(
-            date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
-        )),
+        ) => shift_date_bound(date, Bound::Excluded, Bound::Included)?,
         // String date needs parsed
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
@@ -1062,9 +1104,7 @@ fn check_range_bounds(
         ) => {
             let date = PostgresDateTime::try_from_date_str(s.as_str())
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-            Bound::Included(PdbOwnedValue::Date(
-                date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
-            ))
+            shift_date_bound(date, Bound::Excluded, Bound::Included)?
         }
         // String timestamp needs to be parsed
         (
@@ -1105,9 +1145,7 @@ fn check_range_bounds(
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Included(PdbOwnedValue::Date(date)),
-        ) => Bound::Excluded(PdbOwnedValue::Date(
-            date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
-        )),
+        ) => shift_date_bound(date, Bound::Included, Bound::Excluded)?,
         // String date needs parsed and Included Date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
@@ -1115,9 +1153,7 @@ fn check_range_bounds(
         ) => {
             let date = PostgresDateTime::try_from_date_str(s.as_str())
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-            Bound::Excluded(PdbOwnedValue::Date(
-                date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
-            ))
+            shift_date_bound(date, Bound::Included, Bound::Excluded)?
         }
         // String date needs parsed
         (
@@ -1158,6 +1194,20 @@ fn check_range_bounds(
         _ => upper_bound,
     };
     Ok((lower_bound, upper_bound))
+}
+
+/// Canonicalizes an excluded lower or an included upper `date` bound into the opposite kind of
+/// bound one day later. `infinity` and `-infinity` have no next day, so their bound keeps its kind.
+fn shift_date_bound(
+    date: PostgresDateTime,
+    unshifted: fn(PdbOwnedValue) -> Bound<PdbOwnedValue>,
+    shifted: fn(PdbOwnedValue) -> Bound<PdbOwnedValue>,
+) -> Result<Bound<PdbOwnedValue>, QueryError> {
+    if date.is_infinity() || date.is_neg_infinity() {
+        return Ok(unshifted(PdbOwnedValue::Date(date)));
+    }
+    let next_day = date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    Ok(shifted(PdbOwnedValue::Date(next_day)))
 }
 
 /// Convert numeric values in NUMRANGEOID bounds to hex-encoded sortable bytes.

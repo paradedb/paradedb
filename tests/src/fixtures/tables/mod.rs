@@ -15,6 +15,47 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+// Collect fixture rows into columns for concise query-result assertions.
+macro_rules! fixture_table {
+    ($(#[$attr:meta])* pub struct $row:ident => $columns:ident {
+        pub $first:ident: $first_ty:ty,
+        $(pub $field:ident: $ty:ty,)*
+    }) => {
+        $(#[$attr])*
+        pub struct $row {
+            pub $first: $first_ty,
+            $(pub $field: $ty,)*
+        }
+
+        #[derive(Debug, Default, PartialEq)]
+        pub struct $columns {
+            pub $first: Vec<$first_ty>,
+            $(pub $field: Vec<$ty>,)*
+        }
+
+        impl FromIterator<$row> for $columns {
+            fn from_iter<I: IntoIterator<Item = $row>>(rows: I) -> Self {
+                let mut columns = Self::default();
+                for row in rows {
+                    columns.$first.push(row.$first);
+                    $(columns.$field.push(row.$field);)*
+                }
+                columns
+            }
+        }
+
+        impl $columns {
+            pub fn len(&self) -> usize {
+                self.$first.len()
+            }
+
+            pub fn is_empty(&self) -> bool {
+                self.$first.is_empty()
+            }
+        }
+    };
+}
+
 mod deliveries;
 mod icu_amharic_posts;
 mod icu_arabic_posts;
@@ -30,3 +71,37 @@ pub use icu_czech_posts::*;
 pub use icu_greek_posts::*;
 pub use partitioned::*;
 pub use simple_products::*;
+
+#[cfg(test)]
+mod tests {
+    use super::{SimpleProductsTable, SimpleProductsTableVec};
+
+    #[test]
+    fn fixture_columns_preserve_row_order() {
+        let columns: SimpleProductsTableVec = [
+            SimpleProductsTable {
+                id: 2,
+                description: "second".into(),
+                ..Default::default()
+            },
+            SimpleProductsTable {
+                id: 1,
+                description: "first".into(),
+                ..Default::default()
+            },
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(columns.id, vec![2, 1]);
+        assert_eq!(columns.description, vec!["second", "first"]);
+        assert_eq!(columns.category.len(), 2);
+        assert_eq!(columns.len(), 2);
+        assert!(!columns.is_empty());
+
+        let empty: SimpleProductsTableVec = std::iter::empty().collect();
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
+        assert!(empty.description.is_empty());
+    }
+}

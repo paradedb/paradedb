@@ -32,7 +32,7 @@ use super::predicate::{
     all_vars_are_fast_fields_recursive, find_base_info_recursive, resolve_join_conditions,
 };
 use super::privdat::{OutputColumnInfo, PrivateData};
-use super::window_func::{WindowAgg, WindowAggId, extract_window_agg};
+use super::window_func::{WindowAgg, WindowAggDef, WindowAggId, extract_window_agg};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::node::NodeExt;
@@ -1719,8 +1719,33 @@ pub(super) unsafe fn collect_required_fields(
     // (ChildProjection::WindowAgg) or embedded in an expression, where its
     // sentinel input never appears in the projection's `input_vars`.
     for window_agg in join_clause.window_aggs.iter() {
-        if let Some(ci) = &window_agg.col_info {
-            ensure_column_in_all_sources(&mut plan_sources, ci.rti, ci.attno);
+        match &window_agg.agg_def {
+            WindowAggDef::Sql(sql) => {
+                if let Some(ci) = sql.col_info() {
+                    ensure_column_in_all_sources(&mut plan_sources, ci.rti, ci.attno);
+                }
+            }
+            // `pdb.agg()` names index fields, which can be aliases of a column
+            // or JSON sub-fields, so they register by name, as in the
+            // aggregate scan.
+            WindowAggDef::PdbAgg(request) => {
+                for field in request.fields() {
+                    let Some(source) = plan_sources
+                        .iter_mut()
+                        .find(|s| s.plan_position == field.plan_position)
+                    else {
+                        continue;
+                    };
+                    let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+                    match resolve_fast_field_by_name(&field.field_name, &indexrel) {
+                        Some(resolved) => source.scan_info.add_field_by_name(field.attno, resolved),
+                        None => pgrx::warning!(
+                            "JoinScan: pdb.agg field '{}' is not columnar",
+                            field.field_name
+                        ),
+                    }
+                }
+            }
         }
     }
 }

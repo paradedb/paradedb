@@ -21,6 +21,7 @@ pub mod datafusion_build;
 pub mod datafusion_exec;
 pub mod datafusion_project;
 pub mod exec;
+pub mod explain;
 pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
@@ -887,7 +888,14 @@ impl CustomScan for AggregateScan {
             });
         }
 
-        // Add note about recursive cost estimation if GUC is enabled
+        if explainer.is_analyze()
+            && let Some(parallelism) = &state.custom_state().parallelism
+        {
+            explainer.add_group("Parallelism", |explainer| {
+                parallelism.explain(explainer);
+            });
+        }
+
         if gucs::explain_recursive_estimates() && explainer.is_verbose() {
             explainer.add_text(
                 "Recursive Query Estimates",
@@ -2223,7 +2231,8 @@ impl AggregateScan {
                 )
             })
             .collect();
-        let check = mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q)));
+        let check =
+            mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q, None)));
         let resolved = if check {
             MvccVisibility::Transaction
         } else {

@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Join Scan now runs the faceted form `pdb.agg(...) OVER ()` (i.e. `pdb.agg(...)` as a window function) over a join. The document covers every row the join produces, while `ORDER BY ... LIMIT` still picks the rows returned, so a page of search results across tables carries its facets in the same query. The document can also feed other target list expressions, such as `pdb.agg(...) OVER () ->> 'value'`. The spec follows the same rules as `pdb.agg()` over joins; see [Limitations](/reference/aggregates/limitations) for the shapes this path turns down (#6359).

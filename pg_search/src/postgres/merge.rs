@@ -300,7 +300,12 @@ pub unsafe fn do_merge(
     // apply backpressure if there are too many mutable segments
     // this means forcing a foreground merge of the mutable segments
     let need_backpressure = need_backpressure(style, metadata.segment_metas());
-    let cleanup_lock = metadata.cleanup_lock_shared();
+    // Taken conditionally: this runs at the end of an insert, and a VACUUM queued behind a
+    // running background merge must not stall the insert for the rest of that merge. Skipping
+    // the probe only delays the merge decision to the next insert.
+    let Some(cleanup_lock) = metadata.try_cleanup_lock_shared() else {
+        return Ok(());
+    };
     let merge_lock = metadata.acquire_merge_lock();
     let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
 

@@ -86,25 +86,30 @@ async fn background_merge_holds_cleanup_page_lock(database: Db) -> anyhow::Resul
     );
     eprintln!("vacuum timed out behind the merger: {vacuum_waited}");
 
-    // Once every merger is gone the exclusive side is free: VACUUM completes and no page locks
-    // remain on the index.
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let (mergers,): (i64,) = sqlx::query_as(
-            "SELECT count(*) FROM pg_stat_activity WHERE backend_type LIKE 'background merger%'",
-        )
-        .fetch_one(&mut conn)
-        .await?;
-        if mergers == 0 {
-            break;
+    // Once every merger is gone the exclusive side is free and VACUUM completes. VACUUM's own
+    // cleanup may launch a fresh merger, which holds the lock shared while it runs, so wait for
+    // mergers to drain again before checking that nothing is left on the index.
+    async fn wait_for_mergers(conn: &mut sqlx::PgConnection) -> anyhow::Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let (mergers,): (i64,) = sqlx::query_as(
+                "SELECT count(*) FROM pg_stat_activity WHERE backend_type LIKE 'background merger%'",
+            )
+            .fetch_one(&mut *conn)
+            .await?;
+            if mergers == 0 {
+                return Ok(());
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "background mergers never finished"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        anyhow::ensure!(
-            Instant::now() < deadline,
-            "background mergers never finished"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
     }
+    wait_for_mergers(&mut conn).await?;
     vacuum.execute("VACUUM cleanup_page_lock").await?;
+    wait_for_mergers(&mut conn).await?;
     let (remaining,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM pg_locks WHERE locktype = 'page' \
          AND relation = 'cleanup_page_lock_idx'::regclass",

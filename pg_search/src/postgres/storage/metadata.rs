@@ -327,6 +327,18 @@ impl CleanupLock {
             mode,
         }
     }
+
+    unsafe fn try_acquire(
+        rel: &PgSearchRelation,
+        blockno: pg_sys::BlockNumber,
+        mode: pg_sys::LOCKMODE,
+    ) -> Option<Self> {
+        pg_sys::ConditionalLockPage(rel.as_ptr(), blockno, mode).then(|| Self {
+            rel: rel.clone(),
+            blockno,
+            mode,
+        })
+    }
 }
 
 crate::impl_safe_drop!(CleanupLock, |self| {
@@ -360,6 +372,21 @@ impl MetaPage {
     pub fn cleanup_lock_shared(&self) -> CleanupLock {
         unsafe {
             CleanupLock::acquire(
+                self.bman.buffer_access().rel(),
+                self.cleanup_lock_blockno(),
+                pg_sys::ShareLock as pg_sys::LOCKMODE,
+            )
+        }
+    }
+
+    /// The shared lock if it is free right now, else `None`. The lock manager queues a new
+    /// shared request behind a waiting exclusive one, so a caller on the insert path uses this
+    /// to avoid stalling behind a VACUUM that is itself waiting for a running merge; the probe
+    /// it skips simply happens on a later insert. GIN's insert path does the same with
+    /// `ConditionalLockPage`.
+    pub fn try_cleanup_lock_shared(&self) -> Option<CleanupLock> {
+        unsafe {
+            CleanupLock::try_acquire(
                 self.bman.buffer_access().rel(),
                 self.cleanup_lock_blockno(),
                 pg_sys::ShareLock as pg_sys::LOCKMODE,

@@ -31,5 +31,3 @@ Run the tests with:
 ```bash
 cargo test -p schemabot --locked
 ```
-
-The [Test SchemaBot workflow](../.github/workflows/test-schemabot.yml) builds and tests the crate. The [pg_search schema workflow](../.github/workflows/test-pg_search-schema.yml) generates schemas with `cargo pgrx schema` and checks the migration fragments in `pg_search/sql/unreleased/`.

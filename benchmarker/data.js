@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791423869486,
+  "lastUpdate": 1791425053655,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9636,6 +9636,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 20.395,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "69cf2befebec90bdfd5854f63a55bb13d80ee4cd",
+          "message": "fix: publish parallel Base Scan worker telemetry at shutdown (#6540)\n\n# Ticket(s) Closed\n\n- Closes #6404\n\n## What\n\nParallel Base Scan workers report their telemetry in `EXPLAIN ANALYZE`\nagain. Since #6348, every worker showed `query_count: 0` and `Queries`\ncounted only the leader. Workers' per-segment `Segment Info` goes\nthrough the same `publish_telemetry` call, so it was dropped the same\nway.\n\n## Why\n\n#6348 changed `shutdown_custom_scan` to `scan_state.parallel.take() &&\nparallel.is_leader()`. The `take()` runs before the role check, so it\nclears the handle in workers too. A worker's `ExecutorRun` calls\n`ExecShutdownNode` before `ExecutorEnd`, so by the time\n`end_custom_scan` ran, the handle was already `None` and\n`publish_telemetry` never ran.\n\n## How\n\nAs proposed in the issue:\n\n- `shutdown_custom_scan` keeps the `take()`, so a second shutdown is\nstill a no-op (#6374), and now branches on the role: the leader calls\n`finalize_explain`, a worker calls `publish_telemetry`.\n- The worker branch in `end_custom_scan` is removed.\n- Doc comments that said workers publish at `EndCustomScan` now say\n`ShutdownCustomScan`.\n\nIn a worker, `ExecShutdownNode` (end of `ExecutePlan`) runs before\n`dest->rShutdown` detaches the tuple queue (`standard_ExecutorRun`). So\nonce the leader has read every row, each worker has already published by\nthe time the leader's own shutdown reads the DSM.\n\nThe regression is only on `main`. v0.25.10 and v0.26.0-rc.1 don't\ncontain the `take()`, so I did not add a changelog fragment. Happy to\nadd one if you'd like.\n\n## Tests\n\nNew pg_regress test `parallel_worker_telemetry`, with the repro from the\nissue (`parallel_leader_participation = off`, 3 segments, 2 workers). It\nparses `EXPLAIN (ANALYZE, VERBOSE)` and asserts `Workers Launched > 0`\nand `Queries > 0`. The exact EXPLAIN text isn't stable (worker ids,\nsegment claims), so it checks only these two facts:\n\n- `Workers Launched > 0` means a serial plan can't pass by accident.\n- The query uses `LIMIT 100` over 18 rows, so the leader reads every\nrow. With the issue's `LIMIT 5`, the leader can stop early, and its\nshutdown (children before Gather Merge) could read the DSM before a\nworker publishes, which would make the test flaky.\n\nResults (PG 18, rebased on `main` at 4917fb13f):\n\n- [x] Negative control: on `main` without the fix, the test returns\n`workers_launched_gt_0 = t`, `queries_gt_0 = f`, and the plan shows\n`\"query_count\":0` for both workers and `Queries: 0`.\n- [x] With the fix: `t | t`.\n- [x] Flakiness check: ran the test's query 220 times (100 serial + 3\nconcurrent sessions × 40). Workers launched in every run and `Queries`\nwas never 0. The per-worker breakdown over 120 more runs (`LIMIT 100`\nand the issue's `LIMIT 5`) showed every worker that claimed a segment\nreporting `query_count: 1`. `Queries: 1` only appears when one worker\nclaims all 3 segments.\n- [x] Full pg_regress suite: `cargo pgrx regress pg18`, `passed=390\nfailed=0`.\n- [x] `cargo fmt --all --check`\n- [x] `cargo clippy --workspace --all-targets -- -D warnings --no-deps`",
+          "timestamp": "2026-10-07T18:20:42-07:00",
+          "tree_id": "0b8dc4c491372e8100d7631ae8c800494468485b",
+          "url": "https://github.com/paradedb/paradedb/commit/69cf2befebec90bdfd5854f63a55bb13d80ee4cd"
+        },
+        "date": 1791425051074,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.616,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.329,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.63,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 10.234,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 1.99,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.598,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.905,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.535,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 1.665,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.677,
             "unit": "ms"
           }
         ]

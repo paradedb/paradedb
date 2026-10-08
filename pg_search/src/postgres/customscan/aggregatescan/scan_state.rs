@@ -129,7 +129,7 @@ pub struct WrappedAggregateProjection {
 #[derive(Default)]
 pub struct AggregateScanState {
     pub visibility_stats: VisibilityStats,
-    pub parallelism: AggregateParallelism,
+    pub parallelism: Option<AggregateParallelism>,
     pub state: ExecutionState,
     pub indexrelid: pg_sys::Oid,
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,

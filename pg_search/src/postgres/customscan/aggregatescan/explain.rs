@@ -16,30 +16,29 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::Explainer;
+use crate::postgres::customscan::parallel::{ParallelCost, WorkerDecisionReason};
 
 #[derive(Default)]
 pub struct AggregateParallelism {
-    pub executed: bool,
     pub workers_requested: usize,
-    pub workers_used: usize,
-    pub estimated_work: Option<f64>,
-    pub parallel_threshold: Option<f64>,
+    pub workers_launched: usize,
+    pub worker_selection_reason: Option<WorkerDecisionReason>,
+    pub cost: Option<ParallelCost>,
 }
 
 impl AggregateParallelism {
     pub fn explain(&self, explainer: &mut Explainer) {
         explainer.add_unsigned_integer("Workers Requested", self.workers_requested as u64, None);
-        explainer.add_unsigned_integer("Workers Used", self.workers_used as u64, None);
-        if explainer.is_costs() {
-            if let Some(work) = self.estimated_work {
-                explainer.add_float("Estimated Query Work", work, 2, None);
-            }
-            if let Some(threshold) = self.parallel_threshold {
-                if threshold.is_finite() {
-                    explainer.add_float("Parallel Threshold", threshold, 2, None);
-                } else {
-                    explainer.add_text("Parallel Threshold", "infinite");
-                }
+        explainer.add_unsigned_integer("Workers Launched", self.workers_launched as u64, None);
+        if let Some(reason) = self.worker_selection_reason {
+            explainer.add_text("Worker Selection", reason.label());
+        }
+        if explainer.is_costs()
+            && let Some(cost) = &self.cost
+        {
+            explainer.add_float("Estimated Query Work", cost.estimated_work, 2, None);
+            if cost.parallel_threshold.is_finite() {
+                explainer.add_float("Parallel Threshold", cost.parallel_threshold, 2, None);
             }
         }
     }

@@ -19,6 +19,7 @@ DECLARE
     query text := $q$SELECT count(*) FROM visibility_stats_docs WHERE title === 'database'$q$;
     plan jsonb;
     visibility jsonb;
+    parallelism jsonb;
     expected_enabled jsonb;
     expected_totals bigint[];
     skipped bigint;
@@ -26,17 +27,59 @@ DECLARE
     total bigint;
     required bigint;
     workers int;
+    worker_limit int;
+    requested int;
+    launched int;
+    leader boolean;
+    setup_cost float8;
+    divisor float8;
     enabled boolean;
     line text;
     labels text[] := '{}';
 BEGIN
     EXECUTE 'EXPLAIN (FORMAT JSON) ' || query INTO plan;
     ASSERT NOT (plan #> '{0,Plan}') ? 'Visibility';
-    FOREACH workers IN ARRAY ARRAY[0, 2] LOOP
+    ASSERT NOT (plan #> '{0,Plan}') ? 'Parallelism';
+    FOR workers, worker_limit, leader, setup_cost IN
+        SELECT * FROM (VALUES (0), (4)) w(n), (VALUES (1), (4)) cap(n),
+            (VALUES (false), (true)) l(participates), (VALUES (0::float8), (1e9)) c(setup)
+    LOOP
         PERFORM set_config('max_parallel_workers_per_gather', workers::text, true);
+        PERFORM set_config('max_parallel_workers', worker_limit::text, true);
+        PERFORM set_config('parallel_leader_participation', leader::text, true);
+        PERFORM set_config('parallel_setup_cost', setup_cost::text, true);
+        PERFORM set_config('parallel_tuple_cost', '0.1', true);
         FOREACH enabled IN ARRAY ARRAY[false, true] LOOP
             PERFORM set_config('paradedb.enable_visibility_map_shortcuts', enabled::text, true);
             EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) ' || query INTO plan;
+            parallelism := plan #> '{0,Plan,Parallelism}';
+            requested := (parallelism ->> 'Workers Requested')::int;
+            launched := (parallelism ->> 'Workers Launched')::int;
+            ASSERT requested BETWEEN 0 AND least(workers, worker_limit,
+                current_setting('max_worker_processes')::int);
+            ASSERT launched BETWEEN 0 AND requested;
+            IF phase = 'dirty' OR workers = 0 THEN
+                ASSERT parallelism ->> 'Worker Selection' = 'Per-segment';
+                ASSERT NOT parallelism ? 'Estimated Query Work';
+                ASSERT NOT parallelism ? 'Parallel Threshold';
+            ELSE
+                ASSERT parallelism ->> 'Worker Selection' = 'Cost model';
+                ASSERT jsonb_typeof(parallelism -> 'Estimated Query Work') = 'number';
+                IF parallelism ? 'Parallel Threshold' THEN
+                    ASSERT jsonb_typeof(parallelism -> 'Parallel Threshold') = 'number';
+                    ASSERT (requested > 0) =
+                        ((parallelism ->> 'Estimated Query Work')::float8 >
+                         (parallelism ->> 'Parallel Threshold')::float8);
+                    ASSERT (requested > 0) = (setup_cost = 0);
+                    IF requested > 0 THEN
+                        divisor := requested + leader::int;
+                        ASSERT abs((parallelism ->> 'Parallel Threshold')::float8 -
+                            (setup_cost + requested * 0.1) / (1 - 1 / divisor)) < 0.01;
+                    END IF;
+                ELSE
+                    ASSERT NOT leader AND worker_limit = 1 AND requested = 0;
+                END IF;
+            END IF;
             visibility := plan #> '{0,Plan,Visibility}';
             skipped := (visibility ->> 'Segments Skipped')::bigint;
             checked := (visibility ->> 'Segments Checked')::bigint;
@@ -73,7 +116,13 @@ BEGIN
         labels := array_append(labels, split_part(trim(line), ':', 1));
     END LOOP;
     ASSERT labels @> ARRAY['Visibility', 'Segments Skipped', 'Segments Checked',
-                           'Blocks Total', 'Blocks Requiring Checks'];
+                           'Blocks Total', 'Blocks Requiring Checks', 'Parallelism',
+                           'Workers Requested', 'Workers Launched', 'Worker Selection'];
+    EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, FORMAT JSON) ' || query INTO plan;
+    parallelism := plan #> '{0,Plan,Parallelism}';
+    ASSERT parallelism ? 'Worker Selection';
+    ASSERT NOT parallelism ? 'Estimated Query Work';
+    ASSERT NOT parallelism ? 'Parallel Threshold';
 END;
 $$;
 SELECT check_visibility_stats('dirty');

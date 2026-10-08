@@ -24,6 +24,7 @@ use crate::api::version::VersionInfo;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
 };
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
@@ -90,7 +91,7 @@ pub fn aggregation_results_iter(
 
     let mut bitmap_exec = state.custom_state_mut().bitmap_exec.take();
     let mut visibility_stats = std::mem::take(&mut state.custom_state_mut().visibility_stats);
-    let mut parallelism = std::mem::take(&mut state.custom_state_mut().parallelism);
+    let mut parallelism = AggregateParallelism::default();
     let collect_visibility_stats =
         unsafe { !planstate.is_null() && !(*planstate).instrument.is_null() };
     let result: AggregationResults = execute_aggregate(
@@ -110,7 +111,7 @@ pub fn aggregation_results_iter(
     .into();
     state.custom_state_mut().bitmap_exec = bitmap_exec;
     state.custom_state_mut().visibility_stats = visibility_stats;
-    state.custom_state_mut().parallelism = parallelism;
+    state.custom_state_mut().parallelism = collect_visibility_stats.then_some(parallelism);
 
     // Tantivy caps a terms aggregation at `size` and folds the dropped groups into
     // `sum_other_doc_count` rather than erroring, which would silently return an

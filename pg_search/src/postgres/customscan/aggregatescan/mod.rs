@@ -888,9 +888,11 @@ impl CustomScan for AggregateScan {
             });
         }
 
-        if explainer.is_analyze() && state.custom_state().parallelism.executed {
+        if explainer.is_analyze()
+            && let Some(parallelism) = &state.custom_state().parallelism
+        {
             explainer.add_group("Parallelism", |explainer| {
-                state.custom_state().parallelism.explain(explainer);
+                parallelism.explain(explainer);
             });
         }
 

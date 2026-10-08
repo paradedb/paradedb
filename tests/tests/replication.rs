@@ -19,14 +19,14 @@ use anyhow::Result;
 use cmd_lib::{run_cmd, run_fun};
 use dotenvy::dotenv;
 use rstest::*;
-use sqlx::{Connection, PgConnection};
+use sqlx::{Connection, Executor, PgConnection};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tests::fixtures::db::Query;
 
@@ -776,12 +776,9 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
 // This also models the worker that can prevent a CNPG primary from completing fast shutdown.
 #[async_std::test]
 async fn test_background_merge_terminate_during_sync_replication() -> Result<()> {
-    use sqlx::Executor;
-    use std::time::Instant;
-
     let primary = EphemeralPostgres::new(
         Some(
-            "shared_preload_libraries = 'pg_search'\nmax_worker_processes = 8\nsynchronous_standby_names = 'missing_standby'",
+            "shared_preload_libraries = 'pg_search'\nsynchronous_standby_names = 'missing_standby'",
         ),
         None,
     );

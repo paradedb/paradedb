@@ -13,6 +13,7 @@ on:
       - main
     paths:
       - ".github/actions/benchmark-queries/**"
+      - ".github/actions/publish-benchmark-results/**"
       - ".github/actions/benchmarks-from-main/**"
       - ".github/actions/setup-benchmark-cluster/**"
       - ".github/actions/setup-pg-search-build-environment/**"

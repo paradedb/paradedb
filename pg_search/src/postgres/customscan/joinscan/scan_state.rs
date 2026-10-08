@@ -1846,7 +1846,7 @@ fn apply_output_projection(
                             translate_child_projection_expr(pg_expr_string, join_clause)?
                         };
                         // If the topk-as-agg path was taken, any expression that doesn't read a
-                        // window agg ouptut has already been evaluated.
+                        // window agg output has already been evaluated.
                         match path_taken {
                             PathTaken::TopKAsAgg if !reads_window_agg(&e, join_clause) => {
                                 let name = QualifiedName::from(e.qualified_name());

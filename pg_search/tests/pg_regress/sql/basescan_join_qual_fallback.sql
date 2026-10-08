@@ -65,7 +65,8 @@ ORDER BY d.id, t.id;
 --------------------------------------------------------------------------------
 -- The role is cluster-wide, so a run that stopped before the cleanup leaves
 -- it behind for the next one.
-CREATE ROLE IF NOT EXISTS rls_drop_user NOLOGIN;
+DROP ROLE IF EXISTS rls_drop_user;
+CREATE ROLE rls_drop_user NOLOGIN;
 GRANT SELECT ON docs, tags TO rls_drop_user;
 ALTER TABLE docs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY org_only ON docs FOR SELECT

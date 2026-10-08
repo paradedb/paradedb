@@ -107,9 +107,7 @@ WARNING:  JoinScan not used: a WHERE predicate cannot be pushed into the scan (t
 -- The role is cluster-wide, so a run that stopped before the cleanup leaves
 -- it behind for the next one.
 DROP ROLE IF EXISTS rls_drop_user;
-ERROR:  role "rls_drop_user" cannot be dropped because some objects depend on it
 CREATE ROLE rls_drop_user NOLOGIN;
-ERROR:  role "rls_drop_user" already exists
 GRANT SELECT ON docs, tags TO rls_drop_user;
 ALTER TABLE docs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY org_only ON docs FOR SELECT
@@ -251,5 +249,4 @@ DROP TABLE docs CASCADE;
 DROP TABLE tags CASCADE;
 DROP TABLE visible_orgs;
 DROP ROLE rls_drop_user;
-ERROR:  role "rls_drop_user" cannot be dropped because some objects depend on it
 DROP FUNCTION explain_rls_fallback(text);

@@ -141,9 +141,13 @@ impl ParallelQueryCapable for BaseScan {
         // leader's pins on those segments held that long.
         pscan_state.bitmap_reset();
         pscan_state.reset();
-        // Republish for the relaunched workers. The scan's rescan callback ran
-        // first (freeing the previous table and build when params changed), so
-        // this rebuilds with the new params or republishes the still-valid one.
+        // Rebuild for the relaunched workers. The leader's own ReScan runs only after
+        // they launch (see above), too late to replace a bitmap they read, so it leaves
+        // the bitmap to this callback. The leader's cursors from the last round point
+        // into the table and bitmap the rebuild frees, so they drop first.
+        if state.custom_state().bitmap_exec.is_some() {
+            state.custom_state_mut().reset_exec_results();
+        }
         if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
             let handle = unsafe { bitmap_exec.republish() };
             pscan_state.publish_bitmap_handle(handle);

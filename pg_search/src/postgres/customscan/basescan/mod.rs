@@ -1960,11 +1960,8 @@ impl CustomScan for BaseScan {
         // Drop the previous execution's scorers (whose cursors point into the
         // bitmap) and the stale source cell before the bitmap is freed; only then
         // rebuild for the new params. The exec method itself is preserved and
-        // re-bound by `reset()` below. No reader means the scan never executed:
-        // there are no scorers, and the exec method may not even be bound yet.
-        if state.custom_state().search_reader.is_some() {
-            state.custom_state_mut().reset_exec_results();
-        }
+        // re-bound by `reset()` below.
+        state.custom_state_mut().reset_exec_results();
         // A merge can retire a segment the shared work queue still hands out, and a retired
         // segment stays readable only while something pins it. `TopKScanExecState` happens to
         // keep a reader clone through `reset_exec_results`, but the normal and columnar methods
@@ -1976,9 +1973,14 @@ impl CustomScan for BaseScan {
             .as_ref()
             .map(SearchIndexReader::segment_pins);
         drop(state.custom_state_mut().search_reader.take());
-        state.custom_state_mut().bitmap_cell = None;
-        if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
-            unsafe { bitmap_exec.rescan() };
+        // A parallel scan's bitmap is shared state: the DSM callbacks build it and fill
+        // the cell before the workers launch, and this ReScan runs after, while they
+        // read it. Only a serial scan rebuilds here.
+        if state.custom_state().parallel.is_none() {
+            state.custom_state_mut().bitmap_cell = None;
+            if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
+                unsafe { bitmap_exec.rescan() };
+            }
         }
         Self::init_search_reader(state);
         state.custom_state_mut().reset();

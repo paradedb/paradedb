@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791432083340,
+  "lastUpdate": 1791433131352,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9264,6 +9264,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 609.515,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "29020b8ae2890ac9519a66a1b6297ab044fffe07",
+          "message": "chore: update Rust and developer tooling versions (#6662)\n\n## What\nUpdate Rust to 1.99.0 in rust-toolchain.toml and both\nStressgres/property-test Docker builders to rust:1.99-slim-trixie.\nUpdate Ruff to 0.16.10 and Pylint to 4.1.2. Keep the Prettier hook\nunchanged.\n\nReplace the test-only soa_derive dependency with a small fixture\ncolumn-collection macro. soa_derive 0.14.0 emits redundant field\ninitializers rejected by Rust 1.99 Clippy. The helper preserves the\nexisting row types, column vectors, ordering, and query assertions\nwithout suppressing lints. A regression covers collection order and\nempty results.\n\nThe companion schema-tool fix is\nhttps://github.com/paradedb/pg-schema-diff/pull/5.\n\n## Tests\n- Rust 1.99: cargo clippy -p tests --all-targets -- -D warnings\n--no-deps passed.\n- Fixture collection regression passed.\n- cargo fmt --all -- --check, locked Cargo metadata, check_impl_drop.py,\nand git diff --check passed.\n- Full workspace lint, PostgreSQL 15–18 tests, and Docker builds run in\nCI. The existing Nix workflow refreshes cargoHash for the removed\ndependency.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-10-07T19:50:15-07:00",
+          "tree_id": "a0572329818c7e1d35ef02f9a5115f1f611590ff",
+          "url": "https://github.com/paradedb/paradedb/commit/29020b8ae2890ac9519a66a1b6297ab044fffe07"
+        },
+        "date": 1791433127327,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 16.15,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 196.192,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 51.399,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 227.963,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 19.283,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 164.267,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 28.022,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 221.613,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 41.144,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 605.316,
             "unit": "ms"
           }
         ]

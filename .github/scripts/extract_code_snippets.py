@@ -50,6 +50,11 @@ OUTPUT_ROOT = SCRIPT_DIR / "verify"
 COVERAGE_PATH = SCRIPT_DIR / "docs_snippet_coverage.json"
 
 
+def fence_digest(info, body):
+    """Fingerprint a fence's language label and unchanged source."""
+    return hashlib.sha256((info + "\n" + body).encode()).hexdigest()
+
+
 def classify(info):
     """Resolve a labeled application fence to its verification target."""
     parts = set(info.lower().replace("ef core", "efcore").split())
@@ -143,7 +148,7 @@ def inventory(docs_root=DOCS_ROOT):
             outside[key] = {
                 "info": info,
                 "body": body,
-                "sha256": hashlib.sha256((info + "\n" + body).encode()).hexdigest(),
+                "sha256": fence_digest(info, body),
             }
     return groups, outside
 

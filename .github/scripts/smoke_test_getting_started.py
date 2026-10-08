@@ -11,7 +11,6 @@ Interactive REPL launch commands run headlessly; only connection placeholders,
 settings ellipses and the indicated migration insertion points are substituted.
 """
 
-import hashlib
 import json
 import os
 import re
@@ -26,6 +25,8 @@ from extract_code_snippets import (
     COVERAGE_PATH,
     DOCS_ROOT,
     FENCE_PATTERN,
+    classify,
+    fence_digest,
     inventory,
     resolve_coverage,
 )
@@ -43,6 +44,12 @@ LABELS = {
     "efcore": "EF Core",
 }
 
+EXPECTED_DESCRIPTIONS = [
+    "White jogging shoes",
+    "Generic shoes",
+    "Sleek running shoes",
+]
+
 
 def run(command, cwd, env, source=None):
     """Execute a documented command and propagate failures."""
@@ -55,7 +62,7 @@ def block(target, info=None, index=0):
     if info is not None:
         fences = [(label, body) for label, body in fences if label == info]
     info, body = fences[index]
-    CONSUMED_FENCES.add(hashlib.sha256((info + "\n" + body).encode()).hexdigest())
+    CONSUMED_FENCES.add(fence_digest(info, body))
     return body
 
 
@@ -63,9 +70,7 @@ def example(page, target):
     """Read the target example from the first application CodeGroup."""
     group = CODEGROUP_PATTERN.search((DOCS_ROOT / page).read_text()).group()
     return next(
-        body
-        for info, body in FENCE_PATTERN.findall(group)
-        if LABELS[target].lower() in info.lower()
+        body for info, body in FENCE_PATTERN.findall(group) if classify(info) == target
     )
 
 
@@ -96,9 +101,9 @@ def connection_text(text, env):
     return text
 
 
-def shell(source, cwd, env, prefix=""):
+def shell(source, cwd, env):
     """Run a documented command block without an interactive shell."""
-    run(["bash", "-e", "-c", prefix + "\n" + source], cwd, env)
+    run(["bash", "-e", "-c", source], cwd, env)
 
 
 def python_env(cwd, env):
@@ -109,7 +114,6 @@ def python_env(cwd, env):
 
 
 def verify(cwd, env):
-    # Validate real data and schema produced by the documented migrations/index command.
     """Assert that the documented setup produced demo data and a valid index."""
     query = """DO $$ BEGIN
     IF (SELECT count(*) FROM mock_items) = 0 THEN RAISE EXCEPTION 'Demo table is empty'; END IF;
@@ -141,11 +145,9 @@ def setup_sql(cwd, env):
         capture_output=True,
         check=True,
     )
-    assert [line.split("|")[0] for line in result.stdout.splitlines()] == [
-        "White jogging shoes",
-        "Generic shoes",
-        "Sleek running shoes",
-    ]
+    assert [
+        line.split("|")[0] for line in result.stdout.splitlines()
+    ] == EXPECTED_DESCRIPTIONS
 
 
 def setup_drizzle(cwd, env):
@@ -166,9 +168,8 @@ def setup_drizzle(cwd, env):
         source += "\n" + body
     source += (
         "\nif (JSON.stringify(queryRows.map(row => row.description)) !== "
-        'JSON.stringify(["White jogging shoes", "Generic shoes", "Sleek '
-        'running shoes"])) throw new Error("Unexpected tutorial query '
-        'rows");\nawait client.end();\n'
+        f"JSON.stringify({json.dumps(EXPECTED_DESCRIPTIONS)})) "
+        'throw new Error("Unexpected tutorial query rows");\nawait client.end();\n'
     )
     (cwd / "setup.ts").write_text(source)
     run(["npx", "tsx", "setup.ts"], cwd, env)
@@ -193,10 +194,7 @@ def setup_django(cwd, env):
         + "\n"
         + "tutorial_rows = "
         + example("start/run-queries.mdx", "django").split("\n\n", 1)[1]
-        + (
-            '\nassert [row["description"] for row in tutorial_rows] == ["White '
-            'jogging shoes", "Generic shoes", "Sleek running shoes"]\n'
-        )
+        + f"\nassert [row['description'] for row in tutorial_rows] == {EXPECTED_DESCRIPTIONS!r}\n"
     )
     run(["python3", "manage.py", "shell", "-c", source], cwd, env)
 
@@ -233,10 +231,7 @@ def setup_sqlalchemy(cwd, env):
         + example("start/run-queries.mdx", "sqlalchemy").replace(
             "session.execute(stmt).all()", "tutorial_rows = session.execute(stmt).all()"
         )
-        + (
-            '\nassert [row.description for row in tutorial_rows] == ["White '
-            'jogging shoes", "Generic shoes", "Sleek running shoes"]\n'
-        )
+        + f"\nassert [row.description for row in tutorial_rows] == {EXPECTED_DESCRIPTIONS!r}\n"
     )
     run(["python3", "-c", source], cwd, env)
 
@@ -285,8 +280,7 @@ def setup_rails(cwd, env):
         + example("start/run-queries.mdx", "rails")
         + (
             '\nraise "Unexpected tutorial rows" unless '
-            'tutorial_rows.map(&:description) == ["White jogging shoes", '
-            '"Generic shoes", "Sleek running shoes"]\n'
+            f"tutorial_rows.map(&:description) == {json.dumps(EXPECTED_DESCRIPTIONS)}\n"
         )
     )
     run(["bundle", "exec", "rails", "runner", source], app, env)
@@ -319,7 +313,7 @@ def setup_efcore(cwd, env):
         "PrintResults(results);",
         (
             "if (!results.Select(row => row.Description).SequenceEqual(new[] {"
-            ' "White jogging shoes", "Generic shoes", "Sleek running shoes" '
+            f" {json.dumps(EXPECTED_DESCRIPTIONS)[1:-1]} "
             '})) throw new InvalidOperationException("Unexpected tutorial '
             'rows");\nPrintResults(results);'
         ),
@@ -332,7 +326,7 @@ def validate_setup_coverage(target):
     """Reject setup inventory entries that the scenario did not actually consume."""
     _, outside = inventory()
     tab_digests = {
-        hashlib.sha256((info + "\n" + body).encode()).hexdigest()
+        fence_digest(info, body)
         for info, body in FENCE_PATTERN.findall(TABS[LABELS[target]])
     }
     missing = [

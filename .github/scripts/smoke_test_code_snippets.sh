@@ -89,11 +89,6 @@ run_psql_file() {
     output="$(grep -Fv "$expected_warning" <<<"$output" || true)"
   fi
 
-  # Historical changelog snippets retain the deprecated option. Current docs
-  # must run without deprecation warnings.
-  if [[ "$sql_file" == */project__changelog__* ]]; then
-    output="$(grep -Ev 'WARNING:  key_field is deprecated as of 0\.26\.0 and is a no-op; it no longer needs to be provided$' <<<"$output" || true)"
-  fi
   if grep -E '(^|:) WARNING:' <<<"$output" >/dev/null; then
     return 1
   fi
@@ -115,8 +110,6 @@ run_psql_file "${SQL_DIR}/reference__filtering__external-indexes__fence-001.sql"
 sql_pass_count=0
 sql_fail_count=0
 if has_target sql; then
-  run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
-
   while IFS= read -r snippet_file; do
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 

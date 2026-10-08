@@ -90,28 +90,19 @@ runs:
           cat "${METRICS_FILE}"
         fi
 
-    - name: Cleanup Previous Benchmark Publish Working Directory
-      shell: bash
-      run: rm -rf ./benchmark-data-repository
-
     - name: Publish Latency Metrics (p50 and p99)
       if: hashFiles(inputs.metrics_file) != ''
       continue-on-error: true
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: ./.github/actions/publish-benchmark-results
       with:
         name: "benchmarker ${{ inputs.dataset }} (latency)"
         ref: ${{ inputs.ref }}
-        tool: customSmallerIsBetter
-        output-file-path: ${{ inputs.metrics_file }}
-        github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/${{ github.repository }}
-        gh-pages-branch: gh-pages
-        benchmark-data-dir-path: benchmarker
-        auto-push: ${{ inputs.auto_push == 'true' }}
-        alert-threshold: "115%"
-        comment-on-alert: true
-        alert-comment-cc-users: "@${{ github.actor }}"
-        comment-always: ${{ inputs.pr_number != '' }}
+        metrics_file: ${{ inputs.metrics_file }}
+        github_token: ${{ inputs.github_token }}
+        pages_directory: benchmarker
+        auto_push: ${{ inputs.auto_push }}
+        alert_threshold: "115%"
+        comment_always: ${{ inputs.pr_number != '' }}
 
     - name: Stage dashboards (HTML only) for gh-pages
       shell: bash

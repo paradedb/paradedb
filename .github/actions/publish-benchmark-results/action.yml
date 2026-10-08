@@ -1,0 +1,70 @@
+name: Publish Benchmark Results
+description: Publish prepared benchmark metrics to gh-pages and report regressions
+
+inputs:
+  name:
+    description: "Benchmark suite name (preserve it to retain history)"
+    required: true
+  metrics_file:
+    description: "Prepared github-action-benchmark metrics JSON"
+    required: true
+  ref:
+    description: "Git ref or commit benchmarked"
+    required: true
+  github_token:
+    description: "GitHub token for publishing and comments"
+    required: true
+  direction:
+    description: "Metric direction: smaller or bigger"
+    required: false
+    default: "smaller"
+  pages_directory:
+    description: "Metrics directory on gh-pages"
+    required: true
+  auto_push:
+    description: "Whether to write the baseline to gh-pages"
+    required: false
+    default: "false"
+  alert_threshold:
+    description: "Regression threshold ratio"
+    required: false
+    default: "115%"
+  comment_always:
+    description: "Whether to comment even without a regression"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Validate Metric Direction
+      shell: bash
+      env:
+        DIRECTION: ${{ inputs.direction }}
+      run: |
+        case "$DIRECTION" in
+          smaller|bigger) ;;
+          *) echo "Invalid metric direction: $DIRECTION" >&2; exit 1 ;;
+        esac
+
+    # Leave the new clone in place for query benchmark bootstrap comparisons.
+    - name: Cleanup Previous Benchmark Publish Working Directory
+      shell: bash
+      run: rm -rf ./benchmark-data-repository
+
+    - name: Publish Metrics
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: ${{ inputs.name }}
+        ref: ${{ inputs.ref }}
+        tool: ${{ inputs.direction == 'bigger' && 'customBiggerIsBetter' || 'customSmallerIsBetter' }}
+        output-file-path: ${{ inputs.metrics_file }}
+        github-token: ${{ inputs.github_token }}
+        gh-repository: github.com/${{ github.repository }}
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: ${{ inputs.pages_directory }}
+        auto-push: ${{ inputs.auto_push == 'true' }}
+        alert-threshold: ${{ inputs.alert_threshold }}
+        comment-on-alert: true
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ inputs.comment_always == 'true' }}

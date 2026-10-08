@@ -15,6 +15,7 @@ on:
     paths:
       - ".github/actions/build-paradedb-image/**"
       - ".github/actions/publish-benchmarker-results/**"
+      - ".github/actions/publish-benchmark-results/**"
       - ".github/actions/setup-benchmarker/**"
       - ".github/workflows/benchmark-pg_search-benchmarker.yml"
       - "docker/Dockerfile.source"

@@ -9,12 +9,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/scripts/check_migration_diff.py"
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-pg_search-schema.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "rust-toolchain.toml"
+      - "schemabot/**"
   workflow_dispatch:
 
 concurrency:
@@ -35,7 +37,7 @@ jobs:
       - family=c7g+c8g
       - cpu=8
       - ram=16
-      - image=ubuntu24-full-arm64 # pg-schema-diff uses older parser bindings that fail on Ubuntu 26.
+      - image=ubuntu26-full-arm64
       - extras=s3-cache
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
     defaults:
@@ -70,10 +72,12 @@ jobs:
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
-          extra_packages: libopenblas-dev clang lld llvm diffutils
+          extra_packages: libopenblas-dev clang libclang-dev lld llvm protobuf-compiler
 
-      - name: Install pg-schema-diff
-        run: cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
+      - name: Build SchemaBot
+        run: |
+          cargo build -p schemabot --locked
+          cp target/debug/schemabot "$RUNNER_TEMP/schemabot"
 
       - name: Save Initial pgrx Version
         env:
@@ -117,27 +121,9 @@ jobs:
 
       - name: Generate Schema Diffs
         run: |
-          # Run pg-schema-diff and capture its exit code
-          # Note: Only capture stdout (the actual diff), stderr goes to terminal for debugging
-          set +e  # Temporarily disable exit on error
-          pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql 2>&1
-          PG_SCHEMA_DIFF_EXIT=$?
-          set -e  # Re-enable exit on error
-
-          # Check if pg-schema-diff crashed or had an error
-          if [ $PG_SCHEMA_DIFF_EXIT -ne 0 ]; then
-            echo "❌ ERROR: pg-schema-diff failed with exit code $PG_SCHEMA_DIFF_EXIT"
-            echo "Output:"
-            cat ~/diff.sql
-            exit 1
-          fi
-
-          # Show the schema diff
+          "$RUNNER_TEMP/schemabot" diff ~/old.sql ~/this.sql > ~/diff.sql
           echo "Schema diff generated successfully:"
           cat ~/diff.sql
-
-          # Remove trailing newlines from diff for comparison
-          perl -i -pe 'chomp if eof' ~/diff.sql
 
       - name: Switch Back to PR Branch
         env:
@@ -191,25 +177,12 @@ jobs:
             done
             echo
 
-            # Concatenate matching fragments into a temporary file for validation
-            COMBINED_FRAGMENT=$(mktemp)
-            cat "${MATCHING_FILES[@]}" > "$COMBINED_FRAGMENT"
-
-            echo "Checking if migration fragment(s) contain all schema changes (order-independent)..."
-
-            # Compare schema changes independent of order, since pg-schema-diff output order is non-deterministic
-            if ! python3 .github/scripts/check_migration_diff.py ~/diff.sql "$COMBINED_FRAGMENT" --debug; then
-              rm -f "$COMBINED_FRAGMENT"
-              echo
-              echo "The migration fragment(s) need to be updated."
-              echo "Please ensure all the schema changes shown above are in your fragment file(s)."
-              echo
-              echo "ℹ️  NOTE: If you need to modify the SchemaBot-generated diff because it's incorrect,"
-              echo "   please update the schema diff generation logic at:"
-              echo "   https://github.com/paradedb/pg-schema-diff"
+            echo "Checking migration statements against the expected PostgreSQL parse trees..."
+            if ! "$RUNNER_TEMP/schemabot" check ~/diff.sql "${MATCHING_FILES[@]}"; then
+              echo "Update the migration fragments to include the changes shown above."
+              echo "If the suggested diff is incorrect, update schemabot in this repository."
               exit 1
             fi
-            rm -f "$COMBINED_FRAGMENT"
           else
             echo "✅ No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT

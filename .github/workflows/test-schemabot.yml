@@ -1,0 +1,68 @@
+# workflows/test-schemabot.yml
+#
+# Test SchemaBot
+# Build and test the SchemaBot crate without a PostgreSQL server.
+
+name: Test SchemaBot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+    paths:
+      - ".cargo/**"
+      - ".github/workflows/test-schemabot.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "schemabot/**"
+  workflow_dispatch:
+
+concurrency:
+  group: test-schemabot-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-schemabot:
+    name: Build & Test SchemaBot
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c7g+c8g
+      - cpu=4
+      - ram=8
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          cache: false
+          rustflags: "" # Respect .cargo/config.toml.
+
+      - name: Install Build Dependencies
+        uses: paradedb/actions/apt-install@v14
+        with:
+          packages: --no-install-recommends clang libclang-dev lld protobuf-compiler
+
+      - name: Cache Rust Build
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: schemabot-ubuntu26
+
+      - name: Build SchemaBot
+        run: cargo build -p schemabot --locked
+
+      - name: Test SchemaBot
+        run: cargo test -p schemabot --locked

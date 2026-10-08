@@ -5,6 +5,7 @@ members = [
   "dst",
   "macros",
   "pg_search",
+  "schemabot",
   "stressgres",
   "tests",
   "tokenizers",

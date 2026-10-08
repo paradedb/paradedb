@@ -834,7 +834,7 @@ pub fn numeric_sum_func_with_args(
     }
 }
 
-pub fn numeric_sum(col: Expr, field_type: &SearchFieldType) -> Expr {
+fn numeric_sum(col: Expr, field_type: &SearchFieldType) -> Expr {
     let (udf, args) = numeric_sum_func_with_args(col, field_type);
     udf.call(args)
 }
@@ -852,7 +852,7 @@ pub fn numeric_avg_func_with_args(
 }
 
 /// `AVG` over a NUMERIC column; see [`numeric_sum`].
-pub fn numeric_avg(col: Expr, field_type: &SearchFieldType) -> Expr {
+fn numeric_avg(col: Expr, field_type: &SearchFieldType) -> Expr {
     let (udf, args) = numeric_avg_func_with_args(col, field_type);
     udf.call(args)
 }

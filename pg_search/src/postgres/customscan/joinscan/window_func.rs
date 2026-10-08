@@ -16,17 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{MvccVisibility, is_agg_funcoid};
-use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-    self, numeric_avg_func_with_args, numeric_sum_func_with_args,
-};
-use crate::postgres::customscan::joinscan::scan_state::{
-    null_if_source_exists, resolve_var_to_df_col,
-};
 use crate::schema::SearchFieldType;
-use datafusion::common::internal_datafusion_err;
-use datafusion::error::{DataFusionError, Result};
-use datafusion::logical_expr::expr::WindowFunction;
-use datafusion::logical_expr::{Expr, WindowFunctionDefinition};
 use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
@@ -40,7 +30,7 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
 use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggRequest;
 use crate::postgres::customscan::joinscan::planning::resolve_fast_field_from_join_sources;
 
-use super::build::{JoinCSClause, JoinSource};
+use super::build::JoinSource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SupportedWindowAggType {
@@ -79,161 +69,6 @@ impl SqlWindowAggDef {
 
     pub fn arg_field_type(&self) -> Option<&SearchFieldType> {
         self.1.as_ref().and_then(|ci| ci.field_type.as_ref())
-    }
-
-    pub fn as_window_expr(&self, join_clause: &JoinCSClause) -> Result<Expr> {
-        use datafusion::functions_aggregate::{average, count, min_max, sum};
-
-        let col_expr = match self.col_info() {
-            Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
-                Some(ce) => Some(ce),
-                None => {
-                    // The argument's relation participates in the join but was
-                    // pruned from the output (e.g. the inner side of an Anti
-                    // Join): its values are identically NULL in every output
-                    // row, so the aggregate is a plan-time constant — 0 for
-                    // COUNT, NULL otherwise. This is the window-input analogue
-                    // of the `null_if_source_exists` fallback every other
-                    // pruned-column consumer applies.
-                    if null_if_source_exists(join_clause, ci.rti).is_some() {
-                        return Ok(match self.agg_type() {
-                            SupportedWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
-                            _ => {
-                                datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null)
-                            }
-                        });
-                    }
-                    return Err(internal_datafusion_err!(
-                        "Failed to map column to fast field and column expr. rti: {}, attno: {}",
-                        ci.rti,
-                        ci.attno
-                    ));
-                }
-            },
-            None => None,
-        };
-        let numeric_field = numeric_window_field(self.agg_type(), self.arg_field_type())?;
-
-        // Match only basic aggregate functions. Missing and filters are not supported in global window
-        // functions
-        //
-        // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
-        // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
-        // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-        match self.agg_type() {
-            SupportedWindowAggType::Sum => {
-                let ce = col_expr.expect("should always have a column expression for SUM");
-                match numeric_field {
-                    Some(field_type) => {
-                        let (udaf, args) = numeric_sum_func_with_args(ce, field_type);
-                        Ok(Expr::from(WindowFunction::new(
-                            WindowFunctionDefinition::AggregateUDF(udaf),
-                            args,
-                        )))
-                    }
-                    None => Ok(Expr::from(WindowFunction::new(
-                        WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
-                        vec![ce],
-                    ))),
-                }
-            }
-            SupportedWindowAggType::Avg => {
-                let ce = col_expr.expect("should always have a column expression for AVG");
-                match numeric_field {
-                    None => Ok(Expr::from(WindowFunction::new(
-                        WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
-                        vec![ce],
-                    ))),
-                    Some(field_type) => {
-                        let (udaf, args) = numeric_avg_func_with_args(ce, field_type);
-                        Ok(Expr::from(WindowFunction::new(
-                            WindowFunctionDefinition::AggregateUDF(udaf),
-                            args,
-                        )))
-                    }
-                }
-            }
-            SupportedWindowAggType::Min => Ok(Expr::from(WindowFunction::new(
-                WindowFunctionDefinition::AggregateUDF(min_max::min_udaf()),
-                vec![col_expr.expect("should always have a column expression for MIN")],
-            ))),
-            SupportedWindowAggType::Max => Ok(Expr::from(WindowFunction::new(
-                WindowFunctionDefinition::AggregateUDF(min_max::max_udaf()),
-                vec![col_expr.expect("should always have a column expression for MAX")],
-            ))),
-            SupportedWindowAggType::Count => Ok(Expr::from(WindowFunction::new(
-                WindowFunctionDefinition::AggregateUDF(count::count_udaf()),
-                vec![col_expr.expect("should always have a column expression for COUNT")],
-            ))),
-            SupportedWindowAggType::CountStar => Ok(count::count_all_window()),
-        }
-    }
-
-    pub fn as_aggregate_expr(&self, join_clause: &JoinCSClause) -> Result<Expr> {
-        use datafusion::functions_aggregate::{average, count, min_max, sum};
-
-        let col_expr = match self.col_info() {
-            Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
-                Some(ce) => Some(ce),
-                None => {
-                    // The argument's relation participates in the join but was
-                    // pruned from the output (e.g. the inner side of an Anti
-                    // Join): its values are identically NULL in every output
-                    // row, so the aggregate is a plan-time constant — 0 for
-                    // COUNT, NULL otherwise. This is the window-input analogue
-                    // of the `null_if_source_exists` fallback every other
-                    // pruned-column consumer applies.
-                    if null_if_source_exists(join_clause, ci.rti).is_some() {
-                        return Ok(match self.agg_type() {
-                            SupportedWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
-                            _ => {
-                                datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null)
-                            }
-                        });
-                    }
-                    return Err(internal_datafusion_err!(
-                        "Failed to map column to fast field and column expr. rti: {}, attno: {}",
-                        ci.rti,
-                        ci.attno
-                    ));
-                }
-            },
-            None => None,
-        };
-        let numeric_field = numeric_window_field(self.agg_type(), self.arg_field_type())?;
-
-        // Match only basic aggregate functions. Missing and filters are not supported in global window
-        // functions
-        //
-        // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
-        // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
-        // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-        match self.agg_type() {
-            SupportedWindowAggType::Sum => {
-                let ce = col_expr.expect("should always have a column expression for SUM");
-                match numeric_field {
-                    None => Ok(sum::sum_udaf().call(vec![ce])),
-                    Some(field_type) => Ok(datafusion_exec::numeric_sum(ce, field_type)),
-                }
-            }
-            SupportedWindowAggType::Avg => {
-                let ce = col_expr.expect("should always have a column expression for AVG");
-                match numeric_field {
-                    None => Ok(average::avg_udaf().call(vec![ce])),
-                    Some(field_type) => Ok(datafusion_exec::numeric_avg(ce, field_type)),
-                }
-            }
-            SupportedWindowAggType::Min => Ok(min_max::min_udaf().call(vec![
-                col_expr.expect("should always have a column expression for MIN"),
-            ])),
-            SupportedWindowAggType::Max => Ok(min_max::max_udaf().call(vec![
-                col_expr.expect("should always have a column expression for MAX"),
-            ])),
-            SupportedWindowAggType::Count => Ok(count::count_udaf().call(vec![
-                col_expr.expect("should always have a column expression for COUNT"),
-            ])),
-            SupportedWindowAggType::CountStar => Ok(count::count_all()),
-        }
     }
 }
 
@@ -433,10 +268,6 @@ impl WindowAggList {
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &WindowAgg> {
@@ -741,39 +572,6 @@ fn var_column_name(var: &pg_sys::Var, root: *mut pg_sys::PlannerInfo) -> Option<
             .to_string_lossy()
             .into_owned(),
     )
-}
-
-/// Determines if the field for this aggregate is a numeric and is supported for pushing
-/// down this aggregate.
-///
-/// Returns:
-/// - `Ok(None)` if the aggregate has no field requirements or this field is not numeric.
-/// - `Ok(Some(_))` if the field is a supported numeric field
-/// - `Err(_)` if the field is an unsupported numeric
-pub fn numeric_window_field(
-    agg_type: SupportedWindowAggType,
-    field_type: Option<&SearchFieldType>,
-) -> Result<Option<&SearchFieldType>> {
-    match (agg_type, field_type) {
-        (SupportedWindowAggType::Count | SupportedWindowAggType::CountStar, _) => Ok(None),
-        (_, Some(ft)) => {
-            let field_type = if ft.is_numeric() {
-                ft
-            } else {
-                return Ok(None);
-            };
-
-            if field_type.numeric_scale().is_none() {
-                return Err(DataFusionError::Plan(
-                    "Non-count window aggregation on an unbounded NUMERIC column is not supported; declare a \
-                     precision and scale to enable aggregate pushdown".to_string(),
-                ));
-            }
-
-            Ok(Some(ft))
-        }
-        _ => Ok(None),
-    }
 }
 
 #[pgrx::pg_guard]

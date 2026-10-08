@@ -39,7 +39,6 @@ impl Estimate {
 
 impl QueryEstimate for dyn Query {
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
-        // Exact match queries become terms joined by AND or OR, so they use the same estimates.
         macro_rules! estimate_as {
             ($($query:ty),* $(,)?) => {$(
                 if let Some(query) = self.downcast_ref::<$query>() {
@@ -50,6 +49,7 @@ impl QueryEstimate for dyn Query {
         estimate_as! {
             AllQuery, TermQuery, PhraseQuery, BooleanQuery, EmptyQuery, ConstScoreQuery, BoostQuery
         }
+        // SearchQueryInput::All wraps AllQuery directly, without boxing it.
         if let Some(query) = self.downcast_ref::<ConstScoreQuery<AllQuery>>() {
             return query.query().estimate_docs(reader);
         }
@@ -116,6 +116,7 @@ impl QueryEstimate for PhraseQuery {
 
 impl QueryEstimate for BooleanQuery {
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        // Exact match queries become terms joined by AND or OR, so they use this estimate too.
         // AND starts with the smallest estimate; each extra condition reduces it less.
         // OR estimates how many documents match enough conditions.
         // NOT removes the estimated share of documents matching the excluded conditions.

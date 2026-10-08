@@ -99,6 +99,19 @@ fn scale_largest_segment_estimate(value: u64, segment_doc_proportion: f64) -> u6
     }
 }
 
+fn scorer_estimate(weight: &dyn Weight, reader: &SegmentReader) -> (u64, u64) {
+    let mut scorer = weight
+        .scorer(reader, 1.0)
+        .expect("creating scorer for estimation should not fail");
+    let mut count = scorer.size_hint() as u64;
+    let mut cost = scorer.cost();
+    if count == 0 {
+        count = scorer.count_including_deleted() as u64;
+        cost = cost.max(count);
+    }
+    (count, cost)
+}
+
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1928,20 +1941,7 @@ impl SearchIndexReader {
             .then(|| self.query.estimate_docs(largest_reader).ok().flatten())
             .flatten()
             .map(|estimate| (estimate.live_docs(largest_reader), estimate.cost))
-            .unwrap_or_else(|| {
-                let weight = self.weight();
-                let mut scorer = weight
-                    .scorer(largest_reader, 1.0)
-                    .expect("counting docs in the largest segment should not fail");
-
-                let mut count = scorer.size_hint() as u64;
-                let mut cost = scorer.cost();
-                if count == 0 {
-                    count = scorer.count_including_deleted() as u64;
-                    cost = cost.max(count);
-                }
-                (count, cost)
-            });
+            .unwrap_or_else(|| scorer_estimate(self.weight().as_ref(), largest_reader));
         if let Some(shortest_posting_list) = self.shortest_posting_list(largest_reader) {
             cost = cost.max(shortest_posting_list);
         }
@@ -2062,6 +2062,7 @@ impl SearchIndexReader {
             .expect("should have at least one segment reader");
 
         let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
+        // Keep EXPLAIN's child estimates on the same path as the whole query.
         let estimate_from_statistics = query_tree.query.supports_statistics_estimation();
         self.estimate_node_recursive(
             query_tree,
@@ -2137,17 +2138,8 @@ impl SearchIndexReader {
             .weight(enable_scoring(node.query.need_scores(), &self.searcher))
             .expect("creating weight for estimation should not fail");
 
-        let mut scorer = weight
-            .scorer(largest_reader, 1.0)
-            .expect("creating scorer for estimation should not fail");
-
-        let mut count = scorer.size_hint() as usize;
-        if count == 0 {
-            count = scorer.count_including_deleted() as usize;
-        }
-
-        let estimated =
-            scale_largest_segment_estimate(count as u64, segment_doc_proportion) as usize;
+        let (count, _) = scorer_estimate(weight.as_ref(), largest_reader);
+        let estimated = scale_largest_segment_estimate(count, segment_doc_proportion) as usize;
 
         node.set_estimate(estimated);
     }
@@ -2595,6 +2587,11 @@ mod tests {
                 lenient: None,
                 conjunction_mode: None,
             },
+            SearchQueryInput::Parse {
+                query_string: "title:\"silver dragon\"".into(),
+                lenient: None,
+                conjunction_mode: None,
+            },
             SearchQueryInput::FieldedQuery {
                 field: "title".into(),
                 query: pdb::Query::Regex {
@@ -2634,25 +2631,18 @@ mod tests {
                 .unwrap();
                 assert!(!reader.estimate_from_statistics, "{query:?}");
                 let segment = reader.searcher.segment_reader(0);
-                let weight = reader.weight();
-                let mut scorer = weight.scorer(segment, 1.0).unwrap();
-                let mut count = scorer.size_hint() as usize;
-                let mut cost = scorer.cost();
-                if count == 0 {
-                    count = scorer.count_including_deleted() as usize;
-                    cost = cost.max(count as u64);
-                }
+                let (count, mut cost) = scorer_estimate(reader.weight().as_ref(), segment);
                 if let Some(shortest) = reader.shortest_posting_list(segment) {
                     cost = cost.max(shortest);
                 }
                 let estimate = reader.estimate_docs(RowEstimate::Known(10));
                 assert_eq!(
                     (estimate.matching_docs, estimate.query_cost),
-                    (count, cost),
+                    (count as usize, cost),
                     "{query:?}"
                 );
                 let mut tree = reader.build_query_tree_with_estimates(query).unwrap();
-                assert_eq!(tree.estimated_docs, Some(count));
+                assert_eq!(tree.estimated_docs, Some(count as usize));
                 tree.traverse_mut(0, &mut |node, _| {
                     if node.query == phrase {
                         assert_eq!(node.estimated_docs, Some(10));

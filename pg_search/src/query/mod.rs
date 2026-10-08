@@ -383,6 +383,7 @@ impl SearchQueryInput {
     }
 
     pub(crate) fn supports_statistics_estimation(&self) -> bool {
+        // Check the input too: parsed queries can compile to terms but must use the old estimator.
         match self {
             Self::All => true,
             Self::Boolean {

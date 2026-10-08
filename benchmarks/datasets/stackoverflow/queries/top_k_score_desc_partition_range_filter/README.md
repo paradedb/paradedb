@@ -11,3 +11,6 @@
   without `partition_by`, created in `indexes/bm25.sql`.
 - The `id` range is chosen so it is expected to hold rows at every sampled dataset size (check the
   row count of the first run).
+- `*_single_worker.sql` run the same queries with `max_parallel_workers_per_gather = 0`, so both
+  tables use one process and the comparison is not affected by the planner choosing different
+  worker counts.

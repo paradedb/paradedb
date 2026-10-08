@@ -8,3 +8,6 @@
 - `partitioned.sql` queries `stackoverflow_posts` (index partitioned by `id,owner_user_id`).
 - `unpartitioned.sql` queries `stackoverflow_posts_unpartitioned`: the same rows and the same index
   without `partition_by`, created in `indexes/bm25.sql`.
+- `*_single_worker.sql` run the same queries with `max_parallel_workers_per_gather = 0`, so both
+  tables use one process and the comparison is not affected by the planner choosing different
+  worker counts.

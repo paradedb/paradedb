@@ -12,3 +12,6 @@
 - `owner_user_id = 22656` is Jon Skeet, one of the most active answerers on Stack Overflow, chosen so
   the filter is expected to match rows at every sampled dataset size (check the row count of the
   first run).
+- `*_single_worker.sql` run the same queries with `max_parallel_workers_per_gather = 0`, so both
+  tables use one process and the comparison is not affected by the planner choosing different
+  worker counts.

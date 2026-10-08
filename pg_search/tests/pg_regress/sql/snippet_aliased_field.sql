@@ -95,3 +95,23 @@ SELECT id, pdb.snippet_positions(content) FROM snippet_alias_both
 WHERE content ||| 'certificates' OR content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
 
 DROP TABLE snippet_alias_both;
+
+-- Computed expressions can reference one column without preserving its text. Their
+-- query terms must not contribute highlights to the original column.
+CREATE TABLE snippet_alias_computed (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+INSERT INTO snippet_alias_computed (content) VALUES ('cat dog');
+CREATE INDEX snippet_alias_computed_idx ON snippet_alias_computed
+USING bm25 (
+    id, content,
+    (replace(content, 'cat', 'dog')::pdb.simple('alias=replaced_content'))
+);
+SELECT pdb.snippet(content) = '<b>cat</b> dog'
+       AND pdb.snippets(content) = ARRAY['<b>cat</b> dog']
+       AND pdb.snippet_positions(content) = ARRAY[ARRAY[0, 3]] AS correct_highlights
+FROM snippet_alias_computed
+WHERE content ||| 'cat'
+   OR content::pdb.alias(replaced_content) ||| 'dog';
+DROP TABLE snippet_alias_computed;

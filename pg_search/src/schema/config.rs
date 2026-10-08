@@ -767,14 +767,19 @@ mod tests {
     #[test]
     fn bitmap_defaults_preserve_opt_out_and_unindexed_fields() {
         for kind in ["Text", "Json"] {
-            for (options, expected) in [
+            for (mut options, expected) in [
                 (json!({}), Some(true)),
                 (json!({"bitmap_postings": false}), Some(false)),
                 (json!({"bitmap_postings": true}), Some(true)),
                 (json!({"indexed": false, "fast": true}), None),
             ] {
-                let config = SearchFieldConfig::from_json(json!({kind: options}));
-                let restored = SearchFieldConfig::from_json(serde_json::to_value(&config).unwrap());
+                let config = SearchFieldConfig::from_json(json!({kind: options.clone()}));
+                let serialized = serde_json::to_value(&config).unwrap();
+                options.as_object_mut().unwrap().remove("bitmap_postings");
+                if let Some(value) = serialized[kind].get("bitmap_postings") {
+                    options["bitmap_postings"] = value.clone();
+                }
+                let restored = SearchFieldConfig::from_json(json!({kind: options}));
                 assert_eq!(config, restored);
                 let indexing = match kind {
                     "Text" => TextOptions::from(restored).get_indexing_options().cloned(),

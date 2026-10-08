@@ -1,5 +1,4 @@
 // Copyright (c) 2023-2026 ParadeDB, Inc.
-// TODO: Add window outputs here
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -453,12 +452,8 @@ impl WindowAggList {
 
     /// The index of the first entry computing the same aggregate as
     /// `index`'s entry. Identical window aggregates (e.g. `COUNT(*) OVER ()`
-    /// in several target entries) share one window column: only canonical
-    /// entries are materialized by the window step, and every reference
-    /// resolves to the canonical column name. Duplicate window expressions
-    /// in one Window node would otherwise be extracted into a projection by
-    /// DataFusion's common-subexpression elimination, where a window
-    /// expression cannot be physically planned.
+    /// in several target entries) share one window column and we only need to compute the aggregate
+    /// once
     pub fn canonical_index(&self, index: WindowAggIndex) -> WindowAggIndex {
         let Some(wa) = self.get(index) else {
             return index;

@@ -1687,21 +1687,6 @@ fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> 
     df.window(window_exprs)
 }
 
-/// Every extracted SQL window aggregate as `(window_agg_N, window expression)`,
-/// the form `apply_window_functions` computes. Only canonical entries are
-/// materialized; duplicates resolve to the canonical column
-/// (see `WindowAggList::canonical_index`).
-#[allow(dead_code)]
-fn window_agg_window_exprs(join_clause: &JoinCSClause) -> Result<Vec<(String, Expr)>> {
-    join_clause
-        .window_aggs
-        .iter_indexed()
-        .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
-        .filter_map(|(index, info)| info.agg_def.sql().map(|sql| (index, sql)))
-        .map(|(index, sql)| Ok((index.as_col_name(), sql.as_window_expr(join_clause)?)))
-        .collect()
-}
-
 /// The extracted window aggregates, each paired with its `window_agg_N` column
 /// name.
 struct SeparatedWindowAggExprs {

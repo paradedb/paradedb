@@ -67,20 +67,18 @@ impl ParallelScanHandle {
         self.dsm.as_ptr()
     }
 
-    /// Worker End: flush local telemetry into DSM.
+    /// Worker Shutdown: flush local segment_info into DSM.
     pub fn publish_telemetry(&self, local: &ScanTelemetry) {
         debug_assert_eq!(self.role, ParallelRole::Worker);
         let dsm = unsafe { &mut *self.dsm.as_ptr() };
-        dsm.set_query_count(local.query_count());
         dsm.publish_segment_info(local.segment_info());
     }
 
-    /// Leader Shutdown: write this process's query count into DSM, snapshot
-    /// explain metadata + worker segment_info, merge segment_info into local.
+    /// Leader Shutdown: snapshot explain metadata + worker segment_info, merge
+    /// segment_info into local.
     pub fn finalize_explain(&self, local: &mut ScanTelemetry) {
         debug_assert_eq!(self.role, ParallelRole::Leader);
         let dsm = unsafe { &mut *self.dsm.as_ptr() };
-        dsm.set_query_count(local.query_count());
         let explain_data = dsm.explain_data();
         local.accumulate_segment_info(dsm.take_segment_info());
         local.set_parallel_explain(explain_data);

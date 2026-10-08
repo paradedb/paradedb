@@ -24,7 +24,8 @@
 
 use super::GroupingShape;
 use super::datafusion_build::{
-    FilterExprBuildContext, JoinAggSource, collect_join_agg_sources, resolve_source_field,
+    FilterExprBuildContext, JoinAggSource, ResolutionSource, collect_join_agg_sources,
+    resolve_source_field,
 };
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
@@ -1047,13 +1048,34 @@ unsafe fn lower_pdb_agg(
 ) -> Result<PdbAggRequest, String> {
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
     let arg_expr = |i: usize| args.get_ptr(i).map(|arg| (*arg).expr as *mut pg_sys::Node);
-    let (spec, visibility) = arg_expr(0)
-        .and_then(|spec_arg| pdb_agg_spec((*aggref).aggfnoid.to_u32(), spec_arg, arg_expr(1)))
+    let sources: Vec<ResolutionSource> = sources.iter().map(ResolutionSource::from).collect();
+    lower_pdb_agg_call(
+        (*aggref).aggfnoid.to_u32(),
+        arg_expr(0),
+        arg_expr(1),
+        &sources,
+    )
+}
+
+/// Lower the arguments of a `pdb.agg()` call, as an aggregate or as a window
+/// function, into its DataFusion request.
+///
+/// # Safety
+/// The caller must ensure `spec_arg` and `visibility_arg`, when present, are
+/// valid `Node` pointers.
+pub unsafe fn lower_pdb_agg_call(
+    funcoid: u32,
+    spec_arg: Option<*mut pg_sys::Node>,
+    visibility_arg: Option<*mut pg_sys::Node>,
+    sources: &[ResolutionSource<'_>],
+) -> Result<PdbAggRequest, String> {
+    let (spec, visibility) = spec_arg
+        .and_then(|spec_arg| pdb_agg_spec(funcoid, spec_arg, visibility_arg))
         .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?;
     PdbAggRequest::lower(spec, visibility, &|field| {
         let resolved = resolve_source_field(sources, field)?;
         Ok(PdbAggFieldRef {
-            rti: resolved.source.rti,
+            rti: resolved.source_rti,
             attno: resolved.attno,
             field_name: resolved.field_name,
             field_type: resolved.field_type,

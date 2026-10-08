@@ -217,7 +217,7 @@ impl TopKScanExecState {
         // settings, then resolve it against this execution. Only Custom aggregates
         // (pdb.agg) carry a setting; standard SQL aggregates always use the default.
         let mvcc_enabled = AggregateType::resolve_visibility(combined_agg_types.iter())
-            .resolve_filtering(state.indexrel(), state.search_query_input());
+            .resolve_filtering(state.indexrel(), state.search_query_input(), None);
 
         // Convert aggregates to Tantivy Aggregations
         let mut aggregations: tantivy::aggregation::agg_req::Aggregations = Default::default();
@@ -413,7 +413,7 @@ impl ExecMethod for TopKScanExecState {
                     maybe_parallel_state,
                 );
             // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
-            // DSM once at EndCustomScan; the leader merges at Shutdown.
+            // DSM once at ShutdownCustomScan; the leader merges at its own Shutdown.
             if !top_k_search.segment_info.is_empty() {
                 state.accumulate_segment_info(std::mem::take(&mut top_k_search.segment_info));
             }

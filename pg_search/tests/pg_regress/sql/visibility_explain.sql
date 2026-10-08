@@ -30,6 +30,8 @@ DECLARE
     leader boolean;
     setup_cost float8;
     divisor float8;
+    actual_count bigint;
+    expected_count bigint;
     enabled boolean;
     line text;
     labels text[] := '{}';
@@ -77,6 +79,14 @@ BEGIN
                     ASSERT NOT leader AND worker_limit = 1 AND requested = 0;
                 END IF;
             END IF;
+            SELECT count(*) INTO actual_count FROM visibility_stats_docs
+                WHERE title === 'database' AND id <= 1234;
+            SELECT count(*) INTO expected_count FROM visibility_stats_docs
+                WHERE title = 'database' AND id <= 1234;
+            ASSERT actual_count = expected_count;
+            SELECT count(*) INTO actual_count FROM visibility_stats_docs
+                WHERE title === 'missing';
+            ASSERT actual_count = 0;
             visibility := plan #> '{0,Plan,Visibility}';
             skipped := (visibility ->> 'Segments Skipped')::bigint;
             checked := (visibility ->> 'Segments Checked')::bigint;

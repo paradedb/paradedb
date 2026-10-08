@@ -475,8 +475,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             _ => HashSet::default(),
         };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
-        let count_all = self.query.is_match_all()
-            && matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
+        let count_all = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
                 if clause.is_bare_doc_count()
                     && matches!(clause.aggregates().next(), Some(AggregateType::CountAny { .. })));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;

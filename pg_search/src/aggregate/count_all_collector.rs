@@ -31,7 +31,7 @@ use crate::postgres::heap::VisibilityChecker;
 use super::interrupt_collector::InterruptableCollector;
 use super::mvcc_collector::MVCCFilterCollector;
 
-/// Only for a bare COUNT(*) whose query matches every document.
+/// Uses query counts for fully visible segments of a bare COUNT(*).
 pub struct CountAllCollector {
     inner: InterruptableCollector<MVCCFilterCollector<DistributedAggregationCollector>>,
     checker: Arc<Mutex<VisibilityChecker>>,
@@ -85,7 +85,7 @@ impl Collector for CountAllCollector {
             result.push(
                 "0".to_string(),
                 IntermediateAggregationResult::Bucket(IntermediateBucketResult::Filter {
-                    doc_count: u64::from(segment.num_docs()),
+                    doc_count: u64::from(weight.count(segment)?),
                     sub_aggregations: IntermediateAggregationResults::default(),
                 }),
             )?;

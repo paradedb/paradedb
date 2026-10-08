@@ -234,10 +234,10 @@ impl BaseScan {
 
                 unsafe {
                     let estate = (*csstate).ss.ps.state;
-                    snippet_type.configure_generator(&mut new_generator.1, estate);
+                    snippet_type.configure_generator(&mut new_generator, estate);
                 }
 
-                *generator = Some(new_generator.1);
+                *generator = Some(new_generator);
             }
 
             state.custom_state_mut().snippet_generators = snippet_generators;

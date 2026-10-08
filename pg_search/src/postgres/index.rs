@@ -17,7 +17,7 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::{Result, anyhow};
-use pgrx::{PgList, Spi, pg_sys};
+use pgrx::{PgList, pg_sys};
 
 pub enum IndexKind {
     Index(PgSearchRelation),
@@ -35,26 +35,9 @@ impl IndexKind {
                 // The index is not partitioned.
                 Ok(IndexKind::Index(index_relation))
             }
-            pg_sys::RELKIND_PARTITIONED_INDEX => {
-                // Locate the child index Oids, and open them.
-                let child_array: Vec<pg_sys::Oid> = Spi::get_one_with_args(
-                    "SELECT ARRAY_AGG(c.oid)
-                     FROM pg_inherits i
-                     JOIN pg_class c ON i.inhrelid = c.oid
-                     WHERE i.inhparent = $1;",
-                    &[index_relation.oid().into()],
-                )
-                .expect("failed to lookup child partitions")
-                .unwrap();
-                let child_relations = child_array
-                    .into_iter()
-                    .map(|oid| {
-                        // TODO: Do these acquisitions need to be sorted?
-                        PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _)
-                    })
-                    .collect();
-                Ok(IndexKind::PartitionedIndex(child_relations))
-            }
+            pg_sys::RELKIND_PARTITIONED_INDEX => Ok(IndexKind::PartitionedIndex(
+                leaf_partition_indexes(&index_relation).collect(),
+            )),
             _ => Err(anyhow!("Expected to receive an index argument.")),
         }
     }
@@ -71,14 +54,14 @@ impl IndexKind {
     }
 }
 
-unsafe extern "C" {
-    /// Raw bindings to core partition catalog walkers (`catalog/pg_inherits.h` and
-    /// `catalog/partition.h`) that pgrx does not cover.
-    fn find_all_inheritors(
-        parent_rel_id: pg_sys::Oid,
-        lockmode: pg_sys::LOCKMODE,
-        numparents: *mut *mut pg_sys::List,
-    ) -> *mut pg_sys::List;
+#[allow(improper_ctypes)]
+#[rustfmt::skip]
+unsafe extern "C-unwind" {
+    /// Core partition catalog walkers (`catalog/pg_inherits.h` and `catalog/partition.h`)
+    /// that pgrx does not bind. Both can raise an `ERROR`, so every call runs inside
+    /// `pg_guard_ffi_boundary`: the error then unwinds through the Rust frames above it
+    /// instead of longjmp'ing over their `Drop`s.
+    fn find_all_inheritors(parent_rel_id: pg_sys::Oid, lockmode: pg_sys::LOCKMODE, numparents: *mut *mut pg_sys::List) -> *mut pg_sys::List;
     fn get_partition_ancestors(relid: pg_sys::Oid) -> *mut pg_sys::List;
 }
 
@@ -87,20 +70,21 @@ pub fn is_partitioned_index(index_oid: pg_sys::Oid) -> bool {
     (unsafe { pg_sys::get_rel_relkind(index_oid) as u8 }) == pg_sys::RELKIND_PARTITIONED_INDEX
 }
 
-/// The leaf partitions of a partitioned index, at any nesting depth. The parent itself and
-/// any intermediate partitioned indexes have no storage of their own, so only the leaves
-/// are returned. Unlike [`IndexKind`], this reads the catalog directly rather than through
-/// SPI, which both planning and per row execution need, and it descends past an
-/// intermediate parent rather than stopping at the first level.
+/// The leaf partition indexes under `parent`, at any nesting depth. The parent itself and
+/// any intermediate partitioned index have no storage of their own, so only the leaves
+/// are returned, and a member left invalid by a failed `CREATE INDEX` is left out.
 pub fn leaf_partition_indexes(
     parent: &PgSearchRelation,
 ) -> impl Iterator<Item = PgSearchRelation> + use<> {
+    let parent_oid = parent.oid();
     let inheritors = unsafe {
-        PgList::<pg_sys::Oid>::from_pg(find_all_inheritors(
-            parent.oid(),
-            pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-            std::ptr::null_mut(),
-        ))
+        PgList::<pg_sys::Oid>::from_pg(pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
+            find_all_inheritors(
+                parent_oid,
+                pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+                std::ptr::null_mut(),
+            )
+        }))
     };
     inheritors
         .iter_oid()
@@ -127,8 +111,12 @@ pub fn partition_member_index(
             if !unsafe { pg_sys::get_index_isvalid(index.oid()) } {
                 return false;
             }
-            let ancestors =
-                unsafe { PgList::<pg_sys::Oid>::from_pg(get_partition_ancestors(index.oid())) };
+            let index_oid = index.oid();
+            let ancestors = unsafe {
+                PgList::<pg_sys::Oid>::from_pg(pg_sys::submodules::ffi::pg_guard_ffi_boundary(
+                    || get_partition_ancestors(index_oid),
+                ))
+            };
             ancestors
                 .iter_oid()
                 .any(|ancestor| ancestor == parent_index_oid)

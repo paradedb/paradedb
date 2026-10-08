@@ -1032,8 +1032,8 @@ WHERE label = 'label' AND id @@@ paradedb.all()
 GROUP BY label, kind
 ORDER BY kind;
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pinned_key_items)
-                                                          QUERY PLAN                                                           
--------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: kind
    ->  HashAggregate
@@ -1044,8 +1044,9 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
                Exec Method: ColumnarExecState
                Columnar: kind, label
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"label","value":"label"}}]}}
-(11 rows)
+               Full Index Scan: true
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(label = 'label'::text)"}]}}]}}
+(12 rows)
 
 SELECT label, kind, COUNT(*)
 FROM pinned_key_items
@@ -1067,8 +1068,8 @@ FROM pinned_key_items
 WHERE label = 'label' AND id @@@ paradedb.all()
 GROUP BY label;
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pinned_key_items)
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    ->  Custom Scan (ParadeDB Base Scan) on pinned_key_items
          Table: pinned_key_items
@@ -1076,8 +1077,9 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
          Exec Method: ColumnarExecState
          Columnar: label
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"label","value":"label"}}]}}
-(8 rows)
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(label = 'label'::text)"}]}}]}}
+(9 rows)
 
 SELECT label, COUNT(*)
 FROM pinned_key_items
@@ -1346,8 +1348,8 @@ WHERE label = 'label' AND id <= 12 AND id @@@ paradedb.all()
 GROUP BY label, kind
 ORDER BY kind;
 WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: pinned_key_items)
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: kind
    ->  HashAggregate
@@ -1357,7 +1359,7 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
                Index: pinned_key_items_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":12}}},{"with_index":{"query":"all"}},{"term":{"field":"label","value":"label"}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":12}}},{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(label = 'label'::text)"}]}}]}}
 (10 rows)
 
 SELECT kind, SUM(amount)

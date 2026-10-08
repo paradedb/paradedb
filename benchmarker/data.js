@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791425867715,
+  "lastUpdate": 1791426557053,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -8894,6 +8894,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (stackexchange, count/mixed) p99 latency",
             "value": 607.833,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "44405294+sainad2222@users.noreply.github.com",
+            "name": "Sainath Singineedi",
+            "username": "sainad2222"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9d30d6b3682a714f1d37bf6ec8e25188481c0594",
+          "message": "fix: Skip per_tuple_cost penalty for search operators in the target list (#6461)\n\n# Ticket(s) Closed\n\n- Closes #6406\n\n## What\n\nSearch operators in the target list no longer get the\n`paradedb.per_tuple_cost` penalty.\n\n## Why\n\nThe cost support function charged `per_tuple_cost` for startup and per\nrow wherever the operator appeared. In the target list that can't\ninfluence path choice, but it still inflated the plan cost past every\nJIT threshold. The repro in the issue goes from a total cost of ~10 to\n600000010.\n\n## How\n\n`for_support_cost` checks whether the node being costed is in\n`root->processed_tlist`. If so, it reports `cpu_operator_cost` per row,\nsince heap evaluation is a set lookup once the match set is built. Quals\nkeep the existing penalty.\n\n## Tests\n\nNew pg_regress test `issue_6406_target_list_jit_cost` compares plan cost\nto `jit_above_cost` for a projected match (plain and inside a `CASE`),\nand checks that a qual forced onto the heap-filter path is still\npenalized. The projected cases fail on `main`.\n\n## AI Disclosure\nUsed claude for understanding the issues, identifying relevant code\npoint for changes, improving comments and almost entirely for testcases.",
+          "timestamp": "2026-10-07T18:00:48-07:00",
+          "tree_id": "eaefb9e063ae00d4649d93d426abe6d2bc9b39d6",
+          "url": "https://github.com/paradedb/paradedb/commit/9d30d6b3682a714f1d37bf6ec8e25188481c0594"
+        },
+        "date": 1791426554239,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p50 latency",
+            "value": 17.034,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/conjunction) p99 latency",
+            "value": 206.599,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p50 latency",
+            "value": 51.851,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/disjunction) p99 latency",
+            "value": 235.854,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p50 latency",
+            "value": 19.178,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/phrase) p99 latency",
+            "value": 169.056,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p50 latency",
+            "value": 28.865,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, topk/mixed) p99 latency",
+            "value": 227.186,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p50 latency",
+            "value": 42.452,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (stackexchange, count/mixed) p99 latency",
+            "value": 608.137,
             "unit": "ms"
           }
         ]

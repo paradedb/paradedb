@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod builder;
+pub(crate) mod estimate;
 pub mod estimate_tree;
 pub mod heap_field_filter;
 mod more_like_this;
@@ -378,6 +379,49 @@ impl SearchQueryInput {
                 expr_state: PostgresPointer::default(),
                 expr_desc,
             },
+        }
+    }
+
+    pub(crate) fn supports_statistics_estimation(&self) -> bool {
+        // Check the input too: parsed queries can compile to terms but must use the old estimator.
+        match self {
+            Self::All => true,
+            Self::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => must
+                .iter()
+                .chain(should)
+                .chain(must_not)
+                .all(Self::supports_statistics_estimation),
+            Self::WithIndex { query, .. }
+            | Self::ConstScore { query, .. }
+            | Self::Boost { query, .. } => query.supports_statistics_estimation(),
+            Self::FieldedQuery { query, .. } => {
+                let mut query = query;
+                while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                    query = inner;
+                }
+                matches!(
+                    query,
+                    pdb::Query::All
+                        | pdb::Query::Term { .. }
+                        | pdb::Query::Match {
+                            distance: None | Some(0),
+                            ..
+                        }
+                        | pdb::Query::MatchArray {
+                            distance: None | Some(0),
+                            ..
+                        }
+                        | pdb::Query::Phrase { .. }
+                        | pdb::Query::PhraseArray { .. }
+                        | pdb::Query::TokenizedPhrase { .. }
+                )
+            }
+            _ => false,
         }
     }
 

@@ -25,10 +25,10 @@ use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
-use crate::postgres::storage::buffer::{Buffer, BufferManager};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata::{CleanupLock, MetaPage};
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
@@ -468,7 +468,7 @@ unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
-    cleanup_lock: Buffer,
+    cleanup_lock: CleanupLock,
     is_background: bool,
     gc_after_merge: bool,
     current_xid: pg_sys::FullTransactionId,

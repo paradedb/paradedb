@@ -18,9 +18,7 @@
 use crate::api::version::{Version, parse_version_component};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{SegmentMetaEntry, block_number_is_valid};
-use crate::postgres::storage::buffer::{
-    Buffer, BufferManager, BufferMut, PinnedBuffer, init_new_buffer,
-};
+use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer, init_new_buffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -301,6 +299,43 @@ impl MetaPage {
     }
 }
 
+/// Serialises index maintenance against VACUUM: merges hold it shared for as long as they run,
+/// `ambulkdelete` takes it exclusive to wait for them.
+///
+/// This is a lock-manager page lock on the index's cleanup block, the same mechanism GIN uses
+/// for its pending-list cleanup, not that page's buffer content lock. A content lock is an
+/// LWLock, which holds off interrupts for as long as it is held, so a merge holding one could
+/// not be cancelled or terminated. A page lock is interruptible to wait on, deadlock-checked,
+/// visible in `pg_locks`, and transaction scoped: a worker that exits without dropping it
+/// releases it in `LockReleaseAll`.
+pub struct CleanupLock {
+    rel: PgSearchRelation,
+    blockno: pg_sys::BlockNumber,
+    mode: pg_sys::LOCKMODE,
+}
+
+impl CleanupLock {
+    unsafe fn acquire(
+        rel: &PgSearchRelation,
+        blockno: pg_sys::BlockNumber,
+        mode: pg_sys::LOCKMODE,
+    ) -> Self {
+        pg_sys::LockPage(rel.as_ptr(), blockno, mode);
+        Self {
+            rel: rel.clone(),
+            blockno,
+            mode,
+        }
+    }
+}
+
+crate::impl_safe_drop!(CleanupLock, |self| {
+    // After commit or abort the lock manager has already released it.
+    if unsafe { crate::postgres::utils::IsTransactionState() } {
+        unsafe { pg_sys::UnlockPage(self.rel.as_ptr(), self.blockno, self.mode) };
+    }
+});
+
 // legacy hardcoded page support for various index objects
 impl MetaPage {
     const LEGACY_CLEANUP_LOCK: pg_sys::BlockNumber = 1;
@@ -309,38 +344,42 @@ impl MetaPage {
     const LEGACY_SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
     pub fn cleanup_lock_pinned(&self) -> PinnedBuffer {
-        let blockno = if self.data.cleanup_lock == 0 {
-            Self::LEGACY_CLEANUP_LOCK
-        } else {
-            self.data.cleanup_lock
-        };
+        let blockno = self.cleanup_lock_blockno();
         self.bman.pinned_buffer(blockno)
     }
 
-    pub fn cleanup_lock_shared(&self) -> Buffer {
-        let blockno = if self.data.cleanup_lock == 0 {
+    fn cleanup_lock_blockno(&self) -> pg_sys::BlockNumber {
+        if self.data.cleanup_lock == 0 {
             Self::LEGACY_CLEANUP_LOCK
         } else {
             self.data.cleanup_lock
-        };
-        self.bman.get_buffer(blockno)
+        }
     }
 
-    pub fn cleanup_lock_exclusive(&mut self) -> BufferMut {
-        let blockno = if self.data.cleanup_lock == 0 {
-            Self::LEGACY_CLEANUP_LOCK
-        } else {
-            self.data.cleanup_lock
-        };
-        self.bman.get_buffer_mut(blockno)
+    /// Held by a merge for its whole duration. Any number of merges may hold it at once.
+    pub fn cleanup_lock_shared(&self) -> CleanupLock {
+        unsafe {
+            CleanupLock::acquire(
+                self.bman.buffer_access().rel(),
+                self.cleanup_lock_blockno(),
+                pg_sys::ShareLock as pg_sys::LOCKMODE,
+            )
+        }
+    }
+
+    /// Held by `ambulkdelete` while it decides which segments are dead. Waits for every merge.
+    pub fn cleanup_lock_exclusive(&mut self) -> CleanupLock {
+        unsafe {
+            CleanupLock::acquire(
+                self.bman.buffer_access().rel(),
+                self.cleanup_lock_blockno(),
+                pg_sys::ExclusiveLock as pg_sys::LOCKMODE,
+            )
+        }
     }
 
     pub fn cleanup_lock_for_cleanup(&mut self) -> BufferMut {
-        let blockno = if self.data.cleanup_lock == 0 {
-            Self::LEGACY_CLEANUP_LOCK
-        } else {
-            self.data.cleanup_lock
-        };
+        let blockno = self.cleanup_lock_blockno();
         self.bman.get_buffer_for_cleanup(blockno)
     }
 

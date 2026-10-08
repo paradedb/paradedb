@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791414603356,
+  "lastUpdate": 1791417891824,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9414,6 +9414,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 20.18,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70a7f2c346dedbae1bc74bd3b56a486897f28ba4",
+          "message": "perf: Use Top K parallel worker planning for aggregates (#6688)\n\n## What\n\nAggregates currently request parallel workers whenever there are\nmultiple segments, even when worker startup costs more than the query\nitself. Use the same parallel-cost comparison as Top K to run small\naggregations serially and retain workers for larger aggregations.\n\n## How\n\nEstimate work from query traversal, collector updates, and heap\nvisibility checks using PostgreSQL's CPU costs and catalog all-visible\nfraction. Include string-cardinality sorting work. Compare that work\nwith parallel startup and transferring one partial result per worker;\nkeep the existing worker budget when work cannot be estimated.\n\nReuse the aggregation's execution reader for worker costing and\nthreshold visibility. The shared selectivity/cost estimator samples its\nlargest segment without opening another reader.\n\n## Tests\n\n- Aggregate/Top K integration tests and 11 targeted SQL regressions\npassed locally, with unchanged expected output.\n- A release benchmark on 4M rows and 8 segments confirms the heap-cost\nterm restores parallel execution for dirty-heap aggregates: the affected\n100K–200K-match cases improve from roughly 38–40 ms to 29–31 ms.\n\n[Review responses and benchmark\ninvestigation](https://github.com/paradedb/paradedb/pull/6688#issuecomment-6042758960)\ninclude the remaining Stack Overflow alerts and the separate Stack\nExchange count workload. A [fresh Stack Exchange\nbenchmark](https://github.com/paradedb/paradedb/actions/runs/37656059563)\nis running.",
+          "timestamp": "2026-10-07T16:21:16-07:00",
+          "tree_id": "2c952b48e479be0da58b7d5e4f6eff9359da4aa7",
+          "url": "https://github.com/paradedb/paradedb/commit/70a7f2c346dedbae1bc74bd3b56a486897f28ba4"
+        },
+        "date": 1791417889238,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.626,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.401,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.526,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 10.112,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 2.01,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.57,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.908,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.436,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 1.657,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.378,
             "unit": "ms"
           }
         ]

@@ -847,6 +847,12 @@ async fn test_background_merge_terminate_during_sync_replication() -> Result<()>
             );
             async_std::task::sleep(Duration::from_millis(50)).await;
         }
+        let passed: Option<bool> = sqlx::query_scalar(
+            "SELECT bool_and(passed) FROM pdb.verify_index('merge_die_idx', heapallindexed => true)",
+        )
+        .fetch_one(&mut conn)
+        .await?;
+        anyhow::ensure!(passed == Some(true), "verify_index failed after the merger exited");
         Ok(())
     }
     .await;

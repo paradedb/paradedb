@@ -271,6 +271,111 @@ mod tests {
     }
 
     #[test]
+    fn worker_metrics_sent_during_join_reach_the_store() {
+        use datafusion::arrow::datatypes::Schema;
+        use datafusion::physical_plan::{ExecutionPlan, empty::EmptyExec};
+        use datafusion_distributed::{DistributedExec, NetworkCoalesceExec};
+
+        // Keep the backing region alive until both sessions and their ring handles drop.
+        let region_bytes = shm::dsm_region_bytes(2, 64 * 1024, 0).unwrap();
+        let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
+        let leader = unsafe {
+            shm::leader_setup(
+                region.as_mut_ptr().cast(),
+                2,
+                64 * 1024,
+                &[],
+                Arc::new(NoopWakeup),
+                1,
+                Arc::new(NoInterrupt),
+                true,
+            )
+            .unwrap()
+        };
+        let worker = unsafe {
+            shm::worker_setup(
+                region.as_mut_ptr().cast(),
+                region_bytes,
+                1,
+                Arc::new(NoopWakeup),
+                2,
+                Arc::new(NoInterrupt),
+            )
+            .unwrap()
+        };
+        let input: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(Arc::new(Schema::empty())));
+        // One worker can report multiple tasks. The unprepared boundary uses query/stage 0.
+        let boundary = NetworkCoalesceExec::try_new(Arc::clone(&input), 2, 1).unwrap();
+        let distributed = DistributedExec::new(Arc::new(boundary)).with_metrics_collection(true);
+        let store = distributed.metrics_store().unwrap();
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(distributed);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+
+        drain_worker_metrics_around_join(&plan, &leader.mesh, || {
+            for task_number in 0..2 {
+                let key = TaskKey {
+                    query_id: uuid::Uuid::nil(),
+                    stage_id: 0,
+                    task_number,
+                };
+                assert!(
+                    store.get(&key).is_none(),
+                    "pre-join drain cannot see this report"
+                );
+                let sender = worker.outbound_senders()[0]
+                    .as_ref()
+                    .unwrap()
+                    .clone_with_header(shm::MppFrameHeader::task_metrics(0, task_number as u32, 1));
+                let metrics = shm::collect_task_metrics(&input, task_number, 2);
+                runtime
+                    .block_on(sender.send_task_metrics_best_effort(&metrics))
+                    .unwrap();
+            }
+        });
+
+        for task_number in 0..2 {
+            let metrics = store
+                .get(&TaskKey {
+                    query_id: uuid::Uuid::nil(),
+                    stage_id: 0,
+                    task_number,
+                })
+                .expect("post-join drain must decode and store every late report");
+            assert_eq!(metrics.pre_order_plan_metrics.len(), 1);
+        }
+    }
+
+    #[test]
+    fn worker_join_runs_when_metrics_are_disabled() {
+        use datafusion::arrow::datatypes::Schema;
+        use datafusion::physical_plan::{ExecutionPlan, empty::EmptyExec};
+        use datafusion_distributed::DistributedExec;
+
+        let region_bytes = shm::dsm_region_bytes(2, 64 * 1024, 0).unwrap();
+        let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
+        let leader = unsafe {
+            shm::leader_setup(
+                region.as_mut_ptr().cast(),
+                2,
+                64 * 1024,
+                &[],
+                Arc::new(NoopWakeup),
+                1,
+                Arc::new(NoInterrupt),
+                true,
+            )
+            .unwrap()
+        };
+        let input = Arc::new(EmptyExec::new(Arc::new(Schema::empty())));
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(DistributedExec::new(input));
+        let mut joined = false;
+        drain_worker_metrics_around_join(&plan, &leader.mesh, || joined = true);
+        assert!(joined, "metrics collection must not gate worker shutdown");
+    }
+
+    #[test]
     fn mesh_can_use_fewer_processes_than_its_reserved_region() {
         // `launch_mpp` must allocate DSM before PostgreSQL tells it how many workers actually
         // attached. Pin the transport contract that lets a short launch initialize its smaller

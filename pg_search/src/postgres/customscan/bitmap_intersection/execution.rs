@@ -200,7 +200,13 @@ impl BitmapExec {
                 self.area = create_area();
                 self.owns_area = true;
             }
-            self.release_shared();
+            // A publish feeds a new round of workers, before they launch and before the
+            // owner's own ReScan. Freeing the earlier round's iteration states also frees
+            // the bitmap's shared page table and arrays (they count only iteration states
+            // as references), so a build from that round is rebuilt, for the current params.
+            if self.consumed {
+                self.rescan();
+            }
             self.ensure_built(self.area);
             if self.tbm.is_null() {
                 return None;
@@ -215,7 +221,7 @@ impl BitmapExec {
         }
     }
 
-    /// Republish after a rescan reset, with the same consumers/segments.
+    /// Publish again for a new round of workers, with the same consumers/segments.
     pub unsafe fn republish(&mut self) -> Option<SharedBitmapHandle> {
         unsafe {
             let (consumers, segments) = self.publish_args.clone()?;

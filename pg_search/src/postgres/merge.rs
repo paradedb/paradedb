@@ -396,10 +396,10 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         fn merge_worker_sigterm(signal: i32);
     }
 
-    // This one-shot worker does not poll pgrx's ShutdownRequestPending flag. In particular,
-    // CommitTransactionCommand can wait for synchronous replication after the merge returns;
-    // that wait only responds to ProcDiePending. Use PostgreSQL's backend handler so a fast
-    // shutdown can cancel that wait, release the worker's locks, and finish shutting down.
+    // This worker runs a transaction inside PostgreSQL code, which acts on ProcDiePending in
+    // its waits and interrupt checks. pgrx's SIGTERM handler sets a flag that only a worker's
+    // own polling loop reads, and this one-shot worker has no such loop, so a fast shutdown
+    // never reached it. Install PostgreSQL's handler for transaction-running workers instead.
     #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     pg_sys::pqsignal(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
     #[cfg(feature = "pg18")]
@@ -407,6 +407,17 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     // attach_signal_handlers unblocks signals, so install SIGTERM first.
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP);
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
+    // A merge changes nothing a query can see, so its commit needs no standby acknowledgement.
+    // Commit locally, as AutoVacWorkerMain does, so a missing synchronous standby cannot park
+    // this worker at commit holding its merge slot. Only ever lowered, never raised from `off`.
+    if pg_sys::synchronous_commit > pg_sys::SyncCommitLevel::SYNCHRONOUS_COMMIT_LOCAL_FLUSH as i32 {
+        pg_sys::SetConfigOption(
+            c"synchronous_commit".as_ptr(),
+            c"local".as_ptr(),
+            pg_sys::GucContext::PGC_SUSET,
+            pg_sys::GucSource::PGC_S_OVERRIDE,
+        );
+    }
     BackgroundWorker::transaction(|| {
         set_ps_display_suffix(MERGING.as_ptr());
         pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_RUNNING, MERGING.as_ptr());

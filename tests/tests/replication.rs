@@ -771,11 +771,11 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     Ok(())
 }
 
-// A background merger commits using the worker's default synchronous_commit setting.
-// With no synchronous standby, park it in SyncRep and verify SIGTERM releases that wait.
-// This also models the worker that can prevent a CNPG primary from completing fast shutdown.
+// A background merger commits with synchronous_commit = local, so a synchronous standby that is
+// missing cannot park it at commit holding its merge slot. With such a standby configured, the
+// merge must still publish, every merger must exit on its own, and none may wait in SyncRep.
 #[async_std::test]
-async fn test_background_merge_terminate_during_sync_replication() -> Result<()> {
+async fn test_background_merge_commits_without_synchronous_standby() -> Result<()> {
     let primary = EphemeralPostgres::new(
         Some(
             "shared_preload_libraries = 'pg_search'\nsynchronous_standby_names = 'missing_standby'",
@@ -799,6 +799,8 @@ async fn test_background_merge_terminate_during_sync_replication() -> Result<()>
             "INSERT INTO merge_die SELECT i, 'beer wine cheese ' || i FROM generate_series(1, 1000) s(i)",
         ).await?;
     }
+    let segments = "SELECT count(*) FROM paradedb.index_info('merge_die_idx') WHERE visible";
+    let (before,): (i64,) = sqlx::query_as(segments).fetch_one(&mut conn).await?;
     conn.execute("ALTER INDEX merge_die_idx SET (background_layer_sizes = '1kb,10kb,64kb')")
         .await?;
     conn.execute(
@@ -806,41 +808,46 @@ async fn test_background_merge_terminate_during_sync_replication() -> Result<()>
     ).await?;
 
     let result: Result<()> = async {
+        // The merged segment becomes visible at the merger's local commit, which happens before
+        // any wait for a standby, so a falling segment count proves the merge published; the
+        // check below then proves the worker did not stay parked waiting for the standby.
         let deadline = Instant::now() + Duration::from_secs(30);
-        let pid = loop {
-            let pid: Option<i32> = sqlx::query_scalar(
-                "SELECT pid FROM pg_stat_activity WHERE backend_type LIKE 'background merger%'
-                 AND wait_event = 'SyncRep' LIMIT 1",
-            )
-            .fetch_optional(&mut conn)
-            .await?;
-            if let Some(pid) = pid {
-                break pid;
-            }
-            anyhow::ensure!(
-                Instant::now() < deadline,
-                "merge worker never reached SyncRep"
-            );
-            async_std::task::sleep(Duration::from_millis(50)).await;
-        };
-        let signalled: bool = sqlx::query_scalar("SELECT pg_terminate_backend($1)")
-            .bind(pid)
-            .fetch_one(&mut conn)
-            .await?;
-        anyhow::ensure!(signalled, "could not terminate merge worker {pid}");
-        let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let alive: bool =
-                sqlx::query_scalar("SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid = $1)")
-                    .bind(pid)
-                    .fetch_one(&mut conn)
-                    .await?;
-            if !alive {
+            let waiting: Vec<(i32,)> = sqlx::query_as(
+                "SELECT pid FROM pg_stat_activity WHERE backend_type LIKE 'background merger%'
+                 AND wait_event = 'SyncRep'",
+            )
+            .fetch_all(&mut conn)
+            .await?;
+            anyhow::ensure!(
+                waiting.is_empty(),
+                "merge worker {} waited for the missing synchronous standby",
+                waiting[0].0
+            );
+            let (after,): (i64,) = sqlx::query_as(segments).fetch_one(&mut conn).await?;
+            if after < before {
                 break;
             }
             anyhow::ensure!(
                 Instant::now() < deadline,
-                "merge worker {pid} ignored SIGTERM in SyncRep"
+                "no background merge published within the deadline ({before} segments)"
+            );
+            async_std::task::sleep(Duration::from_millis(50)).await;
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let alive: Vec<(i32, Option<String>)> = sqlx::query_as(
+                "SELECT pid, wait_event FROM pg_stat_activity
+                 WHERE backend_type LIKE 'background merger%'",
+            )
+            .fetch_all(&mut conn)
+            .await?;
+            if alive.is_empty() {
+                break;
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "merge worker(s) still running after publishing: {alive:?}"
             );
             async_std::task::sleep(Duration::from_millis(50)).await;
         }
@@ -849,12 +856,12 @@ async fn test_background_merge_terminate_during_sync_replication() -> Result<()>
         )
         .fetch_one(&mut conn)
         .await?;
-        anyhow::ensure!(passed == Some(true), "verify_index failed after the merger exited");
+        anyhow::ensure!(passed == Some(true), "verify_index failed after the merge");
         Ok(())
     }
     .await;
 
-    // Let `Drop` stop the server even if the worker ignored SIGTERM.
+    // Let `Drop` stop the server even if a worker is parked.
     conn.execute("ALTER SYSTEM SET synchronous_standby_names = ''")
         .await?;
     conn.execute("SELECT pg_reload_conf()").await?;

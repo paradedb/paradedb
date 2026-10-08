@@ -2,4 +2,4 @@
 header: stability
 ---
 
-Fixed background merge workers ignoring termination signals while waiting for synchronous replication, which could prevent a primary from completing a fast shutdown.
+Background merge workers now commit locally (`synchronous_commit = local`), as autovacuum does, so a missing synchronous standby can no longer park a merger at commit holding its merge slot and blocking a fast shutdown. Merge workers also install PostgreSQL's SIGTERM handler so termination requests reach them.

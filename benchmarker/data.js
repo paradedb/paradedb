@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791428532343,
+  "lastUpdate": 1791429360490,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -10154,6 +10154,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (wikipedia, count/mixed) p99 latency",
             "value": 20.338,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hi.wisper@gmail.com",
+            "name": "Alan Wisper",
+            "username": "wisper-dev"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2912267c73f2478a0999713729026fc2a28283de",
+          "message": "fix: index and search `date` values of `infinity` and `-infinity` (#6727)\n\n# Ticket(s) Closed\n\n- Closes #6722\n\n## What\n\nA `date` of `infinity` or `-infinity` no longer breaks the index or\nsearch.\n\n## Why\n\nAn infinite date is stored as the extreme day count, and converting it\nto microseconds overflowed. Three more places further along the path did\nnot handle infinity either.\n\n## How\n\nAn infinite date maps to an infinite timestamp and back. In a query it\nis passed as the string `infinity` instead of `infinityZ`. A range bound\nat infinity is not shifted by a day. As a side effect, `timestamp\n'infinity'` constants and a `daterange` with an infinite bound now work\ntoo. `GROUP BY` on these values is #6627.\n\n## Tests\n\n`issue_6722` (index build, insert, all comparisons, sorting, timestamp,\ndaterange) and 3 unit tests. I reverted each of the 4 parts of the fix\nseparately, and the test fails for each one. The full pg_regress suite\n(408), all unit tests (539), the date and range integration tests (142),\nclippy and fmt pass. Tested on PostgreSQL 18.6 only.",
+          "timestamp": "2026-10-07T19:32:31-07:00",
+          "tree_id": "3cd8c86fde856e155ca7507d1f2576b4d1e79b35",
+          "url": "https://github.com/paradedb/paradedb/commit/2912267c73f2478a0999713729026fc2a28283de"
+        },
+        "date": 1791429357421,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p50 latency",
+            "value": 1.619,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/conjunction) p99 latency",
+            "value": 6.376,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p50 latency",
+            "value": 7.636,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/disjunction) p99 latency",
+            "value": 10.245,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p50 latency",
+            "value": 2.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/phrase) p99 latency",
+            "value": 11.653,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p50 latency",
+            "value": 1.911,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, topk/mixed) p99 latency",
+            "value": 10.576,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p50 latency",
+            "value": 1.661,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (wikipedia, count/mixed) p99 latency",
+            "value": 20.246,
             "unit": "ms"
           }
         ]

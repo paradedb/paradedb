@@ -22,6 +22,7 @@ use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
@@ -63,8 +64,8 @@ pub enum AggregateType {
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        group_key: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group_key: Option<usize>,
     },
     Sum {
         field: String,
@@ -271,7 +272,7 @@ impl AggregateType {
                 missing,
                 filter,
                 indexrelid,
-                group_key: false,
+                group_key: None,
             }),
             F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
                 Some(Self::Avg {
@@ -313,30 +314,35 @@ impl AggregateType {
         }
     }
 
+    /// True when the bucket's `doc_count` stands in for this aggregate's metric. For a
+    /// `COUNT(group_key)` the value is NOT always `doc_count`: the NULL bucket must read 0.
+    /// Callers that rank or filter buckets by `doc_count` must not use this.
     pub fn can_use_doc_count(&self) -> bool {
         matches!(
             self,
             AggregateType::CountAny { .. }
                 | AggregateType::Count {
-                    group_key: true,
+                    group_key: Some(_),
                     ..
                 }
         ) && !self.has_filter()
     }
 
-    /// Marks `COUNT(field)` as served by the bucket's `doc_count` when `field` is one of the
-    /// `GROUP BY` keys. Only a plain `COUNT(field)` qualifies: a default (`missing`) or a
-    /// `FILTER` changes which rows count.
-    pub fn mark_group_key(&mut self, grouping_fields: &[&str]) {
+    /// A non-NULL bucket of a `GROUP BY` key has a value in every row, so its `doc_count` is
+    /// `COUNT(field)`. A `FILTER` changes which rows count. Only text and bool keys qualify:
+    /// their NULL sentinel is a string no real value can match, whereas a numeric, timestamp
+    /// or JSON key can hold a real value equal to its sentinel (e.g. `'infinity'`, `i64::MAX`).
+    pub fn mark_group_key(&mut self, grouping_columns: &[GroupingColumn]) {
         if let AggregateType::Count {
             field,
-            missing: None,
             filter: None,
             group_key,
             ..
         } = self
         {
-            *group_key = grouping_fields.contains(&field.as_str());
+            *group_key = grouping_columns
+                .iter()
+                .position(|gc| gc.field_name == *field && gc.string_null_sentinel);
         }
     }
 

@@ -506,6 +506,51 @@ SELECT count(*) FROM providers
 WHERE description === 'cardiology'
   AND (location <@ circle(point(20, 20), 3) OR location <@ circle(point(80, 80), 3));
 
+-- A AND (B OR C) with all three indexed: both bitmaps are candidates and their
+-- clauses do not overlap, but a BitmapOr only runs as the whole bitmapqual, so a
+-- BitmapAnd over the two would be declined and leave no bitmap at all. The OR
+-- competes alone instead. Wide rows make the second bitmap look worth adding.
+CREATE TABLE or_and_providers (
+    id BIGINT, description TEXT, rating INT, cat_b TEXT, cat_c TEXT, filler TEXT
+);
+ALTER TABLE or_and_providers ALTER COLUMN filler SET STORAGE PLAIN;
+INSERT INTO or_and_providers
+SELECT i, 'cardiology notes ' || i, i % 10, 'b' || ((i / 10) % 10),
+       'c' || ((i / 100) % 10), repeat('x', 1400)
+FROM generate_series(0, 4999) i;
+CREATE INDEX or_and_paradedb ON or_and_providers
+    USING paradedb (id, description);
+CREATE INDEX or_and_rating ON or_and_providers (rating);
+CREATE INDEX or_and_cat_b ON or_and_providers (cat_b);
+CREATE INDEX or_and_cat_c ON or_and_providers (cat_c);
+VACUUM ANALYZE or_and_providers;
+-- Through the Aggregate Scan: the Base Scan folds an OR into a sibling heap
+-- filter, but the built query exposes both to the chooser.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT count(*) FROM or_and_providers
+WHERE description === 'cardiology' AND rating > 7 AND (cat_b = 'b3' OR cat_c = 'c3');
+SELECT count(*) AS or_and_count FROM or_and_providers
+WHERE description === 'cardiology' AND rating > 7 AND (cat_b = 'b3' OR cat_c = 'c3');
+-- Two disjunctions through the Base Scan: neither may join the other's group.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM or_and_providers
+WHERE description === 'cardiology'
+  AND (rating = 8 OR rating = 9) AND (cat_b = 'b3' OR cat_c = 'c3')
+ORDER BY id LIMIT 5;
+SELECT count(*) AS or_or_count, sum(id) AS or_or_sum FROM (
+    SELECT id FROM or_and_providers
+    WHERE description === 'cardiology'
+      AND (rating = 8 OR rating = 9) AND (cat_b = 'b3' OR cat_c = 'c3')) q;
+SET paradedb.enable_bitmap_intersection = off;
+SELECT count(*) AS or_and_off_count FROM or_and_providers
+WHERE description === 'cardiology' AND rating > 7 AND (cat_b = 'b3' OR cat_c = 'c3');
+SELECT count(*) AS or_or_off_count, sum(id) AS or_or_off_sum FROM (
+    SELECT id FROM or_and_providers
+    WHERE description === 'cardiology'
+      AND (rating = 8 OR rating = 9) AND (cat_b = 'b3' OR cat_c = 'c3')) q;
+RESET paradedb.enable_bitmap_intersection;
+DROP TABLE or_and_providers CASCADE;
+
 DROP TABLE providers CASCADE;
 RESET paradedb.enable_filter_pushdown;
 RESET max_parallel_workers_per_gather;

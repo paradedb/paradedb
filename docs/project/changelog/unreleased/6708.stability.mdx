@@ -2,4 +2,4 @@
 header: stability
 ---
 
-Background merge workers now commit locally (`synchronous_commit = local`), as autovacuum does, so a missing synchronous standby can no longer park a merger at commit holding its merge slot and blocking a fast shutdown. Merge workers also install PostgreSQL's SIGTERM handler so termination requests reach them.
+Fixed a primary being unable to complete a fast shutdown while a background merge worker waited for a missing synchronous standby. Merge workers now commit locally, as autovacuum does (#6708).

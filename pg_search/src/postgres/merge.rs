@@ -396,13 +396,13 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         fn merge_worker_sigterm(signal: i32);
     }
 
-    // This worker runs a transaction inside PostgreSQL code, which acts on ProcDiePending in
-    // its waits and interrupt checks. pgrx's SIGTERM handler sets a flag that only a worker's
-    // own polling loop reads, and this one-shot worker has no such loop, so a fast shutdown
-    // never reached it. Install PostgreSQL's handler for transaction-running workers instead.
+    // PostgreSQL's waits and interrupt checks act on ProcDiePending. pgrx's SIGTERM handler
+    // only sets a flag for a worker's own polling loop, and this one-shot worker has none.
     #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     pg_sys::pqsignal(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
-    #[cfg(feature = "pg18")]
+    // Not gated on pg18: a future major whose `die` signature changes must fail to build here
+    // rather than silently keep PostgreSQL's generic bgworker_die.
+    #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
     pg_sys::pqsignal_be(pg_sys::SIGTERM as i32, Some(merge_worker_sigterm));
     // attach_signal_handlers unblocks signals, so install SIGTERM first.
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP);

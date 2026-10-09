@@ -1988,18 +1988,6 @@ impl AggregateScan {
 
         // First call: build and execute the DataFusion plan
         if first_call {
-            let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-            for source in state
-                .custom_state()
-                .datafusion_state
-                .as_ref()
-                .expect("DataFusion state must be initialized")
-                .plan
-                .sources()
-            {
-                predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
-            }
-
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -2033,6 +2021,10 @@ impl AggregateScan {
                     .datafusion_state
                     .as_mut()
                     .expect("DataFusion state must be initialized");
+                let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+                for source in df_state.plan.sources() {
+                    predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                }
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
                     df_state,

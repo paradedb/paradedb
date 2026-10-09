@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791546267814,
+  "lastUpdate": 1791548860026,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -9782,6 +9782,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 206.119,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a836ac54785620435a3dd0a3c07bc58a675218d8",
+          "message": "fix: commit background merges locally and install PostgreSQL's SIGTERM handler (#6708)\n\n## What\n\nBackground merge workers now commit with `synchronous_commit = local`,\nas autovacuum does, so a missing or lagging synchronous standby can no\nlonger park a merger at commit. They also install PostgreSQL's `die()`\nSIGTERM handler in place of pgrx's.\n\n## Why\n\nThe October 7 Antithesis index-consistency finding never reached\n`pdb.verify_index`: the old CNPG primary stayed in shutdown and the\nreplacement could not take its lease. A background merger was parked in\n`SyncRepWaitForLSN`, waiting for a synchronous standby that was gone,\nholding its merge slot, its xmin and a worker process. On ParadeDB\n0.26.0 / PostgreSQL 18 a merger in that state stayed there after\n`pg_terminate_backend` returned true, because pgrx's SIGTERM handler\nsets `ShutdownRequestPending`, which nothing in the commit path reads,\nwhile the wait loop checks `ProcDiePending`.\n\nTwo things were wrong, and this PR fixes both:\n\n- The merger waited for a standby at all. A merge changes nothing a\nquery can see, so a standby's acknowledgement protects nothing; a\nfailover before the standby has the record shows the unmerged segments\nand the next merge redoes the work. `AutoVacWorkerMain` forces\n`synchronous_commit = local` for the same reason.\n- SIGTERM never reached the merger. `die()` is the handler every\nPostgreSQL worker that runs transactions uses; it sets the flags\nPostgreSQL's own waits and interrupt checks act on.\n\n## How\n\n- After the worker connects to its database, lower `synchronous_commit`\nto `local` with the same guard as autovacuum, so the setting is never\nraised from `off`.\n- Bind PostgreSQL's raw `die` symbol (pgrx's `pg_sys::die` is a guarded\nRust wrapper and cannot be a C signal callback) and install it before\n`attach_signal_handlers` unblocks signals, keeping pgrx's SIGHUP\nhandler.\n\nWith `local` set there is no synchronous-replication wait left for\n`die()` to cancel on this branch, and the merger holds the index cleanup\nlock, an LWLock, across the whole merge, which holds off every\n`CHECK_FOR_INTERRUPTS`. So a merger mid-merge still finishes its current\ncandidate before exiting. `die()` stays as the correct handler and\nbecomes effective mid-merge in #6740, which replaces that lock.\n\n## Tests\n\n-\n`test_background_merge_commits_without_synchronous_replication_standby`:\nwith `synchronous_standby_names` naming a missing standby, a background\nmerge publishes, every merger exits on its own, none waits in `SyncRep`,\nand `pdb.verify_index(heapallindexed => true)` passes. Against `main`\nand against this branch without the `local` change it fails with `merge\nworker(s) still running after publishing: [(pid, Some(\"SyncRep\"))]`.\n- Measured on PostgreSQL 18.1 with the standby missing: before, 299 of\n300 samples of the merger in `SyncRep`, parked holding its slot; after,\n0 samples, every merger exits 0.\n- Runs by hand, since the main CI job skips this file: `PG_CONFIG=...\ncargo test -p tests --test replication`.\n- Changelog fragment\n`docs/project/changelog/unreleased/6708.stability.mdx` describes both\nchanges.\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Moe <mdashti@gmail.com>\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-10-09T16:32:05+05:30",
+          "tree_id": "62d3a7c93880e6cbab45ef80f4813cdf6b0cb1f4",
+          "url": "https://github.com/paradedb/paradedb/commit/a836ac54785620435a3dd0a3c07bc58a675218d8"
+        },
+        "date": 1791548855600,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 32.479,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 626.256,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 17.266,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 190.426,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 46.369,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 210.967,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.644,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 190.133,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.101,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 197.644,
             "unit": "ms"
           }
         ]

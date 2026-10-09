@@ -114,10 +114,15 @@ After executing the community release, you should sync all new commits on the co
 
 1. Create a sync branch from the enterprise stable branch:
    - Something like: `git checkout -b sync-0.22.2 origin/0.22.x` (where `origin` is your enterprise remote)
-2. Cherry-pick all new commits from the community stable branch into your sync branch:
-   - Something like `git cherry-pick <prev_commit>...upstream/0.22.x` (where `upstream` is your community remote)
+2. Cherry-pick and sign all new commits from the community stable branch into your sync branch:
+   - Configure [commit signing](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits) with a signing key registered on GitHub.
+   - Something like `git cherry-pick -S <prev_commit>..upstream/0.22.x` (where `upstream` is your community remote and `<prev_commit>` is the last community commit already synced).
+   - Preserve the original authors and any `Co-authored-by` trailers.
 3. Open a PR for your sync branch on enterprise, targeted at the stable branch, and get it reviewed.
-4. Land the PR with `Rebase and Merge`, then trigger a release on the stable branch using the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml).
+   - Check that GitHub verifies the signature of every commit introduced by the PR. A **Partially verified** badge is acceptable: it indicates a valid signature with an author or co-author other than the committer who has vigilant mode enabled.
+4. Land the PR with **Create a merge commit**. The enterprise repository must have **Allow merge commits** enabled, and the stable branch must permit merge commits. This preserves the signed cherry-picks, and GitHub signs the merge commit. Keep the signed-commit requirement enabled; no bypass is needed.
+   - Do not use **Rebase and merge**: GitHub rewrites the commits without signing the replacements, which conflicts with the stable branch's signed-commit requirement. See [GitHub's signature verification documentation](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification#signature-verification-for-rebase-and-merge).
+5. Trigger a release on the enterprise stable branch using its [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb-enterprise/actions/workflows/publish-github-release.yml).
 
 ## Post-Release
 

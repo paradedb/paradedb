@@ -1210,6 +1210,10 @@ pub mod interrupt_collector {
             self.inner.requires_scoring()
         }
 
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
+        }
+
         fn merge_fruits(
             &self,
             segment_fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
@@ -1312,6 +1316,10 @@ pub mod mvcc_collector {
 
         fn requires_scoring(&self) -> bool {
             self.inner.requires_scoring()
+        }
+
+        fn supports_bitmap_collection(&self) -> bool {
+            self.inner.supports_bitmap_collection()
         }
 
         fn merge_fruits(

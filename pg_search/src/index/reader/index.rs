@@ -991,7 +991,9 @@ impl SearchIndexReader {
     /// docsets without scoring or collection overhead. Counts raw index
     /// entries: no MVCC filtering.
     pub fn count_matched_docs(&self) -> tantivy::Result<u64> {
-        let weight = self.weight();
+        let weight = self
+            .query
+            .weight(enable_scoring(self.need_scores, &self.searcher).with_bitmap_postings(true))?;
         let mut total = 0u64;
         for (_, segment_reader) in self.candidate_segment_readers() {
             total += u64::from(weight.count(segment_reader)?);
@@ -2210,7 +2212,10 @@ impl SearchIndexReader {
             .expect("search should not fail");
         let weight = self
             .query
-            .weight(enable_scoring(self.need_scores, &self.searcher))
+            .weight(
+                enable_scoring(self.need_scores, &self.searcher)
+                    .with_bitmap_postings(collector.supports_bitmap_collection()),
+            )
             .expect("creating a Weight from a Query should not fail");
         let fruits = self.collect_segment_readers(
             self.candidate_segment_readers(),
@@ -2491,6 +2496,56 @@ mod tests {
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
     };
+
+    #[pg_test]
+    fn bitmap_postings_are_requested_only_for_counts() {
+        use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+        use tantivy::collector::{Count, DocSetCollector};
+
+        #[derive(Debug)]
+        struct CheckBitmapOptIn {
+            query: Box<dyn Query>,
+            expected: bool,
+            calls: Arc<AtomicUsize>,
+        }
+
+        impl Clone for CheckBitmapOptIn {
+            fn clone(&self) -> Self {
+                Self {
+                    query: self.query.box_clone(),
+                    expected: self.expected,
+                    calls: Arc::clone(&self.calls),
+                }
+            }
+        }
+
+        impl Query for CheckBitmapOptIn {
+            fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+                assert_eq!(scoring.bitmap_postings_enabled(), self.expected);
+                self.calls.fetch_add(1, Relaxed);
+                self.query.weight(scoring)
+            }
+        }
+
+        let (index, _) = segmented_index_fixture("bitmap_opt_in", 2, false);
+        for expected in [false, true] {
+            let mut reader = open_snapshot_reader(&index, term_query("title", "silver"), false);
+            let calls = Arc::new(AtomicUsize::new(0));
+            reader.query = Box::new(CheckBitmapOptIn {
+                query: reader.query.box_clone(),
+                expected,
+                calls: Arc::clone(&calls),
+            });
+            if expected {
+                assert_eq!(reader.collect(Count), 10);
+                assert_eq!(reader.count_matched_docs().unwrap(), 10);
+            } else {
+                assert_eq!(reader.search().count(), 10);
+                assert_eq!(reader.collect(DocSetCollector).len(), 10);
+            }
+            assert_eq!(calls.load(Relaxed), 2);
+        }
+    }
 
     #[pg_test]
     fn statistics_estimation_uses_only_supported_query_trees() {

@@ -7,6 +7,5 @@ USING bm25 (
     emb vector_cosine_ops
 ) WITH (
     training_sample_ratio = 0.32,
-    max_leaf_size = 100,
     target_segment_count = 8
 );

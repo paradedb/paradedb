@@ -7,11 +7,11 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends ca-certificates curl; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
-        amd64) checksum="b88376a9b8b95ff7d93e04292761155d17f0cb2ab4ca75faabbf6cada87e46e6" ;; \
-        arm64) checksum="9ed7f7feec7e8f2167e3e403979226b0e494ed2a903e9c81c5be792233418321" ;; \
+        amd64) checksum="2b180f08e89e1f847a5a06e83feb2d1ead252bb9162e3e8022de2d2fdb646e3c" ;; \
+        arm64) checksum="2cd60b5e1875a104d6fac85da8a1d060372408bdd3baf0a0d482a8b263a1c1ba" ;; \
         *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v0.26.0/postgresql-16-pg-search_0.26.0-1PARADEDB-trixie_${arch}.deb"; \
+    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v0.26.1/postgresql-16-pg-search_0.26.1-1PARADEDB-trixie_${arch}.deb"; \
     echo "${checksum} */tmp/pg_search.deb" | sha256sum --strict --check -; \
     apt-get install -y --no-install-recommends /tmp/pg_search.deb; \
     apt-get purge -y --auto-remove curl; \
@@ -24,7 +24,7 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2; \
     rm /usr/lib/python*/EXTERNALLY-MANAGED; \
-    pip3 install --no-cache-dir 'setuptools==82.0.1' 'barman[cloud,azure,snappy,google]==3.18.0'; \
+    pip3 install --no-cache-dir 'setuptools==84.0.0' 'barman[cloud,azure,snappy,google]==3.20.1'; \
     apt-get remove -y python3-dev python3-pip --purge; \
     apt-get autoremove -y; \
     apt-get dist-clean; \
@@ -43,8 +43,8 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         postgresql-16-pgvector=0.8.6-1.pgdg13+1 \
-        postgresql-16-cron=1.6.7-3.pgdg13+1 \
-        postgresql-16-pg-ivm=1.13-1.pgdg13+1 \
+        postgresql-16-cron=1.6.8-1.pgdg13+2 \
+        postgresql-16-pg-ivm=1.15-2.pgdg13+1 \
         postgresql-16-postgis-$POSTGIS_VERSION_MAJOR=3.6.4+dfsg-2.pgdg13+1 \
         postgresql-16-postgis-$POSTGIS_VERSION_MAJOR-scripts=3.6.4+dfsg-2.pgdg13+1; \
     apt-get dist-clean

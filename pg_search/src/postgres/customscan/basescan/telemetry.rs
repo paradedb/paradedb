@@ -17,9 +17,11 @@
 
 //! Process-local scan telemetry for EXPLAIN.
 //!
-//! During a scan (serial or parallel), metrics are recorded only into
-//! [`ScanTelemetry`]. Parallel workers publish that local state into DSM at
-//! `EndCustomScan` via [`ParallelScanHandle`](super::parallel::ParallelScanHandle).
+//! During a scan (serial or parallel), metrics are recorded into
+//! [`ScanTelemetry`]. A parallel scan also adds each query to this process's
+//! count in DSM as it runs, so the count does not depend on hook order. Parallel
+//! workers publish the rest of their local state into DSM at `ShutdownCustomScan`
+//! via [`ParallelScanHandle`](super::parallel::ParallelScanHandle).
 //! The leader assembles worker telemetry plus shared metadata (e.g. segment
 //! claims) at `ShutdownCustomScan` for EXPLAIN.
 

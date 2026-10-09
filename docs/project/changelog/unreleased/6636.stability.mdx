@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Aggregate Scan now runs a `GROUP BY` query with a `HAVING` condition that has no aggregate, such as a condition on a grouping key, and a grouped subquery with a condition of the outer query on a grouping key. Postgres moves such a condition to `WHERE`, and the scan declined the query with `HAVING clause is not supported`. A `pdb.agg()` query with such a condition failed with the same message (#6636).

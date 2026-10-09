@@ -272,6 +272,12 @@ SELECT pdb.agg('{"terms": {"field": "category", "order": {"_key": "asc"}}, "aggs
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
+-- Test 1.22: a terms field that repeats on one path is turned down: the plan
+-- would give both of its levels one grouping id
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"again": {"terms": {"field": "category"}}}}')
+FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
+WHERE p.description ||| 'laptop';
+
 -- =====================================================================
 -- SECTION 2: empty inputs
 -- =====================================================================
@@ -484,6 +490,24 @@ WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 SELECT pdb.agg('{"sum": {"field": "p.price_num"}}')
 FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.id
 WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
+
+-- Test 4.8: a terms key repeated on one path does not lower. ORDER BY an
+-- aggregate with LIMIT would otherwise route to DataFusion for its Top-K; the
+-- query stays on Tantivy, which returns the nested buckets
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*), pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"again": {"terms": {"field": "brand"}}}}')
+FROM pa_products
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 2;
+
+SELECT category, COUNT(*), pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"again": {"terms": {"field": "brand"}}}}')
+FROM pa_products
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 2;
 
 -- =====================================================================
 -- SECTION 5: MPP

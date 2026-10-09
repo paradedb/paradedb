@@ -23,8 +23,7 @@ USING paradedb (
   latest_available_time,
   metadata,
   weight_range
-)
-WITH (key_field='id');
+);
 ```
 
 ```ts Drizzle
@@ -45,7 +44,6 @@ await db.execute(sql`
     metadata,
     weight_range
   )
-  WITH (key_field='id')
 `);
 ```
 
@@ -68,7 +66,6 @@ with connection.cursor() as cursor:
           metadata,
           weight_range
         )
-        WITH (key_field='id')
     """)
 ```
 
@@ -91,7 +88,6 @@ with engine.begin() as conn:
           metadata,
           weight_range
         )
-        WITH (key_field='id')
     """))
 ```
 
@@ -110,8 +106,7 @@ ActiveRecord::Base.connection.execute <<~SQL
     latest_available_time,
     metadata,
     weight_range
-  )
-  WITH (key_field='id');
+  );
 SQL
 ```
 
@@ -130,8 +125,7 @@ await dbContext.Database.ExecuteSqlRawAsync("""
       latest_available_time,
       metadata,
       weight_range
-    )
-    WITH (key_field='id');
+    );
     """);
 ```
 
@@ -141,14 +135,10 @@ await dbContext.Database.ExecuteSqlRawAsync("""
   If `search_idx` already exists, drop it first with `DROP INDEX search_idx;`.
 </Note>
 
-The first indexed column, `id`, is also the `key_field`. ParadeDB uses the key
-field as the row's stable identifier inside the index. In your own schema, use a
-primary key or another column with a `UNIQUE` constraint. See [Choosing a Key
-Field](/reference/indexing/create-index#choosing-a-key-field) for the full
-rules.
+Every indexed column is a field you can search, filter, sort, group, or
+aggregate. The `key_field` index option is deprecated and ignored.
 
-Everything after `id` is a field you can search, filter, sort, group, or
-aggregate. The `description` column is indexed for full-text search, `embedding`
+The `description` column is indexed for full-text search, `embedding`
 is indexed for vector search, and fields like `rating`, `category`, and
 `created_at` are available for filters, Top K queries, and facets.
 

@@ -36,14 +36,19 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::customscan::aggregatescan::build::{
+    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey,
+};
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
+use crate::postgres::customscan::parallel::{WorkerDecisionReason, aggregate_nworkers};
 use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::serializable::{predicate_lock_read, predicate_lock_read_oid};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
@@ -69,6 +74,71 @@ use tantivy::index::SegmentId;
 pub enum AggregateRequest {
     Sql(AggregateCSClause),
     Json(Aggregations),
+}
+
+impl AggregateRequest {
+    /// Estimates the number of logical operations needed to aggregate each matching document.
+    /// Each collector update counts as one operation; string cardinality also includes
+    /// sorting its distinct values. The caller multiplies this count by estimated matching
+    /// documents and cpu_operator_cost. Value multiplicity is not included.
+    pub(crate) fn updates_per_doc(&self, reader: &SearchIndexReader) -> Option<usize> {
+        let mut updates_per_doc = 0;
+        match self {
+            AggregateRequest::Sql(clause) => {
+                if clause.is_bare_doc_count() {
+                    return Some(0);
+                }
+                if clause.has_filter() {
+                    return None;
+                }
+                updates_per_doc += clause.grouping_columns().len();
+                for aggregate in clause.aggregates() {
+                    if clause.can_use_doc_count(aggregate) {
+                        continue;
+                    }
+                    updates_per_doc += if matches!(aggregate, AggregateType::CountAny { .. }) {
+                        1
+                    } else {
+                        tantivy_updates_per_doc(&aggregate.clone().into(), reader)?
+                    };
+                }
+            }
+            AggregateRequest::Json(aggregations) => {
+                for aggregation in aggregations.values() {
+                    updates_per_doc += tantivy_updates_per_doc(aggregation, reader)?;
+                }
+            }
+        }
+        Some(updates_per_doc)
+    }
+}
+
+fn tantivy_updates_per_doc(aggregation: &Aggregation, reader: &SearchIndexReader) -> Option<usize> {
+    if matches!(aggregation.agg, AggregationVariants::Filter(_)) {
+        return None;
+    }
+    let mut updates = 1;
+    if let AggregationVariants::Cardinality(cardinality) = &aggregation.agg
+        && reader
+            .schema()
+            .search_field(&cardinality.field)
+            .is_some_and(|field| field.is_text())
+    {
+        // String cardinality sorts distinct term IDs before resolving and hashing them.
+        // Without distinct-value statistics, allow one value per document in the largest
+        // segment: sorting N values adds ceil(log2(N)) comparisons per value.
+        let segment_docs = reader
+            .segment_readers()
+            .iter()
+            .map(|segment| segment.max_doc())
+            .max()
+            .unwrap_or(0);
+        updates += (segment_docs.max(1) as f64).log2().ceil() as usize;
+    }
+    for child in aggregation.sub_aggregation.values() {
+        updates += tantivy_updates_per_doc(child, reader)?;
+    }
+    Some(updates)
 }
 
 impl TryInto<Aggregations> for AggregateRequest {
@@ -408,11 +478,11 @@ impl<'a> ParallelAggregationWorker<'a> {
             _ => HashSet::default(),
         };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
-        let count_all = self.query.is_match_all()
-            && matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
+        let count_all = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
                 if clause.is_bare_doc_count()
                     && matches!(clause.aggregates().next(), Some(AggregateType::CountAny { .. })));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
+        let include_doc_count = aggregations.contains_key(DocCountKey::NAME);
         let schema = indexrel.schema()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
@@ -427,6 +497,10 @@ impl<'a> ParallelAggregationWorker<'a> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should belong to a heap relation");
+        // The leader's lock already covers this read. Each backend keeps its own table of the
+        // predicate locks it holds, though, and a worker without the relation lock in it takes
+        // a redundant tuple lock on every heap visibility check below.
+        predicate_lock_read(&heaprel, unsafe { pg_sys::GetActiveSnapshot() });
         let visibility_stats = self
             .config
             .collect_visibility_stats()
@@ -442,7 +516,12 @@ impl<'a> ParallelAggregationWorker<'a> {
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
             if count_all {
-                reader.collect(CountAllCollector::new(base_collector, vischeck))
+                reader.collect(CountAllCollector::new(
+                    base_collector,
+                    vischeck,
+                    self.query.is_match_all(),
+                    include_doc_count,
+                ))
             } else {
                 let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
                 reader.collect(InterruptableCollector::new(mvcc_collector))
@@ -551,12 +630,11 @@ pub fn execute_aggregate(
     planstate: *mut pg_sys::PlanState,
     mut bitmap_exec: Option<&mut BitmapExec>,
     mut visibility_stats: Option<&mut VisibilityStats>,
+    mut parallelism: Option<&mut AggregateParallelism>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
-    // Resolve `visibility` to a single decision for this execution before anything
-    // branches on it. `threshold` estimates the query's matching row count here
-    // rather than at plan time so that the `paradedb.aggregate()` UDF, which the
-    // planner never sees, resolves the same way as the custom scan paths.
-    let solve_mvcc = visibility.resolve_filtering(index, &query);
+    if let Some(heaprelid) = index.rel_oid() {
+        predicate_lock_read_oid(heaprelid, unsafe { pg_sys::GetActiveSnapshot() });
+    }
 
     if index.created_by_version().stores_datetimes_in_i64() {
         // We need to rewrite date_histogram requests to regular histogram requests because we are
@@ -600,6 +678,8 @@ pub fn execute_aggregate(
             None,
         )?;
 
+        let solve_mvcc = visibility.resolve_filtering(index, &query, Some(&reader));
+
         // Fast path: a bare doc count without MVCC filtering is answerable by
         // `Weight::count` — a stored-doc_freq metadata read for term queries
         // on delete-free segments, a scoreless docset drain otherwise —
@@ -614,6 +694,9 @@ pub fn execute_aggregate(
                 && let Some(source) = bitmap_exec.private_source()
             {
                 cell.fill(source);
+            }
+            if let Some(stats) = parallelism {
+                stats.worker_selection_reason = Some(WorkerDecisionReason::DocumentCount);
             }
             let count = reader.count_matched_docs()?;
             let mut results = AggregationResults::default();
@@ -631,6 +714,9 @@ pub fn execute_aggregate(
             );
             return Ok(results);
         }
+
+        let (nworkers, parallel_cost) =
+            aggregate_nworkers(index, &reader, &query, &agg_req, solve_mvcc);
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
@@ -672,13 +758,14 @@ pub fn execute_aggregate(
             bitmap_handle,
         )?;
 
-        // limit number of workers to the number of segments
-        let mut nworkers =
-            (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
-
-        if nworkers > 0 && pg_sys::parallel_leader_participation {
-            // make sure to account for the leader being a worker too
-            nworkers -= 1;
+        if let Some(stats) = parallelism.as_deref_mut() {
+            stats.workers_requested = nworkers;
+            stats.worker_selection_reason = Some(if parallel_cost.is_some() {
+                WorkerDecisionReason::CostModel
+            } else {
+                WorkerDecisionReason::PerSegment
+            });
+            stats.cost = parallel_cost;
         }
         pgrx::debug1!(
             "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
@@ -694,6 +781,9 @@ pub fn execute_aggregate(
             // signal our workers with the number of workers actually launched
             // they need this before they can begin checking out the correct segment counts
             let mut nlaunched = process.launched_workers();
+            if let Some(stats) = parallelism {
+                stats.workers_launched = nlaunched;
+            }
             pgrx::debug1!("launched {nlaunched} workers");
             if pg_sys::parallel_leader_participation {
                 nlaunched += 1;

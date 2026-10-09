@@ -380,6 +380,9 @@ jobs:
           for style in conjunction disjunction phrase mixed; do
             run_benchmark topk "${style}"
           done
+          if [ "${DATASET}" = wikipedia ]; then
+            run_benchmark count disjunction
+          fi
           run_benchmark count mixed
 
       - name: Dump database logs on failure

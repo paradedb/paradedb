@@ -26,6 +26,8 @@ use decimal_bytes::{Decimal, Decimal64NoScale};
 use pgrx::pg_sys;
 use pgrx::{IntoDatum, PgBuiltInOids, PgOid, datum};
 
+use super::types::is_datetime_type;
+
 /// Convert an Arrow array slice into a Postgres `Datum`.
 ///
 /// This effectively inlines `TantivyValue::try_into_datum` in order to avoid creating both
@@ -619,6 +621,7 @@ pub fn is_arrow_convertible(type_oid: pg_sys::Oid) -> bool {
 }
 
 /// Arrow DataType for UDF INPUTS — matches what Tantivy fast fields produce.
+/// We store datetime types as microsecond integers, so convey that here as well.
 /// Tantivy widens Int16/Int32 → Int64 and Float32 → Float64.
 pub fn pg_type_to_tantivy_arrow(type_oid: pg_sys::Oid) -> DataType {
     match type_oid {
@@ -626,11 +629,9 @@ pub fn pg_type_to_tantivy_arrow(type_oid: pg_sys::Oid) -> DataType {
         pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => DataType::Int64,
         pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => DataType::Float64,
         pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
-        pg_sys::TIMESTAMPOID => DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
-        pg_sys::TIMESTAMPTZOID => {
-            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into()))
+        _ if is_datetime_type(type_oid) => {
+            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None)
         }
-        pg_sys::DATEOID => DataType::Date32,
         _ => DataType::Utf8,
     }
 }

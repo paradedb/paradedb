@@ -1,0 +1,50 @@
+-- Rows that match a range filter and a text clause equally get the same score,
+-- whether the range covers all of their segment or only part of it (issue #6674).
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_maintenance_workers TO 0;
+SET paradedb.planner_warnings = 'off';
+
+CREATE TABLE issue_6674 (id BIGSERIAL PRIMARY KEY, x BIGINT NOT NULL, description TEXT);
+INSERT INTO issue_6674 (x, description)
+SELECT g, 'item ' || g FROM generate_series(1, 8000) g;
+
+CREATE INDEX issue_6674_idx ON issue_6674
+USING paradedb (id, x, description)
+WITH (partition_by = 'x', target_segment_count = 8, background_layer_sizes = '0');
+
+-- One score for all 3501 rows.
+SELECT round(pdb.score(id)::numeric, 3) AS score, count(*) AS row_count
+FROM issue_6674
+WHERE x >= 4500 AND description ||| 'item'
+GROUP BY 1 ORDER BY 1;
+
+-- The same through Top K, which takes the Block-WAND path on every segment.
+SELECT count(DISTINCT round(score::numeric, 3)) AS distinct_scores
+FROM (
+    SELECT pdb.score(id) AS score
+    FROM issue_6674
+    WHERE x >= 4500 AND description ||| 'item'
+    ORDER BY pdb.score(id) DESC
+    LIMIT 600
+) top;
+
+-- Without partition_by: two inserts create two segments with different ranges.
+SET paradedb.global_mutable_segment_rows = 0;
+
+CREATE TABLE issue_6674_plain (id BIGSERIAL PRIMARY KEY, x BIGINT NOT NULL, description TEXT);
+CREATE INDEX issue_6674_plain_idx ON issue_6674_plain USING paradedb (id, x, description);
+INSERT INTO issue_6674_plain (x, description)
+SELECT g, 'item ' || g FROM generate_series(1, 1000) g;
+INSERT INTO issue_6674_plain (x, description)
+SELECT g, 'item ' || g FROM generate_series(1001, 2000) g;
+
+SELECT round(pdb.score(id)::numeric, 3) AS score, count(*) AS row_count
+FROM issue_6674_plain
+WHERE x >= 500 AND description ||| 'item'
+GROUP BY 1 ORDER BY 1;
+
+RESET paradedb.global_mutable_segment_rows;
+RESET paradedb.planner_warnings;
+RESET max_parallel_maintenance_workers;
+DROP TABLE issue_6674_plain;
+DROP TABLE issue_6674;

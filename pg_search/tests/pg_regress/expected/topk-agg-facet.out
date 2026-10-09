@@ -2017,8 +2017,8 @@ LIMIT 3;
 
 -- Test 27f: SQL window aggregates over a JOIN with a parameterized LIMIT.
 -- In a generic plan the fetch is not known at planning, so the Top-K
--- aggregate node cannot be used: JoinScan still engages and computes the
--- window aggregates in a DataFusion window node instead.
+-- aggregate carries it as unbound text and execution binds it once the
+-- parameter resolves. The window aggregates stay in the Top-K aggregate node.
 SET plan_cache_mode = force_generic_plan;
 PREPARE window_join_param_limit(int) AS
 SELECT
@@ -2034,8 +2034,8 @@ ORDER BY r.score DESC
 LIMIT $1;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE window_join_param_limit(3);
-                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, r.score, (pdb.window_agg('count(*) OVER ()'::text)), (pdb.window_agg('sum(score) OVER ()'::text)), ((r.score + pdb.window_agg('count(*) OVER ()'::text)))
    Relation Tree: p INNER r
@@ -2043,11 +2043,11 @@ EXECUTE window_join_param_limit(3);
    Limit: $1
    Order By: r.score desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, score@3 as col_2, window_agg_1@4 as col_3, window_agg_2@5 as col_4, score@3 + window_agg_1@4 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: expr=[score@3 DESC], preserve_partitioning=[false]
-     :     WindowAggExec: wdw=[window_agg_1: Ok(Field { name: "window_agg_1", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_2: Ok(Field { name: "window_agg_2", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, get_field(__topk@0, c1) + window_agg_1@1 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, $1, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) as window_agg_1, sum(r_1.score) as window_agg_2]
      :       VisibilityFilterExec: tables=[p, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, ctid_0@0, ctid_1@2]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
@@ -2063,6 +2063,116 @@ EXECUTE window_join_param_limit(3);
 (3 rows)
 
 DEALLOCATE window_join_param_limit;
+-- A pdb.agg() window has no Postgres fallback, so a generic plan must stay on
+-- the Top-K aggregate path. Plain EXPLAIN shows k as the unbound
+-- `LIMIT + OFFSET` text; each EXECUTE binds its own values on the one plan.
+PREPARE pdb_agg_join_param_fetch(int, int) AS
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC, r.id
+LIMIT $1 OFFSET $2;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE pdb_agg_join_param_fetch(2, 1);
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, (pdb.window_agg('pdb.agg(''{"avg":{"field":"score"}}'') OVER ()'::text)), r.id
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: $1
+   Offset: $2
+   Order By: r.score desc, r.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, get_field(__topk@0, c2) as col_4, get_field(__topk@0, c3) as ctid_0, get_field(__topk@0, c4) as ctid_1]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, r_1.id, p_0.ctid_0, r_1.ctid_1, $1 + $2, [3, 4]) ORDER BY [r_1.score DESC NULLS FIRST, r_1.id ASC NULLS LAST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1]
+     :       VisibilityFilterExec: tables=[p, r]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, id@5, ctid_0@0, ctid_1@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+EXECUTE pdb_agg_join_param_fetch(2, 1);
+ id | score |    avg_score     
+----+-------+------------------
+  3 |    91 | {"value": 80.25}
+  1 |    70 | {"value": 80.25}
+(2 rows)
+
+EXECUTE pdb_agg_join_param_fetch(3, 0);
+ id | score |    avg_score     
+----+-------+------------------
+  1 |    95 | {"value": 80.25}
+  3 |    91 | {"value": 80.25}
+  1 |    70 | {"value": 80.25}
+(3 rows)
+
+-- The same rows as with the values written in.
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC, r.id
+LIMIT 2 OFFSET 1;
+ id | score |    avg_score     
+----+-------+------------------
+  3 |    91 | {"value": 80.25}
+  1 |    70 | {"value": 80.25}
+(2 rows)
+
+DEALLOCATE pdb_agg_join_param_fetch;
+-- OFFSET alone parameterized: k is the static LIMIT plus the bound OFFSET.
+PREPARE pdb_agg_join_param_offset(int) AS
+SELECT
+    p.id,
+    r.score,
+    pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC, r.id
+LIMIT 2 OFFSET $1;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE pdb_agg_join_param_offset(1);
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, (pdb.window_agg('pdb.agg(''{"avg":{"field":"score"}}'') OVER ()'::text)), r.id
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 2
+   Offset: $1
+   Order By: r.score desc, r.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, get_field(__topk@0, c2) as col_4, get_field(__topk@0, c3) as ctid_0, get_field(__topk@0, c4) as ctid_1]
+     :   UnnestExec
+     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, r_1.id, p_0.ctid_0, r_1.ctid_1, 2 + $1, [3, 4]) ORDER BY [r_1.score DESC NULLS FIRST, r_1.id ASC NULLS LAST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1]
+     :       VisibilityFilterExec: tables=[p, r]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, id@5, ctid_0@0, ctid_1@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+EXECUTE pdb_agg_join_param_offset(1);
+ id | score |    avg_score     
+----+-------+------------------
+  3 |    91 | {"value": 80.25}
+  1 |    70 | {"value": 80.25}
+(2 rows)
+
+DEALLOCATE pdb_agg_join_param_offset;
 RESET plan_cache_mode;
 -- Test 27g: DISTINCT with SQL window aggregates over a JOIN. The DISTINCT
 -- folds into the Top-K aggregate (distinct_topk_as_agg), and the window

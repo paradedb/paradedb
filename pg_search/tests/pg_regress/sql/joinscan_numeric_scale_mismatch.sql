@@ -109,7 +109,8 @@ JOIN jsm_prices p ON i.amt = p.amt
 WHERE i.txt @@@ 'match';
 
 -- =====================================================================
--- Test 2 — JoinScan enabled. Must also return 5.
+-- Test 2 — JoinScan enabled. Must also return 5, and the plan must
+-- show the decline WARNING and a plain Postgres join, not the Join Scan.
 -- Pre-fix this returned 0 (every raw-Int64 comparison between scale-2
 -- and scale-3 representations of the same decimal value failed).
 -- Post-fix, the scale mismatch is detected and JoinScan declines the
@@ -118,6 +119,15 @@ WHERE i.txt @@@ 'match';
 -- =====================================================================
 SET paradedb.enable_custom_scan      TO on;
 SET paradedb.enable_join_custom_scan TO on;
+
+EXPLAIN (COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
 
 SELECT COUNT(*) AS joinscan_result FROM (
   SELECT i.id
@@ -130,8 +140,8 @@ SELECT COUNT(*) AS joinscan_result FROM (
 
 -- =====================================================================
 -- Test 3 — Sanity/positive control: same-scale NUMERIC join keys are
--- unaffected by the fix and continue to match correctly (whether or
--- not JoinScan pushdown engages for them).
+-- unaffected by the fix: the plan must show `Custom Scan (ParadeDB Join
+-- Scan)` engaging, and the join still matches all 5 rows.
 -- =====================================================================
 DROP TABLE IF EXISTS jsm_prices_samescale CASCADE;
 CREATE TABLE jsm_prices_samescale (
@@ -144,6 +154,15 @@ INSERT INTO jsm_prices_samescale (amt) VALUES
 CREATE INDEX jsm_prices_samescale_idx ON jsm_prices_samescale USING paradedb (id, amt)
   WITH (numeric_fields='{"amt":{"fast":true}}');
 ANALYZE jsm_prices_samescale;
+
+EXPLAIN (COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices_samescale p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
 
 SELECT COUNT(*) AS samescale_result FROM (
   SELECT i.id
@@ -177,6 +196,15 @@ INSERT INTO jsm_prices_unbounded (amt) VALUES
 CREATE INDEX jsm_prices_unbounded_idx ON jsm_prices_unbounded USING paradedb (id, amt)
   WITH (numeric_fields='{"amt":{"fast":true}}');
 ANALYZE jsm_prices_unbounded;
+
+EXPLAIN (COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices_unbounded p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
 
 SELECT COUNT(*) AS unbounded_scale_result FROM (
   SELECT i.id
@@ -215,6 +243,15 @@ INSERT INTO jsm_prices_bignumeric (amt) VALUES
 CREATE INDEX jsm_prices_bignumeric_idx ON jsm_prices_bignumeric USING paradedb (id, amt)
   WITH (numeric_fields='{"amt":{"fast":true}}');
 ANALYZE jsm_prices_bignumeric;
+
+EXPLAIN (COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices_bignumeric p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
 
 SELECT COUNT(*) AS numeric_bytes_samescale_result FROM (
   SELECT i.id
@@ -270,7 +307,7 @@ CREATE INDEX jsm_prices_bignumeric2_idx ON jsm_prices_bignumeric2 USING paradedb
 ANALYZE jsm_items_bignumeric;
 ANALYZE jsm_prices_bignumeric2;
 
-EXPLAIN (COSTS OFF) SELECT COUNT(*) FROM (
+EXPLAIN (COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM (
   SELECT i.id
   FROM jsm_items_bignumeric i
   JOIN jsm_prices_bignumeric2 p ON i.amt = p.amt

@@ -55,9 +55,7 @@
                       "reference/indexing/create-index",
                       "reference/indexing/indexing-partial",
                       "reference/indexing/columnar",
-                      "reference/indexing/partition-by",
-                      "reference/indexing/faster-bm25-queries",
-                      "reference/indexing/bitmap-postings"
+                      "reference/indexing/partition-by"
                     ]
                   },
                   {
@@ -68,6 +66,13 @@
                       "reference/indexing/indexing-arrays",
                       "reference/indexing/indexing-composite",
                       "reference/indexing/indexing-vectors"
+                    ]
+                  },
+                  {
+                    "group": "Query Optimizations",
+                    "pages": [
+                      "reference/indexing/faster-bm25-queries",
+                      "reference/indexing/bitmap-postings"
                     ]
                   }
                 ]

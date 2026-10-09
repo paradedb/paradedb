@@ -790,6 +790,10 @@ impl Accumulator for FusedTopK {
 /// `topk_as_agg(payload…, k, ctid_positions) ORDER BY sort_exprs`, with the aggregate's
 /// DISTINCT flag set by `distinct`.
 ///
+/// `k` is `LIMIT + OFFSET`. When either is a parameter, `k` is the unbound `$n` text
+/// (`LimitOffset::fetch_display`) until `bind_topk_agg_fetch` replaces it at execution;
+/// the accumulator refuses to run with it unbound.
+///
 /// `sort_exprs` need not be in the `payload`: DataFusion evaluates them over the
 /// DataFusion input the aggregate is applied to and the accumulator keeps the results
 /// as ordering columns, so a sort key only has to be an expression over that input.

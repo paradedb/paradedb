@@ -677,22 +677,6 @@ impl JoinScan {
             }
         }
 
-        // // pdb.agg() window functions computed inside the Top-K aggregate node, which
-        // // needs OFFSET + LIMIT known at planning.
-        // let has_pdb_agg = window_aggs
-        //     .iter()
-        //     .any(|agg| agg.agg_def.pdb_agg().is_some());
-        // if has_pdb_agg
-        //     && limit_offset
-        //         .as_ref()
-        //         .and_then(|lo| lo.static_fetch())
-        //         .is_none()
-        // {
-        //     return Err(JoinDeclineReason::new(
-        //         "JoinScan not used: pdb.agg(...) window functions require a statically known LIMIT and OFFSET",
-        //     ));
-        // }
-        //
         // The fields of a `pdb.agg()` have to come from a source the join still
         // puts out: the aggregate reads the join's rows.
         let root_id = PlannerRootId::from(root);

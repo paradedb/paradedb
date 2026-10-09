@@ -890,10 +890,11 @@ fn build_clause_df<'a>(
         // `distinct_col_map` as before. In non-DISTINCT, the output projection
         // resolves the original names
         //
-        // When a query has a defined `limit_offset`, a query with window aggregates always
-        // will take this path: they are computed in that same aggregate node (see
-        // `apply_topk_as_agg`). If `limit_offset` is None, as in subqueries with joins, the fallback
-        // path can still compute sql window functions
+        // When a query has a LIMIT, a query with window aggregates always takes this
+        // path: they are computed in that same aggregate node (see `apply_topk_as_agg`).
+        // A parameterized LIMIT or OFFSET leaves k unbound here, and execution binds it
+        // (`bind_topk_agg_fetch`). Without a LIMIT, which only reaches here in a
+        // subquery, there is no k, and the fallback path computes SQL window functions
         //
         // Otherwise DISTINCT is a GROUP BY and the sort is its own step.
         let (df, distinct_col_map, path_taken) = if (gucs::joinscan_force_topk_as_agg()
@@ -904,8 +905,8 @@ fn build_clause_df<'a>(
                 apply_topk_as_agg(df, join_clause, &private_data.output_columns, lo)?;
             (df, distinct_col_map, PathTaken::TopKAsAgg)
         } else {
-            // if no offset + k is known (so this branch is taken), we can still compute sql
-            // window functions. (pdb.agg() window functions are rejected elsewhere)
+            // Without a LIMIT (or with neither window aggregates nor the GUC) there is no
+            // Top-K aggregate, but SQL window functions can still be computed here.
             let df = apply_sql_window_functions(df, join_clause)?;
 
             let (df, distinct_col_map) =
@@ -1259,7 +1260,9 @@ struct FinalizedTopKAgg {
 }
 
 /// The Top-K (and the DISTINCT, when there is one) as a single aggregate over the
-/// projection, returning `fetch` rows in ORDER BY order.
+/// projection, returning its `LIMIT + OFFSET` rows in ORDER BY order. A parameterized
+/// LIMIT or OFFSET leaves the aggregate's k unbound until execution binds it (see
+/// `bind_topk_agg_fetch`).
 ///
 /// DISTINCT and non-DISTINCT take the same path: the columns the aggregate must
 /// carry are the output projection's expressions either way, which is what

@@ -117,8 +117,7 @@ After executing the community release, you should sync all new commits on the co
 2. Cherry-pick and sign all new commits from the community stable branch into your sync branch:
    - Run `git cherry-pick -S <prev_commit>..upstream/0.22.x` to sign each cherry-picked commit (where `upstream` is your community remote and `<prev_commit>` is the last community commit already synced).
 3. Open a PR for your sync branch on enterprise, targeted at the stable branch, and get it reviewed.
-   - Check that GitHub verifies the signature of every commit introduced by the PR. A **Partially verified** badge is acceptable: it indicates a valid signature with an author or co-author other than the committer who has vigilant mode enabled.
-4. Land the PR with **Create a merge commit** to preserve the signed cherry-picks, then trigger a release on the enterprise stable branch using its [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb-enterprise/actions/workflows/publish-github-release.yml). Merge commits must be enabled in the enterprise repository and permitted on the stable branch.
+4. Once all commits show **Verified** or **Partially verified**, land the PR with **Create a merge commit** to preserve their signatures, then trigger a release on the enterprise stable branch using its [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb-enterprise/actions/workflows/publish-github-release.yml). Merge commits must be enabled in the enterprise repository and permitted on the stable branch.
 
 ## Post-Release
 

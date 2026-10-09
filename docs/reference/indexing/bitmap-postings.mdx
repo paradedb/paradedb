@@ -5,9 +5,7 @@ canonical: https://www.paradedb.com/docs/reference/indexing/bitmap-postings
 ---
 
 ParadeDB can speed up eligible `COUNT(*)` queries that combine common search terms
-with `AND` or `OR` by storing additional posting bitmaps. This optimization is
-enabled by default. BM25 scoring, row-returning searches, and other aggregates
-do not use posting bitmaps.
+with `AND` or `OR` by storing additional bitmap structures.
 
 ## Index Configuration
 

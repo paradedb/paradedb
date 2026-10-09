@@ -1,0 +1,7 @@
+---
+header: performance
+---
+
+Predicates the index cannot answer, such as a UDF over non-indexed columns, now run only on the
+rows the `@@@` predicates matched, in the Aggregate Scan and the Join Scan as well as the Base
+Scan. A `COUNT(*)` with such a predicate no longer reads every row of the table.

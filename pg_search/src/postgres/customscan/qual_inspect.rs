@@ -1960,8 +1960,12 @@ unsafe fn create_bool_expr(
     Some(boolexpr.cast())
 }
 
-/// Optimize qual tree by converting ExternalVar and ExternalExpr to HeapExpr where possible
-/// This is the second pass optimization mentioned in the implementation plan
+/// Folds the indexed conjuncts of each AND branch into its heap filters' `indexed_query`.
+///
+/// A heap filter left beside the indexed clauses is evaluated on its own. Tantivy's `count` fills
+/// a block bitset from every clause of an intersection, so a heap filter over `All` runs its
+/// expression against every document in the segment. Wrapped around the indexed query, it only
+/// runs against the documents the index matched.
 pub unsafe fn optimize_quals_with_heap_expr(qual: &mut Qual) {
     match qual {
         Qual::And(quals) => {

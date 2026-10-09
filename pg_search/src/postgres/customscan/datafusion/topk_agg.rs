@@ -834,6 +834,8 @@ pub fn topk_as_agg(
     ))
 }
 
+/// Replace a text K in the topk-as-agg udaf (representing a parameterized K not known at planning time) with an integer
+/// K known at execution time
 pub fn bind_topk_agg_fetch(plan: LogicalPlan, k: usize) -> Result<LogicalPlan, DataFusionError> {
     plan.transform_up(|node| {
         if !matches!(node, LogicalPlan::Aggregate(_)) {

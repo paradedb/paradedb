@@ -677,6 +677,17 @@ impl JoinScan {
             }
         }
 
+        // pdb.agg() window functions computed inside the Top-K aggregate node, which
+        // needs a LIMIT
+        let has_pdb_agg = window_aggs
+            .iter()
+            .any(|agg| agg.agg_def.pdb_agg().is_some());
+        if has_pdb_agg && limit_offset.is_none() {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: pdb.agg(...) window functions require a LIMIT",
+            ));
+        }
+
         // The fields of a `pdb.agg()` have to come from a source the join still
         // puts out: the aggregate reads the join's rows.
         let root_id = PlannerRootId::from(root);
@@ -2851,7 +2862,7 @@ fn bind_runtime_limit_offset(
     match runtime_limit_offset {
         Some((skip, fetch)) => {
             use datafusion::logical_expr::LogicalPlanBuilder;
-            let logical_plan = bind_topk_agg_fetch(logical_plan, skip + fetch)
+            let logical_plan = bind_topk_agg_fetch(logical_plan, skip.saturating_add(fetch))
                 .expect("failed to bind limit to __topk_agg");
             LogicalPlanBuilder::from(logical_plan)
                 .limit(skip, Some(fetch))

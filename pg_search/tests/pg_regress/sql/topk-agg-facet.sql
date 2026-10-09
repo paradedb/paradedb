@@ -1169,6 +1169,30 @@ DEALLOCATE pdb_agg_join_param_offset;
 
 RESET plan_cache_mode;
 
+-- A pdb.agg() window in a subquery without a LIMIT of its own: JoinScan does
+-- not require a LIMIT in a subquery, but the Top-K aggregate that computes a
+-- pdb.agg() needs one, so JoinScan declines and the query errors.
+EXPLAIN (COSTS OFF)
+SELECT * FROM (
+    SELECT
+        p.id,
+        pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+LIMIT 5;
+
+SELECT * FROM (
+    SELECT
+        p.id,
+        pdb.agg('{"avg": {"field": "score"}}'::jsonb) OVER () AS avg_score
+    FROM products p
+    JOIN product_reviews r ON p.id = r.product_id
+    WHERE p.description ||| 'laptop'
+) s
+LIMIT 5;
+
 -- Test 27g: DISTINCT with SQL window aggregates over a JOIN. The DISTINCT
 -- folds into the Top-K aggregate (distinct_topk_as_agg), and the window
 -- aggregates sit beside it in the same node. The window frame is the join

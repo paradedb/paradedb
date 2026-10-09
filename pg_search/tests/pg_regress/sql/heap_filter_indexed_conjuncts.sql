@@ -79,6 +79,26 @@ ORDER BY i.id LIMIT 5;
 SELECT pg_sequence_last_value('hfic_calls1') AS udf_evaluations;
 SET paradedb.enable_join_custom_scan TO off;
 
+-- A `@@@` whose right-hand side is a parameter is solved at execution time, so the heap filter
+-- cannot wrap it at plan time and the two meet as siblings in the intersection. The `@@@`
+-- clause drives, and the UDF is probed once per row it proposes, plus the leading rows the
+-- scorer walks to position itself on its first accepted row. A rejected probe answers with a
+-- lower bound instead of walking on to the next accepted row.
+SET plan_cache_mode TO force_generic_plan;
+PREPARE hfic_param(text) AS
+SELECT count(id) FROM (
+    SELECT id FROM hfic_items
+    WHERE category @@@ $1 AND hfic_odd_decade(lat, 'hfic_calls1')
+    ORDER BY id
+) s;
+ALTER SEQUENCE hfic_calls1 RESTART;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXECUTE hfic_param('a');
+EXECUTE hfic_param('a');
+SELECT pg_sequence_last_value('hfic_calls1') AS udf_evaluations;
+DEALLOCATE hfic_param;
+RESET plan_cache_mode;
+
 DROP FUNCTION hfic_within(double precision, double precision, double precision, regclass);
 DROP FUNCTION hfic_odd_decade(double precision, regclass);
 DROP SEQUENCE hfic_calls1;

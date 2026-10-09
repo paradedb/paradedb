@@ -109,6 +109,30 @@ impl FileHandle for SegmentComponentReader {
         self.read_bytes_raw(range)
     }
 
+    fn read_bytes_chunks(
+        &self,
+        range: Range<usize>,
+        visitor: &mut dyn FnMut(&[u8]),
+    ) -> Result<(), Error> {
+        let vector = matches!(
+            &self.component,
+            Some(tantivy::index::SegmentComponent::Custom(ext)) if ext == VECTOR_VEC_EXT
+        );
+        if vector || matches!(self.protection, ReadProtection::IndexFile) {
+            let range = range.start..range.end.min(self.len());
+            let published = !matches!(self.protection, ReadProtection::Unpublished);
+            for chunk in unsafe {
+                self.block_list
+                    .get_bytes_range_page_chunks(range, published)
+            } {
+                visitor(chunk.as_ref());
+            }
+        } else if !range.is_empty() {
+            visitor(&self.read_bytes(range)?);
+        }
+        Ok(())
+    }
+
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {
         Ok(unsafe { self.block_list.get_byte(offset) })
     }
@@ -227,6 +251,19 @@ mod tests {
                     &bytes[range.start..range.end.min(bytes.len())]
                 );
             }
+            let mut offset = 0;
+            reader
+                .read_bytes_chunks(0..bytes.len(), &mut |chunk| {
+                    let nested = reader.read_bytes(page_size * 20..page_size * 22).unwrap();
+                    assert_eq!(nested.as_ref(), &bytes[page_size * 20..page_size * 22]);
+                    assert_eq!(chunk, &bytes[offset..offset + chunk.len()]);
+                    offset += chunk.len();
+                })
+                .unwrap();
+            assert_eq!(offset, bytes.len());
+            reader
+                .read_bytes_chunks(0..0, &mut |_| panic!("empty range visited"))
+                .unwrap();
             assert_eq!(reader.storage_block_len(), Some(page_size));
             let retained = reader.read_bytes(0..page_size).unwrap();
             let copied = reader.read_bytes(0..page_size * 2 + 13).unwrap();

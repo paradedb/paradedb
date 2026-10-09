@@ -32,7 +32,6 @@ use crate::postgres::storage::fsm::FreeSpaceManager;
 
 use std::cell::UnsafeCell;
 
-#[cfg(any(test, feature = "pg_test"))]
 use crate::postgres::storage::buffer::ImmutablePage;
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -50,13 +49,11 @@ struct CacheEntry {
     block_bytes: OwnedBytes,
 }
 
-#[cfg(any(test, feature = "pg_test"))]
 pub(crate) enum PageChunk {
     Cached(OwnedBytes),
     Uncached(ImmutablePage, Range<usize>),
 }
 
-#[cfg(any(test, feature = "pg_test"))]
 impl AsRef<[u8]> for PageChunk {
     fn as_ref(&self) -> &[u8] {
         match self {
@@ -567,7 +564,6 @@ impl LinkedBytesList {
 
     /// # Safety
     /// Published payloads require an independent guard preventing logical reuse.
-    #[cfg(any(test, feature = "pg_test"))]
     pub(crate) unsafe fn get_bytes_range_page_chunks(
         &self,
         range: Range<usize>,

@@ -1079,10 +1079,14 @@ fn check_range_bounds(
     let upper_bound = convert_numrange_bound(typeoid, upper_bound, index_created_by_version);
 
     let lower_bound = match (typeoid, lower_bound.clone()) {
-        // Excluded U64 needs to be canonicalized
-        (_, Bound::Excluded(PdbOwnedValue::U64(n))) => Bound::Included(PdbOwnedValue::U64(n + 1)),
-        // Excluded I64 needs to be canonicalized
-        (_, Bound::Excluded(PdbOwnedValue::I64(n))) => Bound::Included(PdbOwnedValue::I64(n + 1)),
+        // Excluded U64 needs to be canonicalized, unless it is the maximum, which has no next value
+        (_, Bound::Excluded(PdbOwnedValue::U64(n))) if n < u64::MAX => {
+            Bound::Included(PdbOwnedValue::U64(n + 1))
+        }
+        // Excluded I64 needs to be canonicalized, unless it is the maximum
+        (_, Bound::Excluded(PdbOwnedValue::I64(n))) if n < i64::MAX => {
+            Bound::Included(PdbOwnedValue::I64(n + 1))
+        }
         // Excluded date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
@@ -1137,10 +1141,14 @@ fn check_range_bounds(
     };
 
     let upper_bound = match (typeoid, upper_bound.clone()) {
-        // Included U64 needs to be canonicalized
-        (_, Bound::Included(PdbOwnedValue::U64(n))) => Bound::Excluded(PdbOwnedValue::U64(n + 1)),
-        // Included I64 needs to be canonicalized
-        (_, Bound::Included(PdbOwnedValue::I64(n))) => Bound::Excluded(PdbOwnedValue::I64(n + 1)),
+        // Included U64 needs to be canonicalized, unless it is the maximum
+        (_, Bound::Included(PdbOwnedValue::U64(n))) if n < u64::MAX => {
+            Bound::Excluded(PdbOwnedValue::U64(n + 1))
+        }
+        // Included I64 needs to be canonicalized, unless it is the maximum
+        (_, Bound::Included(PdbOwnedValue::I64(n))) if n < i64::MAX => {
+            Bound::Excluded(PdbOwnedValue::I64(n + 1))
+        }
         // Included Date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
@@ -1607,6 +1615,11 @@ impl SearchQueryInput {
                             .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
                         let field_type = search_field.field_entry().field_type();
 
+                        // An integer that the field cannot hold matches nothing, so it is left out.
+                        if numeric::is_outside_int_domain(&value, &search_field.field_type()) {
+                            return Ok(None);
+                        }
+
                         // The tantivy `FieldType` can't tell a scaled `Numeric64` or an encoded
                         // `NumericBytes` column from a plain `I64` or `Bytes` one, so the term has
                         // to be converted from the schema-level type, same as a single `Term`.
@@ -1623,9 +1636,10 @@ impl SearchQueryInput {
                             field.path().as_deref(),
                             index_created_by_version,
                         )
+                        .map(Some)
                     })
                     .collect::<Result<Vec<_>>>()?;
-                let query = Box::new(TermSetQuery::new(terms));
+                let query = Box::new(TermSetQuery::new(terms.into_iter().flatten()));
 
                 Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }
@@ -1831,7 +1845,11 @@ pub fn value_to_term(
             // Positive numbers seem to be automatically turned into u64s even if they are i64s,
             // so we should use the field type to assign the term type
             match field_type {
-                FieldType::I64(_) => Term::from_field_i64(field, *u64 as i64),
+                FieldType::I64(_) => Term::from_field_i64(
+                    field,
+                    i64::try_from(*u64)
+                        .map_err(|_| anyhow::anyhow!("{u64} is out of range for an i64 field"))?,
+                ),
                 FieldType::U64(_) => Term::from_field_u64(field, *u64),
                 _ => panic!("invalid field type for u64 value"),
             }
@@ -2579,5 +2597,43 @@ mod tests {
         assert_eq!(read_only_order.len(), 10);
         assert_eq!(read_only_order, mutable_order);
         assert_eq!(query, mutable_query);
+    }
+
+    #[pg_test]
+    fn check_range_bounds_keeps_bounds_at_the_maximum() {
+        use super::{PgBuiltInOids, PgOid, check_range_bounds};
+        use std::ops::Bound::{Excluded, Included};
+
+        let int8 = PgOid::BuiltIn(PgBuiltInOids::INT8OID);
+        for (lower, upper) in [
+            (
+                Excluded(PdbOwnedValue::I64(i64::MAX)),
+                Included(PdbOwnedValue::I64(i64::MAX)),
+            ),
+            (
+                Excluded(PdbOwnedValue::U64(u64::MAX)),
+                Included(PdbOwnedValue::U64(u64::MAX)),
+            ),
+        ] {
+            assert_eq!(
+                check_range_bounds(int8, lower.clone(), upper.clone(), None).unwrap(),
+                (lower, upper)
+            );
+        }
+    }
+
+    #[test]
+    fn value_to_term_rejects_u64_beyond_i64_field() {
+        use super::value_to_term;
+        use tantivy::schema::{Field, FieldType, NumericOptions};
+
+        let field = Field::from_field_id(0);
+        let field_type = FieldType::I64(NumericOptions::default());
+        let term = |value| value_to_term(field, &value, &field_type, None, None);
+        assert_eq!(
+            term(PdbOwnedValue::U64(i64::MAX as u64)).unwrap(),
+            tantivy::Term::from_field_i64(field, i64::MAX)
+        );
+        assert!(term(PdbOwnedValue::U64(1 << 63)).is_err());
     }
 }

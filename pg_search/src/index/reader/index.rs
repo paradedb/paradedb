@@ -2763,7 +2763,8 @@ mod tests {
              CREATE INDEX pruning_signed_terms_idx ON pruning_signed_terms USING paradedb (id, x)
              WITH (partition_by = 'x', background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO pruning_signed_terms VALUES (1, -1), (2, -2), (3, '-9223372036854775808');
+             INSERT INTO pruning_signed_terms VALUES
+                 (1, -1), (2, -2), (3, '-9223372036854775808'), (4, '9223372036854775807');
              RESET paradedb.global_mutable_segment_rows;",
         )
         .unwrap();
@@ -2771,7 +2772,8 @@ mod tests {
         let field = FieldName::from("x");
         let mut queries = Vec::new();
         for value in [i64::MAX as u64, i64::MAX as u64 + 1, u64::MAX - 1, u64::MAX] {
-            let expected = usize::from(value > i64::MAX as u64);
+            // Only `i64::MAX` fits the field. No value in it is equal to a larger one.
+            let expected = usize::from(value == i64::MAX as u64);
             let value = PdbOwnedValue::U64(value);
             for query in [
                 SearchQueryInput::FieldedQuery {
@@ -2796,7 +2798,7 @@ mod tests {
                 queries.push((query, expected));
             }
         }
-        // Neither endpoint overflows during range normalization, but both wrap in term encoding.
+        // Both endpoints lie above the field's range, so no value falls between them.
         queries.push((
             SearchQueryInput::FieldedQuery {
                 field,
@@ -2805,7 +2807,7 @@ mod tests {
                     upper_bound: Bound::Excluded(PdbOwnedValue::U64(u64::MAX)),
                 },
             },
-            1,
+            0,
         ));
         let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let snapshot = probe.segment_stats_snapshot();

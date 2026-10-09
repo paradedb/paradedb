@@ -4,6 +4,12 @@ description: Speed up count queries for common search terms
 canonical: https://www.paradedb.com/docs/reference/indexing/bitmap-postings
 ---
 
+<Note>
+  This feature is available in versions `0.26.2` and above. Indexes built before
+  `0.26.2` must be [rebuilt](/operate/index-maintenance/reindexing) to receive
+  this optimization.
+</Note>
+
 ParadeDB can speed up eligible `COUNT(*)` queries that combine common search terms
 with `AND` or `OR` by storing additional bitmap structures.
 

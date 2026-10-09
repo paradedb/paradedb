@@ -10,20 +10,16 @@ with `AND` or `OR` by storing additional bitmap structures.
 ## Index Configuration
 
 The `bitmap_postings` option on a [tokenizer](/reference/tokenizers/overview) cast
-defaults to `true`. When building or merging segments, ParadeDB stores bitmaps
-for sufficiently common terms alongside ordinary postings. This adds storage
-and work during index builds and merges.
+defaults to `true`.
 
-Set `bitmap_postings=false` to disable bitmap storage for a field:
+It is enabled by default because the storage overhead is usually very small.
+If your workload does not require counts, you can disable it for a field with
+`bitmap_postings=false`:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, (description::pdb.unicode_words('bitmap_postings=false')), category);
 ```
-
-Existing segments without bitmaps continue to work using ordinary postings.
-[Rebuild the index](/operate/index-maintenance/reindexing) to add bitmaps to all
-existing segments. Changing the field option requires recreating the index.
 
 ## Query Configuration
 

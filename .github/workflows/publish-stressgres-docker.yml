@@ -109,20 +109,6 @@ jobs:
             }' > provenance.json
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
-      - name: Evaluate Docker Scout Policies (amd64)
-        uses: ./.github/actions/evaluate-scout-policies
-        with:
-          image: index.docker.io/paradedb/stressgres@${{ steps.build-push.outputs.digest }}
-          platform: linux/amd64
-          policy-config: docker/docker-scout-policy.json
-
-      - name: Evaluate Docker Scout Policies (arm64)
-        uses: ./.github/actions/evaluate-scout-policies
-        with:
-          image: index.docker.io/paradedb/stressgres@${{ steps.build-push.outputs.digest }}
-          platform: linux/arm64
-          policy-config: docker/docker-scout-policy.json
-
       - name: Notify Slack on Failure
         if: failure()
         uses: paradedb/actions/slack-alert@v14

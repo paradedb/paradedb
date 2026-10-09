@@ -18,9 +18,9 @@ on:
       - ".github/patches/benchmarker.patch"
       - ".github/workflows/benchmark-pg_search-benchmarker.yml"
       - "docker/Dockerfile.source"
+      - "Cargo.lock"
       - "**/*.rs"
       - "**/*.toml"
-      - "Cargo.lock"
   pull_request:
     types: [labeled] # Opt in with `benchmark-benchmarker` (all) or `benchmark-benchmarker-{hn,stackexchange,wikipedia}`.
   workflow_dispatch:

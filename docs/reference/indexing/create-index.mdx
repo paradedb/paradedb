@@ -344,16 +344,82 @@ Comparing `blocks_done` to `blocks_total` will provide a good approximation of t
 
 ## Index Partitioning (Beta)
 
-To speed up filtered queries by skipping non-matching segments or accelerate parallel joins between tables, you can configure the `partition_by` option:
+To speed up filtered queries by skipping non-matching segments or accelerate parallel joins between tables, you can configure the `partition_by` option. This example partitions the demo table by `rating`. In a multi-tenant application, use your tenant identifier instead:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category, tenant_id)
-WITH (
-  partition_by = 'tenant_id',
-  target_segment_count = 16
-);
+USING paradedb (id, description, rating)
+WITH (partition_by = 'rating', target_segment_count = 16);
 ```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx", {
+    partitionBy: ["rating"],
+    targetSegmentCount: 16,
+  })
+  .on(mockItems.id, mockItems.description, mockItems.rating);
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={'id': {}, 'description': {}, 'rating': {}},
+            name="search_idx",
+            partition_by=['rating'],
+            target_segment_count=16,
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.rating),
+    postgresql_using="paradedb",
+    postgresql_with={'partition_by': 'rating', 'target_segment_count': 16},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    rating: {},
+  },
+  name: :search_idx,
+  index_options: { partition_by: ["rating"], target_segment_count: 16 }
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Rating)
+    .HasPartitionBy("rating")
+    .HasTargetSegmentCount(16);
+```
+
+</CodeGroup>
 
 See the [Partitioning Guide](/reference/indexing/partition-by) for column selection guidance, data type requirements, and join setup.
 

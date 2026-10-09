@@ -36,12 +36,15 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::customscan::aggregatescan::build::{
+    AggregateCSClause, AggregationKey, CollectAggregations, DocCountKey,
+};
+use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
     rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
 };
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
-use crate::postgres::customscan::parallel::aggregate_nworkers;
+use crate::postgres::customscan::parallel::{WorkerDecisionReason, aggregate_nworkers};
 use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
@@ -474,11 +477,11 @@ impl<'a> ParallelAggregationWorker<'a> {
             _ => HashSet::default(),
         };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
-        let count_all = self.query.is_match_all()
-            && matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
+        let count_all = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(clause))
                 if clause.is_bare_doc_count()
                     && matches!(clause.aggregates().next(), Some(AggregateType::CountAny { .. })));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
+        let include_doc_count = aggregations.contains_key(DocCountKey::NAME);
         let schema = indexrel.schema()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
@@ -508,7 +511,12 @@ impl<'a> ParallelAggregationWorker<'a> {
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
             if count_all {
-                reader.collect(CountAllCollector::new(base_collector, vischeck))
+                reader.collect(CountAllCollector::new(
+                    base_collector,
+                    vischeck,
+                    self.query.is_match_all(),
+                    include_doc_count,
+                ))
             } else {
                 let mvcc_collector = MVCCFilterCollector::new(base_collector, vischeck);
                 reader.collect(InterruptableCollector::new(mvcc_collector))
@@ -617,6 +625,7 @@ pub fn execute_aggregate(
     planstate: *mut pg_sys::PlanState,
     mut bitmap_exec: Option<&mut BitmapExec>,
     mut visibility_stats: Option<&mut VisibilityStats>,
+    mut parallelism: Option<&mut AggregateParallelism>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     if index.created_by_version().stores_datetimes_in_i64() {
         // We need to rewrite date_histogram requests to regular histogram requests because we are
@@ -677,6 +686,9 @@ pub fn execute_aggregate(
             {
                 cell.fill(source);
             }
+            if let Some(stats) = parallelism {
+                stats.worker_selection_reason = Some(WorkerDecisionReason::DocumentCount);
+            }
             let count = reader.count_matched_docs()?;
             let mut results = AggregationResults::default();
             // Key "0" matches `CollectAggregations::collect`'s enumeration of
@@ -694,7 +706,8 @@ pub fn execute_aggregate(
             return Ok(results);
         }
 
-        let nworkers = aggregate_nworkers(index, &reader, &query, &agg_req, solve_mvcc);
+        let (nworkers, parallel_cost) =
+            aggregate_nworkers(index, &reader, &query, &agg_req, solve_mvcc);
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
@@ -736,6 +749,15 @@ pub fn execute_aggregate(
             bitmap_handle,
         )?;
 
+        if let Some(stats) = parallelism.as_deref_mut() {
+            stats.workers_requested = nworkers;
+            stats.worker_selection_reason = Some(if parallel_cost.is_some() {
+                WorkerDecisionReason::CostModel
+            } else {
+                WorkerDecisionReason::PerSegment
+            });
+            stats.cost = parallel_cost;
+        }
         pgrx::debug1!(
             "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
             *std::ptr::addr_of!(pg_sys::parallel_leader_participation)
@@ -750,6 +772,9 @@ pub fn execute_aggregate(
             // signal our workers with the number of workers actually launched
             // they need this before they can begin checking out the correct segment counts
             let mut nlaunched = process.launched_workers();
+            if let Some(stats) = parallelism {
+                stats.workers_launched = nlaunched;
+            }
             pgrx::debug1!("launched {nlaunched} workers");
             if pg_sys::parallel_leader_participation {
                 nlaunched += 1;

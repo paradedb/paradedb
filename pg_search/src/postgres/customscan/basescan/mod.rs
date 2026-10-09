@@ -1240,10 +1240,11 @@ impl CustomScan for BaseScan {
                 // the better estimate. (Same Block-WAND blind spot that forces the serial decision,
                 // applied to the cost.)
                 let path_drive_cost = match reason {
-                    WorkerDecisionReason::BlockWandPrunable => None,
+                    WorkerDecisionReason::BlockWandPrunable
+                    | WorkerDecisionReason::DocumentCount => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
-                    | WorkerDecisionReason::SortedPerSegment
+                    | WorkerDecisionReason::PerSegment
                     | WorkerDecisionReason::RowHeuristic => drive_cost,
                 };
                 let drive = match (path_drive_cost, row_estimate.known_rows()) {
@@ -1724,7 +1725,7 @@ impl CustomScan for BaseScan {
         if explainer.is_verbose()
             && let Some(reason) = state.custom_state().worker_selection_reason
         {
-            explainer.add_text("Worker Selection", reason.label());
+            explainer.add_text("Worker Selection", reason.to_string());
         }
 
         if explainer.is_analyze() {

@@ -63,6 +63,8 @@ pub enum AggregateType {
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        group_key: bool,
     },
     Sum {
         field: String,
@@ -269,6 +271,7 @@ impl AggregateType {
                 missing,
                 filter,
                 indexrelid,
+                group_key: false,
             }),
             F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
                 Some(Self::Avg {
@@ -311,7 +314,30 @@ impl AggregateType {
     }
 
     pub fn can_use_doc_count(&self) -> bool {
-        matches!(self, AggregateType::CountAny { .. }) && !self.has_filter()
+        matches!(
+            self,
+            AggregateType::CountAny { .. }
+                | AggregateType::Count {
+                    group_key: true,
+                    ..
+                }
+        ) && !self.has_filter()
+    }
+
+    /// Marks `COUNT(field)` as served by the bucket's `doc_count` when `field` is one of the
+    /// `GROUP BY` keys. Only a plain `COUNT(field)` qualifies: a default (`missing`) or a
+    /// `FILTER` changes which rows count.
+    pub fn mark_group_key(&mut self, grouping_fields: &[&str]) {
+        if let AggregateType::Count {
+            field,
+            missing: None,
+            filter: None,
+            group_key,
+            ..
+        } = self
+        {
+            *group_key = grouping_fields.contains(&field.as_str());
+        }
     }
 
     /// Get the field name for field-based aggregates (None for COUNT and Custom)

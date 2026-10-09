@@ -303,6 +303,7 @@ fn index_info(
             name!(fieldnorms_bytes, Option<AnyNumeric>),
             name!(store_bytes, Option<AnyNumeric>),
             name!(deletes_bytes, Option<AnyNumeric>),
+            name!(posting_bitmaps_bytes, Option<AnyNumeric>),
         ),
     >,
 > {
@@ -355,6 +356,7 @@ fn index_info(
                         content
                             .delete
                             .map(|file| file.file_entry.total_bytes.into()),
+                        content.posting_bitmaps.map(|file| file.total_bytes.into()),
                     ));
                 }
                 SegmentMetaEntryContent::Mutable(_) => {
@@ -368,6 +370,7 @@ fn index_info(
                         None,
                         Some(entry.num_docs().into()),
                         Some(entry.num_deleted_docs().into()),
+                        None,
                         None,
                         None,
                         None,

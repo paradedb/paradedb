@@ -69,3 +69,30 @@ SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
 DROP TABLE mock_items_1;
 DROP TABLE mock_items_2;
 DROP TABLE mock_items_not_ready;
+
+CREATE TABLE bitmap_size_items AS
+SELECT id, CASE WHEN id % 2 = 0 THEN 'common' ELSE 'other' END AS body
+FROM generate_series(1, 512) AS id;
+
+CREATE INDEX bitmap_size_idx ON bitmap_size_items
+USING bm25 (id, body) WITH (target_segment_count = 1);
+
+SELECT bool_and(posting_bitmaps_bytes > 0 AND posting_bitmaps_bytes < byte_size) AS bitmap_size_reported
+FROM paradedb.index_info('bitmap_size_idx');
+
+SELECT sum(posting_bitmaps_bytes) = (
+    SELECT sum((p.contents #>> '{content,Immutable,posting_bitmaps,total_bytes}')::numeric)
+    FROM paradedb.storage_info('bitmap_size_idx') s
+    CROSS JOIN LATERAL paradedb.page_info('bitmap_size_idx', s.block) p
+    WHERE p.visible
+) AS bitmap_size_matches_storage
+FROM paradedb.index_info('bitmap_size_idx');
+
+DROP INDEX bitmap_size_idx;
+CREATE INDEX bitmap_size_idx ON bitmap_size_items
+USING bm25 (id, (body::pdb.simple('bitmap_postings=false'))) WITH (target_segment_count = 1);
+
+SELECT bool_and(posting_bitmaps_bytes IS NULL) AS absent_bitmap_size_is_null
+FROM paradedb.index_info('bitmap_size_idx');
+
+DROP TABLE bitmap_size_items;

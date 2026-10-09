@@ -497,6 +497,10 @@ impl<'a> ParallelAggregationWorker<'a> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should belong to a heap relation");
+        // The leader's lock already covers this read. Each backend keeps its own table of the
+        // predicate locks it holds, though, and a worker without the relation lock in it takes
+        // a redundant tuple lock on every heap visibility check below.
+        predicate_lock_read(&heaprel, unsafe { pg_sys::GetActiveSnapshot() });
         let visibility_stats = self
             .config
             .collect_visibility_stats()

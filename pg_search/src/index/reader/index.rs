@@ -67,7 +67,7 @@ use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
-use tantivy::vector::ivf::AdaptiveProbeParams;
+use tantivy::vector::ivf::{AdaptiveProbeParams, DirectRead};
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
@@ -1664,6 +1664,11 @@ impl SearchIndexReader {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         router_recall_target: crate::gucs::vector_router_recall_target(),
                         recall_target: crate::gucs::vector_recall_target(),
+                        // Score a cluster exactly where that reads fewer storage blocks, and
+                        // locate a filter's matches instead of routing when they number no
+                        // more than the rows the probe budget buys.
+                        exact_plan: true,
+                        direct_read: DirectRead::Auto,
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);

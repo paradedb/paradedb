@@ -1443,9 +1443,26 @@ mod segment_info_tests {
             "rerank_buffer_hits",
             "rerank_buffer_reads",
             "rerank_blocks_fetched",
+            "exact_ns",
+            "exact_reads",
+            "exact_bytes_read",
+            "exact_storage_blocks",
+            "located_matches",
+            "located_absent",
+            "located_clusters",
+            "centroid_reads",
+            "locate_ns",
+            "locate_reads",
+            "locate_bytes_read",
+            "locate_storage_blocks",
+            "direct_cap",
         ] {
             insert_counter(&mut fields, name);
         }
+        fields.insert(
+            "access_path".to_string(),
+            Value::String("Located".to_string()),
+        );
         fields.insert("work_charged".to_string(), Value::from(f64::MAX));
         fields.insert(
             "termination".to_string(),
@@ -1457,6 +1474,8 @@ mod segment_info_tests {
             "query_prep".to_string(),
             "routing".to_string(),
             "exact_scan".to_string(),
+            "exact".to_string(),
+            "locate".to_string(),
             "result_assembly".to_string(),
             "rerank_fetch".to_string(),
             "rerank_score".to_string(),
@@ -1473,6 +1492,14 @@ mod segment_info_tests {
                 insert_counter(&mut fields, format!("layer{layer}_{suffix}"));
             }
             insert_counter(&mut fields, format!("layer{layer}_survivors"));
+            for plan in [
+                "sparse_clusters",
+                "full_clusters",
+                "exact_clusters",
+                "exact_rows",
+            ] {
+                insert_counter(&mut fields, format!("layer{layer}_{plan}"));
+            }
             insert_counter(&mut fields, format!("boundary{layer}_ns"));
             stages.push(format!("layer{layer}_scan"));
             stages.push(format!("boundary{layer}"));

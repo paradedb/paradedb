@@ -100,6 +100,12 @@ struct Candidate {
     covers: Vec<usize>,
 }
 
+impl Candidate {
+    fn is_disjunction(&self) -> bool {
+        unsafe { (*self.path).type_ == pg_sys::NodeTag::T_BitmapOrPath }
+    }
+}
+
 /// A successful harvest: the path to attach as a `custom_paths` child, plus the
 /// HeapExpr clauses its bitmap covers (with their planner-level lossiness).
 pub struct HarvestedBitmap {
@@ -612,6 +618,12 @@ impl BitmapPlanner {
             );
 
             for (pos, candidate) in candidates.iter().enumerate().skip(leader_pos + 1) {
+                // A `BitmapOr` is only driven as the whole bitmapqual (see `accept`),
+                // so a group holding one would be declined there and leave the scan
+                // with no bitmap at all. The OR competes as a group of one instead.
+                if leader.is_disjunction() || candidate.is_disjunction() {
+                    continue;
+                }
                 // Any shared clause disqualifies the candidate, as Postgres does with
                 // `bms_overlap`. The ledger multiplies selectivities as if the bitmaps
                 // were independent, so a clause both indexes answer is counted twice,

@@ -270,6 +270,7 @@ impl TypmodSchema {
                 rule!("trim", ValueConstraint::Boolean),
                 rule!("fieldnorms", ValueConstraint::Boolean),
                 rule!("pnorms", ValueConstraint::Boolean),
+                rule!("bitmap_postings", ValueConstraint::Boolean),
                 rule!(
                     "normalizer",
                     ValueConstraint::StringChoice(vec!["raw", "lowercase"])

@@ -73,6 +73,7 @@ use crate::postgres::customscan::datafusion::topk_agg::{
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias, ScoreColumn,
 };
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -889,25 +890,23 @@ fn build_clause_df<'a>(
         // `distinct_col_map` as before. In non-DISTINCT, the output projection
         // resolves the original names
         //
-        // When a query's fetch is statically known, a query with window aggregates always
-        // will take this path: they are computed in that same aggregate node (see
-        // `apply_topk_as_agg`). If the fetch is not statically known, the fallback
-        // path can still compute sql window functions
+        // When a query has a LIMIT, a query with window aggregates always takes this
+        // path: they are computed in that same aggregate node (see `apply_topk_as_agg`).
+        // A parameterized LIMIT or OFFSET leaves k unbound here, and execution binds it
+        // (`bind_topk_agg_fetch`). Without a LIMIT, which only reaches here in a
+        // subquery, there is no k, and the fallback path computes SQL window functions
         //
         // Otherwise DISTINCT is a GROUP BY and the sort is its own step.
         let (df, distinct_col_map, path_taken) = if (gucs::joinscan_force_topk_as_agg()
             || !join_clause.window_aggs.is_empty())
-            && let Some(fetch) = join_clause
-                .limit_offset
-                .as_ref()
-                .and_then(|lo| lo.static_fetch())
+            && let Some(lo) = &join_clause.limit_offset
         {
             let (df, distinct_col_map) =
-                apply_topk_as_agg(df, join_clause, &private_data.output_columns, fetch)?;
+                apply_topk_as_agg(df, join_clause, &private_data.output_columns, lo)?;
             (df, distinct_col_map, PathTaken::TopKAsAgg)
         } else {
-            // if no static offset + k is known (so this branch is taken), we can still compute sql
-            // window functions. (pdb.agg() window functions are rejected elsewhere)
+            // Without a LIMIT (or with neither window aggregates nor the GUC) there is no
+            // Top-K aggregate, but SQL window functions can still be computed here.
             let df = apply_sql_window_functions(df, join_clause)?;
 
             let (df, distinct_col_map) =
@@ -1261,7 +1260,9 @@ struct FinalizedTopKAgg {
 }
 
 /// The Top-K (and the DISTINCT, when there is one) as a single aggregate over the
-/// projection, returning `fetch` rows in ORDER BY order.
+/// projection, returning its `LIMIT + OFFSET` rows in ORDER BY order. A parameterized
+/// LIMIT or OFFSET leaves the aggregate's k unbound until execution binds it (see
+/// `bind_topk_agg_fetch`).
 ///
 /// DISTINCT and non-DISTINCT take the same path: the columns the aggregate must
 /// carry are the output projection's expressions either way, which is what
@@ -1281,7 +1282,7 @@ fn apply_topk_as_agg(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-    fetch: usize,
+    limit_offset: &LimitOffset,
 ) -> Result<(DataFrame, DistinctColMap)> {
     let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
         return internal_err!("Bug: Unable to build distinct key expressions for topk aggregate");
@@ -1314,7 +1315,7 @@ fn apply_topk_as_agg(
     let topk_agg = topk_as_agg(
         &finalized.topk_payload_list,
         finalized.rebased_sort_exprs,
-        fetch,
+        limit_offset,
         &finalized.ctid_positions,
         join_clause.has_distinct,
     );

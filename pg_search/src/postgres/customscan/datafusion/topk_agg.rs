@@ -53,6 +53,8 @@ use arrow_select::filter::filter_record_batch;
 use arrow_select::interleave::interleave_record_batch;
 use arrow_select::take::take;
 use datafusion::arrow::compute::SortColumn;
+use datafusion::common::internal_err;
+use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::utils::memory::RecordBatchMemoryCounter;
 use datafusion::common::utils::{SingleRowListArrayBuilder, normalize_float_zero};
 use datafusion::error::{DataFusionError, Result};
@@ -60,13 +62,14 @@ use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::function::{AccumulatorArgs, StateFieldsArgs};
 use datafusion::logical_expr::utils::AggregateOrderSensitivity;
 use datafusion::logical_expr::{
-    Accumulator, AggregateUDF, AggregateUDFImpl, Signature, SortExpr, Volatility,
+    Accumulator, AggregateUDF, AggregateUDFImpl, LogicalPlan, Signature, SortExpr, Volatility,
 };
 use datafusion::prelude::{Expr, lit};
 use datafusion::scalar::ScalarValue;
 use std::sync::{Arc, LazyLock};
 
 use crate::postgres::customscan::datafusion::fill_nulls_u64;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 
 use super::literal_arg;
 
@@ -164,10 +167,11 @@ impl AggregateUDFImpl for TopKAgg {
 
         let k = match literal_arg(&acc_args, n, name, "k")? {
             ScalarValue::UInt64(Some(k)) => *k as usize,
+            ScalarValue::Utf8(Some(text)) => {
+                return internal_err!("{name} k ({text}) was not bound before execution");
+            }
             other => {
-                return Err(DataFusionError::Internal(format!(
-                    "{name} k must be a UInt64 literal, got {other}"
-                )));
+                return internal_err!("{name} k must be a UInt64 literal, got {other}");
             }
         };
 
@@ -786,6 +790,10 @@ impl Accumulator for FusedTopK {
 /// `topk_as_agg(payload…, k, ctid_positions) ORDER BY sort_exprs`, with the aggregate's
 /// DISTINCT flag set by `distinct`.
 ///
+/// `k` is `LIMIT + OFFSET`. When either is a parameter, `k` is the unbound `$n` text
+/// (`LimitOffset::fetch_display`) until `bind_topk_agg_fetch` replaces it at execution;
+/// the accumulator refuses to run with it unbound.
+///
 /// `sort_exprs` need not be in the `payload`: DataFusion evaluates them over the
 /// DataFusion input the aggregate is applied to and the accumulator keeps the results
 /// as ordering columns, so a sort key only has to be an expression over that input.
@@ -797,7 +805,7 @@ impl Accumulator for FusedTopK {
 pub fn topk_as_agg(
     payload: &[Expr],
     sort_exprs: Vec<SortExpr>,
-    k: usize,
+    limit_offset: &LimitOffset,
     ctid_positions: &[usize],
     distinct: bool,
 ) -> Expr {
@@ -807,7 +815,13 @@ pub fn topk_as_agg(
 
     let mut args = payload.to_vec();
 
-    args.push(lit(k as u64));
+    // pass either the int literal, or if not present, the parameterized string placeholder
+    let k_arg = limit_offset
+        .static_fetch()
+        .map(|k| lit(k as u64))
+        .unwrap_or_else(|| lit(limit_offset.fetch_display()));
+
+    args.push(k_arg);
     args.push(positions_lit(ctid_positions));
 
     Expr::AggregateFunction(AggregateFunction::new_udf(
@@ -820,11 +834,39 @@ pub fn topk_as_agg(
     ))
 }
 
+/// Replace a text K in the topk-as-agg udaf (representing a parameterized K not known at planning time) with an integer
+/// K known at execution time
+pub fn bind_topk_agg_fetch(plan: LogicalPlan, k: usize) -> Result<LogicalPlan, DataFusionError> {
+    plan.transform_up(|node| {
+        if !matches!(node, LogicalPlan::Aggregate(_)) {
+            return Ok(Transformed::no(node));
+        }
+        node.map_expressions(|expr| {
+            expr.transform_up(|e| match e {
+                Expr::AggregateFunction(mut f) if f.func.name() == TOPK_AS_AGG_NAME => {
+                    let k_idx = f.params.args.len() - NUM_TRAILING_ARG_LITERALS;
+                    if !matches!(
+                        &f.params.args[k_idx],
+                        Expr::Literal(ScalarValue::Utf8(Some(_)), _),
+                    ) {
+                        return Ok(Transformed::no(Expr::AggregateFunction(f)));
+                    }
+                    f.params.args[k_idx] = lit(k as u64);
+                    Ok(Transformed::yes(Expr::AggregateFunction(f)))
+                }
+                other => Ok(Transformed::no(other)),
+            })
+        })
+    })
+    .map(|t| t.data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use arrow_array::types::Int64Type;
     use arrow_array::{Int64Array, StringArray, UInt64Array};
+    use datafusion::dataframe::DataFrame;
     use datafusion::datasource::MemTable;
     use datafusion::physical_plan::displayable;
     use datafusion::prelude::{SessionConfig, SessionContext, col};
@@ -1233,7 +1275,7 @@ mod tests {
             let topk = topk_as_agg(
                 &[col("score"), col("id")],
                 vec![col("score").sort(false, true), col("id").sort(true, false)],
-                2,
+                &LimitOffset::from_k(2),
                 &[],
                 false,
             );
@@ -1289,7 +1331,7 @@ mod tests {
                     (col("score") + lit(1)).sort(false, false),
                     col("id").sort(true, false),
                 ],
-                2,
+                &LimitOffset::from_k(2),
                 &[],
                 false,
             );
@@ -1348,7 +1390,7 @@ mod tests {
             let topk = topk_as_agg(
                 &[col("score"), col("id"), col("ctid")],
                 vec![col("score").sort(false, true), col("id").sort(true, false)],
-                2,
+                &LimitOffset::from_k(2),
                 &[2],
                 true,
             );
@@ -1374,5 +1416,86 @@ mod tests {
                 vec![(Some(9), 3, Some(2)), (Some(5), 1, Some(4))]
             );
         });
+    }
+
+    /// The fetch of a generic plan: `LIMIT $1 OFFSET 1`.
+    fn unbound_fetch() -> LimitOffset {
+        use crate::postgres::customscan::parameterized_value::ParameterizedValue;
+        LimitOffset {
+            limit: ParameterizedValue::Param { param_id: 1 },
+            offset: Some(ParameterizedValue::Static(1)),
+        }
+    }
+
+    /// `topk_as_agg(score, id)` under `ORDER BY score DESC NULLS FIRST, id ASC` over
+    /// every row of `scores_table`, with the given fetch.
+    fn topk_plan(ctx: &SessionContext, fetch: &LimitOffset) -> LogicalPlan {
+        let topk = topk_as_agg(
+            &[col("score"), col("id")],
+            vec![col("score").sort(false, true), col("id").sort(true, false)],
+            fetch,
+            &[],
+            false,
+        );
+        ctx.read_table(Arc::new(scores_table()))
+            .unwrap()
+            .aggregate(vec![], vec![topk.alias("topk")])
+            .unwrap()
+            .into_unoptimized_plan()
+    }
+
+    async fn collect_rows(ctx: &SessionContext, plan: LogicalPlan) -> Result<Vec<Row>> {
+        let batches = DataFrame::new(ctx.state(), plan).collect().await?;
+        let batch = arrow_select::concat::concat_batches(&batches[0].schema(), &batches)?;
+        assert_eq!(batch.num_rows(), 1);
+        Ok(rows_of(&ScalarValue::try_from_array(batch.column(0), 0)?))
+    }
+
+    /// An unbound fetch plans, since nothing reads `k` before the accumulator is
+    /// created, but fails once it runs, naming the fetch that was never bound.
+    #[test]
+    fn unbound_k_fails_at_execution() {
+        runtime().block_on(async {
+            let ctx = SessionContext::new();
+            let plan = topk_plan(&ctx, &unbound_fetch());
+
+            DataFrame::new(ctx.state(), plan.clone())
+                .create_physical_plan()
+                .await
+                .expect("an unbound k must not fail physical planning");
+
+            let error = collect_rows(&ctx, plan).await.unwrap_err().to_string();
+            assert!(error.contains("was not bound before execution"), "{error}");
+            assert!(error.contains("$1 + 1"), "{error}");
+        });
+    }
+
+    /// Binding replaces the unbound text with the resolved `LIMIT + OFFSET`, leaves
+    /// the aggregate's schema alone, and the plan then runs as a static one would.
+    #[test]
+    fn bind_replaces_unbound_k() {
+        runtime().block_on(async {
+            let ctx =
+                SessionContext::new_with_config(SessionConfig::new().with_target_partitions(2));
+            let plan = topk_plan(&ctx, &unbound_fetch());
+            let schema = Arc::clone(plan.schema());
+
+            let bound = bind_topk_agg_fetch(plan, 3).unwrap();
+            assert_eq!(bound.schema(), &schema);
+            assert_eq!(bound, topk_plan(&ctx, &LimitOffset::from_k(3)));
+
+            assert_eq!(
+                collect_rows(&ctx, bound).await.unwrap(),
+                vec![(None, 3), (Some(9), 4), (Some(8), 6)]
+            );
+        });
+    }
+
+    /// A static `k` is already bound: binding leaves the plan as it was.
+    #[test]
+    fn bind_leaves_static_k() {
+        let ctx = SessionContext::new();
+        let plan = topk_plan(&ctx, &LimitOffset::from_k(2));
+        assert_eq!(bind_topk_agg_fetch(plan.clone(), 5).unwrap(), plan);
     }
 }

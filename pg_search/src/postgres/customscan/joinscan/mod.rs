@@ -198,6 +198,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::search_operator_relations;
+use crate::postgres::serializable::predicate_lock_read;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
@@ -1613,6 +1614,7 @@ impl CustomScan for JoinScan {
                 for (plan_position, source) in plan_sources.iter().enumerate() {
                     let heaprelid = source.scan_info.heaprelid;
                     let heaprel = PgSearchRelation::open(heaprelid);
+                    predicate_lock_read(&heaprel, snapshot);
                     let visibility_checker =
                         VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
                     let fetch_slot =

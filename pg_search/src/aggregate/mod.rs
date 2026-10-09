@@ -48,6 +48,7 @@ use crate::postgres::customscan::parallel::{WorkerDecisionReason, aggregate_nwor
 use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::serializable::{predicate_lock_read, predicate_lock_read_oid};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
@@ -496,6 +497,10 @@ impl<'a> ParallelAggregationWorker<'a> {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should belong to a heap relation");
+        // The leader's lock already covers this read. Each backend keeps its own table of the
+        // predicate locks it holds, though, and a worker without the relation lock in it takes
+        // a redundant tuple lock on every heap visibility check below.
+        predicate_lock_read(&heaprel, unsafe { pg_sys::GetActiveSnapshot() });
         let visibility_stats = self
             .config
             .collect_visibility_stats()
@@ -627,6 +632,10 @@ pub fn execute_aggregate(
     mut visibility_stats: Option<&mut VisibilityStats>,
     mut parallelism: Option<&mut AggregateParallelism>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
+    if let Some(heaprelid) = index.rel_oid() {
+        predicate_lock_read_oid(heaprelid, unsafe { pg_sys::GetActiveSnapshot() });
+    }
+
     if index.created_by_version().stores_datetimes_in_i64() {
         // We need to rewrite date_histogram requests to regular histogram requests because we are
         // no longer storing dates in tantivy's DateTime.

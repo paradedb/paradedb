@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Join Scan now computes global window aggregates (`COUNT(*)`, `SUM`, `AVG`, `MIN`, and `MAX` with an empty `OVER ()`) in the same aggregate step as the `ORDER BY ... LIMIT` Top-K, instead of a separate window pass over every join row followed by a sort. The join runs once, and under parallel execution each worker aggregates its share of the rows while the leader merges the results. A query whose `LIMIT` is not known at plan time, such as a generic plan with a parameter, keeps the window pass.

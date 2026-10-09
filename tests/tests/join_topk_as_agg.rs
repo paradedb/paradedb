@@ -396,18 +396,18 @@ fn topk_as_agg_matches_sort_exec(#[case] mode: Mode, mut conn: PgConnection) {
 
     // A window aggregate as the whole select list, with no ORDER BY: the aggregate
     // has no sort key, and nothing to carry but the window's own column. Every
-    // row holds the same count, so it does not matter which five come back.
-    assert_paths_agree::<(i64,)>(
-        &mut conn,
-        r#"
+    // row holds the same count, so it does not matter which five come back. A
+    // window aggregate takes the Top-K aggregate path whatever the GUC says, so
+    // there is no SortExec plan to compare against.
+    let window_only = r#"
         SELECT count(*) OVER ()
         FROM tka_t1 t1
         JOIN tka_t2 t2 ON t1.id = t2.t1_id
         WHERE t1.val ||| 'val'
         LIMIT 5
-        "#,
-        5,
-    );
+        "#;
+    let rows: Vec<(i64,)> = window_only.fetch(&mut conn);
+    assert_eq!(rows, vec![(join_rows,); 5], "{window_only}");
 
     // An expression as the whole select list, with no ORDER BY: no column is
     // selected and no heap tuple is fetched, so the evaluated expression is all
@@ -550,4 +550,108 @@ fn pdb_agg_window_in_topk_agg(#[case] mode: Mode, mut conn: PgConnection) {
     for (_, _, document) in rows {
         assert_eq!(document, expected);
     }
+}
+
+/// Window aggregates are computed inside the Top-K aggregate node, so a query
+/// with them takes this path with the GUC off. Under MPP every aggregate in the
+/// node splits into a Partial per worker and a Final on the leader. PostgreSQL's
+/// own WindowAgg plan is the oracle.
+#[rstest]
+#[case::serial(Mode::Serial)]
+#[case::mpp(Mode::Mpp)]
+fn window_aggregates_in_topk_agg(#[case] mode: Mode, mut conn: PgConnection) {
+    match mode {
+        Mode::Serial => SERIAL_SETUP.execute(&mut conn),
+        Mode::Mpp => MPP_SETUP.execute(&mut conn),
+    }
+    "SET paradedb.joinscan_force_topk_as_agg = off".execute(&mut conn);
+
+    let query = r#"
+        SELECT t1.id, t2.id,
+               COUNT(*) OVER () AS total,
+               SUM(t2.qty) OVER () AS qty_sum,
+               AVG(t1.rating) OVER ()::float8 AS rating_avg,
+               MIN(t1.rating) OVER () AS rating_min,
+               MAX(t2.qty) OVER () AS qty_max
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.rating DESC NULLS FIRST, t2.qty ASC, t2.id ASC
+        OFFSET 3 LIMIT 10
+    "#;
+    type Row = (i32, i32, i64, i64, f64, i32, i32);
+
+    let plan: Vec<String> = format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(&mut conn);
+    let plan = plan.join("\n");
+    assert!(plan.contains("Custom Scan (ParadeDB Join Scan)"), "{plan}");
+    assert!(!plan.contains("WindowAggExec"), "{plan}");
+    let join_scan: Vec<Row> = query.fetch(&mut conn);
+
+    "SET paradedb.enable_join_custom_scan = off".execute(&mut conn);
+    let postgres: Vec<Row> = query.fetch(&mut conn);
+
+    assert_eq!(postgres.len(), 10);
+    assert_eq!(join_scan, postgres);
+}
+
+/// DISTINCT folds into the same Top-K aggregate as the window aggregates,
+/// `topk_as_agg(DISTINCT ...)`, and the windows still count the join before
+/// DISTINCT. Only `COUNT(*) OVER ()`, and expressions over it, take this path
+/// with DISTINCT today; a window over a column declines at planning (#6501).
+#[rstest]
+#[case::serial(Mode::Serial)]
+#[case::mpp(Mode::Mpp)]
+fn distinct_window_aggregates_in_topk_agg(#[case] mode: Mode, mut conn: PgConnection) {
+    match mode {
+        Mode::Serial => SERIAL_SETUP.execute(&mut conn),
+        Mode::Mpp => MPP_SETUP.execute(&mut conn),
+    }
+    "SET paradedb.joinscan_force_topk_as_agg = off".execute(&mut conn);
+
+    // Every t1 row joins two t2 rows, so DISTINCT halves the join while the
+    // window counts all of it.
+    let query = r#"
+        SELECT DISTINCT t1.id,
+               COUNT(*) OVER () AS total,
+               COUNT(*) OVER () + 1 AS total_plus_one
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.id DESC
+        OFFSET 3 LIMIT 10
+    "#;
+    type Row = (i32, i64, i64);
+
+    let plan: Vec<String> = format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(&mut conn);
+    let plan = plan.join("\n");
+    assert!(plan.contains("Custom Scan (ParadeDB Join Scan)"), "{plan}");
+    assert!(!plan.contains("WindowAggExec"), "{plan}");
+    assert!(plan.contains("topk_as_agg(DISTINCT "), "{plan}");
+    if matches!(mode, Mode::Mpp) {
+        let partial = plan
+            .lines()
+            .find(|line| line.contains("AggregateExec: mode=Partial"))
+            .unwrap_or_else(|| panic!("no partial aggregate in plan:\n{plan}"));
+        assert!(
+            partial.contains("topk_as_agg(DISTINCT ") && partial.contains("count("),
+            "{partial}"
+        );
+    }
+    let join_scan: Vec<Row> = query.fetch(&mut conn);
+
+    let (join_rows,) =
+        "SELECT COUNT(*) FROM tka_t1 t1 JOIN tka_t2 t2 ON t1.id = t2.t1_id WHERE t1.val ||| 'val'"
+            .fetch_one::<(i64,)>(&mut conn);
+    assert!(
+        join_scan
+            .iter()
+            .all(|(_, total, plus_one)| *total == join_rows && *plus_one == join_rows + 1),
+        "{join_scan:?}"
+    );
+
+    "SET paradedb.enable_join_custom_scan = off".execute(&mut conn);
+    let postgres: Vec<Row> = query.fetch(&mut conn);
+
+    assert_eq!(postgres.len(), 10);
+    assert_eq!(join_scan, postgres);
 }

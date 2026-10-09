@@ -42,29 +42,30 @@ use crate::postgres::rel::PgSearchRelation;
 /// index without reading the rows they matched, so they have no tuple or page to lock. The
 /// heap-visiting paths do leave per-tuple locks (`heap_hot_search_buffer` calls
 /// `PredicateLockTID`), and this lock replaces them, so a write to a row the search never
-/// matched now conflicts as well. Trading that for one lock per scan is the coarse-first step;
+/// matched conflicts as well. Trading that for one lock per scan is the coarse-first step;
 /// the finer shape is an index-relation lock plus a heap page lock wherever the all-visible
-/// check skips the heap, the way `nodeIndexonlyscan.c` does it.
+/// check skips the heap, the way `nodeIndexonlyscan.c` does it (#6759).
 ///
 /// `snapshot` is the one the read itself runs under, and must stay valid for the call.
 pub fn predicate_lock_read(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) {
-    debug_assert!(!snapshot.is_null(), "a read needs a snapshot to lock under");
-    if !serializable() || snapshot.is_null() {
-        return;
+    if needs_lock(snapshot) {
+        unsafe { pg_sys::PredicateLockRelation(heaprel.as_ptr(), snapshot) }
     }
-    unsafe { pg_sys::PredicateLockRelation(heaprel.as_ptr(), snapshot) }
 }
 
 /// [`predicate_lock_read`] for a caller that has the heap's oid but no open relation.
 pub fn predicate_lock_read_oid(heaprelid: pg_sys::Oid, snapshot: pg_sys::Snapshot) {
     // Opening the relation costs a relcache round trip, which every non-serializable query
     // would otherwise pay for a lock that `PredicateLockRelation` goes on to skip.
-    if !serializable() {
-        return;
+    if needs_lock(snapshot) {
+        let heaprel = PgSearchRelation::open(heaprelid);
+        unsafe { pg_sys::PredicateLockRelation(heaprel.as_ptr(), snapshot) }
     }
-    predicate_lock_read(&PgSearchRelation::open(heaprelid), snapshot)
 }
 
-fn serializable() -> bool {
+fn needs_lock(snapshot: pg_sys::Snapshot) -> bool {
+    // Checked before the isolation level, so a read without a snapshot fails in every test run,
+    // not only in the `SERIALIZABLE` ones.
+    assert!(!snapshot.is_null(), "a read needs a snapshot to lock under");
     unsafe { pg_sys::XactIsoLevel as u32 == pg_sys::XACT_SERIALIZABLE }
 }

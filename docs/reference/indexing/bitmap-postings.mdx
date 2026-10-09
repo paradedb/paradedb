@@ -20,17 +20,3 @@ If your workload does not require counts, you can disable it for a field with
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, (description::pdb.unicode_words('bitmap_postings=false')), category);
 ```
-
-## Query Configuration
-
-The [runtime setting](/reference/configuration#aggregates)
-`paradedb.enable_bitmap_postings` defaults to `on`. Disable it for a session to
-use ordinary postings for counts without rebuilding the index:
-
-```sql
-SET paradedb.enable_bitmap_postings = off;
-RESET paradedb.enable_bitmap_postings;
-```
-
-This setting changes query execution only; it does not remove stored bitmaps or
-prevent new ones from being built.

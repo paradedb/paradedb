@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791562431337,
+  "lastUpdate": 1791564096379,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -11560,6 +11560,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.898,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c16da288e0144e6d875318619e6702b3af4516f",
+          "message": "feat: take the read's SIREAD lock in the ParadeDB scans (#6392)\n\n## Ticket(s) Closed\n\n- Closes #6390\n\n## What\n\nThis PR takes the SIREAD lock that SSI needs from a search read, in the\nbase scan, the aggregate scan, the join scan and `paradedb.aggregate`.\n\n## Why\n\nUnder `SERIALIZABLE`, a read has to leave a predicate lock behind or SSI\nnever sees the read/write dependency it creates. A plain index scan gets\nthat lock from `index_beginscan`, and a sequential scan from\n`heap_beginscan`. Our scans call neither, so two transactions could each\ncount the rows matching a search, then each insert a row the other would\nhave counted, and both commit. Postgres' own plans for the same read\nabort one of the two.\n\nStep 1, in one session:\n\n```sql\nBEGIN ISOLATION LEVEL SERIALIZABLE;\nSELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall';  -- 2\n```\n\nStep 2, in a second session:\n\n```sql\nBEGIN ISOLATION LEVEL SERIALIZABLE;\nSELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall';  -- 2\n```\n\nStep 3, each session inserts an `'oncall'` row and commits. Both\ncommitted, and four rows were `'oncall'`.\n\n## How\n\n`predicate_lock_read` calls `PredicateLockRelation` once per bm25 source\na scan reads. It runs at the scan's first read, not at node init, so a\nnode that never executes (`LIMIT 0`, a plain `EXPLAIN`) takes no lock. A\nparallel aggregate worker takes the lock too. The leader's lock already\ncovers the read. Each backend has its own table of the locks it holds,\nthough. With the relation lock in that table, the worker's heap\nvisibility checks skip their tuple locks.\n\nThe lock goes on the heap, not on the index. Every write to the table\nconflict-checks the heap. An index-level lock would miss a `DELETE`,\nwhose index entries `ambulkdelete` drops lazily without a conflict\ncheck, and a HOT `UPDATE`, which writes no index entry.\n\nRelation granularity, for the reason `heap_beginscan` gives for a\nsequential scan. A search predicate covers no key range, and a scan that\nanswers from the index alone (a `count(*)` on all-visible pages reads no\nheap page) has no tuple or page to lock. The heap-visiting paths did\nleave tuple locks, and the relation lock replaces them. So a concurrent\nwrite to the table conflicts with the read, also when it changes a row\nthat the search did not match. #6759 tracks a finer lock.\n\n## Tests\n\n- `tests/tests/serializable.rs`: write skew through each scan with\n`INSERT`, `DELETE`, and HOT and non-HOT `UPDATE`, plus the over-locking\ncost of a delete that the search did not match. Without the lock, the\nphantom-insert cases, both `UPDATE` cases and the over-locking case\nfail.\n- `serializable_predicate_locks`: the lock that each scan, each\naggregate backend and `paradedb.aggregate` leave behind.",
+          "timestamp": "2026-10-09T08:43:31-07:00",
+          "tree_id": "e03f9846869181e555c2233e6ebc4b9f77a721a8",
+          "url": "https://github.com/paradedb/paradedb/commit/7c16da288e0144e6d875318619e6702b3af4516f"
+        },
+        "date": 1791564091351,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.336,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 17.668,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.498,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 5.962,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.461,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.507,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.429,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 8.75,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.844,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.934,
             "unit": "ms"
           }
         ]

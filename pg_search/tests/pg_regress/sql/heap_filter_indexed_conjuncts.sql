@@ -99,6 +99,28 @@ SELECT pg_sequence_last_value('hfic_calls1') AS udf_evaluations;
 DEALLOCATE hfic_param;
 RESET plan_cache_mode;
 
+-- Base scan with two heap filters: the second wraps the first, so the index is read once, the
+-- first UDF runs once per index match and the second only on the rows the first accepted.
+ALTER SEQUENCE hfic_calls1 RESTART;
+ALTER SEQUENCE hfic_calls2 RESTART;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT count(id) FROM (
+    SELECT id FROM hfic_items
+    WHERE category @@@ 'a'
+      AND hfic_odd_decade(lat, 'hfic_calls1')
+      AND hfic_within(lat, lng, 2000, 'hfic_calls2')
+    ORDER BY id
+) s;
+SELECT count(id) FROM (
+    SELECT id FROM hfic_items
+    WHERE category @@@ 'a'
+      AND hfic_odd_decade(lat, 'hfic_calls1')
+      AND hfic_within(lat, lng, 2000, 'hfic_calls2')
+    ORDER BY id
+) s;
+SELECT pg_sequence_last_value('hfic_calls1') AS first_udf_evaluations,
+       pg_sequence_last_value('hfic_calls2') AS second_udf_evaluations;
+
 DROP FUNCTION hfic_within(double precision, double precision, double precision, regclass);
 DROP FUNCTION hfic_odd_decade(double precision, regclass);
 DROP SEQUENCE hfic_calls1;

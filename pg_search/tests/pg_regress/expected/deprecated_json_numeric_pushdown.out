@@ -645,8 +645,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 0 AND 100
 ORDER BY id;
-                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -655,7 +655,7 @@ ORDER BY id;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric >= '0'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric <= '100'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric >= '0'::numeric)"}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric <= '100'::numeric)"}]}}]}}
 (9 rows)
 
 SELECT id, data->>'num' as value

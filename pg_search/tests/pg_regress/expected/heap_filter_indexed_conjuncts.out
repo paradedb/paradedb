@@ -176,6 +176,55 @@ SELECT pg_sequence_last_value('hfic_calls1') AS udf_evaluations;
 
 DEALLOCATE hfic_param;
 RESET plan_cache_mode;
+-- Base scan with two heap filters: the second wraps the first, so the index is read once, the
+-- first UDF runs once per index match and the second only on the rows the first accepted.
+ALTER SEQUENCE hfic_calls1 RESTART;
+ALTER SEQUENCE hfic_calls2 RESTART;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT count(id) FROM (
+    SELECT id FROM hfic_items
+    WHERE category @@@ 'a'
+      AND hfic_odd_decade(lat, 'hfic_calls1')
+      AND hfic_within(lat, lng, 2000, 'hfic_calls2')
+    ORDER BY id
+) s;
+                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: count(hfic_items.id)
+   ->  Sort
+         Output: hfic_items.id
+         Sort Key: hfic_items.id
+         ->  Custom Scan (ParadeDB Base Scan) on public.hfic_items
+               Output: hfic_items.id
+               Table: hfic_items
+               Index: hfic_items_idx
+               Worker Selection: Row-capped
+               Exec Method: ColumnarExecState
+               Columnar: id
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"a","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"hfic_odd_decade(lat, 'hfic_calls1'::regclass)"}]}},"always_filters":[{"heap_filter":"hfic_within(lat, lng, '2000'::double precision, 'hfic_calls2'::regclass)"}]}}]}}
+(14 rows)
+
+SELECT count(id) FROM (
+    SELECT id FROM hfic_items
+    WHERE category @@@ 'a'
+      AND hfic_odd_decade(lat, 'hfic_calls1')
+      AND hfic_within(lat, lng, 2000, 'hfic_calls2')
+    ORDER BY id
+) s;
+ count 
+-------
+    50
+(1 row)
+
+SELECT pg_sequence_last_value('hfic_calls1') AS first_udf_evaluations,
+       pg_sequence_last_value('hfic_calls2') AS second_udf_evaluations;
+ first_udf_evaluations | second_udf_evaluations 
+-----------------------+------------------------
+                   100 |                     50
+(1 row)
+
 DROP FUNCTION hfic_within(double precision, double precision, double precision, regclass);
 DROP FUNCTION hfic_odd_decade(double precision, regclass);
 DROP SEQUENCE hfic_calls1;

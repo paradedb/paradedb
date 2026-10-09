@@ -115,8 +115,7 @@ After executing the community release, you should sync all new commits on the co
 1. Create a sync branch from the enterprise stable branch:
    - Something like: `git checkout -b sync-0.22.2 origin/0.22.x` (where `origin` is your enterprise remote)
 2. Cherry-pick and sign all new commits from the community stable branch into your sync branch:
-   - Configure [commit signing](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits) with a signing key registered on GitHub.
-   - Something like `git cherry-pick -S <prev_commit>..upstream/0.22.x` (where `upstream` is your community remote and `<prev_commit>` is the last community commit already synced).
+   - Run `git cherry-pick -S <prev_commit>..upstream/0.22.x` to sign each cherry-picked commit (where `upstream` is your community remote and `<prev_commit>` is the last community commit already synced).
    - Preserve the original authors and any `Co-authored-by` trailers.
 3. Open a PR for your sync branch on enterprise, targeted at the stable branch, and get it reviewed.
    - Check that GitHub verifies the signature of every commit introduced by the PR. A **Partially verified** badge is acceptable: it indicates a valid signature with an author or co-author other than the committer who has vigilant mode enabled.

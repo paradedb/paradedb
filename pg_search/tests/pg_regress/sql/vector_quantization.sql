@@ -310,6 +310,10 @@ SELECT
         AS rerank_io_flat
 FROM segment_info;
 
+-- The same rows without a paradedb index: Postgres scans and sorts them exhaustively.
+CREATE TEMP TABLE q_cosine_oracle AS SELECT * FROM q_cosine;
+
+-- 50 of 200 documents match: the segment locates them, scoring each match once.
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine '
@@ -321,17 +325,80 @@ WITH plan AS (
     FROM plan
 )
 SELECT
-    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
-        = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+    jsonb_path_query_first(value, '$.**.access_path') #>> '{}' AS access_path,
+    (jsonb_path_query_first(value, '$.**.located_matches') #>> '{}')::bigint AS located_matches,
+    (jsonb_path_query_first(value, '$.**.pruned_filter') #>> '{}')::bigint = 0
+        AS located_prunes_nothing,
+    (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.located_clusters') #>> '{}')::bigint
+        AS located_rows_every_located_cluster,
+    (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.located_matches') #>> '{}')::bigint
+        AS located_scores_every_match,
+    (jsonb_path_query_first(value, '$.**.vectors_visited') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.pruned_dead') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.located_matches') #>> '{}')::bigint
+        AS located_visits_accounted
+FROM segment_info;
+
+SELECT
+    ARRAY(
+        SELECT id FROM q_cosine
+        WHERE id @@@ paradedb.range('id', int4range(1, 51, '[)'))
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) = ARRAY(
+        SELECT id FROM q_cosine_oracle
+        WHERE id >= 1 AND id < 51
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) AS located_matches_exhaustive;
+
+-- 120 of 200 documents match, well above the probe budget's rows: the segment routes, and
+-- admission scores and charges only rows that pass the filter. Skipping a cluster whose rows all
+-- fail the filter is asserted in tantivy's filtered_empty_cluster_skips_band_reads.
+SET paradedb.vector_cluster_max_probe = 0.25;
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine '
+        'WHERE id @@@ paradedb.range(''id'', int4range(1, 121, ''[)'')) '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    jsonb_path_query_first(value, '$.**.access_path') #>> '{}' AS access_path,
+    (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         AS filtered_scores_only_eligible,
     (jsonb_path_query_first(value, '$.**.eligible_charged') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         AS filtered_charges_only_eligible,
     (jsonb_path_query_first(value, '$.**.pruned_filter') #>> '{}')::bigint > 0
         AS filtered_prunes_at_admission,
-    (jsonb_path_query_first(value, '$.**.clusters_skipped_empty') #>> '{}')::bigint > 0
-        AS filtered_skips_empty_clusters
+    (jsonb_path_query_first(value, '$.**.vectors_visited') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.pruned_filter') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.pruned_dead') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
+        AS filtered_visits_accounted
 FROM segment_info;
+
+SELECT
+    ARRAY(
+        SELECT id FROM q_cosine
+        WHERE id @@@ paradedb.range('id', int4range(1, 121, '[)'))
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) = ARRAY(
+        SELECT id FROM q_cosine_oracle
+        WHERE id >= 1 AND id < 121
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) AS routed_matches_exhaustive;
+SET paradedb.vector_cluster_max_probe = 1.0;
+DROP TABLE q_cosine_oracle;
 
 CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_l2_idx ON q_l2

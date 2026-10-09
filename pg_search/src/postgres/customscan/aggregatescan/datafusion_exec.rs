@@ -822,7 +822,7 @@ fn pdb_metric_expr(
 /// by storage. The `Numeric64` UDAFs take the scale as a plan literal so it
 /// survives plan serialization for parallel and MPP execution; decimal-bytes
 /// values are self-describing.
-fn numeric_sum_func_with_args(
+pub fn numeric_sum_func_with_args(
     col: Expr,
     field_type: &SearchFieldType,
 ) -> (Arc<AggregateUDF>, Vec<Expr>) {
@@ -839,14 +839,22 @@ fn numeric_sum(col: Expr, field_type: &SearchFieldType) -> Expr {
     udf.call(args)
 }
 
-/// `AVG` over a NUMERIC column; see [`numeric_sum`].
-fn numeric_avg(col: Expr, field_type: &SearchFieldType) -> Expr {
+pub fn numeric_avg_func_with_args(
+    col: Expr,
+    field_type: &SearchFieldType,
+) -> (Arc<AggregateUDF>, Vec<Expr>) {
     match field_type {
         SearchFieldType::Numeric64(_, scale) => {
-            numeric64_avg_udaf().call(vec![col, lit(*scale as i32)])
+            (numeric64_avg_udaf(), vec![col, lit(*scale as i32)])
         }
-        _ => numeric_bytes_avg_udaf().call(vec![col]),
+        _ => (numeric_bytes_avg_udaf(), vec![col]),
     }
+}
+
+/// `AVG` over a NUMERIC column; see [`numeric_sum`].
+fn numeric_avg(col: Expr, field_type: &SearchFieldType) -> Expr {
+    let (udf, args) = numeric_avg_func_with_args(col, field_type);
+    udf.call(args)
 }
 
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`] for AggregateScan.

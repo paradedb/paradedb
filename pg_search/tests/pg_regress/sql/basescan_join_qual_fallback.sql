@@ -63,6 +63,9 @@ ORDER BY d.id, t.id;
 -- Part 2: the dropped clause is a row-level security policy.
 -- The role may only see org 1. Expected: (3,3),(3,7),(4,4),(4,8).
 --------------------------------------------------------------------------------
+-- The role is cluster-wide, so a run that stopped before the cleanup leaves
+-- it behind for the next one.
+DROP ROLE IF EXISTS rls_drop_user;
 CREATE ROLE rls_drop_user NOLOGIN;
 GRANT SELECT ON docs, tags TO rls_drop_user;
 ALTER TABLE docs ENABLE ROW LEVEL SECURITY;

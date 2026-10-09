@@ -18,9 +18,10 @@
 //! Global window aggregates (empty `OVER ()`) over a join with fast-field join
 //! keys: the join itself is JoinScan-compatible, so the window aggregate must
 //! not be a reason for the custom scans to decline (issue #5637). The plan
-//! assertions verify the JoinScan absorbs the window aggregates; the value
-//! assertions must hold no matter which plan executes. The pg_regress twins
-//! are Tests 27b/27c in `pg_search/tests/pg_regress/sql/topk-agg-facet.sql`.
+//! assertions verify the JoinScan absorbs the window aggregates into its Top-K
+//! aggregate node; the value assertions must hold no matter which plan
+//! executes. The pg_regress twins are Tests 27b/27c in
+//! `pg_search/tests/pg_regress/sql/topk-agg-facet.sql`.
 
 use rstest::*;
 use sqlx::PgConnection;
@@ -65,6 +66,22 @@ fn explain(conn: &mut PgConnection, query: &str) -> String {
     lines.join("\n")
 }
 
+/// The JoinScan computes the window aggregates in its Top-K aggregate node,
+/// beside `topk_as_agg`; no window operator exists anywhere in the plan.
+fn assert_windows_in_topk_agg(plan: &str) {
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    assert!(!plan.contains("WindowAgg "), "{plan}");
+    assert!(!plan.contains("WindowAggExec"), "{plan}");
+    let aggregate = plan
+        .lines()
+        .find(|line| line.contains("AggregateExec"))
+        .unwrap_or_else(|| panic!("no AggregateExec in plan:\n{plan}"));
+    assert!(
+        aggregate.contains("topk_as_agg(") && aggregate.contains("as window_agg_"),
+        "{aggregate}"
+    );
+}
+
 #[derive(Debug, Clone, Copy)]
 enum WindowJoinCase {
     /// Every SQL-native aggregate that window_func.rs can convert, as one
@@ -105,12 +122,8 @@ fn global_window_aggregates_over_join(
             "#;
 
             // The custom scans absorb the global window aggregates (#5637),
-            // so the JoinScan engages and no WindowAgg node remains, while a
-            // WindowAggExec now exists.
-            let plan = explain(&mut conn, query);
-            assert!(plan.contains(JOIN_SCAN), "{plan}");
-            assert!(!plan.contains("WindowAgg "), "{plan}");
-            assert!(plan.contains("WindowAggExec"), "{plan}");
+            // so the JoinScan engages and no WindowAgg node remains.
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
 
             let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i32, i32)>(&mut conn)?;
             assert_eq!(rows.len(), 3);
@@ -141,10 +154,7 @@ fn global_window_aggregates_over_join(
                 LIMIT 3
             "#;
 
-            let plan = explain(&mut conn, query);
-            assert!(plan.contains(JOIN_SCAN), "{plan}");
-            assert!(!plan.contains("WindowAgg "), "{plan}");
-            assert!(plan.contains("WindowAggExec"), "{plan}");
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
 
             let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i64)>(&mut conn)?;
             assert_eq!(rows.len(), 3);
@@ -240,10 +250,7 @@ fn global_window_aggregates_over_join_numeric(
                 LIMIT 3
             "#;
 
-            let plan = explain(&mut conn, query);
-            assert!(plan.contains(JOIN_SCAN), "{plan}");
-            assert!(!plan.contains("WindowAgg "), "{plan}");
-            assert!(plan.contains("WindowAggExec"), "{plan}");
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
 
             let rows = query.fetch_result::<(i32, f64, i64, f64, f64, f64, f64)>(&mut conn)?;
             assert_eq!(rows.len(), 3);
@@ -306,16 +313,16 @@ fn setup_anti_join(conn: &mut PgConnection) {
     DROP TABLE IF EXISTS wja_products;
     DROP TABLE IF EXISTS wja_orders;
     CREATE TABLE wja_products (id bigint PRIMARY KEY, age int, description text);
-    CREATE TABLE wja_orders (id bigint PRIMARY KEY, age int, price numeric(10, 2));
+    CREATE TABLE wja_orders (id bigint PRIMARY KEY, age int, price numeric(10, 2), tags text[]);
 
     INSERT INTO wja_products SELECT g, g, 'sturdy laptop' FROM generate_series(1, 5) g;
     -- Ages 1 and 2 match, anti-filtering products 1 and 2; 3..5 survive.
-    INSERT INTO wja_orders VALUES (1, 1, 11.50), (2, 2, 22.50);
+    INSERT INTO wja_orders VALUES (1, 1, 11.50, ARRAY['bulk']), (2, 2, 22.50, ARRAY['gift', 'rush']);
 
     CREATE INDEX wja_products_bm25 ON wja_products
     USING paradedb (id, age, (description::pdb.unicode_words));
     CREATE INDEX wja_orders_bm25 ON wja_orders
-    USING paradedb (id, age, price);
+    USING paradedb (id, age, price, (tags::pdb.literal));
     ANALYZE wja_products;
     ANALYZE wja_orders;
     "#
@@ -341,13 +348,9 @@ fn global_window_aggregates_over_pruned_anti_join(
         LIMIT 10
     "#;
 
-    let plan = explain(&mut conn, query);
-    assert!(plan.contains(JOIN_SCAN), "{plan}");
-    assert!(!plan.contains("WindowAgg "), "{plan}");
-    // COUNT(*) is a real window over the surviving rows; the pruned-argument
-    // aggregates are plan-time constants that never reach the window
-    // operator.
-    assert!(plan.contains("WindowAggExec"), "{plan}");
+    // COUNT(*) is a real aggregate over the surviving rows; the pruned-argument
+    // aggregates are plan-time constants that never reach the aggregate node.
+    assert_windows_in_topk_agg(&explain(&mut conn, query));
 
     let rows = query
         .fetch_result::<(i64, Option<f64>, i64, i64, Option<bigdecimal::BigDecimal>)>(&mut conn)?;
@@ -359,6 +362,51 @@ fn global_window_aggregates_over_pruned_anti_join(
         assert_eq!(*total_count, 3);
         assert_eq!(*total_price, None);
     }
+
+    Ok(())
+}
+
+/// A LATERAL unnest of the pruned side yields no rows, so the optimizer folds the
+/// join to an empty relation under the Top-K aggregate. The serialized plan loses
+/// that relation's schema; the aggregate has to empty out with it instead of
+/// resolving its columns against the empty schema at execution.
+#[rstest]
+fn global_window_aggregates_over_pruned_anti_join_unnest(
+    mut conn: PgConnection,
+) -> Result<(), sqlx::Error> {
+    setup_anti_join(&mut conn);
+
+    let query = r#"
+        SELECT p.id, tag, COUNT(*) OVER () AS total_count
+        FROM wja_products p
+        LEFT JOIN wja_orders o ON p.age = o.age
+        CROSS JOIN LATERAL unnest(o.tags) AS tag
+        WHERE p.description ||| 'laptop' AND o.age IS NULL
+        ORDER BY p.id, tag
+        LIMIT 10
+    "#;
+
+    let plan = explain(&mut conn, query);
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    let rows = query.fetch_result::<(i64, String, i64)>(&mut conn)?;
+    assert!(rows.is_empty(), "{rows:?}");
+
+    // The same shape with no window, forced onto the Top-K path.
+    "SET paradedb.joinscan_force_topk_as_agg = on".execute(&mut conn);
+    let query = r#"
+        SELECT p.id, tag
+        FROM wja_products p
+        LEFT JOIN wja_orders o ON p.age = o.age
+        CROSS JOIN LATERAL unnest(o.tags) AS tag
+        WHERE p.description ||| 'laptop' AND o.age IS NULL
+        ORDER BY p.id, tag
+        LIMIT 10
+    "#;
+
+    let plan = explain(&mut conn, query);
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    let rows = query.fetch_result::<(i64, String)>(&mut conn)?;
+    assert!(rows.is_empty(), "{rows:?}");
 
     Ok(())
 }
@@ -729,4 +777,126 @@ fn pdb_agg_window_declines(mut conn: PgConnection, #[case] call: &str) {
             .contains("pdb.agg() must be handled by ParadeDB's custom scan"),
         "{error}"
     );
+}
+
+#[derive(Debug, Clone, Copy)]
+enum WindowShape {
+    /// A LIMIT with no ORDER BY: the Top-K aggregate keeps any three rows,
+    /// and the window aggregate still counts the whole join.
+    NoOrderBy,
+    /// DISTINCT with window aggregates, bare and inside expressions. Their
+    /// value is the same on every row, so they stay out of the DISTINCT key
+    /// and are computed after the Top-K aggregate; PostgreSQL evaluates
+    /// windows before DISTINCT, so the count covers the join, not the
+    /// distinct rows.
+    Distinct,
+    /// A target list of window aggregates alone: every row is one group.
+    DistinctWindowsOnly,
+    /// The Top-K aggregate needs k at planning time. With a parameterized
+    /// LIMIT it is not known, so the JoinScan computes the window aggregates
+    /// in a DataFusion window node instead.
+    ParameterizedLimit,
+}
+
+#[rstest]
+#[case::no_order_by(WindowShape::NoOrderBy)]
+#[case::distinct(WindowShape::Distinct)]
+#[case::distinct_windows_only(WindowShape::DistinctWindowsOnly)]
+#[case::parameterized_limit(WindowShape::ParameterizedLimit)]
+fn global_window_aggregates_query_shapes(
+    mut conn: PgConnection,
+    #[case] shape: WindowShape,
+) -> Result<(), sqlx::Error> {
+    setup(&mut conn);
+
+    match shape {
+        WindowShape::NoOrderBy => {
+            let query = r#"
+                SELECT p.id, COUNT(*) OVER () AS total_count
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                LIMIT 3
+            "#;
+
+            assert_windows_in_topk_agg(&explain(&mut conn, query));
+
+            let rows = query.fetch_result::<(i32, i64)>(&mut conn)?;
+            assert_eq!(rows.len(), 3);
+            assert!(
+                rows.iter().all(|(id, total)| id % 2 == 1 && *total == 1000),
+                "{rows:?}"
+            );
+        }
+        WindowShape::Distinct => {
+            // Each laptop product has two reviews, so DISTINCT halves the join.
+            let query = r#"
+                SELECT DISTINCT p.id,
+                       COUNT(*) OVER () AS total_count,
+                       (COUNT(*) OVER ())::float8 AS total_count_f8,
+                       COUNT(*) OVER () + 1 AS total_plus_one
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY p.id DESC
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert_windows_in_topk_agg(&plan);
+            assert!(plan.contains("topk_as_agg(DISTINCT "), "{plan}");
+
+            let rows = query.fetch_result::<(i32, i64, f64, i64)>(&mut conn)?;
+            assert_eq!(
+                rows,
+                vec![
+                    (999, 1000, 1000.0, 1001),
+                    (997, 1000, 1000.0, 1001),
+                    (995, 1000, 1000.0, 1001)
+                ]
+            );
+        }
+        WindowShape::DistinctWindowsOnly => {
+            let query = r#"
+                SELECT DISTINCT COUNT(*) OVER () AS total_count
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert_windows_in_topk_agg(&plan);
+            assert!(plan.contains("topk_as_agg(DISTINCT "), "{plan}");
+
+            let rows = query.fetch_result::<(i64,)>(&mut conn)?;
+            assert_eq!(rows, vec![(1000,)]);
+        }
+        WindowShape::ParameterizedLimit => {
+            r#"
+            SET plan_cache_mode = force_generic_plan;
+            PREPARE wj_page AS
+                SELECT p.id, COUNT(*) OVER () AS total_count
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description ||| 'laptop'
+                ORDER BY r.score DESC
+                LIMIT $1;
+            "#
+            .execute(&mut conn);
+
+            let plan = explain(&mut conn, "EXECUTE wj_page(3)");
+            assert!(plan.contains(JOIN_SCAN), "{plan}");
+            assert!(!plan.contains("WindowAgg "), "{plan}");
+            assert!(plan.contains("WindowAggExec"), "{plan}");
+            assert!(!plan.contains("topk_as_agg("), "{plan}");
+
+            let rows = "EXECUTE wj_page(3)".fetch_result::<(i32, i64)>(&mut conn)?;
+            assert_eq!(rows, vec![(999, 1000), (997, 1000), (995, 1000)]);
+
+            "DEALLOCATE wj_page".execute(&mut conn);
+        }
+    }
+
+    Ok(())
 }

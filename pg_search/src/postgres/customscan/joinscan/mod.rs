@@ -189,6 +189,7 @@ use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parall
 use crate::scan::deferred_encode::DeferredCtid;
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_buffer::ScalarBuffer;
+use datafusion::logical_expr::LogicalPlan;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::ParallelScanArgs;
@@ -210,6 +211,7 @@ use std::sync::Arc;
 
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 use super::datafusion::pdb_agg_udaf::{debug_assert_single_document, json_document_to_datum};
+use super::datafusion::topk_agg::bind_topk_agg_fetch;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -675,22 +677,22 @@ impl JoinScan {
             }
         }
 
-        // pdb.agg() window functions computed inside the Top-K aggregate node, which
-        // needs OFFSET + LIMIT known at planning.
-        let has_pdb_agg = window_aggs
-            .iter()
-            .any(|agg| agg.agg_def.pdb_agg().is_some());
-        if has_pdb_agg
-            && limit_offset
-                .as_ref()
-                .and_then(|lo| lo.static_fetch())
-                .is_none()
-        {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: pdb.agg(...) window functions require a statically known LIMIT and OFFSET",
-            ));
-        }
-
+        // // pdb.agg() window functions computed inside the Top-K aggregate node, which
+        // // needs OFFSET + LIMIT known at planning.
+        // let has_pdb_agg = window_aggs
+        //     .iter()
+        //     .any(|agg| agg.agg_def.pdb_agg().is_some());
+        // if has_pdb_agg
+        //     && limit_offset
+        //         .as_ref()
+        //         .and_then(|lo| lo.static_fetch())
+        //         .is_none()
+        // {
+        //     return Err(JoinDeclineReason::new(
+        //         "JoinScan not used: pdb.agg(...) window functions require a statically known LIMIT and OFFSET",
+        //     ));
+        // }
+        //
         // The fields of a `pdb.agg()` have to come from a source the join still
         // puts out: the aggregate reads the join's rows.
         let root_id = PlannerRootId::from(root);
@@ -1685,17 +1687,8 @@ impl CustomScan for JoinScan {
                             source_manifests.clone(),
                         )
                         .expect("Failed to deserialize logical plan");
-                        let logical_plan = match runtime_limit_offset {
-                            Some((skip, fetch)) => {
-                                use datafusion::logical_expr::LogicalPlanBuilder;
-                                LogicalPlanBuilder::from(logical_plan)
-                                    .limit(skip, Some(fetch))
-                                    .expect("failed to add Limit to logical plan")
-                                    .build()
-                                    .expect("failed to build logical plan with Limit")
-                            }
-                            None => logical_plan,
-                        };
+                        let logical_plan =
+                            bind_runtime_limit_offset(logical_plan, runtime_limit_offset);
                         runtime
                             .block_on(build_physical_plan(ctx, logical_plan))
                             .expect("Failed to create execution plan")
@@ -1750,17 +1743,8 @@ impl CustomScan for JoinScan {
                                 source_manifests.clone(),
                             )
                             .expect("Failed to deserialize serial fallback logical plan");
-                            let logical_plan = match runtime_limit_offset {
-                                Some((skip, fetch)) => {
-                                    use datafusion::logical_expr::LogicalPlanBuilder;
-                                    LogicalPlanBuilder::from(logical_plan)
-                                        .limit(skip, Some(fetch))
-                                        .expect("failed to add Limit to logical plan")
-                                        .build()
-                                        .expect("failed to build logical plan with Limit")
-                                }
-                                None => logical_plan,
-                            };
+                            let logical_plan =
+                                bind_runtime_limit_offset(logical_plan, runtime_limit_offset);
                             let plan = runtime
                                 .block_on(build_physical_plan(&serial_ctx, logical_plan))
                                 .expect("Failed to create execution plan from serial fallback");
@@ -2873,5 +2857,24 @@ impl JoinScan {
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
         pg_sys::ExecStoreVirtualTuple(result_slot);
         Some(result_slot)
+    }
+}
+
+fn bind_runtime_limit_offset(
+    logical_plan: LogicalPlan,
+    runtime_limit_offset: Option<(usize, usize)>,
+) -> LogicalPlan {
+    match runtime_limit_offset {
+        Some((skip, fetch)) => {
+            use datafusion::logical_expr::LogicalPlanBuilder;
+            let logical_plan = bind_topk_agg_fetch(logical_plan, skip + fetch)
+                .expect("failed to bind limit to __topk_agg");
+            LogicalPlanBuilder::from(logical_plan)
+                .limit(skip, Some(fetch))
+                .expect("failed to add Limit to logical plan")
+                .build()
+                .expect("failed to build logical plan with Limit")
+        }
+        None => logical_plan,
     }
 }

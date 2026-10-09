@@ -78,6 +78,10 @@ impl Collector for CountAllCollector {
         false
     }
 
+    fn supports_bitmap_collection(&self) -> bool {
+        self.inner.supports_bitmap_collection()
+    }
+
     fn merge_fruits(
         &self,
         fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,

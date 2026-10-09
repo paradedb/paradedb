@@ -322,6 +322,10 @@ pub fn search_field_config_from_type(
         .get("pnorms")
         .and_then(|p| p.as_bool())
         .unwrap_or(false);
+    let bitmap_postings = parsed_typmod
+        .get("bitmap_postings")
+        .and_then(|p| p.as_bool())
+        .unwrap_or(true);
     // columnar=true/false is our renaming of Tantivy's `fast` option
     // fast is default to true for any field that's not text or JSON
     // if it is text or JSON, it also default to true for literal and literal_normalized
@@ -361,6 +365,7 @@ pub fn search_field_config_from_type(
             indexed: true,
             fast,
             fieldnorms,
+            bitmap_postings,
             tokenizer,
             search_tokenizer,
             record,
@@ -375,6 +380,7 @@ pub fn search_field_config_from_type(
             indexed: true,
             fast,
             fieldnorms,
+            bitmap_postings,
             pnorms,
             tokenizer,
             search_tokenizer,

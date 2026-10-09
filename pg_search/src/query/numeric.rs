@@ -24,6 +24,7 @@
 //! The module consolidates all numeric conversion logic to avoid duplication
 //! and provide consistent error handling.
 
+use std::num::IntErrorKind;
 use std::ops::Bound;
 use std::str::FromStr;
 
@@ -285,6 +286,100 @@ pub fn string_to_f64(value: PdbOwnedValue) -> PdbOwnedValue {
 }
 
 // ============================================================================
+// Integer Field Domains
+// ============================================================================
+
+/// The values that an `I64` or a `U64` field can hold.
+#[derive(Clone, Copy)]
+enum IntDomain {
+    I64,
+    U64,
+}
+
+impl IntDomain {
+    fn of(field_type: &SearchFieldType) -> Option<Self> {
+        match field_type {
+            SearchFieldType::I64(_) => Some(Self::I64),
+            SearchFieldType::U64(_) => Some(Self::U64),
+            _ => None,
+        }
+    }
+
+    /// The smallest value, as an exact integer and as a value of the field's type.
+    fn min(self) -> (i128, PdbOwnedValue) {
+        match self {
+            Self::I64 => (i64::MIN.into(), PdbOwnedValue::I64(i64::MIN)),
+            Self::U64 => (u64::MIN.into(), PdbOwnedValue::U64(u64::MIN)),
+        }
+    }
+
+    /// The largest value, as an exact integer and as a value of the field's type.
+    fn max(self) -> (i128, PdbOwnedValue) {
+        match self {
+            Self::I64 => (i64::MAX.into(), PdbOwnedValue::I64(i64::MAX)),
+            Self::U64 => (u64::MAX.into(), PdbOwnedValue::U64(u64::MAX)),
+        }
+    }
+}
+
+/// The integer that `value` holds, if it is an integer or a string of one. A string of an integer
+/// too large for an `i128` lies outside every domain, so it saturates.
+fn exact_integer(value: &PdbOwnedValue) -> Option<i128> {
+    match value {
+        PdbOwnedValue::I64(n) => Some((*n).into()),
+        PdbOwnedValue::U64(n) => Some((*n).into()),
+        PdbOwnedValue::Str(s) => match s.trim().parse::<i128>() {
+            Ok(n) => Some(n),
+            Err(e) => match e.kind() {
+                IntErrorKind::PosOverflow => Some(i128::MAX),
+                IntErrorKind::NegOverflow => Some(i128::MIN),
+                _ => None,
+            },
+        },
+        _ => None,
+    }
+}
+
+/// Clamp the bounds of a range on an integer field to the field's range. A bound that admits no
+/// value becomes a lower `Excluded(max)` or an upper `Excluded(min)`, and one that admits every
+/// value becomes a lower `Included(min)` or an upper `Included(max)`. Other bounds are unchanged.
+pub fn clamp_int_bounds(
+    field_type: &SearchFieldType,
+    lower: Bound<PdbOwnedValue>,
+    upper: Bound<PdbOwnedValue>,
+) -> (Bound<PdbOwnedValue>, Bound<PdbOwnedValue>) {
+    let Some(domain) = IntDomain::of(field_type) else {
+        return (lower, upper);
+    };
+    let ((min, min_value), (max, max_value)) = (domain.min(), domain.max());
+    let lower = match lower.as_ref().map(exact_integer) {
+        Bound::Included(Some(n)) if n > max => Bound::Excluded(max_value.clone()),
+        Bound::Excluded(Some(n)) if n >= max => Bound::Excluded(max_value.clone()),
+        Bound::Included(Some(n)) | Bound::Excluded(Some(n)) if n < min => {
+            Bound::Included(min_value.clone())
+        }
+        _ => lower,
+    };
+    let upper = match upper.as_ref().map(exact_integer) {
+        Bound::Included(Some(n)) | Bound::Excluded(Some(n)) if n < min => {
+            Bound::Excluded(min_value)
+        }
+        Bound::Included(Some(n)) if n >= max => Bound::Included(max_value),
+        Bound::Excluded(Some(n)) if n > max => Bound::Included(max_value),
+        _ => upper,
+    };
+    (lower, upper)
+}
+
+/// Check if `value` is an integer that a field of `field_type` cannot hold.
+pub fn is_outside_int_domain(value: &PdbOwnedValue, field_type: &SearchFieldType) -> bool {
+    let (Some(domain), Some(n)) = (IntDomain::of(field_type), exact_integer(value)) else {
+        return false;
+    };
+    n < domain.min().0 || n > domain.max().0
+}
+
+// ============================================================================
 // Generic Bound Conversion
 // ============================================================================
 
@@ -428,6 +523,8 @@ pub fn convert_value_for_field(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
+    use std::ops::Bound::{Excluded, Included, Unbounded};
 
     #[test]
     fn test_scale_i64() {
@@ -537,5 +634,94 @@ mod tests {
         let unbounded: Bound<PdbOwnedValue> = Bound::Unbounded;
         let result = map_bound(unbounded, string_to_i64);
         assert_eq!(result, Bound::Unbounded);
+    }
+
+    fn int(n: i64) -> PdbOwnedValue {
+        PdbOwnedValue::I64(n)
+    }
+
+    fn uint(n: u64) -> PdbOwnedValue {
+        PdbOwnedValue::U64(n)
+    }
+
+    fn text(s: &str) -> PdbOwnedValue {
+        PdbOwnedValue::Str(s.to_string())
+    }
+
+    const INT8: SearchFieldType = SearchFieldType::I64(pgrx::pg_sys::INT8OID);
+    const OID: SearchFieldType = SearchFieldType::U64(pgrx::pg_sys::OIDOID);
+    const HUGE: &str = "100000000000000000000000000000000000000000";
+
+    #[rstest]
+    #[case::above_max(INT8, Included(uint(1 << 63)), Excluded(int(i64::MAX)))]
+    #[case::beyond_i128(INT8, Included(text(HUGE)), Excluded(int(i64::MAX)))]
+    #[case::at_max(INT8, Included(int(i64::MAX)), Included(int(i64::MAX)))]
+    #[case::excluded_at_max(INT8, Excluded(uint(i64::MAX as u64)), Excluded(int(i64::MAX)))]
+    #[case::excluded_below_min(
+        INT8,
+        Excluded(text("-9223372036854775809")),
+        Included(int(i64::MIN))
+    )]
+    #[case::inside(INT8, Excluded(uint(5)), Excluded(uint(5)))]
+    #[case::u64_below_min(OID, Included(int(-5)), Included(uint(0)))]
+    fn clamp_int_lower_bound(
+        #[case] field_type: SearchFieldType,
+        #[case] bound: Bound<PdbOwnedValue>,
+        #[case] expected: Bound<PdbOwnedValue>,
+    ) {
+        assert_eq!(
+            clamp_int_bounds(&field_type, bound, Unbounded),
+            (expected, Unbounded)
+        );
+    }
+
+    #[rstest]
+    #[case::below_min(INT8, Included(text("-9223372036854775809")), Excluded(int(i64::MIN)))]
+    #[case::beyond_i128(INT8, Excluded(text(&format!("-{HUGE}"))), Excluded(int(i64::MIN)))]
+    #[case::at_max(INT8, Included(uint(i64::MAX as u64)), Included(int(i64::MAX)))]
+    #[case::above_max(INT8, Included(text("18000000000000000000")), Included(int(i64::MAX)))]
+    #[case::excluded_above_max(INT8, Excluded(uint(1 << 63)), Included(int(i64::MAX)))]
+    #[case::excluded_at_max(INT8, Excluded(int(i64::MAX)), Excluded(int(i64::MAX)))]
+    #[case::u64_below_min(OID, Included(int(-5)), Excluded(uint(0)))]
+    #[case::u64_at_max(OID, Included(uint(u64::MAX)), Included(uint(u64::MAX)))]
+    fn clamp_int_upper_bound(
+        #[case] field_type: SearchFieldType,
+        #[case] bound: Bound<PdbOwnedValue>,
+        #[case] expected: Bound<PdbOwnedValue>,
+    ) {
+        assert_eq!(
+            clamp_int_bounds(&field_type, Unbounded, bound),
+            (Unbounded, expected)
+        );
+    }
+
+    #[rstest]
+    #[case::decimal(Included(text("1.5")))]
+    #[case::exponent(Included(text("1e30")))]
+    #[case::infinity(Excluded(text("infinity")))]
+    #[case::date(Included(text("2024-01-01")))]
+    fn clamp_int_bounds_leaves_non_integers(#[case] bound: Bound<PdbOwnedValue>) {
+        for field_type in [INT8, OID] {
+            assert_eq!(
+                clamp_int_bounds(&field_type, bound.clone(), bound.clone()),
+                (bound.clone(), bound.clone())
+            );
+        }
+    }
+
+    #[rstest]
+    #[case::at_max(INT8, int(i64::MAX), false)]
+    #[case::above_max(INT8, uint(1 << 63), true)]
+    #[case::at_min(INT8, text("-9223372036854775808"), false)]
+    #[case::below_min(INT8, text("-9223372036854775809"), true)]
+    #[case::infinity(INT8, text("infinity"), false)]
+    #[case::u64_negative(OID, int(-1), true)]
+    #[case::float_field(SearchFieldType::F64(pgrx::pg_sys::FLOAT8OID), uint(1 << 63), false)]
+    fn test_is_outside_int_domain(
+        #[case] field_type: SearchFieldType,
+        #[case] value: PdbOwnedValue,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(is_outside_int_domain(&value, &field_type), expected);
     }
 }

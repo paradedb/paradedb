@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Range and term searches on an integer or `oid` field with a bound or value at or beyond the edge of its range now return the correct rows. They used to fail with an overflow error or return wrong rows; for example, `x > 9223372036854775807` matched every row (#6673).

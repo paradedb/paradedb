@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed `pdb.agg(...) OVER ()` over a join failing with `pdb.agg() must be handled by ParadeDB's custom scan` when its `LIMIT` or `OFFSET` is a parameter, as in a prepared statement under a generic plan (#6712). Join Scan now resolves the parameter when the query runs, so these queries, and global window aggregates such as `COUNT(*) OVER ()` with a parameterized `LIMIT`, compute their window aggregates in the same aggregate step as the Top-K.

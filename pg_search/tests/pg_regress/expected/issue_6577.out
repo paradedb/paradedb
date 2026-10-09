@@ -1,0 +1,323 @@
+-- Issue #6577: projecting an expression over an indexed datetime column in a
+-- Join Scan target list wraps it as a PgExprUdf. The UDF's input signature must
+-- match the Arrow type the fast field is scanned as (Timestamp(µs) for every
+-- datetime type), or DataFusion fails to build the logical plan with
+-- "coercion from Timestamp(µs) to the signature Exact(...) failed".
+--
+-- Each case runs EXPLAIN, then the query with the Join Scan on and off. Both
+-- result sets must match.
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan TO OFF;
+SET TimeZone = 'UTC';
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS i6577_s, i6577_e CASCADE;
+CREATE TABLE i6577_s
+(
+    id     INT PRIMARY KEY,
+    title  TEXT,
+    rating FLOAT8,
+    d      DATE,
+    ts     TIMESTAMP,
+    tstz   TIMESTAMPTZ,
+    t      TIME,
+    ttz    TIMETZ
+);
+INSERT INTO i6577_s
+SELECT g,
+       CASE WHEN g % 3 = 0 THEN 'dragon ' || g ELSE 'other ' || g END,
+       g % 100,
+       DATE '2000-01-01' + g,
+       TIMESTAMP '2000-01-01 12:34:56' + g * INTERVAL '1 day 1 minute',
+       TIMESTAMPTZ '2000-01-01 12:34:56+00' + g * INTERVAL '1 day 1 minute',
+       TIME '00:00:00' + g * INTERVAL '1 minute',
+       TIMETZ '00:00:00+00' + g * INTERVAL '1 minute'
+FROM generate_series(1, 500) g;
+CREATE INDEX i6577_s_idx ON i6577_s
+    USING bm25 (id, title, rating, d, ts, tstz, t, ttz);
+CREATE TABLE i6577_e
+(
+    id   INT PRIMARY KEY,
+    u    TEXT,
+    s_id INT
+);
+INSERT INTO i6577_e SELECT g, 'u1', g * 2 FROM generate_series(1, 100) g;
+CREATE INDEX i6577_e_idx ON i6577_e
+    USING bm25 (id, u, s_id)
+    WITH (text_fields = '{"u": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+ANALYZE i6577_s;
+ANALYZE i6577_e;
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- Control: bare DATE column in a join
+-- =============================================================================
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s INNER e
+   Join Cond: e.s_id = s.id
+   Limit: 3
+   Order By: s.rating desc, e.s_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, rating@2 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=3), expr=[rating@2 DESC, s_id@3 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s, e], pruned=[e]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_id@0, id@1)], projection=[ctid_0@2, id@3, rating@4, s_id@0, ctid_1@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT s.id, s.d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ id  |     d      
+-----+------------
+ 198 | 07-17-2000
+  96 | 04-06-2000
+ 192 | 07-11-2000
+(3 rows)
+
+-- =============================================================================
+-- DATE: d::text in a join
+-- =============================================================================
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ERROR:  Failed to build DataFusion logical plan: Plan("Failed to coerce arguments to satisfy a call to 'pdb_eval_expr_coerceviaio_19bc6715' function: coercion from Timestamp(µs) to the signature Exact(Date32) failed. No function matches the given name and argument types 'pdb_eval_expr_coerceviaio_19bc6715(Timestamp(µs))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tpdb_eval_expr_coerceviaio_19bc6715(Date32)")
+SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ERROR:  Failed to build DataFusion logical plan: Plan("Failed to coerce arguments to satisfy a call to 'pdb_eval_expr_coerceviaio_19bc6715' function: coercion from Timestamp(µs) to the signature Exact(Date32) failed. No function matches the given name and argument types 'pdb_eval_expr_coerceviaio_19bc6715(Timestamp(µs))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tpdb_eval_expr_coerceviaio_19bc6715(Date32)")
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, s.d::text AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ id  |     d      
+-----+------------
+ 198 | 07-17-2000
+  96 | 04-06-2000
+ 192 | 07-11-2000
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- DATE: to_char(d) in a join
+-- =============================================================================
+EXPLAIN (COSTS OFF)
+SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ERROR:  Failed to build DataFusion logical plan: Plan("Failed to coerce arguments to satisfy a call to 'pdb_eval_expr_funcexpr_7af50452' function: coercion from Timestamp(µs) to the signature Exact(Date32) failed. No function matches the given name and argument types 'pdb_eval_expr_funcexpr_7af50452(Timestamp(µs))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tpdb_eval_expr_funcexpr_7af50452(Date32)")
+SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ERROR:  Failed to build DataFusion logical plan: Plan("Failed to coerce arguments to satisfy a call to 'pdb_eval_expr_funcexpr_7af50452' function: coercion from Timestamp(µs) to the signature Exact(Date32) failed. No function matches the given name and argument types 'pdb_eval_expr_funcexpr_7af50452(Timestamp(µs))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tpdb_eval_expr_funcexpr_7af50452(Date32)")
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, to_char(s.d, 'YYYY-MM-DD') AS d FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ id  |     d      
+-----+------------
+ 198 | 2000-07-17
+  96 | 2000-04-06
+ 192 | 2000-07-11
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- DATE: d::text in an anti-join
+-- =============================================================================
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.d::text AS d FROM i6577_s s
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
+ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+ERROR:  Failed to build DataFusion logical plan: Plan("Failed to coerce arguments to satisfy a call to 'pdb_eval_expr_coerceviaio_19bc6715' function: coercion from Timestamp(µs) to the signature Exact(Date32) failed. No function matches the given name and argument types 'pdb_eval_expr_coerceviaio_19bc6715(Timestamp(µs))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tpdb_eval_expr_coerceviaio_19bc6715(Date32)")
+SELECT s.id, s.d::text AS d FROM i6577_s s
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
+ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+ERROR:  Failed to build DataFusion logical plan: Plan("Failed to coerce arguments to satisfy a call to 'pdb_eval_expr_coerceviaio_19bc6715' function: coercion from Timestamp(µs) to the signature Exact(Date32) failed. No function matches the given name and argument types 'pdb_eval_expr_coerceviaio_19bc6715(Timestamp(µs))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tpdb_eval_expr_coerceviaio_19bc6715(Date32)")
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, s.d::text AS d FROM i6577_s s
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+  AND NOT EXISTS (SELECT 1 FROM i6577_e e WHERE e.s_id = s.id AND e.id @@@ paradedb.term('u', 'u1'))
+ORDER BY paradedb.score(s.id) DESC, s.rating DESC, s.id LIMIT 3;
+ id  |     d      
+-----+------------
+  99 | 04-09-2000
+ 399 | 02-03-2001
+ 498 | 05-13-2001
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- TIMESTAMP: ts::text and to_char(ts) in a join
+-- =============================================================================
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
+FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s INNER e
+   Join Cond: e.s_id = s.id
+   Limit: 3
+   Order By: s.rating desc, e.s_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, pdb_eval_expr_coerceviaio_45e9cfd6(ts@3) as col_2, pdb_eval_expr_funcexpr_0f1418de(ts@3) as col_3, rating@2 as col_4, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=3), expr=[rating@2 DESC, s_id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s, e], pruned=[e]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_id@0, id@1)], projection=[ctid_0@2, id@3, rating@4, ts@5, s_id@0, ctid_1@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
+FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ id  |            ts            |      ts_fmt      
+-----+--------------------------+------------------
+ 198 | Mon Jul 17 15:52:56 2000 | 2000-07-17 15:52
+  96 | Thu Apr 06 14:10:56 2000 | 2000-04-06 14:10
+ 192 | Tue Jul 11 15:46:56 2000 | 2000-07-11 15:46
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, s.ts::text AS ts, to_char(s.ts, 'YYYY-MM-DD HH24:MI') AS ts_fmt
+FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ id  |            ts            |      ts_fmt      
+-----+--------------------------+------------------
+ 198 | Mon Jul 17 15:52:56 2000 | 2000-07-17 15:52
+  96 | Thu Apr 06 14:10:56 2000 | 2000-04-06 14:10
+ 192 | Tue Jul 11 15:46:56 2000 | 2000-07-11 15:46
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- TIMESTAMPTZ: tstz::text and to_char(tstz) in a join
+-- =============================================================================
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
+FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s INNER e
+   Join Cond: e.s_id = s.id
+   Limit: 3
+   Order By: s.rating desc, e.s_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, pdb_eval_expr_coerceviaio_75a1d3a5(__common_expr_1@0) as col_2, pdb_eval_expr_funcexpr_76b931e6(__common_expr_1@0) as col_3, rating@3 as col_4, ctid_0@1 as ctid_0]
+     :   ProjectionExec: expr=[CAST(tstz@3 AS Timestamp(µs, "UTC")) as __common_expr_1, ctid_0@0 as ctid_0, id@1 as id, rating@2 as rating]
+     :     SortExec: TopK(fetch=3), expr=[rating@2 DESC, s_id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :       VisibilityFilterExec: tables=[s, e], pruned=[e]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_id@0, id@1)], projection=[ctid_0@2, id@3, rating@4, tstz@5, s_id@0, ctid_1@1]
+     :           CooperativeExec
+     :             PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(15 rows)
+
+SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
+FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ id  |             tstz             |       tstz_fmt       
+-----+------------------------------+----------------------
+ 198 | Mon Jul 17 15:52:56 2000 UTC | 2000-07-17 15:52 UTC
+  96 | Thu Apr 06 14:10:56 2000 UTC | 2000-04-06 14:10 UTC
+ 192 | Tue Jul 11 15:46:56 2000 UTC | 2000-07-11 15:46 UTC
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, s.tstz::text AS tstz, to_char(s.tstz, 'YYYY-MM-DD HH24:MI TZ') AS tstz_fmt
+FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ id  |             tstz             |       tstz_fmt       
+-----+------------------------------+----------------------
+ 198 | Mon Jul 17 15:52:56 2000 UTC | 2000-07-17 15:52 UTC
+  96 | Thu Apr 06 14:10:56 2000 UTC | 2000-04-06 14:10 UTC
+ 192 | Tue Jul 11 15:46:56 2000 UTC | 2000-07-11 15:46 UTC
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- TIME / TIMETZ: t::text and ttz::text in a join
+-- =============================================================================
+EXPLAIN (COSTS OFF)
+SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
+FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s INNER e
+   Join Cond: e.s_id = s.id
+   Limit: 3
+   Order By: s.rating desc, e.s_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, pdb_eval_expr_coerceviaio_02cfce26(CAST(t@3 AS Utf8)) as col_2, pdb_eval_expr_coerceviaio_5c76ba6e(CAST(ttz@4 AS Utf8)) as col_3, rating@2 as col_4, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=3), expr=[rating@2 DESC, s_id@5 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s, e], pruned=[e]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_id@0, id@1)], projection=[ctid_0@2, id@3, rating@4, t@5, ttz@6, s_id@0, ctid_1@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, query={"with_index":{"query":{"term":{"field":"u","value":"u1"}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
+FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ERROR:  DataFusion execution failed: Internal error: arrow_array_to_datum failed: Unsupported OID for Utf8 Arrow type: BuiltIn(TIMEOID).
+This issue was likely caused by a bug in DataFusion's code. Please help us to resolve this by filing a bug report in our issue tracker: https://github.com/apache/datafusion/issues
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, s.t::text AS t, s.ttz::text AS ttz
+FROM i6577_s s JOIN i6577_e e ON e.s_id = s.id
+WHERE s.id @@@ paradedb.match('title', 'dragon') AND e.id @@@ paradedb.term('u', 'u1')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ id  |    t     |     ttz     
+-----+----------+-------------
+ 198 | 03:18:00 | 03:18:00+00
+  96 | 01:36:00 | 01:36:00+00
+ 192 | 03:12:00 | 03:12:00+00
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- Control: d::text on a single table (base scan, PostgreSQL projects)
+-- =============================================================================
+SELECT s.id, s.d::text FROM i6577_s s
+WHERE s.id @@@ paradedb.match('title', 'dragon')
+ORDER BY s.rating DESC, s.id LIMIT 3;
+ id  |     d      
+-----+------------
+  99 | 04-09-2000
+ 399 | 02-03-2001
+ 198 | 07-17-2000
+(3 rows)
+
+RESET paradedb.enable_join_custom_scan;
+RESET TimeZone;
+RESET enable_indexscan;
+RESET max_parallel_workers_per_gather;
+DROP TABLE i6577_s, i6577_e CASCADE;

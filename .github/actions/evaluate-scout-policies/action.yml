@@ -1,0 +1,61 @@
+name: Evaluate Docker Scout Policies
+description: Evaluate the repository policy configuration locally using a pinned Scout CLI.
+inputs:
+  image:
+    description: Published image reference including its multi-platform index digest.
+    required: true
+  platform:
+    description: Image platform to evaluate.
+    required: true
+  policy-config:
+    description: Path to the local policy configuration.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install Docker Scout CLI
+      shell: bash
+      env:
+        SCOUT_VERSION: "1.26.0"
+      run: |
+        set -euo pipefail
+        install_dir="$RUNNER_TEMP/docker-scout-$SCOUT_VERSION"
+        if [[ ! -x "$install_dir/docker-scout" ]]; then
+          mkdir -p "$install_dir"
+          archive="docker-scout_${SCOUT_VERSION}_linux_amd64.tar.gz"
+          release_url="https://github.com/docker/scout-cli/releases/download/v${SCOUT_VERSION}"
+          curl --fail --silent --show-error --location "$release_url/$archive" -o "$install_dir/$archive"
+          curl --fail --silent --show-error --location "$release_url/docker-scout_${SCOUT_VERSION}_checksums.txt" -o "$install_dir/checksums.txt"
+          (cd "$install_dir" && awk -v archive="$archive" '$2 == archive { print; found = 1 } END { if (!found) exit 1 }' checksums.txt | sha256sum --check --strict)
+          tar -xzf "$install_dir/$archive" -C "$install_dir" docker-scout
+        fi
+        echo "$install_dir" >> "$GITHUB_PATH"
+
+    # The bundled scout-action binary fetches server-side results, which can report
+    # success with every policy missing data immediately after publishing. This CLI
+    # evaluates locally and accepts the policy configuration instead of ignoring it.
+    # Registry authentication comes from the preceding docker/login-action step.
+    - name: Evaluate Policies Locally
+      shell: bash
+      env:
+        SCOUT_IMAGE: ${{ inputs.image }}
+        SCOUT_PLATFORM: ${{ inputs.platform }}
+        SCOUT_POLICY_CONFIG: ${{ inputs.policy-config }}
+      run: |
+        set -euo pipefail
+        report="$(mktemp "$RUNNER_TEMP/scout-policy.XXXXXX")"
+        trap 'rm -f "$report"' EXIT
+        docker-scout policy "registry://$SCOUT_IMAGE" \
+          --platform "$SCOUT_PLATFORM" \
+          --policy-config "$SCOUT_POLICY_CONFIG" \
+          --output "$report"
+        cat "$report"
+        {
+          echo "### Docker Scout policies ($SCOUT_PLATFORM)"
+          echo
+          echo "Image: \`$SCOUT_IMAGE\`"
+          echo
+          echo '```text'
+          cat "$report"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"

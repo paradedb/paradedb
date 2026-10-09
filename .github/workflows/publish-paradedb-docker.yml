@@ -355,24 +355,16 @@ jobs:
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: docker/scout-action@v1
+        uses: ./.github/actions/evaluate-scout-policies
         with:
-          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-          command: policy
           image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
-          organization: paradedb
           platform: linux/amd64
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: docker/scout-action@v1
+        uses: ./.github/actions/evaluate-scout-policies
         with:
-          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-          command: policy
           image: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
-          organization: paradedb
           platform: linux/arm64
           policy-config: docker/docker-scout-policy.json
 
@@ -521,24 +513,16 @@ jobs:
           cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
       - name: Evaluate Docker Scout Policies (amd64)
-        uses: docker/scout-action@v1
+        uses: ./.github/actions/evaluate-scout-policies
         with:
-          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-          command: policy
           image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
-          organization: paradedb
           platform: linux/amd64
           policy-config: docker/docker-scout-policy.json
 
       - name: Evaluate Docker Scout Policies (arm64)
-        uses: docker/scout-action@v1
+        uses: ./.github/actions/evaluate-scout-policies
         with:
-          dockerhub-user: ${{ vars.DOCKERHUB_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-          command: policy
           image: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
-          organization: paradedb
           platform: linux/arm64
           policy-config: docker/docker-scout-policy.json
 

@@ -56,7 +56,8 @@
                       "reference/indexing/indexing-partial",
                       "reference/indexing/columnar",
                       "reference/indexing/partition-by",
-                      "reference/indexing/faster-bm25-queries"
+                      "reference/indexing/faster-bm25-queries",
+                      "reference/indexing/bitmap-postings"
                     ]
                   },
                   {

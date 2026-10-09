@@ -1,0 +1,42 @@
+---
+title: Posting Bitmaps
+description: Speed up count queries for common search terms
+canonical: https://www.paradedb.com/docs/reference/indexing/bitmap-postings
+---
+
+ParadeDB can speed up eligible `COUNT(*)` queries that combine common search terms
+with `AND` or `OR` by storing additional posting bitmaps. This optimization is
+enabled by default. BM25 scoring, row-returning searches, and other aggregates
+do not use posting bitmaps.
+
+## Index Configuration
+
+The `bitmap_postings` option on a [tokenizer](/reference/tokenizers/overview) cast
+defaults to `true`. When building or merging segments, ParadeDB stores bitmaps
+for sufficiently common terms alongside ordinary postings. This adds storage
+and work during index builds and merges.
+
+Set `bitmap_postings=false` to disable bitmap storage for a field:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (description::pdb.unicode_words('bitmap_postings=false')), category);
+```
+
+Existing segments without bitmaps continue to work using ordinary postings.
+[Rebuild the index](/operate/index-maintenance/reindexing) to add bitmaps to all
+existing segments. Changing the field option requires recreating the index.
+
+## Query Configuration
+
+The [runtime setting](/reference/configuration#aggregates)
+`paradedb.enable_bitmap_postings` defaults to `on`. Disable it for a session to
+use ordinary postings for counts without rebuilding the index:
+
+```sql
+SET paradedb.enable_bitmap_postings = off;
+RESET paradedb.enable_bitmap_postings;
+```
+
+This setting changes query execution only; it does not remove stored bitmaps or
+prevent new ones from being built.

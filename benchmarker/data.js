@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791548860026,
+  "lastUpdate": 1791562431337,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -11486,6 +11486,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
             "value": 9.915,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f41996dfe601cb0b7c59ffe51d70f34dd9fa04d7",
+          "message": "feat: Convert existing sql window functions to be computed in the same aggregate step as topk (#6502)\n\n## Tickets closed\n- Closes #6696 \n\n## What\nMove existing computation of sql window aggregates to the same aggregate\nnode as topk. If there is not a statically known fetch at planning time,\nrun them in the current window node instead.\n\n## Why\nSimplification and speed\n\n## How\nMostly, just move the udaf placement and select those columns after\naggregating.\n\n## Tests\n- New integration and regress tests.",
+          "timestamp": "2026-10-09T09:31:34-06:00",
+          "tree_id": "53c0d4fa74d762ee675099c89886a5ae6ce7e255",
+          "url": "https://github.com/paradedb/paradedb/commit/f41996dfe601cb0b7c59ffe51d70f34dd9fa04d7"
+        },
+        "date": 1791562426386,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.332,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 17.953,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.488,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 5.819,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 6.669,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 8.689,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.425,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 8.966,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.837,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 9.898,
             "unit": "ms"
           }
         ]

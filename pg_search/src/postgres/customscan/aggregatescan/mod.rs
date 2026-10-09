@@ -2631,7 +2631,7 @@ impl AggregateScan {
 /// these aggregates from the Tantivy request — so they must NOT be advanced
 /// past when walking the result iterator.
 fn uses_doc_count_path(agg_type: &AggregateType, aggregate_clause: &AggregateCSClause) -> bool {
-    agg_type.can_use_doc_count() && !aggregate_clause.has_filter() && aggregate_clause.has_groupby()
+    aggregate_clause.can_use_doc_count(agg_type)
 }
 
 /// Convert one aggregate target-list entry to a Postgres datum.
@@ -2667,24 +2667,14 @@ unsafe fn aggregate_value_to_datum(
         });
     }
     if uses_doc_count_path(agg_type, aggregate_clause) {
-        if let AggregateType::Count {
-            field,
-            group_key: true,
-            ..
-        } = agg_type
-            && let Some(idx) = aggregate_clause
-                .grouping_columns()
-                .iter()
-                .position(|gc| gc.field_name == *field)
-            && is_null_group_key(&row.group_keys[idx])
-        {
-            return TantivyValue(PdbOwnedValue::U64(0))
-                .try_into_datum(pgrx::PgOid::from(target_typoid))
-                .ok()
-                .flatten();
-        }
-        return row
-            .doc_count()
+        let count = match agg_type {
+            AggregateType::Count {
+                group_key: Some(idx),
+                ..
+            } if is_null_group_key(&row.group_keys[*idx]) => TantivyValue(PdbOwnedValue::U64(0)),
+            _ => row.doc_count(),
+        };
+        return count
             .try_into_datum(pgrx::PgOid::from(target_typoid))
             .ok()
             .flatten();
@@ -2844,9 +2834,6 @@ unsafe fn group_key_to_datum(
     original_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
     // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
-    // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
-    // Bool uses string sentinels for both MIN and MAX.
-    // DateTime columns don't have a missing sentinel (NULLs are excluded).
     if is_null_group_key(&key) {
         return None;
     }

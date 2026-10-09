@@ -23,7 +23,8 @@ CREATE INDEX ssi_shifts_idx ON ssi_shifts USING bm25 (id, doctor_id, ward)
 WITH (text_fields = '{"ward": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 ANALYZE ssi_shifts;
 
--- Which scan ran is the point. The rest of a plan (worker selection, exec method, the
+-- Which scan ran is the point, and for the aggregate scan which backend, because each one
+-- takes its lock in another place. The rest of a plan (worker selection, exec method, the
 -- Tantivy query, the DataFusion physical plan, the rewritten index oid) moves with changes
 -- this test has no opinion about.
 CREATE FUNCTION ssi_plan_nodes(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
@@ -32,7 +33,7 @@ DECLARE
 BEGIN
     FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
         line := regexp_replace(btrim(line), '^-> *', '');
-        IF line ~ '^(Custom Scan|Index Scan|Index Only Scan|Seq Scan|Bitmap)' THEN
+        IF line ~ '^(Custom Scan|Index Scan|Index Only Scan|Seq Scan|Bitmap|Backend:)' THEN
             RETURN NEXT line;
         END IF;
     END LOOP;
@@ -90,6 +91,15 @@ COMMIT;
 BEGIN ISOLATION LEVEL SERIALIZABLE;
 SELECT * FROM ssi_plan_nodes($$SELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall'$$);
 SELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall';
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+COMMIT;
+
+-- aggregate scan on the DataFusion backend, which locks every source of its plan
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+SELECT * FROM ssi_plan_nodes($$SELECT status, count(*) FROM ssi_doctors WHERE status @@@ 'oncall OR offcall'
+GROUP BY status ORDER BY count(*) DESC LIMIT 5$$);
+SELECT status, count(*) FROM ssi_doctors WHERE status @@@ 'oncall OR offcall'
+GROUP BY status ORDER BY count(*) DESC LIMIT 5;
 SELECT * FROM ssi_locks ORDER BY 1, 2;
 COMMIT;
 

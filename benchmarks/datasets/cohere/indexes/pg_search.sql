@@ -8,5 +8,6 @@ USING bm25 (
 ) WITH (
     training_sample_ratio = 0.32,
     max_leaf_size = 32,
+    vector_fields = '{"emb":{"quantization":false}}',
     target_segment_count = 8
 );

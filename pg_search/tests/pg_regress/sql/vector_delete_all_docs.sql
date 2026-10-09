@@ -50,7 +50,7 @@ DELETE FROM delvec WHERE vec IS NOT NULL;
 VACUUM delvec;
 
 -- Include the deleted vector rows and the new vector-less rows in one merge.
-ALTER INDEX delvec_idx SET (layer_sizes = '1500kb');
+ALTER INDEX delvec_idx SET (layer_sizes = '1350kb');
 INSERT INTO delvec
 SELECT g, md5(g::text), NULL
 FROM generate_series(24001, 30000) g;

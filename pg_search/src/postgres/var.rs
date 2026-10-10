@@ -318,6 +318,25 @@ impl VarContext {
     }
 }
 
+/// A Var for one of `base_var`'s relation's system columns, e.g. `ctid`, `xmin` or
+/// `tableoid`: a copy of `base_var` with only the attribute and its type, typmod and
+/// collation replaced, so it names the same range table entry at the same query level.
+pub(crate) unsafe fn system_column_var(
+    base_var: *mut pg_sys::Var,
+    varattno: pg_sys::AttrNumber,
+    vartype: pg_sys::Oid,
+) -> *mut pg_sys::Var {
+    unsafe {
+        let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
+        (*var).varattno = varattno;
+        (*var).varattnosyn = (*var).varattno;
+        (*var).vartype = vartype;
+        (*var).vartypmod = -1;
+        (*var).varcollid = pg_sys::Oid::INVALID;
+        var
+    }
+}
+
 /// Given a [`pg_sys::Var`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
 /// contains the var.
 ///

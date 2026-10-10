@@ -33,6 +33,9 @@ use crate::postgres::customscan::opexpr::{
     UnwrapFromExpr, expr_matches_node, vars_equal_ignoring_varno,
 };
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::index::{
+    free_leaf_partition_indexes, is_partitioned_index, leaf_partition_index_oids,
+};
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -40,7 +43,7 @@ use crate::postgres::sequentialscan::MaybeInlineRow;
 use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
-use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
+use crate::postgres::var::{VarContext, find_json_path, find_var_relation, system_column_var};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
@@ -132,7 +135,7 @@ impl ReturnedNodePointer {
             .iter_ptr()
             .last()
             .and_then(|node| nodecast!(RowExpr, T_RowExpr, node))
-            .and_then(|row| PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(0));
+            .and_then(|row| record_field(row, c"original_lhs"));
         let lhs = original_lhs.unwrap_or(lhs);
         let Some(base_var) = lhs.find_node::<pg_sys::Var>() else {
             return Self::unsupported();
@@ -206,13 +209,11 @@ impl ReturnedNodePointer {
             );
         }
         let ctid = (!derived).then(|| {
-            let ctid = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-            (*ctid).varattno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
-            (*ctid).varattnosyn = (*ctid).varattno;
-            (*ctid).vartype = pg_sys::TIDOID;
-            (*ctid).vartypmod = -1;
-            (*ctid).varcollid = pg_sys::Oid::INVALID;
-            ctid
+            system_column_var(
+                base_var,
+                pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
+                pg_sys::TIDOID,
+            )
         });
 
         let mut args = PgList::<pg_sys::Node>::new();
@@ -244,6 +245,18 @@ impl ReturnedNodePointer {
         if keep_original_lhs {
             fields.push(original_lhs);
             names.push(pg_sys::makeString(pg_sys::pstrdup(c"original_lhs".as_ptr())).cast());
+        }
+        // A predicate that stays above the Append keeps the parent partitioned index, whose
+        // storage does not exist (#4643). Ship the row's `tableoid` so execution can find
+        // the partition's own leaf index. The relkind gate keeps every other plan unchanged.
+        if !derived && is_partitioned_index(indexrel.oid()) {
+            let tableoid = system_column_var(
+                base_var,
+                pg_sys::TableOidAttributeNumber as pg_sys::AttrNumber,
+                pg_sys::OIDOID,
+            );
+            fields.push(tableoid.cast());
+            names.push(pg_sys::makeString(pg_sys::pstrdup(c"tableoid".as_ptr())).cast());
         }
         // A non-null record preserves strictness even when the original LHS is NULL.
         args.push(
@@ -679,6 +692,26 @@ fn open_and_estimate_docs(
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
 ) -> Option<DocsEstimate> {
+    // A partitioned index has no storage of its own (#4643). A predicate above an Append
+    // covers every partition, so one leaf stands in for the tree: its match ratio is the
+    // selectivity, and its counts scale by the number of leaves. Leaves are tried in order
+    // and the first that holds rows answers, so planning usually opens one partition, skips
+    // a leaf a `REINDEX` holds instead of waiting, and does not read an empty partition as
+    // matching nothing.
+    if is_partitioned_index(indexrel.oid()) {
+        let leaves = leaf_partition_index_oids(indexrel);
+        let estimate = free_leaf_partition_indexes(&leaves).find_map(|leaf| {
+            open_and_estimate_docs(&leaf, search_query_input.clone(), None)
+                .filter(|estimate| estimate.total_docs > 0)
+        })?;
+        let scale = leaves.len() as u64;
+        return Some(DocsEstimate {
+            matching_docs: estimate.matching_docs.saturating_mul(leaves.len()),
+            total_docs: estimate.total_docs.saturating_mul(scale),
+            query_cost: estimate.query_cost.saturating_mul(scale),
+        });
+    }
+
     let heap_rel = indexrel
         .heap_relation()
         .expect("indexrel should be an index");
@@ -1199,6 +1232,22 @@ unsafe fn resolve_lhs_var_for_group(
     }
 
     var
+}
+
+/// The field of the trailing record argument carrying `name`, e.g. the preserved
+/// original LHS or the partition identity (#4643). The names distinguish the fields, so
+/// one is never misread as another.
+unsafe fn record_field(
+    row: *mut pg_sys::RowExpr,
+    name: &core::ffi::CStr,
+) -> Option<*mut pg_sys::Node> {
+    unsafe {
+        let names = PgList::<pg_sys::String>::from_pg((*row).colnames);
+        let position = names.iter_ptr().position(|colname| {
+            !(*colname).sval.is_null() && core::ffi::CStr::from_ptr((*colname).sval) == name
+        })?;
+        PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(position)
+    }
 }
 
 unsafe fn wrap_with_index(

@@ -1,0 +1,618 @@
+-- Tests search predicates that keep a partitioned table's parent index (#4643).
+-- Per-relation predicates are re-planned against each partition's own index, but a
+-- predicate above the Append (a join-level OR, for instance) keeps the parent, whose
+-- storage does not exist. Plan-time selectivity then aggregates over the leaf indexes,
+-- and execution resolves each row's leaf through its tableoid.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+DROP TABLE IF EXISTS orders_part CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+CREATE TABLE orders_part (
+    order_id INT,
+    customer_name TEXT,
+    part_key INT
+) PARTITION BY LIST (part_key);
+CREATE TABLE orders_part_0 PARTITION OF orders_part FOR VALUES IN (0);
+CREATE TABLE orders_part_1 PARTITION OF orders_part FOR VALUES IN (1);
+INSERT INTO orders_part
+SELECT i, CASE WHEN i % 2 = 0 THEN 'John Smith' ELSE 'Jane Doe' END, i % 2
+FROM generate_series(1, 64) i;
+CREATE INDEX orders_part_idx ON orders_part
+USING bm25 (order_id, customer_name);
+CREATE TABLE products (
+    product_id INT,
+    description TEXT
+);
+INSERT INTO products
+SELECT i, CASE WHEN i % 3 = 0 THEN 'blue widget' ELSE 'plain widget' END
+FROM generate_series(1, 64) i;
+CREATE INDEX products_idx ON products
+USING bm25 (product_id, description);
+ANALYZE orders_part;
+ANALYZE products;
+\echo '=== single-relation predicates on the parent (re-planned per partition) ==='
+=== single-relation predicates on the parent (re-planned per partition) ===
+SELECT count(*) FROM orders_part WHERE customer_name ||| 'John';
+ count 
+-------
+    32
+(1 row)
+
+SELECT count(*) FROM orders_part WHERE NOT (customer_name ||| 'John');
+ count 
+-------
+    32
+(1 row)
+
+SELECT count(*) FROM orders_part WHERE orders_part @@@ 'John';
+ count 
+-------
+    32
+(1 row)
+
+-- index oids differ run to run, so plans are printed with them masked
+CREATE FUNCTION explain_4643(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, TIMING OFF) ' || query LOOP
+        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
+    END LOOP;
+END;
+$$;
+-- an unpartitioned copy, whose plans must not carry a tableoid
+CREATE TABLE orders_plain AS SELECT * FROM orders_part;
+CREATE INDEX orders_plain_idx ON orders_plain
+USING bm25 (order_id, customer_name);
+ANALYZE orders_plain;
+\echo '=== the reported shape: join-level OR keeps the parent index ==='
+=== the reported shape: join-level OR keeps the parent index ===
+SELECT explain_4643($$
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ||| 'John' OR p.description ||| 'blue'
+$$);
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             explain_4643                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (o.order_id = p.product_id)
+         Join Filter: (paradedb.search_with_query_input_ctid_or_row(o.order_id, '{"with_index":{"oid":N,"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, o.ctid, CASE WHEN (paradedb.ctid_is_valid(o.ctid) IS NOT TRUE) THEN (ARRAY[((o.*)::orders_part)])::record[] WHEN (paradedb.xmin_is_visible(o.xmin, o.tableoid, o.ctid) IS NOT TRUE) THEN (ARRAY[((o.*)::orders_part)])::record[] ELSE '{}'::record[] END, ROW(o.tableoid)) OR paradedb.search_with_query_input_ctid_or_row(p.product_id, '{"with_index":{"oid":N,"query":{"match":{"field":"description","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, p.ctid, CASE WHEN (paradedb.ctid_is_valid(p.ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] WHEN (paradedb.xmin_is_visible(p.xmin, p.tableoid, p.ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] ELSE '{}'::record[] END, ROW()))
+         ->  Append
+               ->  Seq Scan on orders_part_0 o_1
+               ->  Seq Scan on orders_part_1 o_2
+         ->  Hash
+               ->  Seq Scan on products p
+(9 rows)
+
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ||| 'John' OR p.description ||| 'blue';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+\echo '=== the same shape on an unpartitioned table ships no tableoid ==='
+=== the same shape on an unpartitioned table ships no tableoid ===
+-- without this the Aggregate Scan takes the unpartitioned join and no heap filter shows
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT explain_4643($$
+SELECT count(*)
+FROM orders_plain o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ||| 'John' OR p.description ||| 'blue'
+$$);
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       explain_4643                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (o.order_id = p.product_id)
+         Join Filter: (paradedb.search_with_query_input_ctid_or_row(o.order_id, '{"with_index":{"oid":N,"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, o.ctid, CASE WHEN (paradedb.ctid_is_valid(o.ctid) IS NOT TRUE) THEN (ARRAY[o.*])::record[] WHEN (paradedb.xmin_is_visible(o.xmin, o.tableoid, o.ctid) IS NOT TRUE) THEN (ARRAY[o.*])::record[] ELSE '{}'::record[] END, ROW()) OR paradedb.search_with_query_input_ctid_or_row(p.product_id, '{"with_index":{"oid":N,"query":{"match":{"field":"description","value":"blue","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, p.ctid, CASE WHEN (paradedb.ctid_is_valid(p.ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] WHEN (paradedb.xmin_is_visible(p.xmin, p.tableoid, p.ctid) IS NOT TRUE) THEN (ARRAY[p.*])::record[] ELSE '{}'::record[] END, ROW()))
+         ->  Seq Scan on orders_plain o
+         ->  Hash
+               ->  Seq Scan on products p
+(7 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+SELECT count(*)
+FROM orders_plain o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ||| 'John' OR p.description ||| 'blue';
+ count 
+-------
+    43
+(1 row)
+
+\echo '=== every RHS shape of the heap filter takes the same path ==='
+=== every RHS shape of the heap filter takes the same path ===
+-- regex plans through heuristic selectivity, so only execution sees the parent
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name @@@ pdb.regex('john.*') OR p.description @@@ pdb.regex('blue.*');
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name @@@ pdb.match('Jonh', distance => 1) OR p.description @@@ pdb.match('bleu', distance => 1);
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+\echo '=== the remaining token operators rewrite through the same operator ==='
+=== the remaining token operators rewrite through the same operator ===
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name &&& 'John Smith' OR p.description &&& 'blue widget';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name === 'john' OR p.description === 'blue';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ### 'john smith' OR p.description ### 'blue widget';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+\echo '=== prepared statement: custom plans, then the generic plan ==='
+=== prepared statement: custom plans, then the generic plan ===
+PREPARE join_or(text, text) AS
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ||| $1 OR p.description ||| $2;
+EXECUTE join_or('John', 'blue');
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+EXECUTE join_or('John', 'blue');
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+EXECUTE join_or('John', 'blue');
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+EXECUTE join_or('John', 'blue');
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+EXECUTE join_or('John', 'blue');
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+EXECUTE join_or('John', 'blue');
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+DEALLOCATE join_or;
+\echo '=== the same shapes without the custom scan ==='
+=== the same shapes without the custom scan ===
+SET paradedb.enable_custom_scan = off;
+SELECT count(*) FROM orders_part WHERE customer_name ||| 'John';
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ count 
+-------
+    32
+(1 row)
+
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.customer_name ||| 'John' OR p.description ||| 'blue';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    43
+(1 row)
+
+RESET paradedb.enable_custom_scan;
+\echo '=== left join keeps the non-strict form ==='
+=== left join keeps the non-strict form ===
+SELECT count(*)
+FROM products p LEFT JOIN orders_part o ON o.order_id = p.product_id AND o.part_key = 0
+WHERE o.customer_name ||| 'John' OR p.description ||| 'blue';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 2 is not a plain relation (rtekind: 0), which is not supported (table: join)
+WARNING:  BaseScan: PostgreSQL simplified the search predicate away, so `pdb.score` and `pdb.snippet` only reflect the remaining predicates. To disable this warning: SET paradedb.planner_warnings = 'off' (table: o)
+ count 
+-------
+    43
+(1 row)
+
+\echo '=== runtime pruning only builds match sets for surviving partitions ==='
+=== runtime pruning only builds match sets for surviving partitions ===
+SELECT count(*)
+FROM orders_part o JOIN products p ON o.order_id = p.product_id
+WHERE o.part_key = 0 AND (o.customer_name ||| 'John' OR p.description ||| 'zzznomatch');
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    32
+(1 row)
+
+\echo '=== rows in different partitions share CTIDs: matches must not leak across ==='
+=== rows in different partitions share CTIDs: matches must not leak across ===
+DROP TABLE IF EXISTS leak_part CASCADE;
+DROP TABLE IF EXISTS leak_plain CASCADE;
+CREATE TABLE leak_part (id INT, body TEXT, pk INT) PARTITION BY LIST (pk);
+CREATE TABLE leak_p0 PARTITION OF leak_part FOR VALUES IN (0);
+CREATE TABLE leak_p1 PARTITION OF leak_part FOR VALUES IN (1);
+-- one row per partition, so both live at ctid (0,1)
+INSERT INTO leak_p0 VALUES (1, 'alpha only here', 0);
+INSERT INTO leak_p1 VALUES (2, 'beta only here', 1);
+CREATE INDEX leak_part_idx ON leak_part USING bm25 (id, body);
+CREATE TABLE leak_plain (id INT, tag TEXT);
+INSERT INTO leak_plain VALUES (1, 'x'), (2, 'x');
+CREATE INDEX leak_plain_idx ON leak_plain USING bm25 (id, tag);
+ANALYZE leak_part;
+ANALYZE leak_plain;
+SELECT o.id, o.body FROM leak_part o JOIN leak_plain p ON o.id = p.id
+WHERE o.body ||| 'alpha' OR p.tag ||| 'zzznomatch' ORDER BY o.id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id |      body       
+----+-----------------
+  1 | alpha only here
+(1 row)
+
+SELECT o.id, o.body FROM leak_part o JOIN leak_plain p ON o.id = p.id
+WHERE o.body ||| 'beta' OR p.tag ||| 'zzznomatch' ORDER BY o.id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id |      body      
+----+----------------
+  2 | beta only here
+(1 row)
+
+\echo '=== the same id value lives in both partitions: matches must stay in their own ==='
+=== the same id value lives in both partitions: matches must stay in their own ===
+DROP TABLE IF EXISTS dup_part CASCADE;
+CREATE TABLE dup_part (
+    order_id INT,
+    body TEXT,
+    part_key INT,
+    PRIMARY KEY (order_id, part_key)
+) PARTITION BY LIST (part_key);
+CREATE TABLE dup_p0 PARTITION OF dup_part FOR VALUES IN (0);
+CREATE TABLE dup_p1 PARTITION OF dup_part FOR VALUES IN (1);
+-- the same order_id lives in both partitions, and only the one in dup_p0 matches
+INSERT INTO dup_p0 VALUES (1, 'alpha only here', 0), (2, 'no match here', 0);
+INSERT INTO dup_p1 VALUES (1, 'beta only here', 1), (2, 'no match here', 1);
+CREATE INDEX dup_part_idx ON dup_part USING bm25 (order_id, body);
+ANALYZE dup_part;
+SELECT o.order_id, o.part_key, o.body
+FROM dup_part o JOIN leak_plain p ON o.order_id = p.id
+WHERE o.body ||| 'alpha' OR p.tag ||| 'zzznomatch'
+ORDER BY o.order_id, o.part_key;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ order_id | part_key |      body       
+----------+----------+-----------------
+        1 |        0 | alpha only here
+(1 row)
+
+SELECT o.order_id, o.part_key, o.body
+FROM dup_part o JOIN leak_plain p ON o.order_id = p.id
+WHERE o.body ||| 'beta' OR p.tag ||| 'zzznomatch'
+ORDER BY o.order_id, o.part_key;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ order_id | part_key |      body      
+----------+----------+----------------
+        1 |        1 | beta only here
+(1 row)
+
+\echo '=== multi-level partitioning resolves leaves through intermediate parents ==='
+=== multi-level partitioning resolves leaves through intermediate parents ===
+DROP TABLE IF EXISTS ml_part CASCADE;
+CREATE TABLE ml_part (id INT, body TEXT, a INT, b INT) PARTITION BY LIST (a);
+CREATE TABLE ml_a0 PARTITION OF ml_part FOR VALUES IN (0) PARTITION BY LIST (b);
+CREATE TABLE ml_a0_b0 PARTITION OF ml_a0 FOR VALUES IN (0);
+CREATE TABLE ml_a0_b1 PARTITION OF ml_a0 FOR VALUES IN (1);
+CREATE TABLE ml_a1 PARTITION OF ml_part FOR VALUES IN (1);
+INSERT INTO ml_part
+SELECT i, CASE i % 3 WHEN 0 THEN 'red apple' WHEN 1 THEN 'green leaf' ELSE 'blue sky' END, i % 2, (i / 2) % 2
+FROM generate_series(1, 40) i;
+CREATE INDEX ml_part_idx ON ml_part USING bm25 (id, body);
+ANALYZE ml_part;
+-- the walk reaches leaves under an intermediate parent, which has no storage either
+SELECT name FROM paradedb.schema('ml_part_idx') ORDER BY name;
+ name 
+------
+ body
+ ctid
+ id
+(3 rows)
+
+SELECT count(*) FROM ml_part WHERE body ||| 'red';
+ count 
+-------
+    13
+(1 row)
+
+SELECT count(*) FROM ml_part o JOIN ml_part p ON o.id = p.id
+WHERE o.body ||| 'red' OR p.body ||| 'blue';
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ count 
+-------
+    26
+(1 row)
+
+SELECT count(*) FROM ml_part WHERE NOT (body ||| 'red');
+ count 
+-------
+    27
+(1 row)
+
+\echo '=== both join sides partitioned ==='
+=== both join sides partitioned ===
+SELECT count(*) FROM orders_part o JOIN ml_part m ON o.order_id = m.id
+WHERE o.customer_name ||| 'John' OR m.body ||| 'blue';
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ count 
+-------
+    26
+(1 row)
+
+DROP TABLE orders_part CASCADE;
+DROP TABLE orders_plain CASCADE;
+DROP TABLE products CASCADE;
+DROP TABLE leak_part CASCADE;
+DROP TABLE leak_plain CASCADE;
+DROP TABLE dup_part CASCADE;
+DROP TABLE ml_part CASCADE;
+\echo '=== the schema and queries from the issue ==='
+=== the schema and queries from the issue ===
+DROP TABLE IF EXISTS items CASCADE;
+DROP TABLE IF EXISTS orders CASCADE;
+CALL paradedb.create_paradedb_test_table(schema_name => 'public', table_name => 'items', table_type => 'Items');
+CALL paradedb.create_paradedb_test_table(schema_name => 'public', table_name => 'orders', table_type => 'Orders');
+CREATE INDEX items_idx ON items USING bm25 (id, description);
+CREATE TABLE orders_part (
+    LIKE orders,
+    part_key INT NOT NULL,
+    PRIMARY KEY (order_id, part_key)
+) PARTITION BY LIST (part_key);
+CREATE TABLE orders_part_0 PARTITION OF orders_part FOR VALUES IN (0);
+CREATE TABLE orders_part_1 PARTITION OF orders_part FOR VALUES IN (1);
+INSERT INTO orders_part SELECT *, order_id % 2 FROM orders;
+-- a John who bought shoes, so the NOT arm below has a row to reject
+INSERT INTO orders_part VALUES (65, 3, 1, 1.00, 'John Smith', 1);
+CREATE INDEX orders_part_idx ON orders_part
+USING bm25 (order_id, part_key, product_id, order_total, customer_name);
+ANALYZE items;
+ANALYZE orders_part;
+-- the issue's query; order_id breaks its order_total ties so the output is stable
+SELECT explain_4643($$
+SELECT o.order_id, o.customer_name, i.description
+FROM orders_part o JOIN items i ON o.product_id = i.id
+WHERE i.description ||| 'keyboard' OR o.customer_name ||| 'John'
+ORDER BY o.order_total DESC, o.order_id LIMIT 5
+$$);
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     explain_4643                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: o.order_total DESC, o.order_id
+         ->  Hash Join
+               Hash Cond: (o.product_id = i.id)
+               Join Filter: (paradedb.search_with_query_input_ctid_or_row_strict(i.id, '{"with_index":{"oid":N,"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, i.ctid, CASE WHEN (paradedb.ctid_is_valid(i.ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] WHEN (paradedb.xmin_is_visible(i.xmin, i.tableoid, i.ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] ELSE '{}'::record[] END, ROW()) OR paradedb.search_with_query_input_ctid_or_row_strict(o.order_id, '{"with_index":{"oid":N,"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, o.ctid, CASE WHEN (paradedb.ctid_is_valid(o.ctid) IS NOT TRUE) THEN (ARRAY[((o.*)::orders_part)])::record[] WHEN (paradedb.xmin_is_visible(o.xmin, o.tableoid, o.ctid) IS NOT TRUE) THEN (ARRAY[((o.*)::orders_part)])::record[] ELSE '{}'::record[] END, ROW(o.tableoid)))
+               ->  Append
+                     ->  Custom Scan (ParadeDB Base Scan) on orders_part_0 o_1
+                           Table: orders_part_0
+                           Index: orders_part_0_order_id_part_key_product_id_order_total_cust_idx
+                           Exec Method: TopKScanExecState
+                           Scores: false
+                              TopK Order By: order_total desc, order_id asc
+                              TopK Limit: 5
+                           Full Index Scan: true
+                           Tantivy Query: {"boolean":{"should":["all",{"with_index":{"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+                     ->  Custom Scan (ParadeDB Base Scan) on orders_part_1 o_2
+                           Table: orders_part_1
+                           Index: orders_part_1_order_id_part_key_product_id_order_total_cust_idx
+                           Exec Method: TopKScanExecState
+                           Scores: false
+                              TopK Order By: order_total desc, order_id asc
+                              TopK Limit: 5
+                           Full Index Scan: true
+                           Tantivy Query: {"boolean":{"should":["all",{"with_index":{"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+               ->  Hash
+                     ->  Seq Scan on items i
+(27 rows)
+
+SELECT o.order_id, o.customer_name, i.description
+FROM orders_part o JOIN items i ON o.product_id = i.id
+WHERE i.description ||| 'keyboard' OR o.customer_name ||| 'John'
+ORDER BY o.order_total DESC, o.order_id LIMIT 5;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ order_id |  customer_name   |       description        
+----------+------------------+--------------------------
+       27 | Natasha Romanoff | Plastic Keyboard
+       57 | Natasha Romanoff | Plastic Keyboard
+       11 | David White      | Ergonomic metal keyboard
+       41 | David White      | Ergonomic metal keyboard
+        4 | John Doe         | Plastic Keyboard
+(5 rows)
+
+\echo '=== a NOT arm in the join-level OR matches a run without the custom scan ==='
+=== a NOT arm in the join-level OR matches a run without the custom scan ===
+SELECT explain_4643($$
+SELECT count(*) FROM orders_part o JOIN items i ON o.product_id = i.id
+WHERE NOT (o.customer_name ||| 'John') OR i.description ||| 'keyboard'
+$$);
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     explain_4643                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (o.product_id = i.id)
+         Join Filter: ((NOT paradedb.search_with_query_input_ctid_or_row_strict(o.order_id, '{"with_index":{"oid":N,"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, o.ctid, CASE WHEN (paradedb.ctid_is_valid(o.ctid) IS NOT TRUE) THEN (ARRAY[((o.*)::orders_part)])::record[] WHEN (paradedb.xmin_is_visible(o.xmin, o.tableoid, o.ctid) IS NOT TRUE) THEN (ARRAY[((o.*)::orders_part)])::record[] ELSE '{}'::record[] END, ROW(o.tableoid))) OR paradedb.search_with_query_input_ctid_or_row_strict(i.id, '{"with_index":{"oid":N,"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, i.ctid, CASE WHEN (paradedb.ctid_is_valid(i.ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] WHEN (paradedb.xmin_is_visible(i.xmin, i.tableoid, i.ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] ELSE '{}'::record[] END, ROW()))
+         ->  Append
+               ->  Seq Scan on orders_part_0 o_1
+               ->  Seq Scan on orders_part_1 o_2
+         ->  Hash
+               ->  Seq Scan on items i
+(9 rows)
+
+SELECT count(*) FROM orders_part o JOIN items i ON o.product_id = i.id
+WHERE NOT (o.customer_name ||| 'John') OR i.description ||| 'keyboard';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    64
+(1 row)
+
+SET paradedb.enable_custom_scan = off;
+SELECT count(*) FROM orders_part o JOIN items i ON o.product_id = i.id
+WHERE NOT (o.customer_name ||| 'John') OR i.description ||| 'keyboard';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 0), which is not supported (table: join)
+ count 
+-------
+    64
+(1 row)
+
+RESET paradedb.enable_custom_scan;
+\echo '=== a derived relation has no tableoid, so its rows match against a leaf ==='
+=== a derived relation has no tableoid, so its rows match against a leaf ===
+SELECT explain_4643($$
+SELECT o.order_id FROM (SELECT * FROM orders_part ORDER BY order_id LIMIT 100) o
+JOIN items i ON o.product_id = i.id
+WHERE i.description ||| 'keyboard' OR o.customer_name ||| 'John'
+ORDER BY o.order_id
+$$);
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        explain_4643                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: o.order_id
+   ->  Hash Join
+         Hash Cond: (o.product_id = i.id)
+         Join Filter: (paradedb.search_with_query_input_ctid_or_row_strict(i.id, '{"with_index":{"oid":N,"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, i.ctid, CASE WHEN (paradedb.ctid_is_valid(i.ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] WHEN (paradedb.xmin_is_visible(i.xmin, i.tableoid, i.ctid) IS NOT TRUE) THEN (ARRAY[i.*])::record[] ELSE '{}'::record[] END, ROW()) OR paradedb.search_with_query_input_ctid_or_row(o.customer_name, '{"with_index":{"oid":N,"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, '(0,0)'::tid, (ARRAY[CASE WHEN (o.* IS NOT DISTINCT FROM NULL) THEN NULL::record ELSE ROW(o.order_id, o.product_id, o.order_quantity, o.order_total, o.customer_name, o.part_key) END])::record[], ROW(o.customer_name)))
+         ->  Subquery Scan on o
+               ->  Limit
+                     ->  Sort
+                           Sort Key: orders_part.order_id
+                           ->  Append
+                                 ->  Seq Scan on orders_part_0 orders_part_1
+                                 ->  Seq Scan on orders_part_1 orders_part_2
+         ->  Hash
+               ->  Seq Scan on items i
+(14 rows)
+
+SELECT o.order_id FROM (SELECT * FROM orders_part ORDER BY order_id LIMIT 100) o
+JOIN items i ON o.product_id = i.id
+WHERE i.description ||| 'keyboard' OR o.customer_name ||| 'John'
+ORDER BY o.order_id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ order_id 
+----------
+        1
+        2
+        4
+       11
+       14
+       15
+       17
+       24
+       27
+       41
+       44
+       45
+       47
+       54
+       57
+       65
+(16 rows)
+
+SELECT count(*) FROM (SELECT * FROM orders_part ORDER BY order_id LIMIT 100) o
+JOIN items i ON o.product_id = i.id
+WHERE i.description ||| 'keyboard' OR o.customer_name ||| 'John';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 1), which is not supported (table: join)
+ count 
+-------
+    16
+(1 row)
+
+SET paradedb.enable_custom_scan = off;
+SELECT count(*) FROM (SELECT * FROM orders_part ORDER BY order_id LIMIT 100) o
+JOIN items i ON o.product_id = i.id
+WHERE i.description ||| 'keyboard' OR o.customer_name ||| 'John';
+WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 is not a plain relation (rtekind: 1), which is not supported (table: join)
+ count 
+-------
+    16
+(1 row)
+
+RESET paradedb.enable_custom_scan;
+\echo '=== a window function over the partitioned table runs natively ==='
+=== a window function over the partitioned table runs natively ===
+SELECT order_id, count(*) OVER () AS matches FROM orders_part
+WHERE customer_name ||| 'John' ORDER BY order_id LIMIT 5;
+ order_id | matches 
+----------+---------
+        1 |       3
+        4 |       3
+       65 |       3
+(3 rows)
+
+SET paradedb.enable_custom_scan = off;
+SELECT order_id, count(*) OVER () AS matches FROM orders_part
+WHERE customer_name ||| 'John' ORDER BY order_id LIMIT 5;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ order_id | matches 
+----------+---------
+        1 |       3
+        4 |       3
+       65 |       3
+(3 rows)
+
+RESET paradedb.enable_custom_scan;
+DROP FUNCTION explain_4643(text);
+DROP TABLE orders_part CASCADE;
+DROP TABLE items CASCADE;
+DROP TABLE orders CASCADE;

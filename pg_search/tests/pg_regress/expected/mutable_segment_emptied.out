@@ -34,8 +34,7 @@ SELECT mutable, num_docs, num_deleted FROM paradedb.index_info('emptied_idx') OR
  mutable | num_docs | num_deleted 
 ---------+----------+-------------
  f       |        5 |           0
- t       |        0 |           1
-(2 rows)
+(1 row)
 
 -- Served from the index alone.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

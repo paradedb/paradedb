@@ -151,6 +151,7 @@ pub trait LinkedList {
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum MutableSegmentEntry {
     Add(u64),
+    // Read compatibility with mutable logs written before VACUUM flushed them.
     Remove(u64),
 }
 
@@ -248,8 +249,7 @@ pub struct DeleteEntry {
 pub struct SegmentMetaEntryMutable {
     pub header_block: pg_sys::BlockNumber,
     pub num_deleted_docs: u32,
-    // Once a mutable segment reaches a configurable size threshold, it is frozen, and becomes
-    // mergeable.
+    // Frozen at the size threshold or by VACUUM; no longer accepts inserts and is mergeable.
     pub frozen: bool,
 }
 
@@ -493,31 +493,6 @@ impl SegmentMetaEntry {
             _ => return Err("Cannot add items to a non-mutable segment"),
         }
         self.header.max_doc = new_max_doc;
-        Ok(())
-    }
-
-    /// If this is a mutable segment which is not frozen, delete the given items; otherwise, return an
-    /// error.
-    pub fn mutable_delete_items(
-        &mut self,
-        indexrel: &PgSearchRelation,
-        ctids: Vec<u64>,
-    ) -> Result<(), &str> {
-        let SegmentMetaEntryContent::Mutable(content) = &mut self.content else {
-            return Err("Cannot delete items from a non-mutable segment");
-        };
-
-        let entries = ctids
-            .into_iter()
-            .map(MutableSegmentEntry::Remove)
-            .collect::<Vec<_>>();
-
-        unsafe {
-            content.open(indexrel).add_items(&entries, None);
-        }
-        let deleted: u32 = entries.len().try_into().unwrap();
-        content.num_deleted_docs += deleted;
-
         Ok(())
     }
 

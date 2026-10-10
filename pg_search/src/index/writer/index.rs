@@ -635,27 +635,13 @@ impl Mergeable for SearchIndexMerger {
         let new_segment = writer.merge_foreground(segment_ids, true)?;
 
         if let Some(new_segment) = new_segment.as_ref() {
-            // Merge doc-count conservation: the merged output segment's live doc count must equal
-            // the sum of the input segments' live doc counts (live = max_doc - num_deleted).
-            //
-            // This is an exact equality, not a bound: tantivy's `merge()` sets the merged segment's
-            // `max_doc` to `sum(input.num_docs())` computed from the SAME frozen `all_entries`
-            // snapshot that this merger loaded (`load_metas` populates it once, under a OnceLock),
-            // and the merged segment carries no deletes of its own (`num_deleted == 0`, so its
-            // `max_doc == num_docs`). Concurrent deletes append to a NEW metas list and cannot
-            // mutate this already-loaded directory's snapshot, so there is no accounting slack here.
-            // A violation would mean the merge silently lost or duplicated rows — top-tier data loss.
-            //
-            // We read each input's live count from the same frozen snapshot via
-            // `segment_meta_entry` (a single-entry lock+read, no whole-map clone, no I/O). Every
-            // input id is present because `merge_foreground` succeeded (it resolved their files
-            // from this snapshot); `all_found` guards against a spurious fire if that ever weren't so.
+            // Use the same cached Tantivy metas as the merger, including VACUUM's filtered counts.
             dst::observe!(|| {
                 let mut sum_input_live: u64 = 0;
                 let mut all_found = true;
                 for segment_id in segment_ids {
-                    match self.directory.segment_meta_entry(segment_id) {
-                        Some(entry) => sum_input_live += entry.num_docs() as u64,
+                    match self.directory.segment_num_docs(segment_id) {
+                        Some(num_docs) => sum_input_live += num_docs as u64,
                         None => {
                             all_found = false;
                             break;

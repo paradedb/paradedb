@@ -64,6 +64,8 @@ static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(tr
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+static COUNT_PARALLEL_THRESHOLD_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(32.0);
+
 /// Allows visibility proofs from segment bounds and heap-block document ranges.
 static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -525,6 +527,17 @@ pub fn init() {
         &PER_TUPLE_COST,
         0.0,
         f64::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.count_parallel_threshold_multiplier",
+        c"Parallelism threshold multiplier for fast count traversal",
+        c"Discounts traversal work for metadata or term-only bitmap counts without GROUP BY, FILTER, or ORDER BY. Heap visibility work is not discounted.",
+        &COUNT_PARALLEL_THRESHOLD_MULTIPLIER,
+        1.0,
+        1_000_000.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1132,6 +1145,10 @@ impl WorkMem {
 
 pub fn limit_fetch_multiplier() -> f64 {
     LIMIT_FETCH_MULTIPLIER.get()
+}
+
+pub fn count_parallel_threshold_multiplier() -> f64 {
+    COUNT_PARALLEL_THRESHOLD_MULTIPLIER.get()
 }
 
 pub fn expensive_query_cost_factor() -> f64 {

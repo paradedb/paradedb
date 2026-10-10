@@ -33,6 +33,10 @@ use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 
 use tantivy::index::SegmentId;
+use tantivy::query::{
+    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, EmptyQuery, Query, TermQuery,
+};
+use tantivy::{Searcher, query::EnableScoring};
 
 /// Why a scan selected its worker budget.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -160,7 +164,14 @@ pub(crate) fn aggregate_nworkers(
         } else {
             0.0
         };
-        let work = cost as f64 * pg_sys::cpu_index_tuple_cost
+        let mut traversal_work = cost as f64 * pg_sys::cpu_index_tuple_cost;
+        if matches!(aggregation, AggregateRequest::Sql(clause)
+            if clause.is_bare_doc_count() && clause.aggregates().all(|agg| agg.can_use_doc_count()))
+            && has_fast_count(reader.query(), reader.searcher())
+        {
+            traversal_work /= crate::gucs::count_parallel_threshold_multiplier();
+        }
+        let work = traversal_work
             + rows * updates_per_doc as f64 * pg_sys::cpu_operator_cost
             + heap_checks * pg_sys::cpu_tuple_cost;
         let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
@@ -172,12 +183,7 @@ pub(crate) fn aggregate_nworkers(
                 transfer_cost,
             ),
         };
-        let nworkers = if parallel_scan_is_cheaper(
-            work,
-            workers,
-            pg_sys::parallel_leader_participation,
-            transfer_cost,
-        ) {
+        let nworkers = if work > parallel_cost.parallel_threshold {
             nworkers
         } else {
             0
@@ -187,6 +193,45 @@ pub(crate) fn aggregate_nworkers(
         );
         (nworkers, Some(parallel_cost))
     }
+}
+
+fn has_fast_count(query: &dyn Query, searcher: &Searcher) -> bool {
+    if let Some(query) = query.downcast_ref::<BoostQuery>() {
+        return has_fast_count(query.query().as_ref(), searcher);
+    }
+    if let Some(query) = query.downcast_ref::<ConstScoreQuery>() {
+        return has_fast_count(query.query().as_ref(), searcher);
+    }
+    if query.is::<AllQuery>() || query.is::<EmptyQuery>() || query.is::<ConstScoreQuery<AllQuery>>()
+    {
+        return true;
+    }
+    if query.is::<TermQuery>() {
+        if searcher
+            .segment_readers()
+            .iter()
+            .all(|segment| !segment.has_deletes())
+        {
+            return true;
+        }
+    } else if !query.downcast_ref::<BooleanQuery>().is_some_and(|query| {
+        query
+            .clauses()
+            .iter()
+            .all(|(_, query)| has_fast_count(query.as_ref(), searcher))
+    }) {
+        return false;
+    }
+    let Ok(weight) =
+        query.weight(EnableScoring::disabled_from_searcher(searcher).with_bitmap_postings(true))
+    else {
+        return false;
+    };
+    searcher.segment_readers().iter().all(|segment| {
+        weight
+            .scorer(segment, 1.0)
+            .is_ok_and(|scorer| scorer.has_fast_bitset())
+    })
 }
 
 fn clamp_to_gather_limits(nworkers: usize) -> usize {
@@ -339,4 +384,82 @@ pub unsafe fn checkout_segment_for_source(
 
 pub unsafe fn segment_view(pscan_state: *mut ParallelScanState) -> SegmentView {
     (*pscan_state).segment_view()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tantivy::query::QueryParser;
+    use tantivy::schema::{Schema, TEXT};
+    use tantivy::{Index, TantivyDocument, doc, indexer::NoMergePolicy};
+
+    #[test]
+    fn fast_counts_exclude_positional_and_ordinary_iteration() -> tantivy::Result<()> {
+        for bitmaps in [false, true] {
+            let mut schema = Schema::builder();
+            let text = schema.add_text_field(
+                "body",
+                TEXT.set_indexing_options(
+                    TEXT.get_indexing_options()
+                        .unwrap()
+                        .clone()
+                        .set_bitmap_postings(bitmaps),
+                ),
+            );
+            let mut index = Index::create_in_ram(schema.build());
+            index.settings_mut().bitmap_postings.use_for_queries = bitmaps;
+            let mut writer = index.writer_with_num_threads::<TantivyDocument>(1, 50_000_000)?;
+            writer.set_merge_policy(Box::new(NoMergePolicy));
+            for i in 0..1024 {
+                let body = match i {
+                    0 => "alpha beta rare",
+                    i if i % 2 == 0 => "alpha beta",
+                    _ => "gamma",
+                };
+                writer.add_document(doc!(text => body))?;
+            }
+            writer.commit()?;
+            let searcher = index.reader()?.searcher();
+            let parser = QueryParser::for_index(&index, vec![text]);
+            for (query, expected) in [
+                ("*", true),
+                ("alpha", true),
+                ("rare", true),
+                ("alpha OR beta", bitmaps),
+                ("alpha AND beta", bitmaps),
+                ("rare AND alpha", false),
+                ("\"alpha beta\"", false),
+                ("alpha OR \"alpha beta\"", false),
+            ] {
+                let parsed = parser.parse_query(query)?;
+                assert_eq!(
+                    has_fast_count(parsed.as_ref(), &searcher),
+                    expected,
+                    "{query}, bitmaps={bitmaps}"
+                );
+                assert_eq!(
+                    has_fast_count(&BoostQuery::new(parsed.box_clone(), 2.0), &searcher),
+                    expected
+                );
+                assert_eq!(
+                    has_fast_count(&ConstScoreQuery::new(parsed, 1.0), &searcher),
+                    expected
+                );
+            }
+            if bitmaps {
+                for i in 0..1024 {
+                    writer
+                        .add_document(doc!(text => if i == 0 { "alpha beta" } else { "gamma" }))?;
+                }
+                writer.commit()?;
+                let searcher = index.reader()?.searcher();
+                assert_eq!(searcher.segment_readers().len(), 2);
+                assert!(!has_fast_count(
+                    parser.parse_query("alpha OR beta")?.as_ref(),
+                    &searcher
+                ));
+            }
+        }
+        Ok(())
+    }
 }

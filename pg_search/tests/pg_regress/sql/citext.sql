@@ -366,7 +366,7 @@ DROP TABLE citext_topk;
 
 -- ============================================================
 -- Test 13: Prepared statements with citext parameters under generic plan
--- (covers build_text_funcexpr citext branch in exec_rewrite)
+-- (covers build_text_funcexpr citext branch in rewrite_exec)
 -- ============================================================
 CREATE TABLE citext_prepared (
     id      INT PRIMARY KEY,

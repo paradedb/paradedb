@@ -141,12 +141,24 @@ impl HeapFieldFilter {
                 return false;
             }
 
-            // Evaluate the expression
-            let mut is_null = false;
-            let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
+            let mut per_tuple_context =
+                PgMemoryContexts::For((*econtext).ecxt_per_tuple_memory);
+            per_tuple_context.reset();
+
+            // Evaluate the expression within the per-tuple memory context
+            let (result, is_null) = per_tuple_context.switch_to(|_| {
+                let mut is_null = false;
+                let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
+                (result, is_null)
+            });
 
             // Convert the result to a boolean
-            bool::from_datum(result, is_null).unwrap_or(false)
+            let res = bool::from_datum(result, is_null).unwrap_or(false);
+
+            // Reclaim temporary allocations made during expression evaluation
+            per_tuple_context.reset();
+
+            res
         })();
 
         // Restore original scan tuple

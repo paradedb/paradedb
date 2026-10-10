@@ -1,0 +1,32 @@
+\i common/common_setup.sql
+
+SET paradedb.enable_custom_scan = on;
+SET paradedb.enable_filter_pushdown = on;
+
+CREATE TABLE issue_6739_repro (
+    id bigint PRIMARY KEY,
+    body text,
+    tags jsonb
+);
+
+INSERT INTO issue_6739_repro
+SELECT i, 'search document ' || i, '["tag_' || (i % 5) || '"]'::jsonb
+FROM generate_series(1, 100) AS i;
+
+-- tags is deliberately excluded from the ParadeDB index to trigger heap filter evaluation
+CREATE INDEX issue_6739_repro_idx ON issue_6739_repro USING paradedb (id, body);
+
+-- Test evaluating allocating functions like jsonb_build_array in heap filter predicates
+SELECT count(*) FROM issue_6739_repro
+WHERE body @@@ 'document'
+  AND tags @> jsonb_build_array('tag_1');
+
+SELECT count(*) FROM issue_6739_repro
+WHERE body @@@ 'document'
+  AND (
+    tags @> jsonb_build_array('never1')
+    OR tags @> jsonb_build_array('never2')
+    OR tags @> jsonb_build_array('never3')
+  );
+
+DROP TABLE issue_6739_repro;

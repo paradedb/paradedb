@@ -164,7 +164,7 @@ pub(crate) fn aggregate_nworkers(
             + rows * updates_per_doc as f64 * pg_sys::cpu_operator_cost
             + heap_checks * pg_sys::cpu_tuple_cost;
         let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
-        let parallel_cost = ParallelCost {
+        let mut parallel_cost = ParallelCost {
             estimated_work: work,
             parallel_threshold: parallel_threshold(
                 workers,
@@ -172,12 +172,10 @@ pub(crate) fn aggregate_nworkers(
                 transfer_cost,
             ),
         };
-        let nworkers = if parallel_scan_is_cheaper(
-            work,
-            workers,
-            pg_sys::parallel_leader_participation,
-            transfer_cost,
-        ) {
+        if matches!(aggregation, AggregateRequest::Sql(clause) if clause.is_bare_doc_count()) {
+            parallel_cost.parallel_threshold *= crate::gucs::count_parallel_threshold_multiplier();
+        }
+        let nworkers = if work > parallel_cost.parallel_threshold {
             nworkers
         } else {
             0

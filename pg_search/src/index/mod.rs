@@ -93,6 +93,10 @@ pub fn index_settings(
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
         vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
         vector_quantization,
+        bitmap_postings: tantivy::index::BitmapPostingsConfig {
+            min_density_percent: 5,
+            ..Default::default()
+        },
         ..IndexSettings::default()
     })
 }

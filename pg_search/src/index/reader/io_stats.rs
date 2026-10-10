@@ -362,7 +362,7 @@ impl ComponentStats {
         slot.blks_hit += delta.blks_hit;
         slot.blks_read += delta.blks_read;
         let stage = if scan_init {
-            Some("scan_init".into())
+            Some("scan_init")
         } else {
             None::<&str>
         };

@@ -264,6 +264,31 @@ impl MutableSegmentBound {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MutableSegmentRange {
+    pub start: u32,
+    pub end: u32,
+}
+
+impl MutableSegmentRange {
+    pub fn num_docs(self) -> u32 {
+        self.end - self.start
+    }
+
+    /// Reversibly map a source UUID to a chunk UUID outside the UUIDv4 namespace.
+    pub fn map_segment_id(self, id: SegmentId) -> SegmentId {
+        if self.start == 0 {
+            return id;
+        }
+        let mut bytes = *id.uuid_bytes();
+        bytes[6] ^= 0x80;
+        for (byte, offset) in bytes[..4].iter_mut().zip(self.start.to_be_bytes()) {
+            *byte ^= offset;
+        }
+        SegmentId::from_bytes(bytes)
+    }
+}
+
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SegmentMetaEntryMutable {
     pub header_block: pg_sys::BlockNumber,
@@ -577,6 +602,34 @@ impl SegmentMetaEntry {
         assert_eq!(ctid_set.len(), expected_ctids as usize);
 
         let mut ctids: Vec<_> = ctid_set.into_iter().collect();
+        ctids.sort_unstable();
+        Ok(ctids)
+    }
+
+    pub fn mutable_range(
+        &self,
+        indexrel: &PgSearchRelation,
+        range: MutableSegmentRange,
+    ) -> Result<Vec<u64>, &str> {
+        let SegmentMetaEntryContent::Mutable(content) = &self.content else {
+            return Err("Cannot read a range of a non-mutable segment");
+        };
+        if content.num_deleted_docs != 0 || range.start > range.end || range.end > self.max_doc() {
+            return Err("Invalid append-only mutable range");
+        }
+        let entries = unsafe {
+            content
+                .open(indexrel)
+                .list_range(range.start as usize..range.end as usize)
+        };
+        let mut ctids = entries
+            .into_iter()
+            .map(|entry| match entry {
+                MutableSegmentEntry::Add(ctid) => Ok(ctid),
+                MutableSegmentEntry::Remove(_) => Err("Remove in an append-only mutable range"),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(ctids.len(), range.num_docs() as usize);
         ctids.sort_unstable();
         Ok(ctids)
     }

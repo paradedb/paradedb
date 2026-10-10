@@ -21,7 +21,9 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::gucs;
-use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
+use crate::index::mvcc::{
+    MutableSegmentBound, MutableSegmentRange, SegmentView, SegmentViewDocs, SegmentViewEntry,
+};
 use crate::postgres::catalog::OidExt;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
@@ -181,6 +183,7 @@ const SEGMENT_CLAIM_UNCLAIMED: i32 = -2;
 
 /// `all_docs_flags` value: `all_max_docs`/`all_deleted_docs` hold the mutable segment's bound.
 const SEGMENT_FLAG_MUTABLE: u8 = 1;
+const SEGMENT_FLAG_MUTABLE_RANGE: u8 = 2;
 
 /// The wire format of one [`SegmentViewDocs`] in the payload: a flag byte plus the two `u32`
 /// count slots whose meaning the flag selects. `encode_docs` and `decode_docs` are the only
@@ -198,6 +201,9 @@ fn encode_docs(docs: SegmentViewDocs) -> (u8, u32, u32) {
         SegmentViewDocs::Mutable(bound) => {
             (SEGMENT_FLAG_MUTABLE, bound.max_doc, bound.num_deleted_docs)
         }
+        SegmentViewDocs::MutableRange(range) => {
+            (SEGMENT_FLAG_MUTABLE_RANGE, range.end, range.start)
+        }
         SegmentViewDocs::IdOnly => {
             panic!("an id-only segment view cannot be shared: it has no documents to replay")
         }
@@ -210,6 +216,10 @@ fn decode_docs(flag: u8, max_doc: u32, num_deleted_docs: u32) -> SegmentViewDocs
         SEGMENT_FLAG_MUTABLE => SegmentViewDocs::Mutable(MutableSegmentBound {
             max_doc,
             num_deleted_docs,
+        }),
+        SEGMENT_FLAG_MUTABLE_RANGE => SegmentViewDocs::MutableRange(MutableSegmentRange {
+            start: num_deleted_docs,
+            end: max_doc,
         }),
         _ => SegmentViewDocs::Immutable {
             max_doc,

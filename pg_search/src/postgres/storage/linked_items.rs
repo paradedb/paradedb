@@ -23,7 +23,7 @@ use anyhow::Result;
 use pgrx::pg_sys;
 use pgrx::pg_sys::BlockNumber;
 use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node in the list is a pg_sys::Item
@@ -163,6 +163,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
 
     /// Return a Vec of all the items in this linked list
     pub unsafe fn list(&self, many: Option<usize>) -> Vec<T> {
+        self.list_range(0..many.unwrap_or(usize::MAX))
+    }
+
+    pub unsafe fn list_range(&self, range: Range<usize>) -> Vec<T> {
         let mut items = vec![];
         // Acquire and hold a shared lock on the header for the entire iteration, preventing
         // the list from being swapped out from under us by `atomically()` + `commit()` which
@@ -181,14 +185,20 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
+            let page_items = max_offset as usize;
+            if found + page_items <= range.start {
+                found += page_items;
+                blockno = page.next_blockno();
+                continue;
+            }
             while offsetno <= max_offset {
-                if let Some(many) = many
-                    && found >= many
-                {
+                if found >= range.end {
                     break 'outer;
                 }
 
-                if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
+                if found >= range.start
+                    && let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno)
+                {
                     items.push(deserialized);
                 }
                 offsetno += 1;

@@ -356,6 +356,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_a,
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 10,
                 num_deleted_docs: 0,
@@ -365,6 +366,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_a,
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 20,
                 num_deleted_docs: 0,
@@ -374,6 +376,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_b,
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 5,
                 num_deleted_docs: 0,
@@ -383,6 +386,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(200),
             segment_id: seg_a,
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 10,
                 num_deleted_docs: 0,
@@ -473,6 +477,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(1),
             index_oid: pg_sys::Oid::from_u32(2),
             segment_id: [42u8; 16],
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 100,
                 num_deleted_docs: 0,

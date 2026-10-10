@@ -363,6 +363,10 @@ pub unsafe fn load_metas(
     let mut segment_metas = metapage.segment_metas();
     let mut exhausted_metas_lists = false;
 
+    let replay_ids = match solve_mvcc {
+        MvccSatisfies::ParallelWorker(view) => view.source_ids(),
+        _ => HashSet::default(),
+    };
     let is_largest_only = &MvccSatisfies::LargestSegment == solve_mvcc;
     // Prefer non-empty persisted segments over mutable segments so estimation never
     // materializes a mutable segment from the heap when any persisted segment exists.
@@ -389,7 +393,7 @@ pub unsafe fn load_metas(
             // nobody sees recyclable segments
             let accept = !entry.recyclable(bman) && (
                 // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
-                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(view) if view.contains(&entry.segment_id()))
+                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(_) if replay_ids.contains(&entry.segment_id()))
 
                     // vacuum sees all non-retired segments
                     || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax() == pg_sys::InvalidTransactionId)
@@ -470,7 +474,7 @@ pub unsafe fn load_metas(
         });
 
         match solve_mvcc {
-            MvccSatisfies::ParallelWorker(view) if alive_entries.len() != view.len() => {
+            MvccSatisfies::ParallelWorker(_) if alive_entries.len() != replay_ids.len() => {
                 // If we haven't tried the `segment_metas_garbage` list, try that next.
                 if !exhausted_metas_lists
                     && let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage()
@@ -486,7 +490,7 @@ pub unsafe fn load_metas(
                 //
                 // TODO (after some testing):  This situation does indeed happen and I believe that points to a bug, but
                 //        I don't know where it's coming from.  As such, cancelling the query is the expedient decision.
-                let expected = view.ids().collect::<HashSet<SegmentId>>();
+                let expected = replay_ids.clone();
                 let missing = expected
                     .difference(&alive_entries.iter().map(|s| s.segment_id()).collect())
                     .cloned()
@@ -499,14 +503,14 @@ pub unsafe fn load_metas(
                 );
             }
             #[cfg(debug_assertions)]
-            MvccSatisfies::ParallelWorker(view) => {
+            MvccSatisfies::ParallelWorker(_) => {
                 // In debug mode only, actually do a set comparison to determine that we got the
                 // exact expected segments.
                 let actual = alive_entries
                     .iter()
                     .map(|s| s.segment_id())
                     .collect::<HashSet<_>>();
-                let expected = view.ids().collect::<HashSet<_>>();
+                let expected = replay_ids.clone();
                 assert_eq!(
                     actual, expected,
                     "Got the wrong segments in parallel worker: \

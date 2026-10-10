@@ -41,21 +41,16 @@
 //!
 //! ### Snapshot Isolation
 //!
-//! A mutable segment advances via an append-only log, whose prefix is deterministically identified
-//! by the pair `(max_doc, num_deleted_docs)`, represented by [`MutableSegmentBound`].
-//!
-//! [`MutableCacheKey`] incorporates `database_oid`, `index_oid`, `segment_id`, and `bound`. Keying on
-//! `bound` ensures that queries capturing a specific snapshot view continue hitting the cache even after
-//! subsequent concurrent DML appends new rows to the mutable segment log.
+//! Append-only mutable logs are cached as immutable ranges. A query reuses a contiguous
+//! cached prefix and indexes only the remaining CTIDs. Each range is exposed as a separate
+//! Tantivy segment, and parallel workers replay the leader's exact ranges.
+//! Legacy logs containing removals still require an exact [`MutableSegmentBound`].
 //!
 //! ### Concurrency Control
 //!
 //! Slot access is synchronized via a dedicated named `LWLock` tranche (`pg_search_mutable_cache`).
-//! Concurrent segment builds coordinate via a dedicated in-flight build table and [`ConditionVariable`].
-//! Exactly one worker claims an in-flight build entry to index a given key in private backend memory,
-//! while concurrent backends and parallel workers sleep on a [`ConditionVariable`]. If a builder process
-//! dies or aborts, waiting workers detect that the builder PID is no longer alive ([`is_pid_alive`]),
-//! reset the in-flight entry, and allow another worker to retry.
+//! One backend claims publication of each missing range. Other readers build that range
+//! privately rather than wait for the publisher. Completed ranges extend the reusable prefix.
 //!
 //! ### Implicit Binary Tree Slab Allocation
 //!
@@ -73,13 +68,12 @@
 //! evicting hot segments belonging to unrelated read-heavy relations.
 //!
 //! The slab pool eliminates this noisy-neighbor problem via eager out-of-order reclamation:
-//! - When a newer bound for a segment is cached, earlier bounds transition to [`SlotState::Superseded`].
+//! - When a longer range with the same start is cached, shorter ranges transition to [`SlotState::Superseded`].
 //! - Any superseded slot whose active reader count has dropped to zero is immediately freed back to the
 //!   [`SlabPool`], recycling the memory block for the next write commit.
 //! - When in-flight queries reading a superseded bound finish, [`ActiveReaderGuard::drop`] immediately
 //!   returns the slab to the pool.
-//! - High write churn on one table continuously recycles its own slabs and never touches or evicts
-//!   unrelated tables.
+//! - Disjoint chunks remain reusable until invalidation or clock-sweep eviction.
 //!
 //! ### Clock Sweep Cache Eviction
 //!
@@ -123,7 +117,7 @@ use tantivy::index::SegmentId;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::{LWLock, LWLockExclusiveGuard};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{MutableSegmentBound, SegmentMetaEntry};
+use crate::postgres::storage::block::{MutableSegmentBound, MutableSegmentRange, SegmentMetaEntry};
 
 /// Maximum number of tracked segment slots in the shared-memory header.
 pub const MAX_SLOTS: usize = 256;
@@ -154,6 +148,7 @@ pub struct MutableCacheKey {
     pub index_oid: pg_sys::Oid,
     /// 16-byte UUID of the mutable segment.
     pub segment_id: [u8; 16],
+    pub start_doc: u32,
     /// Snapshot prefix bound (max_doc, num_deleted_docs).
     pub bound: MutableSegmentBound,
 }
@@ -172,6 +167,7 @@ impl MutableCacheKey {
             database_oid,
             index_oid,
             segment_id: *meta.segment_id().uuid_bytes(),
+            start_doc: 0,
             bound,
         })
     }
@@ -216,6 +212,7 @@ impl InflightBuild {
                 database_oid: pg_sys::Oid::INVALID,
                 index_oid: pg_sys::Oid::INVALID,
                 segment_id: [0u8; 16],
+                start_doc: 0,
                 bound: MutableSegmentBound {
                     max_doc: 0,
                     num_deleted_docs: 0,
@@ -299,6 +296,7 @@ impl CacheSlot {
                 database_oid: pg_sys::Oid::INVALID,
                 index_oid: pg_sys::Oid::INVALID,
                 segment_id: [0u8; 16],
+                start_doc: 0,
                 bound: MutableSegmentBound {
                     max_doc: 0,
                     num_deleted_docs: 0,
@@ -751,23 +749,81 @@ impl Drop for InflightBuildGuard {
     }
 }
 
-/// Retrieve a cached directory for `key`, or build and install it using `build_fn`.
-///
-/// # Concurrency & Lifecycle
-///
-/// 1. **Cache Hit**: Checks `slots` for an existing [`SlotState::Ready`] entry matching `key`.
-///    If found, increments `active_readers` and the saturated `usage_count` (0..=5), returning a zero-copy
-///    [`SharedMemoryDirectory`] pointing directly to the contiguous slab in shared memory.
-/// 2. **In-Flight Coordination**: If another worker is already building the segment, waits on
-///    [`ConditionVariable`]. If the builder process crashed or was killed (`!is_pid_alive`), resets the
-///    in-flight entry and allows another worker to take over.
-/// 3. **Segment Building & Packing**: Exactly one worker builds the segment in private backend memory
-///    via `build_fn`, packs all component files into a single contiguous buffer with a TOC ([`pack::pack_segment`]),
-///    and allocates a power-of-two slab from [`SlabPool`].
-/// 4. **Eager Supersession**: Older bounds for the same segment UUID are transitioned to [`SlotState::Superseded`].
-///    If an older bound has zero active readers, its slab is immediately freed back to the [`SlabPool`].
-/// 5. **Unshared Fallback**: If the shared arena or slot table is full and cannot be evicted (e.g., all memory
-///    is pinned by active readers), logs a warning and returns backend-private `RamDirectory` without failing the query.
+fn register_backend_exit() {
+    if !BACKEND_EXIT_REGISTERED.load(Ordering::Relaxed) {
+        // FATAL exits skip Rust destructors, including the query's scan state.
+        unsafe {
+            pg_sys::before_shmem_exit(Some(release_backend_resources), pg_sys::Datum::from(0));
+        }
+        BACKEND_EXIT_REGISTERED.store(true, Ordering::Relaxed);
+    }
+}
+
+fn pin_cached_directory(
+    cache: &MutableCacheHeader,
+    slot_index: usize,
+    slot: &CacheSlot,
+) -> Option<Arc<dyn Directory>> {
+    let slice_ptr = unsafe { cache.arena_slice().as_ptr().add(slot.span.offset as usize) };
+    let slice_len = slot.span.len as usize;
+    let slice = unsafe { std::slice::from_raw_parts(slice_ptr, slice_len) };
+    let toc = pack::unpack_toc(slice)?;
+    slot.active_readers.fetch_add(1, Ordering::AcqRel);
+    BACKEND_READERS[slot_index].fetch_add(1, Ordering::Relaxed);
+    slot.usage_count.store(
+        (slot.usage_count.load(Ordering::Relaxed) + 1).min(5),
+        Ordering::Relaxed,
+    );
+    Some(Arc::new(SharedMemoryDirectory::new(
+        slice_ptr,
+        slice_len,
+        Arc::new(ActiveReaderGuard { slot_index }),
+        toc,
+    )))
+}
+
+pub fn cached_prefix(key: &MutableCacheKey) -> Vec<(MutableSegmentRange, Arc<dyn Directory>)> {
+    if !crate::gucs::enable_mutable_segment_cache() || key.bound.num_deleted_docs != 0 {
+        return Vec::new();
+    }
+    let Some(cache) = load_cache() else {
+        return Vec::new();
+    };
+    register_backend_exit();
+    let _guard = cache.lock.acquire_exclusive();
+    let slots = unsafe { cache.slots() };
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < key.bound.max_doc {
+        let candidate = slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| {
+                slot.state() == SlotState::Ready
+                    && slot.key.matches_segment(key)
+                    && slot.key.start_doc == start
+                    && slot.key.bound.num_deleted_docs == 0
+                    && slot.key.bound.max_doc > start
+                    && slot.key.bound.max_doc <= key.bound.max_doc
+            })
+            .max_by_key(|(_, slot)| slot.key.bound.max_doc);
+        let Some((slot_index, slot)) = candidate else {
+            break;
+        };
+        let Some(directory) = pin_cached_directory(cache, slot_index, slot) else {
+            break;
+        };
+        let range = MutableSegmentRange {
+            start,
+            end: slot.key.bound.max_doc,
+        };
+        chunks.push((range, directory));
+        start = range.end;
+    }
+    chunks
+}
+
+/// Reuse an exact range or build it, publishing unless another backend already owns the build.
 pub fn get_or_build(
     key: &MutableCacheKey,
     build_fn: impl FnOnce() -> anyhow::Result<RamDirectory>,
@@ -781,42 +837,18 @@ pub fn get_or_build(
         return Ok(Arc::new(ram_dir));
     };
 
-    if !BACKEND_EXIT_REGISTERED.load(Ordering::Relaxed) {
-        // FATAL exits skip Rust destructors, including the query's scan state.
-        unsafe {
-            pg_sys::before_shmem_exit(Some(release_backend_resources), pg_sys::Datum::from(0));
-        }
-        BACKEND_EXIT_REGISTERED.store(true, Ordering::Relaxed);
-    }
+    register_backend_exit();
 
-    loop {
+    {
         let guard = cache.lock.acquire_exclusive();
         let slots = unsafe { cache.slots_mut(&guard) };
 
-        // 1. Check for existing Ready entry
         for (idx, slot) in slots.iter().enumerate() {
-            if slot.state() == SlotState::Ready && slot.key == *key {
-                slot.active_readers.fetch_add(1, Ordering::AcqRel);
-                BACKEND_READERS[idx].fetch_add(1, Ordering::Relaxed);
-                let _ = slot
-                    .usage_count
-                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |u| {
-                        Some((u + 1).min(5))
-                    });
-                let reader_guard = Arc::new(ActiveReaderGuard { slot_index: idx });
-                let slice_ptr =
-                    unsafe { (cache.arena_slice().as_ptr()).add(slot.span.offset as usize) };
-                let slice_len = slot.span.len as usize;
-                let slice = unsafe { std::slice::from_raw_parts(slice_ptr, slice_len) };
-                if let Some(toc) = pack::unpack_toc(slice) {
-                    drop(guard);
-                    return Ok(Arc::new(SharedMemoryDirectory::new(
-                        slice_ptr,
-                        slice_len,
-                        reader_guard,
-                        toc,
-                    )));
-                }
+            if slot.state() == SlotState::Ready
+                && slot.key == *key
+                && let Some(directory) = pin_cached_directory(cache, idx, slot)
+            {
+                return Ok(directory);
             }
         }
 
@@ -838,12 +870,8 @@ pub fn get_or_build(
         }
 
         if in_flight_building {
-            cache.cv.prepare_to_sleep();
             drop(guard);
-            cache.cv.sleep();
-            ConditionVariable::cancel_sleep();
-            pgrx::check_for_interrupts!();
-            continue;
+            return Ok(Arc::new(build_fn()?));
         }
 
         // 3. Find an empty inflight slot to claim build (reaping any dead builder PIDs)
@@ -886,7 +914,11 @@ pub fn get_or_build(
 
         let ram_dir = build_fn()?;
 
-        let segment_id = SegmentId::from_bytes(key.segment_id);
+        let segment_id = MutableSegmentRange {
+            start: key.start_doc,
+            end: key.bound.max_doc,
+        }
+        .map_segment_id(SegmentId::from_bytes(key.segment_id));
         let packed_bytes = match pack::pack_segment(&ram_dir, &segment_id) {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -982,6 +1014,9 @@ pub fn get_or_build(
             if i != slot_idx
                 && other_slot.state() == SlotState::Ready
                 && other_slot.key.matches_segment(key)
+                && other_slot.key.start_doc == key.start_doc
+                && other_slot.key.bound.max_doc <= key.bound.max_doc
+                && other_slot.key.bound.num_deleted_docs <= key.bound.num_deleted_docs
             {
                 if other_slot.active_readers.load(Ordering::Acquire) == 0 {
                     slab_pool.free(other_slot.span.offset, other_slot.span.order);
@@ -1008,12 +1043,12 @@ pub fn get_or_build(
 
         drop(guard);
 
-        return Ok(Arc::new(SharedMemoryDirectory::new(
+        Ok(Arc::new(SharedMemoryDirectory::new(
             slice_ptr,
             slice_len,
             reader_guard,
             toc,
-        )));
+        )))
     }
 }
 

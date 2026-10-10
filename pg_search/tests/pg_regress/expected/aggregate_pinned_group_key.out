@@ -774,8 +774,8 @@ SELECT upper(kind) AS upper_kind, COUNT(*)
 FROM pinned_key_items
 WHERE upper(kind) = 'A' AND id @@@ paradedb.all()
 GROUP BY upper(kind);
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: upper(kind), (count(*))
    Backend: DataFusion
@@ -785,7 +785,7 @@ GROUP BY upper(kind);
      : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[count(1) as agg_0, first_value(pinned_key_items_0.kind) ORDER BY [pinned_key_items_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind]
      :     CooperativeExec
-     :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(upper(kind) = 'A'::text)"}]}}]}}
+     :       PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(upper(kind) = 'A'::text)"}]}}]}}
 (10 rows)
 
 SELECT upper(kind) AS upper_kind, COUNT(*)
@@ -1100,8 +1100,8 @@ FROM pinned_key_items
 WHERE updated = TIMESTAMPTZ '2024-01-02 00:00:00+00' AND id @@@ paradedb.all()
 GROUP BY updated, kind
 ORDER BY kind;
-                                                                                                                                                QUERY PLAN                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: kind
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -1116,7 +1116,7 @@ ORDER BY kind;
            :       TantivyFetchExec: fetch=[kind]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, kind@1 as kind, updated@2 as updated]
            :           CooperativeExec
-           :             PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(updated = 'Tue Jan 02 00:00:00 2024 UTC'::timestamp with time zone)"}]}}]}}
+           :             PgSearchScan: table=pinned_key_items, segments=1, visibility=eager, query={"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(updated = 'Tue Jan 02 00:00:00 2024 UTC'::timestamp with time zone)"}]}}]}}
 (15 rows)
 
 SELECT updated, kind, COUNT(*)
@@ -1181,8 +1181,8 @@ SELECT ts, SUM(amount)
 FROM pinned_key_dst
 WHERE ts = TIMESTAMPTZ '2024-03-10 07:30:00+00' AND id @@@ paradedb.all()
 GROUP BY ts;
-                                                                                                                                       QUERY PLAN                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                               QUERY PLAN                                                                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: pinned_key_dst_idx (pinned_key_dst)
@@ -1191,7 +1191,7 @@ GROUP BY ts;
      : AggregateExec: mode=Single, gby=[true as __one_group], aggr=[numeric64_sum(pinned_key_dst_0.amount, 2) as agg_0, first_value(pinned_key_dst_0.ts) ORDER BY [pinned_key_dst_0.ctid_0 ASC NULLS LAST] as row_0], ordering_mode=Sorted
      :   ProjectionExec: expr=[ctid@0 as ctid_0, ts@1 as ts, amount@2 as amount]
      :     CooperativeExec
-     :       PgSearchScan: table=pinned_key_dst, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(ts = 'Sun Mar 10 03:30:00 2024 EDT'::timestamp with time zone)"}]}}]}}
+     :       PgSearchScan: table=pinned_key_dst, segments=1, visibility=eager, query={"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(ts = 'Sun Mar 10 03:30:00 2024 EDT'::timestamp with time zone)"}]}}]}}
 (9 rows)
 
 SELECT ts, SUM(amount)
@@ -2093,8 +2093,8 @@ SELECT DISTINCT k
 FROM pinned_key_arrays
 WHERE tags = ARRAY[1] AND id @@@ paradedb.all()
 ORDER BY k;
-                                                                                                                          QUERY PLAN                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: k
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -2107,7 +2107,7 @@ ORDER BY k;
            :     AggregateExec: mode=Partial, gby=[k@0 as k], aggr=[]
            :       TantivyFetchExec: fetch=[k]
            :         CooperativeExec
-           :           PgSearchScan: table=pinned_key_arrays, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(tags = '{1}'::integer[])"}]}}]}}
+           :           PgSearchScan: table=pinned_key_arrays, segments=1, visibility=eager, query={"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(tags = '{1}'::integer[])"}]}}]}}
 (13 rows)
 
 SELECT DISTINCT k

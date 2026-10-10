@@ -46,7 +46,7 @@ use crate::postgres::customscan::pullup::{
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
-    has_leaky_heap_filter,
+    has_leaky_heap_filter, optimize_quals_with_heap_expr,
 };
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::node::NodeExt;
@@ -644,7 +644,7 @@ unsafe fn build_scan_node(
     if !classified.search_ri.is_empty() {
         let context = PlannerContext::from_planner(root);
         let mut state = QualExtractState::default();
-        let qual = extract_quals(
+        let mut qual = extract_quals(
             &context,
             rti,
             classified.search_ri.as_ptr().cast(),
@@ -663,6 +663,7 @@ unsafe fn build_scan_node(
             );
             "a WHERE predicate cannot be pushed into the scan".to_string()
         })?;
+        optimize_quals_with_heap_expr(&mut qual);
         let query = SearchQueryInput::from(&qual);
         candidate = candidate.with_query(query);
         if state.uses_our_operator {

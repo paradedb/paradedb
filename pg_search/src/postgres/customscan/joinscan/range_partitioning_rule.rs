@@ -36,6 +36,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::scan::info::RowEstimate;
 use crate::scan::range_partitioning::RangeSplitPoints;
 use crate::scan::table_provider::PgSearchTableProvider;
+use crate::schema::SearchFieldType;
 
 /// Optimizer rule that coordinates range partitioning across joins in MPP execution.
 ///
@@ -361,12 +362,12 @@ fn has_non_broadcast_copartition_candidate(
         }
 
         let (Some(my_type), Some(partner_type)) = (
-            named_field_arrow_type(my_side.prov, my_field),
-            named_field_arrow_type(partner_side.prov, partner_field),
+            named_field_type(my_side.prov, my_field),
+            named_field_type(partner_side.prov, partner_field),
         ) else {
             continue;
         };
-        if my_type != partner_type {
+        if !stored_split_types_compatible(my_type, partner_type) {
             continue;
         }
 
@@ -398,10 +399,10 @@ fn handle_one_assigned(
     if let Some(assigned_field) = &assigned_side.field
         && assigned_pts.partition_by == *assigned_field
         && let (Some(a_type), Some(u_type)) = (
-            named_field_arrow_type(assigned_side.prov, assigned_field),
-            named_field_arrow_type(unassigned_side.prov, unassigned_field),
+            named_field_type(assigned_side.prov, assigned_field),
+            named_field_type(unassigned_side.prov, unassigned_field),
         )
-        && a_type == u_type
+        && stored_split_types_compatible(a_type, u_type)
     {
         // Adopt split points from already partitioned partner (0 shuffles)
         assigned.insert(
@@ -630,15 +631,30 @@ impl OptimizerRule for RangePartitioningRule {
     }
 }
 
-/// Returns the arrow type of `field` when the provider exposes it as a named fast field.
-fn named_field_arrow_type(
+/// Returns the search field type of `field` when the provider exposes it as a named fast field.
+fn named_field_type(
     provider: &PgSearchTableProvider,
     field: &FieldName,
-) -> Option<arrow_schema::DataType> {
+) -> Option<SearchFieldType> {
     provider.fields.iter().find_map(|f| match f {
-        WhichFastField::Named { name, .. } if name == field.as_ref() => Some(f.arrow_data_type()),
+        WhichFastField::Named {
+            name, field_type, ..
+        } if name == field.as_ref() => Some(*field_type),
         _ => None,
     })
+}
+
+/// Whether one side's stored split points have the same meaning on the other side.
+fn stored_split_types_compatible(left: SearchFieldType, right: SearchFieldType) -> bool {
+    match (left, right) {
+        (SearchFieldType::Numeric64(_, left_scale), SearchFieldType::Numeric64(_, right_scale)) => {
+            left_scale == right_scale
+        }
+        (SearchFieldType::NumericBytes(..), SearchFieldType::NumericBytes(..)) => true,
+        (SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..), _)
+        | (_, SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..)) => false,
+        _ => left.arrow_data_type() == right.arrow_data_type(),
+    }
 }
 
 /// Cache of persisted split points keyed by index OID and partition field name, scoped to a single rule run.
@@ -669,12 +685,12 @@ fn compute_shared_points(
     cache: &mut SplitPointsCache,
 ) -> Result<Option<Vec<PdbOwnedValue>>> {
     let (Some(l_type), Some(r_type)) = (
-        named_field_arrow_type(l_provider, l_field),
-        named_field_arrow_type(r_provider, r_field),
+        named_field_type(l_provider, l_field),
+        named_field_type(r_provider, r_field),
     ) else {
         return Ok(None);
     };
-    if l_type != r_type {
+    if !stored_split_types_compatible(l_type, r_type) {
         return Ok(None);
     }
 

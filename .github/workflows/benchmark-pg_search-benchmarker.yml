@@ -2,8 +2,9 @@
 #
 # Runs the benchmarker suite on hn-ci, stackexchange, and wikipedia, indexing
 # with a pg_search compiled from this repo's source and overlaid onto a
-# released ParadeDB image. Dashboards and latency history are published to
-# gh-pages.
+# released ParadeDB image. StackExchange and Wikipedia use their native
+# workloads from benchmarker dataset prefixes in S3. Heap-backed runs exclude
+# the compressed source CSV and download only their small configuration files.
 
 name: Benchmark pg_search (Benchmarker)
 
@@ -15,7 +16,6 @@ on:
       - ".github/actions/build-paradedb-image/**"
       - ".github/actions/publish-benchmarker-results/**"
       - ".github/actions/setup-benchmarker/**"
-      - ".github/patches/benchmarker.patch"
       - ".github/workflows/benchmark-pg_search-benchmarker.yml"
       - "docker/Dockerfile.source"
       - "Cargo.lock"
@@ -41,19 +41,19 @@ on:
       benchmarker_stackexchange_repo:
         description: "benchmarker repo to clone for stackexchange."
         required: false
-        default: "planetscale/paradedb-benchmarker"
+        default: "paradedb/benchmarker"
       benchmarker_stackexchange_ref:
         description: "benchmarker repo ref for stackexchange (branch/tag/SHA)."
         required: false
-        default: "datasets"
+        default: "main"
       benchmarker_wikipedia_repo:
         description: "benchmarker repo to clone for wikipedia."
         required: false
-        default: "planetscale/paradedb-benchmarker"
+        default: "paradedb/benchmarker"
       benchmarker_wikipedia_ref:
         description: "benchmarker repo ref for wikipedia (branch/tag/SHA)."
         required: false
-        default: "datasets"
+        default: "main"
       base_paradedb_image:
         description: "Released ParadeDB image whose pg_search is overwritten with the source build. Defaults to the rolling latest-pg18 tag."
         required: false
@@ -175,8 +175,14 @@ jobs:
             ( cd "$root/results" && taskset -c 5-7 "$root/k6" run "$script" >/dev/null )
             echo "== measuring ${name} =="
             ( cd "$root/results" && taskset -c 5-7 "$root/k6" run --out dashboard=json,html "$script" )
-            mv "$(ls -t "$root"/results/dashboard_*.json | head -1)" "$root/results/${name}.json"
-            mv "$(ls -t "$root"/results/dashboard_*.html | head -1)" "$root/results/${name}.html"
+            dashboard_json=("$root"/results/dashboard_*.json)
+            dashboard_html=("$root"/results/dashboard_*.html)
+            if [ ${#dashboard_json[@]} -ne 1 ] || [ ${#dashboard_html[@]} -ne 1 ]; then
+              echo "Expected one JSON and HTML dashboard for ${name}" >&2
+              exit 1
+            fi
+            mv "${dashboard_json[0]}" "$root/results/${name}.json"
+            mv "${dashboard_html[0]}" "$root/results/${name}.html"
           done
 
       - name: Dump database logs on failure
@@ -185,7 +191,7 @@ jobs:
           echo "== Docker containers =="
           docker ps -a || true
           echo "== ParadeDB container logs =="
-          docker logs --tail 200 $(docker ps -aq --filter "name=paradedb") || true
+          docker logs --tail 200 "$(docker ps -aq --filter "name=paradedb" | head -1)" || true
           echo "== Kernel dmesg (OOM / Segfault) =="
           sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 
@@ -225,6 +231,7 @@ jobs:
           ) }}
     env:
       DATASET: ${{ matrix.dataset }}
+      DATASET_CONFIG_S3: s3://paradedb-benchmarker/datasets/${{ matrix.dataset }}/
       BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
       SNAPSHOT_PREFIX: snapshots/benchmarker
       IMAGE_TAG: paradedb-source:ci
@@ -274,10 +281,22 @@ jobs:
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
-          repository: ${{ inputs[format('benchmarker_{0}_repo', matrix.dataset)] || 'planetscale/paradedb-benchmarker' }}
-          ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'datasets' }}
-          patch_file: .github/patches/benchmarker.patch
-          lfs: "false"
+          repository: ${{ inputs[format('benchmarker_{0}_repo', matrix.dataset)] || 'paradedb/benchmarker' }}
+          ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'main' }}
+
+      - name: Pull ${{ env.DATASET }} benchmark config (public S3, anonymous)
+        working-directory: benchmarker
+        run: |
+          set -euo pipefail
+          ./bin/loader pull \
+            --dataset _ci_config \
+            --anonymous \
+            --source "${DATASET_CONFIG_S3}" \
+            --exclude data.csv.gz
+
+          dataset_dir="datasets/_ci_config"
+          test -f "${dataset_dir}/docker-compose.yml"
+          test -f "${dataset_dir}/k6/search.js"
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -300,54 +319,68 @@ jobs:
           sudo tar -I zstd -xf "${RUNNER_TEMP}/heap.tar.zst" -C "${target_dir}"
           rm -f "${RUNNER_TEMP}/heap.tar.zst"
 
-      - name: Build index with ${{ env.IMAGE_TAG }}
-        working-directory: benchmarker
+      - name: Build ${{ env.DATASET }} index with ${{ env.IMAGE_TAG }}
+        working-directory: benchmarker/datasets/_ci_config
+        env:
+          PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
+          PARADEDB_DATA_DIR: ${{ env.VOLUME_ROOT }}/bench-datasets-${{ matrix.dataset }}/paradedb
+          PARADEDB_CONTAINER: paradedb
+          POSTGRES_CPUSET: "0-7"
+          MEMORY: 64g
+          EFFECTIVE_CACHE_SIZE: 48GB
         run: |
           set -euo pipefail
-          make -f Makefile.${DATASET} index \
-            BACKENDS=paradedb \
-            PARADEDB_IMAGE="${IMAGE_TAG}" \
-            VOLUME_ROOT="${VOLUME_ROOT}" \
-            MEMORY=64g
+          docker compose up -d --wait --wait-timeout 300 paradedb
+          docker compose exec -T paradedb \
+            psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
+            -c "DROP EXTENSION IF EXISTS pg_search CASCADE; CREATE EXTENSION pg_search CASCADE;"
+          docker compose exec -T paradedb \
+            psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
+            < paradedb/post.sql
+          docker restart paradedb
+          docker compose up -d --wait --wait-timeout 300 paradedb
 
-      - name: Run benchmark
+      - name: Run ${{ env.DATASET }} benchmark
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.build_image.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
-          POSTGRES_CPUSET: "0-7"
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          root="$PWD"
           mkdir -p results
 
-          topk_styles=(conjunction disjunction phrase mixed)
-          for style in "${topk_styles[@]}"; do
-            echo "== Running workload=topk query_style=${style} =="
-            taskset -c 8-11 make -f Makefile.${DATASET} run \
-              BACKENDS=paradedb \
-              WORKLOAD=topk \
-              QUERY_STYLE="${style}" \
-              VUS=1 \
-              PREWARM=30s \
-              DURATION=300s \
-              OUTPUT=json,html \
-              OUT_DIR="${PWD}/results" \
-              PARADEDB_IMAGE="${IMAGE_TAG}" \
-              VOLUME_ROOT="${VOLUME_ROOT}"
-          done
+          run_benchmark() {
+            workload="$1"
+            style="$2"
+            echo "== Running workload=${workload} query_style=${style} =="
+            (
+              cd "$root/results"
+              taskset -c 8-11 "$root/k6" run --out dashboard=json,html \
+                -e PARADEDB_URL=postgres://postgres:postgres@127.0.0.1:5432/benchmark \
+                -e PARADEDB_CONTAINER=paradedb \
+                -e WORKLOAD="${workload}" \
+                -e QUERY_STYLE="${style}" \
+                -e VUS=1 \
+                -e WARMUP_SECONDS=30 \
+                -e DURATION_SECONDS=300 \
+                "$root/datasets/_ci_config/k6/search.js"
+            )
+            dashboard_json=("$root"/results/dashboard_*.json)
+            dashboard_html=("$root"/results/dashboard_*.html)
+            if [ ${#dashboard_json[@]} -ne 1 ] || [ ${#dashboard_html[@]} -ne 1 ]; then
+              echo "Expected one JSON and HTML dashboard for ${workload}/${style}" >&2
+              exit 1
+            fi
+            mv "${dashboard_json[0]}" "$root/results/${workload}-${style}.json"
+            mv "${dashboard_html[0]}" "$root/results/${workload}-${style}.html"
+          }
 
-          echo "== Running workload=count query_style=mixed =="
-          taskset -c 8-11 make -f Makefile.${DATASET} run \
-            BACKENDS=paradedb \
-            WORKLOAD=count \
-            QUERY_STYLE=mixed \
-            VUS=1 \
-            PREWARM=30s \
-            DURATION=300s \
-            OUTPUT=json,html \
-            OUT_DIR="${PWD}/results" \
-            PARADEDB_IMAGE="${IMAGE_TAG}" \
-            VOLUME_ROOT="${VOLUME_ROOT}"
+          for style in conjunction disjunction phrase mixed; do
+            run_benchmark topk "${style}"
+          done
+          run_benchmark count mixed
 
       - name: Dump database logs on failure
         if: failure() || cancelled()
@@ -355,7 +388,7 @@ jobs:
           echo "== Docker containers =="
           docker ps -a || true
           echo "== ParadeDB container logs =="
-          docker logs --tail 200 $(docker ps -aq --filter "name=paradedb") || true
+          docker logs --tail 200 "$(docker ps -aq --filter "name=paradedb" | head -1)" || true
           echo "== Kernel dmesg (OOM / Segfault) =="
           sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
 

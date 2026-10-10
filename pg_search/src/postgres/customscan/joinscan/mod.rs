@@ -198,6 +198,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::search_operator_relations;
+use crate::postgres::serializable::predicate_lock_read;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
@@ -674,21 +675,27 @@ impl JoinScan {
             }
         }
 
-        // A `pdb.agg()` is computed inside the Top-K aggregate node, which needs
-        // OFFSET + LIMIT known at planning, and its fields have to come from a
-        // source the join still puts out: the aggregate reads the join's rows.
+        // pdb.agg() window functions computed inside the Top-K aggregate node, which
+        // needs OFFSET + LIMIT known at planning.
+        let has_pdb_agg = window_aggs
+            .iter()
+            .any(|agg| agg.agg_def.pdb_agg().is_some());
+        if has_pdb_agg
+            && limit_offset
+                .as_ref()
+                .and_then(|lo| lo.static_fetch())
+                .is_none()
+        {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: pdb.agg(...) window functions require a statically known LIMIT and OFFSET",
+            ));
+        }
+
+        // The fields of a `pdb.agg()` have to come from a source the join still
+        // puts out: the aggregate reads the join's rows.
         let root_id = PlannerRootId::from(root);
         for window_agg in &mut window_aggs {
             if let WindowAggDef::PdbAgg(request) = &mut window_agg.agg_def {
-                if limit_offset
-                    .as_ref()
-                    .and_then(|lo| lo.static_fetch())
-                    .is_none()
-                {
-                    return Err(JoinDeclineReason::new(
-                        "JoinScan not used: pdb.agg() as a window function requires a statically known LIMIT and OFFSET",
-                    ));
-                }
                 request
                     .assign_plan_positions(|field| {
                         plan.plan_position(root_id, field.rti, field.attno)
@@ -1607,6 +1614,7 @@ impl CustomScan for JoinScan {
                 for (plan_position, source) in plan_sources.iter().enumerate() {
                     let heaprelid = source.scan_info.heaprelid;
                     let heaprel = PgSearchRelation::open(heaprelid);
+                    predicate_lock_read(&heaprel, snapshot);
                     let visibility_checker =
                         VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
                     let fetch_slot =

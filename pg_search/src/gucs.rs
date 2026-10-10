@@ -56,6 +56,8 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+static ENABLE_BITMAP_POSTINGS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
 static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -192,7 +194,8 @@ static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
-/// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path.
+/// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
+/// a window query with a static fetch may take that path regardless.
 static JOINSCAN_FORCE_TOPK_AS_AGG: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
@@ -400,6 +403,15 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_bitmap_postings",
+        c"Use optional term posting bitmaps for unscored queries",
+        c"Disable to read ordinary postings without rebuilding the index",
+        &ENABLE_BITMAP_POSTINGS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -976,6 +988,10 @@ pub fn enable_aggregate_custom_scan() -> bool {
 
 pub fn enable_visibility_map_shortcuts() -> bool {
     ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
+}
+
+pub fn enable_bitmap_postings() -> bool {
+    ENABLE_BITMAP_POSTINGS.get()
 }
 
 pub fn enable_bitmap_intersection() -> bool {

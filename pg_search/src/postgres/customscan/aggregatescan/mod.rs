@@ -119,6 +119,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_ta
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
@@ -2020,6 +2021,10 @@ impl AggregateScan {
                     .datafusion_state
                     .as_mut()
                     .expect("DataFusion state must be initialized");
+                let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+                for source in df_state.plan.sources() {
+                    predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                }
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
                     df_state,

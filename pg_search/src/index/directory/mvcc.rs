@@ -1447,6 +1447,70 @@ mod tests {
     }
 
     #[pg_test]
+    fn bitmap_postings_counts_preserve_visibility() {
+        Spi::run(
+            "CREATE TABLE bitmap_counts (id bigint, data text);
+            INSERT INTO bitmap_counts SELECT i,
+                concat_ws(' ', CASE WHEN i % 2 = 0 THEN 'a' END,
+                    CASE WHEN i % 3 = 0 THEN 'b' END, CASE WHEN i % 7 = 0 THEN 'c' END, 'all')
+                FROM generate_series(0, 2302) i;
+            CREATE INDEX bitmap_counts_idx ON bitmap_counts USING paradedb
+                (id, (data::pdb.simple)) WITH (key_field='id');",
+        )
+        .unwrap();
+        let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'bitmap_counts_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(index_oid);
+        let reader = SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).unwrap();
+        for segment in reader.segment_readers() {
+            let field = segment.schema().get_field("data").unwrap();
+            let inverted = segment.inverted_index(field).unwrap();
+            let info = inverted
+                .get_term_info(&tantivy::Term::from_field_text(field, "a"))
+                .unwrap()
+                .unwrap();
+            assert!(info.bitmap_offset.is_some());
+            assert!(
+                inverted
+                    .read_bitmap_from_terminfo(&info, segment.max_doc())
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        drop(reader);
+        let verify = || {
+            for enabled in [false, true] {
+                Spi::run(if enabled {
+                    "SET LOCAL paradedb.enable_bitmap_postings = on"
+                } else {
+                    "SET LOCAL paradedb.enable_bitmap_postings = off"
+                })
+                .unwrap();
+                for (query, predicate) in [
+                    ("a OR b", "data LIKE 'a %' OR data LIKE '%b%'"),
+                    ("a AND b", "data LIKE 'a %' AND data LIKE '%b%'"),
+                    (
+                        "(a OR b) -c",
+                        "(data LIKE 'a %' OR data LIKE '%b%') AND data NOT LIKE '%c%'",
+                    ),
+                ] {
+                    let expected = Spi::get_one::<i64>(&format!("SELECT count(*) FROM bitmap_counts WHERE ({predicate}) AND id BETWEEN 100 AND 2100")).unwrap();
+                    let actual = Spi::get_one::<i64>(&format!("SELECT count(*) FROM bitmap_counts WHERE data @@@ '{query}' AND id BETWEEN 100 AND 2100")).unwrap();
+                    assert_eq!(actual, expected, "{query}, bitmap={enabled}");
+                }
+            }
+        };
+        verify();
+        Spi::run(
+            "DELETE FROM bitmap_counts WHERE id % 11 = 0;
+            UPDATE bitmap_counts SET data = 'b all' WHERE id % 13 = 0;",
+        )
+        .unwrap();
+        verify();
+    }
+
+    #[pg_test]
     unsafe fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();

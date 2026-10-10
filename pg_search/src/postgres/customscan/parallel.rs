@@ -164,11 +164,18 @@ pub(crate) fn aggregate_nworkers(
         } else {
             0.0
         };
-        let work = cost as f64 * pg_sys::cpu_index_tuple_cost
+        let mut traversal_work = cost as f64 * pg_sys::cpu_index_tuple_cost;
+        if matches!(aggregation, AggregateRequest::Sql(clause)
+            if clause.is_bare_doc_count() && clause.aggregates().all(|agg| agg.can_use_doc_count()))
+            && has_fast_count(reader.query(), reader.searcher())
+        {
+            traversal_work /= crate::gucs::count_parallel_threshold_multiplier();
+        }
+        let work = traversal_work
             + rows * updates_per_doc as f64 * pg_sys::cpu_operator_cost
             + heap_checks * pg_sys::cpu_tuple_cost;
         let transfer_cost = workers.get() as f64 * pg_sys::parallel_tuple_cost;
-        let mut parallel_cost = ParallelCost {
+        let parallel_cost = ParallelCost {
             estimated_work: work,
             parallel_threshold: parallel_threshold(
                 workers,
@@ -176,17 +183,6 @@ pub(crate) fn aggregate_nworkers(
                 transfer_cost,
             ),
         };
-        if matches!(aggregation, AggregateRequest::Sql(clause)
-            if clause.is_bare_doc_count() && clause.aggregates().all(|agg| agg.can_use_doc_count()))
-            && (!solve_mvcc || all_visible == 1.0)
-            && work > parallel_cost.parallel_threshold
-            && work
-                <= parallel_cost.parallel_threshold
-                    * crate::gucs::count_parallel_threshold_multiplier()
-            && has_fast_count(reader.query(), reader.searcher())
-        {
-            parallel_cost.parallel_threshold *= crate::gucs::count_parallel_threshold_multiplier();
-        }
         let nworkers = if work > parallel_cost.parallel_threshold {
             nworkers
         } else {

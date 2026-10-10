@@ -533,8 +533,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.count_parallel_threshold_multiplier",
-        c"Multiplier for the parallel work threshold of fast document-count scans",
-        c"Applies to metadata or term-only bitmap counts without GROUP BY, FILTER, ORDER BY, or estimated heap visibility checks.",
+        c"Parallelism threshold multiplier for fast count traversal",
+        c"Discounts traversal work for metadata or term-only bitmap counts without GROUP BY, FILTER, or ORDER BY. Heap visibility work is not discounted.",
         &COUNT_PARALLEL_THRESHOLD_MULTIPLIER,
         1.0,
         1_000_000.0,

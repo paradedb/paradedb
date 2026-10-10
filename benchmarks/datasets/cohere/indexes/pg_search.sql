@@ -6,6 +6,7 @@ USING bm25 (
     (text::pdb.unicode_words('stemmer=english', 'stopwords_language=english')),
     emb vector_cosine_ops
 ) WITH (
-    training_sample_ratio = 0.32,
-    target_segment_count = 8
+    centroid_ratio = 0.01,
+    target_segment_count = 8,
+    cluster_replication = 1
 );

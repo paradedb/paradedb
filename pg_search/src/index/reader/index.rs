@@ -66,7 +66,6 @@ use tantivy::columnar::Cardinality;
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
@@ -146,9 +145,24 @@ pub struct TopKSearch {
     pub aggregation_results: Option<IntermediateAggregationResults>,
     /// Per-segment collector metrics.
     pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
+    /// Shared router and probe-budget statistics for the entire search.
+    pub vector_search: Option<serde_json::Value>,
 }
 
 impl TopKSearch {
+    fn with_vector_search(
+        results: Vec<(SearchIndexScore, DocAddress)>,
+        segment_info: BTreeMap<SegmentId, serde_json::Value>,
+        vector_search: serde_json::Value,
+    ) -> Self {
+        Self {
+            results,
+            aggregation_results: None,
+            segment_info,
+            vector_search: Some(vector_search),
+        }
+    }
+
     pub fn new(
         results: Vec<(SearchIndexScore, DocAddress)>,
         aggregation_results: Option<IntermediateAggregationResults>,
@@ -157,6 +171,7 @@ impl TopKSearch {
             results,
             aggregation_results,
             segment_info: BTreeMap::new(),
+            vector_search: None,
         }
     }
 
@@ -169,6 +184,7 @@ impl TopKSearch {
             results,
             aggregation_results,
             segment_info,
+            vector_search: None,
         }
     }
 
@@ -223,25 +239,6 @@ pub(crate) fn vector_format_error_report(
         )
         .set_hint(format!("Rebuild index {index_name:?} with REINDEX."))
     })
-}
-
-fn probe_stats_to_segment_info(
-    segment_ids: &[SegmentId],
-    stats: &[ProbeStats],
-) -> BTreeMap<SegmentId, serde_json::Value> {
-    assert_eq!(
-        segment_ids.len(),
-        stats.len(),
-        "vector Fruit must yield one ProbeStats per collected segment"
-    );
-    segment_ids
-        .iter()
-        .zip(stats.iter())
-        .map(|(id, s)| {
-            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
-            (*id, value)
-        })
-        .collect()
 }
 
 /// A set of search results across multiple segments.
@@ -1660,17 +1657,13 @@ impl SearchIndexReader {
                 tantivy::vector::set_fixed_probe_cost_rows(
                     crate::gucs::vector_fixed_probe_cost_rows(),
                 );
-                let max_scan_levels = crate::gucs::vector_max_scan_levels();
-                let collector = TopDocs::with_limit(n)
+                let vector_search = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
-                        router_recall_target: crate::gucs::vector_router_recall_target(),
-                        recall_target: crate::gucs::vector_recall_target(),
                         ..Default::default()
-                    })
-                    .with_max_scan_levels(max_scan_levels);
+                    });
 
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();
@@ -1683,70 +1676,60 @@ impl SearchIndexReader {
                     tie_breaks.remove(i);
                 }
 
-                // Record only collected candidates, in the same lazy order as their fruits.
-                // Rejected segment IDs have no corresponding ProbeStats entry.
-                let collected_ids = std::cell::RefCell::new(Vec::new());
-                let readers =
-                    self.segment_readers_in_segments(segment_ids)
-                        .inspect(|(_, reader)| {
-                            collected_ids.borrow_mut().push(reader.segment_id());
-                        });
-                // Fruit is `VectorSimilarityFruit` — hits plus per-segment
+                // Vector search is ONE global probe loop across every
+                // segment of the searcher's snapshot, so it cannot ride
+                // the per-segment wrappers: window aggregates are rejected
+                // at plan time, and the parallel path never claims vector scans.
+                assert!(
+                    aux_collector.is_none(),
+                    "vector ORDER BY cannot run with an auxiliary aggregation collector; this \
+                     combination is rejected at plan time"
+                );
+                let consumed: Vec<SegmentId> = segment_ids.collect();
+                assert_eq!(
+                    consumed.len(),
+                    self.searcher.segment_readers().len(),
+                    "vector ORDER BY must run serially over the full segment snapshot"
+                );
+                // Fruit is `VectorSimilarityFruit` — hits plus ONE global
                 // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
-                let (fruit, aggregation_results) = match tie_break_count {
-                    0 => self.collect_maybe_auxiliary(readers, collector, aux_collector),
-                    1 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break(next()),
-                        aux_collector,
-                    ),
-                    2 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break((next(), next())),
-                        aux_collector,
-                    ),
-                    3 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break((next(), next(), next())),
-                        aux_collector,
-                    ),
-                    4 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break((next(), next(), next(), next())),
-                        aux_collector,
-                    ),
+                let fruit = match tie_break_count {
+                    0 => vector_search.search(&self.searcher, self.query()),
+                    1 => vector_search
+                        .with_tie_break(next())
+                        .search(&self.searcher, self.query()),
+                    2 => vector_search
+                        .with_tie_break((next(), next()))
+                        .search(&self.searcher, self.query()),
+                    3 => vector_search
+                        .with_tie_break((next(), next(), next()))
+                        .search(&self.searcher, self.query()),
+                    4 => vector_search
+                        .with_tie_break((next(), next(), next(), next()))
+                        .search(&self.searcher, self.query()),
                     x => panic!(
                         "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1
                     ),
-                };
-                let segment_ids = collected_ids.into_inner();
-                let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
-                if let Some(first_segment) = segment_ids.first()
-                    && let Some(serde_json::Value::Object(stats)) =
-                        segment_info.get_mut(first_segment)
-                {
-                    let segment_scan_init = stats
-                        .get("scan_init_ns")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or(0);
-                    stats.insert(
-                        "scan_init_ns".to_string(),
-                        segment_scan_init.saturating_add(self.scan_init_ns).into(),
-                    );
                 }
+                .expect("vector search should not fail");
+                let mut segment_info = BTreeMap::new();
                 if let Some(stats) = &self.directory.io_stats {
                     stats.attach(&mut segment_info);
                 }
-                let scored_results: Vec<(SearchIndexScore, DocAddress)> = fruit
-                    .results
-                    .into_iter()
-                    .map(|(score, doc_address)| (SearchIndexScore { bm25: score }, doc_address))
-                    .collect();
-                TopKSearch::with_segment_info(scored_results, aggregation_results, segment_info)
+                TopKSearch::with_vector_search(
+                    fruit
+                        .results
+                        .into_iter()
+                        .map(|(score, address)| (SearchIndexScore { bm25: score }, address))
+                        .collect(),
+                    segment_info,
+                    serde_json::to_value(&fruit.stats)
+                        .expect("ProbeStats should serialize to JSON"),
+                )
             }
         }
     }
@@ -3959,30 +3942,5 @@ mod tests {
             "execution after the merge must resolve the new segment generation"
         );
         Spi::run("DEALLOCATE merge_freshness_query; RESET plan_cache_mode;").unwrap();
-    }
-}
-
-#[cfg(test)]
-mod vector_probe_stats_tests {
-    use super::{ProbeStats, SegmentId, probe_stats_to_segment_info};
-    use tantivy::vector::VectorIoStats;
-
-    // Rerank I/O is exposed as additive scalar counters in per-segment EXPLAIN data.
-    #[test]
-    fn rerank_io_counters_are_flat_segment_fields() {
-        let id = SegmentId::from_bytes([7; 16]);
-        let stats = ProbeStats {
-            rerank_io: VectorIoStats {
-                reads: 3,
-                bytes_read: 64,
-                storage_blocks: 5,
-            },
-            ..Default::default()
-        };
-        let info = probe_stats_to_segment_info(&[id], &[stats]);
-        assert_eq!(info[&id]["rerank_reads"], 3);
-        assert_eq!(info[&id]["rerank_bytes_read"], 64);
-        assert_eq!(info[&id]["rerank_storage_blocks"], 5);
-        assert!(info[&id].get("rerank_io").is_none());
     }
 }

@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
+use super::utils::{load_metas, save_index_files, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::io_stats::Trace;
-use crate::index::reader::segment_component::SegmentComponentReader;
+use crate::index::reader::segment_component::{ReadProtection, SegmentComponentReader};
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::buffile::{BufFileReleaseGuard, create_temp_buffile};
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
@@ -26,7 +26,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
     CTID_MAP_EXT, FileEntry, MVCCEntry, STATS_EXT, SegmentFileDetails, SegmentMetaEntry,
-    SegmentMetaEntryContent, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+    SegmentMetaEntryContent, SegmentMetaEntryImmutable, SegmentMetaEntryMutable, VECTOR_VEC_EXT,
     bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
@@ -51,7 +51,7 @@ use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
     TempFilePtr, WatchCallback, WatchHandle,
 };
-use tantivy::index::{SegmentId, SegmentMetaInventory};
+use tantivy::index::{SegmentComponent, SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 
 /// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
@@ -493,15 +493,31 @@ impl MVCCDirectory {
     }
 
     fn file_entry(&self, path: &Path) -> tantivy::Result<Arc<dyn FileHandle>> {
+        let Some(segment_id) = path.segment_id() else {
+            let Some(entry) = self.indexrel.index_file(path)? else {
+                return Err(TantivyError::OpenDirectoryError(
+                    OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+                ));
+            };
+            return Ok(Arc::new(unsafe {
+                SegmentComponentReader::new(
+                    &self.indexrel,
+                    entry.file_entry,
+                    None,
+                    ReadProtection::IndexFile,
+                    self.io_stats.as_ref().map(|stats| {
+                        stats.component(&SegmentComponent::Custom("centroids".into()))
+                    }),
+                )
+            }));
+        };
+
         let file_name = path
             .file_name()
             .expect("path should have a filename")
             .to_str()
             .expect("path should be valid UTF8");
         let uuid_string = &file_name[..file_name.find('.').unwrap_or(file_name.len())];
-        let segment_id = SegmentId::from_uuid_string(uuid_string)
-            .map_err(|e| TantivyError::InvalidArgument(e.to_string()))?;
-
         let Some(meta_entry) = self.all_entries.lock().get(&segment_id).cloned() else {
             return Err(TantivyError::OpenDirectoryError(
                 OpenDirectoryError::DoesNotExist(path.to_path_buf()),
@@ -515,13 +531,33 @@ impl MVCCDirectory {
                         OpenDirectoryError::DoesNotExist(path.to_path_buf()),
                     ));
                 };
+                let component = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .and_then(|ext| SegmentComponent::try_from(ext).ok());
+                let segment_pins = if matches!(
+                    &component,
+                    Some(SegmentComponent::Custom(ext)) if ext == VECTOR_VEC_EXT
+                ) {
+                    self.pin_cushion
+                        .lock()
+                        .as_ref()
+                        .filter(|pins| pins.0.contains_key(&entry.pintest_blockno()))
+                        .map(|_| self.pin_cushion.clone())
+                } else {
+                    None
+                };
                 Ok(Arc::new(unsafe {
                     SegmentComponentReader::new(
                         &self.indexrel,
                         file_entry,
+                        component,
+                        segment_pins.map_or(ReadProtection::Unpublished, |pins| {
+                            ReadProtection::Segment { _pins: pins }
+                        }),
                         self.io_stats.as_ref().and_then(|stats| {
                             path.component_type()
-                                .map(|component| stats.component(&component))
+                                .map(|component| stats.segment_component(segment_id, &component))
                         }),
                     )
                 }))
@@ -688,8 +724,12 @@ impl Directory for MVCCDirectory {
                                     &self.indexrel,
                                     file_entry,
                                     self.io_stats.as_ref().and_then(|stats| {
-                                        path.component_type()
-                                            .map(|component| stats.component(&component))
+                                        path.component_type().map(|component| {
+                                            match path.segment_id() {
+                                                Some(id) => stats.segment_component(id, &component),
+                                                None => stats.component(&component),
+                                            }
+                                        })
                                     }),
                                 )
                             }))
@@ -757,8 +797,7 @@ impl Directory for MVCCDirectory {
         unimplemented!("OnCommitWithDelay ReloadPolicy not supported");
     }
 
-    /// Returns a list of all segment components to Tantivy,
-    /// identified by `<uuid>.<ext>` PathBufs
+    /// Returns index-level files and segment components to Tantivy.
     fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
         let _io = self
             .io_stats
@@ -770,6 +809,12 @@ impl Directory for MVCCDirectory {
                 .list(None)
                 .iter()
                 .flat_map(|entry| entry.get_component_paths())
+                .chain(
+                    self.indexrel
+                        .index_files()?
+                        .into_iter()
+                        .map(|entry| PathBuf::from(entry.filename)),
+                )
                 .collect())
         }
     }
@@ -816,6 +861,18 @@ impl Directory for MVCCDirectory {
 
         save_settings(&self.indexrel, &meta.index_settings)
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
+
+        if let Some(centroids) = &meta.centroid_index
+            && !payload.contains_key(Path::new(centroids))
+            && self.indexrel.index_file(Path::new(centroids))?.is_none()
+        {
+            return Err(TantivyError::InternalError(format!(
+                "centroid index file {} was not written through this directory",
+                centroids
+            )));
+        }
+        save_index_files(&self.indexrel, payload, meta.centroid_index.as_ref())
+            .map_err(|err| TantivyError::InternalError(err.to_string()))?;
 
         // If there were no new segments, skip the rest of the work
         if meta.segments.is_empty() {
@@ -1165,6 +1222,221 @@ mod tests {
     use crate::postgres::storage::block::SegmentMetaEntryContent;
 
     use pgrx::prelude::*;
+
+    #[pg_test]
+    unsafe fn test_index_level_files_survive_reopen() {
+        use std::io::Write;
+        use tantivy::directory::TerminatingWrite;
+
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        let relation_oid: pg_sys::Oid = Spi::get_one("SELECT 't_idx'::regclass::oid;")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::with_lock(relation_oid, pg_sys::AccessShareLock as _);
+        let directory = MvccSatisfies::Snapshot.directory(&indexrel);
+        let meta = tantivy::Index::open(directory.clone())
+            .unwrap()
+            .load_metas()
+            .unwrap();
+        let page_size = bm25_max_free_space();
+        let routing_bytes: Vec<u8> = (1..=251).cycle().take(page_size * 24 + 13).collect();
+        let files = [
+            (Path::new("dictionary.store"), b"dictionary".as_slice()),
+            (Path::new("routing.bin"), routing_bytes.as_slice()),
+        ];
+
+        for (path, bytes) in files {
+            let mut writer = directory.open_write(path).unwrap();
+            writer.write_all(bytes).unwrap();
+            writer.terminate().unwrap();
+            assert!(indexrel.index_file(path).unwrap().is_none());
+            assert_eq!(
+                directory.open_read(path).unwrap().read_bytes().unwrap(),
+                bytes
+            );
+        }
+
+        directory.save_metas(&meta, &meta, &mut ()).unwrap();
+        directory.save_metas(&meta, &meta, &mut ()).unwrap();
+
+        let reopened = MvccSatisfies::Snapshot.directory(&indexrel);
+        let managed = reopened.list_managed_files().unwrap();
+        for (path, bytes) in files {
+            assert!(managed.contains(path));
+            assert!(indexrel.index_file(path).unwrap().is_some());
+            assert_eq!(
+                reopened.open_read(path).unwrap().read_bytes().unwrap(),
+                bytes
+            );
+        }
+        assert!(matches!(
+            reopened.open_read(Path::new("missing.bin")),
+            Err(OpenReadError::FileDoesNotExist(_))
+        ));
+        assert!(
+            tantivy::Index::open(reopened.clone())
+                .unwrap()
+                .load_metas()
+                .unwrap()
+                .centroid_index
+                .is_none()
+        );
+
+        let reader = reopened.get_file_handle(Path::new("routing.bin")).unwrap();
+        let escaped_range = page_size + 7..page_size + 53;
+        let escaped = reader.read_bytes(escaped_range.clone()).unwrap();
+        let escaped_clone = escaped.clone();
+        assert!(reader.read_bytes(0..0).unwrap().is_empty());
+        assert_eq!(
+            reader
+                .read_bytes(page_size - 1..page_size + 1)
+                .unwrap()
+                .as_ref(),
+            &routing_bytes[page_size - 1..page_size + 1]
+        );
+        assert_eq!(
+            reader
+                .read_bytes(routing_bytes.len() - 1..routing_bytes.len() + 1)
+                .unwrap()
+                .as_ref(),
+            &routing_bytes[routing_bytes.len() - 1..]
+        );
+        let retained = reader.read_bytes(0..page_size).unwrap();
+        let read = reader.read_bytes(0..page_size * 2 + 13).unwrap();
+        let nested = reader
+            .read_bytes(page_size * 20 + 3..page_size * 22 + 11)
+            .unwrap();
+        assert_eq!(retained.as_ref(), &routing_bytes[..page_size]);
+        assert_eq!(read.as_ref(), &routing_bytes[..page_size * 2 + 13]);
+        assert_eq!(
+            nested.as_ref(),
+            &routing_bytes[page_size * 20 + 3..page_size * 22 + 11]
+        );
+        assert_eq!(escaped.as_ref(), &routing_bytes[escaped_range.clone()]);
+        drop(retained);
+        drop(read);
+        drop(nested);
+        drop(reader);
+        drop(reopened);
+        drop(directory);
+        assert_eq!(escaped.as_ref(), &routing_bytes[escaped_range.clone()]);
+        assert_eq!(escaped_clone.as_ref(), &routing_bytes[escaped_range]);
+        drop(escaped);
+        drop(escaped_clone);
+        drop(indexrel);
+    }
+
+    #[pg_test]
+    unsafe fn test_centroid_metadata_survives_commits_and_reindex() {
+        Spi::run(
+            "SET paradedb.vector_min_training_rows = 1;
+             CREATE TABLE t (id int PRIMARY KEY, vec vector(3));
+             INSERT INTO t SELECT g, ARRAY[g, 0, 0]::vector FROM generate_series(1, 32) g;
+             CREATE INDEX t_idx ON t USING paradedb (id, vec vector_l2_ops)
+                 WITH (mutable_segment_rows = 0, layer_sizes = '0', background_layer_sizes = '0');",
+        )
+        .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 't_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let original = PgSearchRelation::open(oid)
+            .centroid_index()
+            .unwrap()
+            .unwrap();
+        for statement in [
+            "INSERT INTO t VALUES (33, '[33,0,0]')",
+            "INSERT INTO t VALUES (34, '[34,0,0]')",
+            "REINDEX INDEX t_idx",
+        ] {
+            Spi::run(statement).unwrap();
+            let indexrel = PgSearchRelation::open(oid);
+            let index = tantivy::Index::open(MvccSatisfies::Snapshot.directory(&indexrel)).unwrap();
+            let meta = index.load_metas().unwrap().centroid_index.unwrap();
+            assert_eq!(meta, indexrel.centroid_index().unwrap().unwrap());
+            assert!(indexrel.index_file(Path::new(&meta)).unwrap().is_some());
+            assert_eq!(meta, original);
+        }
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT count(*) FROM (SELECT id FROM t WHERE id @@@ pdb.all()
+                 ORDER BY vec <-> '[1,0,0]' LIMIT 100) hits",
+            )
+            .unwrap(),
+            Some(34),
+        );
+    }
+
+    #[pg_test]
+    unsafe fn test_published_vector_reader_pins() {
+        use std::io::Write;
+        use tantivy::directory::TerminatingWrite;
+
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        let relation_oid: pg_sys::Oid = Spi::get_one("SELECT 't_idx'::regclass::oid;")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+        let directory = MvccSatisfies::Snapshot.directory(&indexrel);
+        let index = tantivy::Index::open(directory.clone()).unwrap();
+        let meta = index.load_metas().unwrap();
+        let segment_id = SegmentId::generate_random();
+        let path = PathBuf::from(format!("{}.vec", segment_id.uuid_string()));
+        let page_size = bm25_max_free_space();
+        let bytes: Vec<u8> = (1..=251).cycle().take(page_size * 24 + 13).collect();
+        let mut writer = directory.open_write(&path).unwrap();
+        writer.write_all(&bytes).unwrap();
+        writer.terminate().unwrap();
+        let sentinel = directory
+            .new_files
+            .lock()
+            .get(&path)
+            .unwrap()
+            .0
+            .starting_block;
+        let mut bman = BufferManager::new(&indexrel);
+
+        let temporary = directory.get_file_handle(&path).unwrap();
+        let read = temporary.read_bytes(0..bytes.len()).unwrap();
+        assert_eq!(read.as_ref(), bytes.as_slice());
+        drop(read);
+        drop(temporary);
+        directory.readers.lock().clear();
+        assert!(bman.get_buffer_for_cleanup_conditional(sentinel).is_some());
+
+        let mut published = meta.clone();
+        published
+            .segments
+            .push(index.new_segment_meta(segment_id, 1));
+        directory.save_metas(&published, &meta, &mut ()).unwrap();
+        drop(index);
+        drop(directory);
+
+        let reopened = MvccSatisfies::Snapshot.directory(&indexrel);
+        reopened
+            .load_metas(&SegmentMetaInventory::default())
+            .unwrap();
+        let reader = reopened.get_file_handle(&path).unwrap();
+        reopened
+            .load_metas(&SegmentMetaInventory::default())
+            .unwrap();
+        assert!(bman.get_buffer_for_cleanup_conditional(sentinel).is_none());
+        drop(reopened);
+        assert!(bman.get_buffer_for_cleanup_conditional(sentinel).is_none());
+
+        let retained = reader.read_bytes(0..page_size).unwrap();
+        let read = reader.read_bytes(0..bytes.len()).unwrap();
+        let nested = reader.read_bytes(page_size..page_size * 19).unwrap();
+        assert_eq!(retained.as_ref(), &bytes[..page_size]);
+        assert_eq!(nested.as_ref(), &bytes[page_size..page_size * 19]);
+        assert_eq!(read.as_ref(), bytes.as_slice());
+        drop(retained);
+        drop(read);
+        drop(nested);
+        drop(reader);
+        assert!(bman.get_buffer_for_cleanup_conditional(sentinel).is_some());
+    }
 
     #[pg_test]
     #[should_panic(expected = "temporary file size exceeds")]

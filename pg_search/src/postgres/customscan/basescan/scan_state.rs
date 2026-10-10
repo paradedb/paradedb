@@ -50,6 +50,7 @@ use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct BaseScanState {
+    pub vector_search_info: Option<serde_json::Value>,
     pub io_trace: Option<crate::index::reader::io_stats::Trace>,
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,

@@ -323,6 +323,16 @@ pub fn vector_fixed_probe_cost_rows() -> f64 {
     VECTOR_FIXED_PROBE_COST_ROWS.get()
 }
 
+/// Minimum vector-bearing rows a table must hold for CREATE INDEX to train
+/// index-level centroids. Below the floor the build errors: too little data
+/// to train a meaningful clustering (or to warrant a vector index at all).
+/// Tests lower it to exercise small fixtures.
+static VECTOR_MIN_TRAINING_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
+pub fn vector_min_training_rows() -> usize {
+    VECTOR_MIN_TRAINING_ROWS.get().max(1) as usize
+}
+
 /// Maximum quantization layers scored; zero disables quantized scoring.
 static VECTOR_MAX_SCAN_LEVELS: GucSetting<i32> = GucSetting::<i32>::new(3);
 
@@ -345,15 +355,14 @@ pub fn vector_stats() -> bool {
 /// `1.0` ranks with the fixed per-level nprobe fractions instead. Tantivy
 /// ignores the target and uses the nprobe path above
 /// `APS_MAX_DIM` (128) dimensions, where the estimate is unreliable.
-static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> =
-    GucSetting::<f64>::new(tantivy::vector::ivf::DEFAULT_ROUTER_RECALL as f64);
+static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(0.99);
 
 /// Returns the stacked IVF router's recall target.
 pub fn vector_router_recall_target() -> f32 {
     VECTOR_ROUTER_RECALL_TARGET.get() as f32
 }
 
-/// Recall target for each segment's own cluster scan. Below `1.0` the probe
+/// Recall target for the global cluster scan. Below `1.0` the probe
 /// loop stops once the estimated recall of the clusters covered so far
 /// reaches the target (adaptive partition scanning); `1.0` leaves
 /// `vector_cluster_max_probe` as the only bound. Tantivy applies it to
@@ -364,14 +373,6 @@ static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 /// Returns the segment cluster scan's recall target.
 pub fn vector_recall_target() -> f32 {
     VECTOR_RECALL_TARGET.get() as f32
-}
-
-/// Minimum merged-segment row count for IVF vector storage.
-static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
-
-/// Returns the IVF clustering threshold.
-pub fn vector_clustering_threshold() -> usize {
-    VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
 pub fn init() {
@@ -670,8 +671,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_recall_target",
-        c"Recall target for each segment's cluster scan in vector ORDER BY queries",
-        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to segments built with vector_router = 'ivf', and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
+        c"Recall target for the global cluster scan in vector ORDER BY queries",
+        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to indexes built with vector_router = 'ivf', and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
         &VECTOR_RECALL_TARGET,
         0.000001,
         1.0,
@@ -700,10 +701,10 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.vector_clustering_threshold",
-        c"Doc-count boundary at which merged segments switch from flat to IVF vector storage",
-        c"A merge whose target segment has at least this many docs writes clustered (IVF) vector storage; below it, flat. Captured into the index's stored settings at CREATE INDEX time.",
-        &VECTOR_CLUSTERING_THRESHOLD,
+        c"paradedb.vector_min_training_rows",
+        c"Minimum vector rows required to train a vector index",
+        c"CREATE INDEX errors when a vector field has fewer rows than this: too little data to train index-level centroids. Lower it only for testing.",
+        &VECTOR_MIN_TRAINING_ROWS,
         1,
         i32::MAX,
         GucContext::Userset,

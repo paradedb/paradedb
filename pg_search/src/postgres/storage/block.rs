@@ -237,6 +237,19 @@ pub struct FileEntry {
     pub total_bytes: usize,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+pub struct IndexFileRegistry {
+    pub centroid_index: Option<String>,
+    pub files: Vec<IndexFileEntry>,
+}
+
+/// An immutable index-level file and its location in block storage.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct IndexFileEntry {
+    pub filename: String,
+    pub file_entry: FileEntry,
+}
+
 /// Metadata for tracking where to find a ".del" file
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DeleteEntry {
@@ -1183,7 +1196,7 @@ mod vector_alignment_tests {
     #[test]
     fn page_data_and_capacity_preserve_vector_element_alignment() {
         let data_start = unsafe { pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp)) };
-        let alignment = tantivy::vector::ENTRY_ALIGN;
+        let alignment = std::mem::align_of::<f64>();
         assert_eq!(data_start % alignment, 0);
         assert_eq!(bm25_max_free_space() % alignment, 0);
     }

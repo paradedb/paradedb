@@ -16,11 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap, HashSet};
-use crate::index::directory::utils::load_index_settings;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::reader::open_vector_field;
 use crate::postgres::index::IndexKind;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -31,7 +29,7 @@ use crate::postgres::utils::{item_pointer_to_u64, u64_to_item_pointer};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb as pdb_query;
 use crate::schema::{IndexRecordOption, SearchFieldType};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use pgrx::JsonB;
 use pgrx::PgRelation;
 use pgrx::datum::DatumWithOid;
@@ -394,6 +392,7 @@ fn index_info(
 /// aligns with [`index_info`]'s so the two can be joined.
 ///
 /// The cluster columns are IVF-only (`NULL` for flat segments).
+/// Each vector belongs to one cluster.
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(
@@ -412,11 +411,7 @@ fn vector_info(
             name!(vector_max_cluster_size, Option<AnyNumeric>),
             name!(vector_avg_cluster_size, Option<f64>),
             name!(vector_empty_clusters, Option<AnyNumeric>),
-            name!(vector_total_rows, Option<AnyNumeric>),
-            name!(quantized, bool),
-            name!(layers, Option<Vec<i32>>),
-            name!(quantizer_kinds, Option<Vec<String>>),
-            name!(bytes_per_row, Option<i32>),
+            name!(vector_total_memberships, Option<AnyNumeric>),
         ),
     >,
 > {
@@ -436,127 +431,51 @@ fn vector_info(
         if !index.is_usable() {
             continue;
         }
-        let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
+        let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+        let resolved = search_reader
+            .schema()
+            .fields()
+            .find_map(|(f, field_entry)| {
+                (field_entry.name() == field
+                    && matches!(
+                        search_reader.schema().get_field_type(field_entry.name()),
+                        Some(SearchFieldType::Vector(..))
+                    ))
+                .then_some(f)
+            });
+        let Some(vector_field) = resolved else {
+            anyhow::bail!("`{field}` is not a vector field of the index");
+        };
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
             let Some(info) = vector_index.info() else {
                 continue;
             };
-            let metadata = vector_index
-                .metadata()
-                .context("vector storage metadata is absent")?;
-            let quantized = matches!(
-                metadata,
-                tantivy::vector::VectorColMetadata::Quantized { .. }
-            );
-            let layers = quantized.then(|| {
-                metadata
-                    .layers()
-                    .iter()
-                    .map(|layer| i32::from(layer.bits()))
-                    .collect()
-            });
-            let quantizer_kinds = quantized.then(|| {
-                metadata
-                    .layers()
-                    .iter()
-                    .map(|layer| layer.kind().name().to_string())
-                    .collect::<Vec<_>>()
-            });
-            let bytes_per_row = metadata
-                .quantized_bytes_per_row()
-                .map(i32::try_from)
-                .transpose()
-                .context("quantized bytes per row exceeds SQL integer range")?;
-            let cluster_stats = info.cluster_stats.as_ref();
-            let total_rows = vector_index
+            let cluster_stats = vector_index.clusters().map(|_| &info.cluster_stats);
+            // Summed here rather than read off `cluster_stats`, which only
+            // carries the average: this keeps the membership total exact.
+            let total_memberships = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>());
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
                 field.clone(),
-                match info.format {
-                    tantivy::vector::VectorStorageFormat::Flat => "flat",
-                    tantivy::vector::VectorStorageFormat::Ivf => "ivf",
+                match cluster_stats {
+                    None => "flat",
+                    Some(_) => "ivf",
                 }
                 .to_string(),
                 info.num_vectors.into(),
-                info.num_centroids.map(Into::into),
+                cluster_stats.map(|_| info.num_centroids.into()),
                 cluster_stats.map(|stats| stats.min_cluster_size.into()),
                 cluster_stats.map(|stats| stats.max_cluster_size.into()),
                 cluster_stats.map(|stats| stats.avg_cluster_size),
                 cluster_stats.map(|stats| stats.empty_clusters.into()),
-                total_rows.map(Into::into),
-                quantized,
-                layers,
-                quantizer_kinds,
-                bytes_per_row,
+                total_memberships.map(Into::into),
             ));
         }
     }
 
-    Ok(TableIterator::new(rows))
-}
-
-/// The field's quantization build target. The format version describes settings serialization.
-#[pg_extern]
-#[allow(clippy::type_complexity)]
-fn vector_config(
-    index: PgRelation,
-    field: String,
-) -> anyhow::Result<
-    TableIterator<
-        'static,
-        (
-            name!(index_oid, pg_sys::Oid),
-            name!(quantized, bool),
-            name!(layers, Option<Vec<i32>>),
-            name!(bytes_per_row, Option<i32>),
-            name!(settings_version, Option<i32>),
-        ),
-    >,
-> {
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let index_kind = IndexKind::for_index(index.clone())?;
-    if !index.is_usable() {
-        return Ok(TableIterator::new(Vec::new()));
-    }
-    let mut rows = Vec::new();
-    for index in index_kind.partitions() {
-        if !index.is_usable() {
-            continue;
-        }
-        let schema = index.schema()?;
-        anyhow::ensure!(
-            matches!(
-                schema.get_field_type(&field),
-                Some(SearchFieldType::Vector(..))
-            ),
-            "`{field}` is not a vector field of the index"
-        );
-        let settings = load_index_settings(&index)?;
-        let config = settings
-            .as_ref()
-            .into_iter()
-            .flat_map(|settings| &settings.vector_quantization)
-            .find(|config| config.field == field);
-        let layers = config.map(|config| {
-            config
-                .layers
-                .iter()
-                .map(|layer| i32::from(layer.bits))
-                .collect()
-        });
-        let bytes = config
-            .map(|config| i32::try_from(config.bytes_per_row()))
-            .transpose()
-            .context("quantized bytes per row exceeds SQL integer range")?;
-        let version = config
-            .map(|config| i32::try_from(config.format_version))
-            .transpose()
-            .context("quantization format exceeds SQL integer range")?;
-        rows.push((index.oid(), config.is_some(), layers, bytes, version));
-    }
     Ok(TableIterator::new(rows))
 }
 
@@ -594,7 +513,21 @@ fn vector_clusters(
         if !index.is_usable() {
             continue;
         }
-        let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
+        let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+        let resolved = search_reader
+            .schema()
+            .fields()
+            .find_map(|(f, field_entry)| {
+                (field_entry.name() == field
+                    && matches!(
+                        search_reader.schema().get_field_type(field_entry.name()),
+                        Some(SearchFieldType::Vector(..))
+                    ))
+                .then_some(f)
+            });
+        let Some(vector_field) = resolved else {
+            anyhow::bail!("`{field}` is not a vector field of the index");
+        };
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
             if vector_index.info().is_none() {
@@ -603,7 +536,7 @@ fn vector_clusters(
             let sizes = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.index().map(|ivf| {
+            let radii = vector_index.clusters().map(|ivf| {
                 let bounds = ivf.bounds();
                 (0..ivf.num_clusters()).map(|c| bounds.ball_r(c)).collect()
             });

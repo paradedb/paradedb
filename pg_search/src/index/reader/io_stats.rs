@@ -24,17 +24,10 @@ use pgrx::pg_sys;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tantivy::index::{SegmentComponent, SegmentId};
-use tantivy::vector::current_vector_stage;
 
 #[cfg(any(test, feature = "pg_test"))]
 thread_local! {
     static VECTOR_BUFFER_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// Counts vector buffer accesses recorded by the component instrumentation in tests.
-#[cfg(any(test, feature = "pg_test"))]
-pub(crate) fn vector_buffer_reads() -> usize {
-    VECTOR_BUFFER_READS.get()
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -61,7 +54,7 @@ struct Data {
     total: u64,
     components: BTreeMap<String, u64>,
     current: SegmentIo,
-    per_segment: Vec<(SegmentId, SegmentIo)>,
+    per_segment: BTreeMap<SegmentId, SegmentIo>,
     scan_init: bool,
     preserve_next_reset: bool,
     depth: usize,
@@ -74,6 +67,7 @@ pub struct Trace(Arc<Mutex<Data>>);
 pub struct ComponentStats {
     trace: Trace,
     component: String,
+    segment_id: Option<SegmentId>,
 }
 
 pub struct Scope {
@@ -129,8 +123,15 @@ impl Drop for ScanInitGuard {
     fn drop(&mut self) {
         let after = snapshot();
         let mut data = self.trace.0.lock();
+        let attributed = std::iter::once(&data.current)
+            .chain(data.per_segment.values())
+            .filter_map(|io| io.stages.get("scan_init"))
+            .fold(IoCounters::default(), |mut total, counters| {
+                total.blks_hit += counters.blks_hit;
+                total.blks_read += counters.blks_read;
+                total
+            });
         let current = &mut data.current;
-        let attributed = current.stages.get("scan_init").copied().unwrap_or_default();
         let direct = IoCounters {
             blks_hit: (after.0.saturating_sub(self.before.0) as u64)
                 .saturating_sub(attributed.blks_hit),
@@ -164,6 +165,18 @@ impl Trace {
         ComponentStats {
             trace: self.clone(),
             component: component.to_string(),
+            segment_id: None,
+        }
+    }
+
+    pub fn segment_component(
+        &self,
+        segment_id: SegmentId,
+        component: &SegmentComponent,
+    ) -> ComponentStats {
+        ComponentStats {
+            segment_id: Some(segment_id),
+            ..self.component(component)
         }
     }
 
@@ -200,7 +213,21 @@ impl Trace {
     pub fn end_segment(&self, segment_id: SegmentId) {
         let mut data = self.0.lock();
         let current = std::mem::take(&mut data.current);
-        data.per_segment.push((segment_id, current));
+        let segment = data.per_segment.entry(segment_id).or_default();
+        for (target, source) in [
+            (&mut segment.components, current.components),
+            (&mut segment.stages, current.stages),
+            (
+                &mut segment.scan_init_components,
+                current.scan_init_components,
+            ),
+        ] {
+            for (name, counters) in source {
+                let slot = target.entry(name).or_default();
+                slot.blks_hit += counters.blks_hit;
+                slot.blks_read += counters.blks_read;
+            }
+        }
     }
 
     pub fn hits(&self) -> Vec<(String, u64)> {
@@ -326,25 +353,25 @@ impl ComponentStats {
             blks_read: after.1.saturating_sub(before.1) as u64,
         };
         let mut data = self.trace.0.lock();
-        let slot = data
-            .current
-            .components
-            .entry(self.component.clone())
-            .or_default();
+        let scan_init = data.scan_init;
+        let io = match self.segment_id {
+            Some(id) => data.per_segment.entry(id).or_default(),
+            None => &mut data.current,
+        };
+        let slot = io.components.entry(self.component.clone()).or_default();
         slot.blks_hit += delta.blks_hit;
         slot.blks_read += delta.blks_read;
-        let stage = if data.scan_init {
+        let stage = if scan_init {
             Some("scan_init".into())
         } else {
-            current_vector_stage().name()
+            None::<&str>
         };
         if let Some(stage) = stage {
-            let slot = data.current.stages.entry(stage.into()).or_default();
+            let slot = io.stages.entry(stage.into()).or_default();
             slot.blks_hit += delta.blks_hit;
             slot.blks_read += delta.blks_read;
-            if data.scan_init {
-                let slot = data
-                    .current
+            if scan_init {
+                let slot = io
                     .scan_init_components
                     .entry(self.component.clone())
                     .or_default();
@@ -480,6 +507,45 @@ mod tests {
             assert_eq!(info[&segment][component], hits);
             assert_eq!(info[&segment]["buffer_hits"], hits);
         }
+    }
+
+    #[pgrx::pg_test]
+    fn interleaved_segment_reads_preserve_attribution() {
+        let trace = Trace::default();
+        let first = SegmentId::generate_random();
+        let second = SegmentId::generate_random();
+        let component = SegmentComponent::Custom("vec".into());
+        let a = trace.segment_component(first, &component);
+        let b = trace.segment_component(second, &component);
+        {
+            let _init = trace.begin_scan_init();
+            read_buffers(Some(&a), 2, 1);
+            read_buffers(Some(&b), 3, 2);
+            read_buffers(None, 4, 0);
+        }
+        trace.reset();
+        {
+            let _scope = trace.enter();
+            read_buffers(Some(&b), 5, 0);
+            read_buffers(Some(&a), 7, 0);
+        }
+        trace.end_segment(first);
+        let mut info = BTreeMap::from([
+            (first, serde_json::json!({})),
+            (second, serde_json::json!({})),
+        ]);
+        trace.attach(&mut info);
+        assert_eq!(info[&first]["io_vec_buffer_hits"], 9);
+        assert_eq!(info[&second]["io_vec_buffer_hits"], 8);
+        assert_eq!(info[&first]["io_vec_buffer_reads"], 1);
+        assert_eq!(info[&second]["io_vec_buffer_reads"], 2);
+        assert_eq!(info[&first]["scan_init_buffer_hits"], 6);
+        assert_eq!(info[&second]["scan_init_buffer_hits"], 3);
+        assert_eq!(info[&first]["scan_init_io_executor_buffer_hits"], 4);
+        trace.reset();
+        read_buffers(Some(&b), 11, 0);
+        trace.attach(&mut info);
+        assert_eq!(info[&second]["buffer_hits"], 11);
     }
 
     #[pgrx::pg_test]

@@ -50,6 +50,7 @@ pub(crate) enum WorkerDecisionReason {
     PerSegment,
     /// A bare document count without MVCC filtering uses the serial count fast path.
     DocumentCount,
+    GlobalVectorSearch,
     /// The row-count heuristic (`compute_nworkers`): no ANALYZE stats, or an unsorted scan with no
     /// usable cost estimate. Caps workers so each gets at least `min_rows_per_worker` rows.
     RowHeuristic,
@@ -63,6 +64,7 @@ impl std::fmt::Display for WorkerDecisionReason {
             Self::CostModelLimited => "Cost model (LIMIT)",
             Self::PerSegment => "Per-segment",
             Self::DocumentCount => "Document count",
+            Self::GlobalVectorSearch => "Global vector search",
             Self::RowHeuristic => "Row-capped",
         })
     }

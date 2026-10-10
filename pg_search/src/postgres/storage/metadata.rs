@@ -86,6 +86,9 @@ pub struct MetaPageData {
     created_by_version_patch: u16,
 
     created_at: pg_sys::TimestampTz,
+
+    /// Header block of the index-level file registry. Zero on indexes predating it.
+    index_files_start: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
@@ -123,6 +126,7 @@ impl MetaPage {
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+            metadata.index_files_start = LinkedBytesList::create_without_fsm(indexrel);
 
             metadata.created_by_version_major =
                 const { parse_version_component(env!("CARGO_PKG_VERSION_MAJOR")) };
@@ -353,23 +357,6 @@ impl MetaPage {
         LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
     }
 
-    /// Replaces persisted settings bytes for storage contract tests.
-    #[cfg(any(test, feature = "pg_test"))]
-    pub(crate) fn replace_settings_for_test(indexrel: &PgSearchRelation, bytes: &[u8]) {
-        let header = unsafe { LinkedBytesList::create_without_fsm(indexrel) };
-        let mut writer = LinkedBytesList::open(indexrel, header).writer();
-        unsafe {
-            writer.write(bytes).unwrap();
-        }
-        writer.finalize_and_write().unwrap();
-        let mut bman = BufferManager::new(indexrel);
-        let mut buffer = bman.get_buffer_mut(METAPAGE);
-        buffer
-            .page_mut()
-            .contents_mut::<MetaPageData>()
-            .settings_start = header;
-    }
-
     pub fn settings_bytes(&self) -> LinkedBytesList {
         let blockno = if self.data.settings_start == 0 {
             Self::LEGACY_SETTINGS_START
@@ -382,6 +369,13 @@ impl MetaPage {
     pub fn settings(&self) -> tantivy::Result<IndexSettings> {
         let bytes = unsafe { self.settings_bytes().read_all() };
         Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    /// The index-level file registry, absent on indexes predating it.
+    pub fn index_files_bytes(&self) -> Option<LinkedBytesList> {
+        (self.data.index_files_start != 0).then(|| {
+            LinkedBytesList::open(self.bman.buffer_access().rel(), self.data.index_files_start)
+        })
     }
 
     pub fn segment_metas(&self) -> LinkedItemList<SegmentMetaEntry> {

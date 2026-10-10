@@ -718,52 +718,10 @@ impl MergeSlot {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::api::vector_test_support::*;
     use crate::postgres::options::{
         DEFAULT_BACKGROUND_LAYER_SIZES, DEFAULT_FOREGROUND_LAYER_SIZES,
     };
     use pgrx::prelude::*;
-
-    #[pg_test]
-    fn foreground_vector_merge_skips_unsupported_storage() {
-        let indexrel = vector_metadata_fixture();
-        let oid = indexrel.oid();
-        let layer_bytes = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) }
-            .iter()
-            .map(|entry| entry.byte_size())
-            .max()
-            .unwrap();
-        drop(indexrel);
-        Spi::run(&format!("ALTER INDEX metadata_vectors_idx SET (layer_sizes='{layer_bytes} bytes',background_layer_sizes='0',mutable_segment_rows=0)")).unwrap();
-        let indexrel = PgSearchRelation::open(oid);
-        replace_vector_version(&indexrel, 3);
-        let old = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) }
-            .into_iter()
-            .filter(|entry| !entry.is_deleted())
-            .map(|entry| entry.segment_id())
-            .collect::<Vec<_>>();
-        Spi::run(
-            "INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::vector FROM generate_series(2049,4096) g",
-        ).unwrap();
-        let current = unsafe { MetaPage::open(&indexrel).segment_metas().list(None) };
-        assert!(old.iter().all(|id| {
-            current
-                .iter()
-                .any(|entry| entry.segment_id() == *id && !entry.is_deleted())
-        }));
-        assert!(WARNED_VECTOR_INDEXES.with(|warned| warned.borrow().contains(&oid)));
-        // A repeated write keeps the same backend warning state while skipping the unsupported segment.
-        Spi::run("UPDATE metadata_vectors SET vec = vec WHERE id = 4096").unwrap();
-        assert!(WARNED_VECTOR_INDEXES.with(|warned| warned.borrow().contains(&oid)));
-        expect_reindex(&vector_query());
-        drop(indexrel);
-        Spi::run("REINDEX INDEX metadata_vectors_idx").unwrap();
-        Spi::run(&vector_query()).unwrap();
-        assert_eq!(
-            Spi::get_one::<i64>("SELECT count(*) FROM metadata_vectors").unwrap(),
-            Some(4096)
-        );
-    }
 
     enum LayerSizes {
         Default,

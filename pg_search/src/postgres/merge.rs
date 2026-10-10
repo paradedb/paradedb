@@ -184,7 +184,24 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
             });
         }
 
-        let target_segment_count = index_options.target_segment_count();
+        Self::new(
+            index_options.foreground_layer_sizes(),
+            index_options.background_layer_sizes(),
+            segment_cnt,
+            index_byte_size,
+            index_options.target_segment_count(),
+        )
+    }
+}
+
+impl IndexLayerSizes {
+    fn new(
+        foreground_layer_sizes: Vec<u64>,
+        mut background_layer_sizes: Vec<u64>,
+        segment_cnt: usize,
+        index_byte_size: u64,
+        target_segment_count: usize,
+    ) -> Self {
         let mut target_segment_byte_size = index_byte_size / target_segment_count as u64;
 
         // reduce by a third, which is what the LayeredMergePolicy does
@@ -211,8 +228,6 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         //
         // why? the 100mb layer gets excluded because the target segment size is 20mb
 
-        let foreground_layer_sizes = index_options.foreground_layer_sizes();
-        let mut background_layer_sizes = index_options.background_layer_sizes();
         let has_bg_layers = !background_layer_sizes.is_empty();
 
         if segment_cnt <= target_segment_count {
@@ -231,6 +246,16 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
             //      the user's configuration and not try to do anything clever.
             // // ensure the background layer sizes can merge down to the target segment size
             // background_layer_sizes.push(target_segment_byte_size);
+
+            // if even the smallest layer is larger than the target segment size, the clamp leaves
+            // nothing to merge into and segments pile up well past `target_segment_count`.  this
+            // happens to small indexes on hosts with many cores, where the default
+            // `target_segment_count` is large.  merge up to the target segment size instead: it's
+            // smaller than every configured layer, so it can't cause the large merges the NB above
+            // is about
+            if background_layer_sizes.is_empty() && target_segment_byte_size > 0 {
+                background_layer_sizes.push(target_segment_byte_size);
+            }
         }
 
         // NB:  it's possible a user could configure "layer_sizes = '10TB'" or something ridiculous
@@ -245,9 +270,7 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
             background_layer_sizes,
         }
     }
-}
 
-impl IndexLayerSizes {
     fn user_configured_background_layers(&self) -> bool {
         self.user_configured_bg_layers
     }
@@ -852,6 +875,61 @@ mod tests {
         let index = PgSearchRelation::open(index_oid);
         let layer_sizes = index.options().background_layer_sizes();
         assert_eq!(layer_sizes, DEFAULT_BACKGROUND_LAYER_SIZES.to_vec());
+    }
+
+    #[pg_test]
+    fn test_layer_sizes_clamped_to_target_segment_size() {
+        // 200mb over 10 segments: the target segment size is ~13.3mb, so the 100mb layer goes
+        let layers = IndexLayerSizes::new(
+            vec![],
+            vec![1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024],
+            20,
+            200 * 1024 * 1024,
+            10,
+        );
+        assert_eq!(
+            layers.background_layer_sizes,
+            vec![1024 * 1024, 10 * 1024 * 1024]
+        );
+    }
+
+    #[pg_test]
+    fn test_layer_sizes_clamped_away_merge_to_target_segment_size() {
+        // 4.5mb of single-row segments with a target of 224 segments: the target segment size is
+        // ~14kb, below every default layer, so merge up to it rather than not merging at all
+        let layers = IndexLayerSizes::new(
+            vec![],
+            DEFAULT_BACKGROUND_LAYER_SIZES.to_vec(),
+            3438,
+            4_739_219,
+            224,
+        );
+        let target_segment_byte_size = 4_739_219 / 224 - 4_739_219 / 224 / 3;
+        assert_eq!(
+            layers.background_layer_sizes,
+            vec![target_segment_byte_size]
+        );
+        assert_eq!(layers.combined(), vec![target_segment_byte_size]);
+    }
+
+    #[pg_test]
+    fn test_layer_sizes_at_target_segment_count() {
+        let layers = IndexLayerSizes::new(
+            vec![],
+            DEFAULT_BACKGROUND_LAYER_SIZES.to_vec(),
+            224,
+            4_739_219,
+            224,
+        );
+        assert!(layers.background_layer_sizes.is_empty());
+        assert!(layers.user_configured_background_layers());
+    }
+
+    #[pg_test]
+    fn test_layer_sizes_background_merging_disabled() {
+        let layers = IndexLayerSizes::new(vec![], vec![], 3438, 4_739_219, 224);
+        assert!(layers.background_layer_sizes.is_empty());
+        assert!(!layers.user_configured_background_layers());
     }
 
     #[pg_test]

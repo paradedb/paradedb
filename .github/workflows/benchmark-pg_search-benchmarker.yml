@@ -132,6 +132,9 @@ jobs:
         working-directory: benchmarker
         run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
 
+      - name: Install HN index definition
+        run: cp benchmarks/datasets/hn-ci/post.sql benchmarker/datasets/hn-ci/paradedb/post.sql
+
       - name: Start database
         working-directory: benchmarker/datasets/${{ env.DATASET }}
         env:
@@ -152,35 +155,52 @@ jobs:
           docker restart paradedb
           docker compose up -d --wait
 
-      - name: Run k6 scripts
+      - name: Verify HN fixtures and plans
+        run: |
+          set -euo pipefail
+          python3 benchmarks/datasets/hn-ci/preflight.py > hn-preflight.sql
+          docker exec -i paradedb psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 < hn-preflight.sql
+
+      - name: Run HN Top-K workloads
         working-directory: benchmarker
         env:
+          PREFLIGHT_DONE: "1"
           BENCHMARKER_META: >-
             {"commit":"${{ steps.build_image.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
           root="$PWD"
+          workload="$GITHUB_WORKSPACE/benchmarks/datasets/hn-ci"
           mkdir -p results
-          scripts=("$root/datasets/${DATASET}/k6/"*.js)
-          if [ ${#scripts[@]} -eq 0 ]; then
-            echo "No k6 scripts found under datasets/${DATASET}/k6/" >&2
-            exit 1
-          fi
-          for script in "${scripts[@]}"; do
-            name="$(basename "$script" .js)"
-            # Warm-up pass (discarded) fills page cache + shared_buffers; the
-            # second pass is the measured, exported one.
+          mapfile -t scenarios < <(jq -r '.scenarios[].name' "$workload/fixtures.json")
+          for scenario in "${scenarios[@]}"; do
+            export SCENARIO="$scenario"
+            name="$scenario"
+            if [ "$scenario" = single_topk ]; then name=topk; fi
+            duration="$(jq -r --arg name "$scenario" '.scenarios[] | select(.name == $name) | .measurement_seconds' "$workload/fixtures.json")"
             echo "== warming ${name} (discarded) =="
-            ( cd "$root/results" && taskset -c 5-7 "$root/k6" run "$script" >/dev/null )
-            echo "== measuring ${name} =="
-            ( cd "$root/results" && taskset -c 5-7 "$root/k6" run --out dashboard=json,html "$script" )
-            dashboard_json=("$root"/results/dashboard_*.json)
-            dashboard_html=("$root"/results/dashboard_*.html)
-            if [ ${#dashboard_json[@]} -ne 1 ] || [ ${#dashboard_html[@]} -ne 1 ]; then
-              echo "Expected one JSON and HTML dashboard for ${name}" >&2
-              exit 1
-            fi
+            ( cd "$root/results" && DURATION=30s taskset -c 5-7 "$root/k6" run "$workload/topk.js" >/dev/null )
+            for attempt in 1 2 3; do
+              echo "== measuring ${name} (${duration}s) =="
+              ( cd "$root/results" && DURATION="${duration}s" taskset -c 5-7 "$root/k6" run --out dashboard=json,html "$workload/topk.js" )
+              dashboard_json=("$root"/results/dashboard_*.json)
+              dashboard_html=("$root"/results/dashboard_*.html)
+              if [ ${#dashboard_json[@]} -ne 1 ] || [ ${#dashboard_html[@]} -ne 1 ]; then
+                echo "Expected one JSON and HTML dashboard for ${name}" >&2
+                exit 1
+              fi
+              count="$(jq '[.runs[].queries[].latencies | length] | add // 0' "${dashboard_json[0]}")"
+              jq -e '[.runs[].queries[].hitCounts[]] | length > 0 and min > 0' "${dashboard_json[0]}" >/dev/null
+              if [ "$count" -ge 80 ]; then break; fi
+              if [ "$attempt" -eq 3 ] || [ "$count" -eq 0 ]; then
+                echo "Insufficient fixture coverage for ${name}: ${count} queries" >&2
+                exit 1
+              fi
+              mkdir -p "$root/coverage-retries/${name}/${attempt}"
+              mv "${dashboard_json[0]}" "${dashboard_html[0]}" "$root/coverage-retries/${name}/${attempt}/"
+              duration="$(( (duration * 120 + count - 1) / count ))"
+            done
             mv "${dashboard_json[0]}" "$root/results/${name}.json"
             mv "${dashboard_html[0]}" "$root/results/${name}.html"
           done

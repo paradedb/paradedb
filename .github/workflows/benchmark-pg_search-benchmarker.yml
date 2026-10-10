@@ -1,423 +1,89 @@
-# Benchmark pg_search (Benchmarker)
-#
-# Runs the benchmarker suite on hn-ci, stackexchange, and wikipedia, indexing
-# with a pg_search compiled from this repo's source and overlaid onto a
-# released ParadeDB image. StackExchange and Wikipedia use their native
-# workloads from benchmarker dataset prefixes in S3. Heap-backed runs exclude
-# the compressed source CSV and download only their small configuration files.
-
 name: Benchmark pg_search (Benchmarker)
-
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/actions/build-paradedb-image/**"
-      - ".github/actions/publish-benchmarker-results/**"
-      - ".github/actions/setup-benchmarker/**"
-      - ".github/workflows/benchmark-pg_search-benchmarker.yml"
-      - "docker/Dockerfile.source"
-      - "Cargo.lock"
-      - "**/*.rs"
-      - "**/*.toml"
-  pull_request:
-    types: [labeled] # Opt in with `benchmark-benchmarker` (all) or `benchmark-benchmarker-{hn,stackexchange,wikipedia}`.
   workflow_dispatch:
-    inputs:
-      dataset:
-        description: "Which dataset(s) to benchmark: 'all', 'hn-ci', 'stackexchange', or 'wikipedia'."
-        required: false
-        type: string
-        default: "all"
-      commit:
-        description: "pg_search commit/ref to benchmark. Defaults to the triggering ref (main on a manual run)."
-        required: false
-        default: ""
-      benchmarker_hn_ref:
-        description: "benchmarker repo ref for hn-ci (branch/tag/SHA)."
-        required: false
-        default: "main"
-      benchmarker_stackexchange_repo:
-        description: "benchmarker repo to clone for stackexchange."
-        required: false
-        default: "paradedb/benchmarker"
-      benchmarker_stackexchange_ref:
-        description: "benchmarker repo ref for stackexchange (branch/tag/SHA)."
-        required: false
-        default: "main"
-      benchmarker_wikipedia_repo:
-        description: "benchmarker repo to clone for wikipedia."
-        required: false
-        default: "paradedb/benchmarker"
-      benchmarker_wikipedia_ref:
-        description: "benchmarker repo ref for wikipedia (branch/tag/SHA)."
-        required: false
-        default: "main"
-      base_paradedb_image:
-        description: "Released ParadeDB image whose pg_search is overwritten with the source build. Defaults to the rolling latest-pg18 tag."
-        required: false
-        default: "paradedb/paradedb:latest-pg18"
-
 permissions:
-  contents: write # github-action-benchmark pushes to the gh-pages branch
-  pull-requests: write # comment benchmark alerts on PRs
-
-# No concurrency group: let every run complete and append to gh-pages history.
-
+  contents: read
 jobs:
-  benchmark-hn:
-    name: Benchmarker (hn-ci)
+  diagnose:
+    name: Wikipedia OR plan diagnostics
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
+      - family=c8gd.metal-24xl
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
-      # No EBS volume: on-machine NVMe avoids run-to-run variance.
-    if: >-
-      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hn-ci' || inputs.dataset == '')) ||
-      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hn'))
-    env:
-      DATASET: hn-ci
-      DATASET_S3: s3://paradedb-benchmarker/datasets/hn-ci.tar.gz
-      IMAGE_TAG: paradedb-source:ci
-
+      - extras=s3-cache
     steps:
-      # The label triggers this run; remove it so it can be re-applied to re-run.
-      - name: Maybe Remove Label
-        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hn')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr edit "${PR_NUMBER}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --remove-label benchmark-benchmarker \
-            --remove-label benchmark-benchmarker-hn || true
-
-      - name: Determine Ref to Benchmark
-        id: determine-ref
-        env:
-          INPUTS_COMMIT: ${{ inputs.commit }}
-        run: |
-          # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
-          # commit, or the commit pushed to main).
-          if [ -n "${INPUTS_COMMIT}" ]; then
-            echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout Workflow
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-
-      - name: Build ParadeDB Image
-        id: build_image
-        uses: ./.github/actions/build-paradedb-image
+      - uses: ./.github/actions/build-paradedb-image
         with:
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          base_image: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
-          image_tag: ${{ env.IMAGE_TAG }}
-
-      - name: Set Up Benchmarker
-        uses: ./.github/actions/setup-benchmarker
+          ref: bfdc35755517d17c0fd136490c2d88cbed9dbc05
+          image_tag: bitmap-main:diagnostics
+      - uses: ./.github/actions/build-paradedb-image
         with:
-          repository: paradedb/benchmarker
-          ref: ${{ inputs.benchmarker_hn_ref || 'main' }}
-
-      - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)
+          ref: e049dbae43a62dd80baaf18904b54e033488e82c
+          image_tag: two-term:diagnostics
+      - uses: ./.github/actions/setup-benchmarker
+        with:
+          ref: 8e48aa849bec45df13a3d3f4da0e78e95e891dbd
+      - name: Pull Wikipedia config
         working-directory: benchmarker
-        run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
-
-      - name: Start database
-        working-directory: benchmarker/datasets/${{ env.DATASET }}
-        env:
-          PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
-          COMPOSE_PROFILES: paradedb
-        run: docker compose up -d --wait
-
-      - name: Load data (paradedb)
-        working-directory: benchmarker
-        run: ./bin/loader load --backend paradedb "./datasets/${DATASET}"
-
-      - name: Restart database for a clean start
-        working-directory: benchmarker/datasets/${{ env.DATASET }}
-        env:
-          PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
-          COMPOSE_PROFILES: paradedb
-        run: |
-          docker restart paradedb
-          docker compose up -d --wait
-
-      - name: Run k6 scripts
-        working-directory: benchmarker
-        env:
-          BENCHMARKER_META: >-
-            {"commit":"${{ steps.build_image.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          root="$PWD"
-          mkdir -p results
-          scripts=("$root/datasets/${DATASET}/k6/"*.js)
-          if [ ${#scripts[@]} -eq 0 ]; then
-            echo "No k6 scripts found under datasets/${DATASET}/k6/" >&2
-            exit 1
-          fi
-          for script in "${scripts[@]}"; do
-            name="$(basename "$script" .js)"
-            # Warm-up pass (discarded) fills page cache + shared_buffers; the
-            # second pass is the measured, exported one.
-            echo "== warming ${name} (discarded) =="
-            ( cd "$root/results" && taskset -c 5-7 "$root/k6" run "$script" >/dev/null )
-            echo "== measuring ${name} =="
-            ( cd "$root/results" && taskset -c 5-7 "$root/k6" run --out dashboard=json,html "$script" )
-            dashboard_json=("$root"/results/dashboard_*.json)
-            dashboard_html=("$root"/results/dashboard_*.html)
-            if [ ${#dashboard_json[@]} -ne 1 ] || [ ${#dashboard_html[@]} -ne 1 ]; then
-              echo "Expected one JSON and HTML dashboard for ${name}" >&2
-              exit 1
-            fi
-            mv "${dashboard_json[0]}" "$root/results/${name}.json"
-            mv "${dashboard_html[0]}" "$root/results/${name}.html"
-          done
-
-      - name: Dump database logs on failure
-        if: failure() || cancelled()
-        run: |
-          echo "== Docker containers =="
-          docker ps -a || true
-          echo "== ParadeDB container logs =="
-          docker logs --tail 200 "$(docker ps -aq --filter "name=paradedb" | head -1)" || true
-          echo "== Kernel dmesg (OOM / Segfault) =="
-          sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
-
-      - name: Publish Benchmarker Results
-        if: success()
-        uses: ./.github/actions/publish-benchmarker-results
-        with:
-          dataset: ${{ env.DATASET }}
-          short_commit: ${{ steps.build_image.outputs.short_commit }}
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          image_tag: ${{ env.IMAGE_TAG }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          pr_number: ${{ github.event.pull_request.number }}
-          auto_push: ${{ github.ref == 'refs/heads/main' }}
-
-  benchmark-datasets:
-    name: Benchmarker (${{ matrix.dataset }})
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - retry=when-interrupted
-      - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
-      - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
-      # No EBS volume: on-machine NVMe avoids run-to-run variance.
-    if: >-
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == 'wikipedia' || inputs.dataset == '')) ||
-      (github.event_name == 'pull_request' && (github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
-    strategy:
-      fail-fast: false
-      matrix:
-        dataset: >-
-          ${{ fromJSON(
-            (inputs.dataset == 'stackexchange' || github.event.label.name == 'benchmark-benchmarker-stackexchange') && '["stackexchange"]' ||
-            (inputs.dataset == 'wikipedia' || github.event.label.name == 'benchmark-benchmarker-wikipedia') && '["wikipedia"]' ||
-            '["stackexchange", "wikipedia"]'
-          ) }}
-    env:
-      DATASET: ${{ matrix.dataset }}
-      DATASET_CONFIG_S3: s3://paradedb-benchmarker/datasets/${{ matrix.dataset }}/
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
-      SNAPSHOT_PREFIX: snapshots/benchmarker
-      IMAGE_TAG: paradedb-source:ci
-
-    steps:
-      - name: Initialize Environment
-        run: echo "VOLUME_ROOT=${RUNNER_TEMP}/volumes" >> "$GITHUB_ENV"
-
-      # The label triggers this run; remove it so it can be re-applied to re-run.
-      - name: Maybe Remove Label
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr edit "${PR_NUMBER}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --remove-label benchmark-benchmarker \
-            --remove-label "benchmark-benchmarker-${DATASET}" || true
-
-      - name: Determine Ref to Benchmark
-        id: determine-ref
-        env:
-          INPUTS_COMMIT: ${{ inputs.commit }}
-        run: |
-          # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
-          # commit, or the commit pushed to main).
-          if [ -n "${INPUTS_COMMIT}" ]; then
-            echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout Workflow
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Build ParadeDB Image
-        id: build_image
-        uses: ./.github/actions/build-paradedb-image
-        with:
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          base_image: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
-          image_tag: ${{ env.IMAGE_TAG }}
-
-      - name: Set Up Benchmarker
-        uses: ./.github/actions/setup-benchmarker
-        with:
-          repository: ${{ inputs[format('benchmarker_{0}_repo', matrix.dataset)] || 'paradedb/benchmarker' }}
-          ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'main' }}
-
-      - name: Pull ${{ env.DATASET }} benchmark config (public S3, anonymous)
-        working-directory: benchmarker
-        run: |
-          set -euo pipefail
-          ./bin/loader pull \
-            --dataset _ci_config \
-            --anonymous \
-            --source "${DATASET_CONFIG_S3}" \
-            --exclude data.csv.gz
-
-          dataset_dir="datasets/_ci_config"
-          test -f "${dataset_dir}/docker-compose.yml"
-          test -f "${dataset_dir}/k6/search.js"
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        run: ./bin/loader pull --dataset _ci_config --anonymous --source s3://paradedb-benchmarker/datasets/wikipedia/ --exclude data.csv.gz
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
-
-      - name: Restore ${{ env.DATASET }} Heap Snapshot
+      - name: Restore Wikipedia heap
         run: |
           set -euo pipefail
-          mkdir -p "${VOLUME_ROOT}"
-          s3_src="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_PREFIX}/${DATASET}/heap.tar.zst"
-          echo "Downloading heap snapshot from ${s3_src}..."
-          aws s3 cp "${s3_src}" "${RUNNER_TEMP}/heap.tar.zst"
-
-          target_dir="${VOLUME_ROOT}/bench-datasets-${DATASET}/paradedb"
-          mkdir -p "${target_dir}"
-          echo "Extracting heap to ${target_dir}..."
-          sudo tar -I zstd -xf "${RUNNER_TEMP}/heap.tar.zst" -C "${target_dir}"
-          rm -f "${RUNNER_TEMP}/heap.tar.zst"
-
-      - name: Build ${{ env.DATASET }} index with ${{ env.IMAGE_TAG }}
-        working-directory: benchmarker/datasets/_ci_config
+          echo "VOLUME_ROOT=${RUNNER_TEMP}/volumes" >> "$GITHUB_ENV"
+          mkdir -p "${RUNNER_TEMP}/volumes/paradedb" results
+          aws s3 cp s3://paradedb-ci-benchmarks/snapshots/benchmarker/wikipedia/heap.tar.zst "${RUNNER_TEMP}/heap.tar.zst"
+          sudo tar -I zstd -xf "${RUNNER_TEMP}/heap.tar.zst" -C "${RUNNER_TEMP}/volumes/paradedb"
+          rm "${RUNNER_TEMP}/heap.tar.zst"
+      - name: Compare both binaries on both index builds
         env:
-          PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
-          PARADEDB_DATA_DIR: ${{ env.VOLUME_ROOT }}/bench-datasets-${{ matrix.dataset }}/paradedb
-          PARADEDB_CONTAINER: paradedb
           POSTGRES_CPUSET: "0-7"
           MEMORY: 64g
           EFFECTIVE_CACHE_SIZE: 48GB
+          PARADEDB_CONTAINER: paradedb
         run: |
           set -euo pipefail
-          docker compose up -d --wait --wait-timeout 300 paradedb
-          docker compose exec -T paradedb \
-            psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
-            -c "DROP EXTENSION IF EXISTS pg_search CASCADE; CREATE EXTENSION pg_search CASCADE;"
-          docker compose exec -T paradedb \
-            psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
-            < paradedb/post.sql
-          docker restart paradedb
-          docker compose up -d --wait --wait-timeout 300 paradedb
-
-      - name: Run ${{ env.DATASET }} benchmark
-        working-directory: benchmarker
-        env:
-          BENCHMARKER_META: >-
-            {"commit":"${{ steps.build_image.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
           root="$PWD"
-          mkdir -p results
-
-          run_benchmark() {
-            workload="$1"
-            style="$2"
-            echo "== Running workload=${workload} query_style=${style} =="
-            (
-              cd "$root/results"
-              taskset -c 8-11 "$root/k6" run --out dashboard=json,html \
-                -e PARADEDB_URL=postgres://postgres:postgres@127.0.0.1:5432/benchmark \
-                -e PARADEDB_CONTAINER=paradedb \
-                -e WORKLOAD="${workload}" \
-                -e QUERY_STYLE="${style}" \
-                -e VUS=1 \
-                -e WARMUP_SECONDS=30 \
-                -e DURATION_SECONDS=300 \
-                "$root/datasets/_ci_config/k6/search.js"
-            )
-            dashboard_json=("$root"/results/dashboard_*.json)
-            dashboard_html=("$root"/results/dashboard_*.html)
-            if [ ${#dashboard_json[@]} -ne 1 ] || [ ${#dashboard_html[@]} -ne 1 ]; then
-              echo "Expected one JSON and HTML dashboard for ${workload}/${style}" >&2
-              exit 1
-            fi
-            mv "${dashboard_json[0]}" "$root/results/${workload}-${style}.json"
-            mv "${dashboard_html[0]}" "$root/results/${workload}-${style}.html"
-          }
-
-          for style in conjunction disjunction phrase mixed; do
-            run_benchmark topk "${style}"
+          export PARADEDB_DATA_DIR="${VOLUME_ROOT}/paradedb"
+          cd benchmarker/datasets/_ci_config
+          for index_binary in bitmap-main two-term; do
+            export PARADEDB_IMAGE="${index_binary}:diagnostics"
+            docker compose up -d --wait --wait-timeout 300 paradedb
+            docker compose exec -T paradedb psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 -c "DROP EXTENSION IF EXISTS pg_search CASCADE; CREATE EXTENSION pg_search CASCADE;"
+            docker compose exec -T paradedb psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 < paradedb/post.sql
+            docker compose stop paradedb
+            for query_binary in bitmap-main two-term; do
+              export PARADEDB_IMAGE="${query_binary}:diagnostics"
+              docker compose up -d --wait --wait-timeout 300 paradedb
+              phase="index-${index_binary}_query-${query_binary}"
+              taskset -c 8-11 python3 "$root/.github/scripts/diagnose_wikipedia_plans.py" k6/queries.json "$root/results/${phase}"
+              for mode in auto force_custom_plan force_generic_plan; do
+                options="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote("-c plan_cache_mode="+sys.argv[1]+" -c session_preload_libraries=auto_explain -c auto_explain.log_min_duration=0 -c auto_explain.log_analyze=on -c auto_explain.log_timing=off -c auto_explain.sample_rate=0.002 -c auto_explain.log_format=json",safe=""))' "$mode")"
+                (
+                  cd "$root/results"
+                  taskset -c 8-11 "$root/benchmarker/k6" run --out dashboard=json,html \
+                    -e "PARADEDB_URL=postgres://postgres:postgres@127.0.0.1:5432/benchmark?options=${options}" \
+                    -e PARADEDB_CONTAINER=paradedb -e WORKLOAD=topk -e QUERY_STYLE=disjunction \
+                    -e VUS=1 -e WARMUP_SECONDS=5 -e DURATION_SECONDS=30 \
+                    "$root/benchmarker/datasets/_ci_config/k6/search.js" > "${phase}-${mode}.log" 2>&1
+                  mv dashboard_*.json "${phase}-${mode}.json"
+                  mv dashboard_*.html "${phase}-${mode}.html"
+                )
+              done
+              docker logs paradedb > "$root/results/${phase}-postgres.log" 2>&1
+              docker compose stop paradedb
+            done
           done
-          run_benchmark count mixed
-
-      - name: Dump database logs on failure
-        if: failure() || cancelled()
-        run: |
-          echo "== Docker containers =="
-          docker ps -a || true
-          echo "== ParadeDB container logs =="
-          docker logs --tail 200 "$(docker ps -aq --filter "name=paradedb" | head -1)" || true
-          echo "== Kernel dmesg (OOM / Segfault) =="
-          sudo dmesg -T | grep -i -E 'killed process|oom|segfault|out of memory' | tail -n 50 || true
-
-      - name: Publish Benchmarker Results
-        if: success()
-        uses: ./.github/actions/publish-benchmarker-results
+      - uses: actions/upload-artifact@v6
+        if: always()
         with:
-          dataset: ${{ env.DATASET }}
-          short_commit: ${{ steps.build_image.outputs.short_commit }}
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          image_tag: ${{ env.IMAGE_TAG }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          pr_number: ${{ github.event.pull_request.number }}
-          auto_push: ${{ github.ref == 'refs/heads/main' }}
-
-  notify-slack-on-failure:
-    name: Notify Slack on Failure
-    needs: [benchmark-hn, benchmark-datasets]
-    if: always() && (needs.benchmark-hn.result == 'failure' || needs.benchmark-datasets.result == 'failure') && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      checks: read
-    steps:
-      - name: Notify Slack on Failure (push only)
-        uses: paradedb/actions/slack-alert@v14
-        with:
-          suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
-          job_results: ${{ toJSON(needs) }}
-          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
-          title: "${{ github.workflow }} Failed"
+          name: wikipedia-or-plan-diagnostics
+          path: results/

@@ -141,8 +141,7 @@ impl HeapFieldFilter {
                 return false;
             }
 
-            let mut per_tuple_context =
-                PgMemoryContexts::For((*econtext).ecxt_per_tuple_memory);
+            let mut per_tuple_context = PgMemoryContexts::For((*econtext).ecxt_per_tuple_memory);
             per_tuple_context.reset();
 
             // Evaluate the expression within the per-tuple memory context

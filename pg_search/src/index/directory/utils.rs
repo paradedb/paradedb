@@ -229,9 +229,7 @@ pub unsafe fn save_new_metas(
                     panic!("segment id `{id}` should be in the segment meta linked list: {e}")
                 });
 
-            // we need to be in a transaction in order to delete segments
-            // this means (auto)VACUUM can't do this, but that's okay because it doesn't
-            // it only applies .delete files, which we consider as modifications
+            // Merges and VACUUM retire replaced segments inside a transaction.
             assert!(pg_sys::IsTransactionState());
 
             assert!(
@@ -267,7 +265,7 @@ pub unsafe fn save_new_metas(
     // now change things on disk
     //
 
-    // delete old entries and their corresponding files -- happens only as the result of a merge
+    // Retire entries replaced by a merge or a mutable-segment VACUUM flush.
     for (entry, blockno) in &deleted_entries {
         assert!(entry.xmax() == pg_sys::FrozenTransactionId);
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);

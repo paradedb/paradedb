@@ -817,8 +817,8 @@ impl Directory for MVCCDirectory {
         save_settings(&self.indexrel, &meta.index_settings)
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
 
-        // If there were no new segments, skip the rest of the work
-        if meta.segments.is_empty() {
+        // An empty replacement still needs to retire the previous segments.
+        if meta.segments.is_empty() && previous_meta.segments.is_empty() {
             return Ok(());
         }
 

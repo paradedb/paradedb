@@ -15,12 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::gucs::WorkMem;
 use crate::index::fast_fields_helper::FFType;
-use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
+use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState};
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::SegmentMetaEntryContent;
+use crate::postgres::storage::block::{SegmentMetaEntry, SegmentMetaEntryContent};
 use crate::postgres::storage::metadata::MetaPage;
 
 use anyhow::Result;
@@ -30,7 +33,6 @@ use std::cell::RefCell;
 use std::panic::AssertUnwindSafe;
 use std::rc::Rc;
 use tantivy::SegmentMeta;
-use tantivy::index::SegmentId;
 use tantivy::indexer::delete_queue::DeleteQueue;
 use tantivy::indexer::{DeleteOperation, SegmentEntry, advance_deletes};
 use tantivy::{Directory, DocId, Index, IndexMeta, Opstamp};
@@ -147,6 +149,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         .merge_list()
         .garbage_collect(pg_sys::ReadNextFullTransactionId());
 
+    let mutable_segments = seal_mutable_segments(&mut metadata);
     drop(cleanup_lock);
 
     let reader = SearchIndexReader::empty(&index_relation, MvccSatisfies::Vacuum)
@@ -167,7 +170,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let directory = MvccSatisfies::Vacuum.directory(&index_relation);
     let index = crate::index::open_index(directory.clone()).unwrap();
     let searchable_segment_metas = index.searchable_segment_metas().unwrap();
-    let mut did_delete = false;
+    let mut did_delete = !mutable_segments.is_empty();
 
     // We periodically poll for a pending interrupt, which raises a cancel query ERROR.
     // On PG18+, `vacuum_delay_point` requires an `is_analyze` parameter indicating whether
@@ -179,9 +182,17 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         pg_sys::vacuum_delay_point(false);
     };
 
+    flush_mutable_segments(
+        &index_relation,
+        &mutable_segments,
+        &callback,
+        &vacuum_delay_point,
+    )
+    .expect("ambulkdelete: should be able to flush mutable segments");
+
     for segment_reader in reader.segment_readers() {
         let segment_id = segment_reader.segment_id();
-        if !writer_segment_ids.contains(&segment_id) {
+        if !writer_segment_ids.contains(&segment_id) || directory.is_mutable(&segment_id) {
             // the writer doesn't have this segment reader, and that's fine
             // we open the writer and reader in separate calls so it's possible
             // for the reader, which is opened second and outside of the MergeLock,
@@ -194,47 +205,17 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             .iter()
             .find(|meta| meta.id() == segment_id)
             .unwrap_or_else(|| panic!("segment meta not found for segment_id: {segment_id:?}"));
-        let mut deleter = SegmentDeleter::open(&index_relation, &directory, segment_meta)
-            .expect("ambulkdelete: should be able to open a SegmentDeleter");
-
-        // VACUUM only needs each segment's ctids. The two segment kinds differ only in where
-        // those ctids come from and how a delete is keyed:
-        //   * immutable segments expose ctids via the materialized `ctid` fast field and are
-        //     deleted by tantivy `doc_id`;
-        //   * mutable segments record their live ctids in an in-memory add/remove log and are
-        //     deleted by `ctid`. We read them from there rather than via the fast field, since
-        //     touching the fast field would re-materialize and detoast the segment's heap rows,
-        //     racing a concurrent VACUUM (see https://github.com/paradedb/paradedb/issues/5365).
-        // Build a uniform stream of delete targets so the callback loop below is shared.
-        let targets: Box<dyn Iterator<Item = DeleteTarget> + '_> =
-            if directory.is_mutable(&segment_id) {
-                // `is_mutable` is true, so the entry exists and is mutable.
-                let entry = directory
-                    .segment_meta_entry(&segment_id)
-                    .expect("is_mutable() guarantees a loaded entry for this segment");
-                let ctids = entry
-                    .mutable_snapshot(&index_relation)
-                    .expect("is_mutable() guarantees this is a mutable segment");
-                Box::new(ctids.into_iter().map(|ctid| DeleteTarget::Ctid { ctid }))
-            } else {
-                let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
-                Box::new(
-                    (0..segment_reader.max_doc()).map(move |doc_id| DeleteTarget::DocId {
-                        ctid: ctid_ff.as_u64(doc_id).expect("ctid should be present"),
-                        doc_id,
-                    }),
-                )
-            };
-
+        let mut deleter = SegmentDeleter::open(segment_meta);
+        let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
         let mut needs_commit = false;
-        for (i, target) in targets.enumerate() {
-            if i % 100 == 0 {
+        for doc_id in 0..segment_reader.max_doc() {
+            if doc_id % 100 == 0 {
                 vacuum_delay_point();
             }
-            if callback(target.ctid()) {
+            if callback(ctid_ff.as_u64(doc_id).expect("ctid should be present")) {
                 did_delete = true;
                 needs_commit = true;
-                deleter.delete(target);
+                deleter.delete(doc_id);
             }
         }
 
@@ -287,146 +268,176 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     stats.into_pg()
 }
 
-struct SegmentDeleterImmutable {
+unsafe fn seal_mutable_segments(metadata: &mut MetaPage) -> Vec<SegmentMetaEntry> {
+    let mut metas = metadata.segment_metas();
+    if !metas
+        .list(None)
+        .iter()
+        .any(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
+    {
+        return Vec::new();
+    }
+
+    let mut sealed = metas.atomically();
+    let mut entries = sealed
+        .list(None)
+        .into_iter()
+        .filter(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
+        .collect::<Vec<_>>();
+    for entry in &mut entries {
+        sealed
+            .update_item(
+                |candidate| candidate.segment_id() == entry.segment_id(),
+                |candidate| {
+                    let SegmentMetaEntryContent::Mutable(content) = &mut candidate.content else {
+                        unreachable!();
+                    };
+                    content.frozen = true;
+                },
+            )
+            .expect("mutable segment should exist while sealing");
+        let SegmentMetaEntryContent::Mutable(content) = &mut entry.content else {
+            unreachable!();
+        };
+        content.frozen = true;
+    }
+    sealed.commit();
+    entries
+}
+
+unsafe fn flush_mutable_segments(
+    indexrel: &PgSearchRelation,
+    segments: &[SegmentMetaEntry],
+    callback: &impl Fn(u64) -> bool,
+    vacuum_delay_point: &impl Fn(),
+) -> Result<()> {
+    if segments.is_empty() {
+        return Ok(());
+    }
+
+    let writer = SerialIndexWriter::with_mvcc(
+        indexrel,
+        MvccSatisfies::Vacuum,
+        IndexWriterConfig::new(WorkMem::Tantivy.get()),
+        Default::default(),
+    )?;
+    let previous_metas = writer
+        .index
+        .load_metas()?
+        .segments
+        .into_iter()
+        .filter(|meta| segments.iter().any(|entry| entry.segment_id() == meta.id()))
+        .collect::<Vec<_>>();
+    assert_eq!(previous_metas.len(), segments.len());
+    let mut writer = writer.replacing_segments(previous_metas);
+    let heaprel = indexrel.heap_relation().expect("index should have a heap");
+    let fetch_state = HeapFetchState::new(&heaprel);
+    let expression_state = ExpressionState::new(indexrel);
+    let heaptupdesc = PgTupleDesc::from_pg_unchecked(heaprel.rd_att);
+    let schema = indexrel.schema()?;
+    let categorized_fields = schema.categorized_fields();
+    let mut fetcher = HeapDocFetcher::new(
+        &fetch_state,
+        &expression_state,
+        &heaprel,
+        &heaptupdesc,
+        categorized_fields.as_slice(),
+        indexrel.created_by_version(),
+        false,
+    );
+    let mut per_row_context = PgMemoryContexts::new("pg_search vacuum materialization");
+    for segment in segments {
+        let ctids = segment
+            .mutable_snapshot(indexrel)
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        for (i, ctid) in ctids.into_iter().enumerate() {
+            if i % 100 == 0 {
+                vacuum_delay_point();
+            }
+            // Dead tuples may already have lost their TOAST values. Never fetch them.
+            if callback(ctid) {
+                continue;
+            }
+            per_row_context.switch_to(|context| -> Result<()> {
+                if let Some(doc) = fetcher.fetch_doc(ctid) {
+                    writer.insert(doc, ctid, || {})?;
+                }
+                context.reset();
+                Ok(())
+            })?;
+        }
+    }
+    writer.commit()?;
+    Ok(())
+}
+
+struct SegmentDeleter {
     delete_queue: DeleteQueue,
     segment_entry: SegmentEntry,
     opstamp: Opstamp,
 }
 
-struct SegmentDeleterMutable {
-    indexrel: PgSearchRelation,
-    segment_id: SegmentId,
-    deleted_ctids: Vec<u64>,
-}
-
-enum SegmentDeleter {
-    Immutable(SegmentDeleterImmutable),
-    Mutable(SegmentDeleterMutable),
-}
-
-/// How a single VACUUM-visited document is keyed when recording its delete.
-///
-/// Immutable (persisted) segments are addressed by their tantivy `doc_id`; mutable segments
-/// have no materialized `doc_id` and are addressed by `ctid`. Modeling this explicitly keeps us
-/// from having to pass a meaningless placeholder `doc_id` for the mutable case.
-enum DeleteTarget {
-    DocId { ctid: u64, doc_id: DocId },
-    Ctid { ctid: u64 },
-}
-
-impl DeleteTarget {
-    fn ctid(&self) -> u64 {
-        match *self {
-            DeleteTarget::DocId { ctid, .. } | DeleteTarget::Ctid { ctid } => ctid,
-        }
-    }
-}
-
 impl SegmentDeleter {
-    pub fn open(
-        indexrel: &PgSearchRelation,
-        directory: &MVCCDirectory,
-        segment_meta: &SegmentMeta,
-    ) -> Result<Self> {
-        if directory.is_mutable(&segment_meta.id()) {
-            Ok(Self::Mutable(SegmentDeleterMutable {
-                indexrel: indexrel.clone(),
-                segment_id: segment_meta.id(),
-                deleted_ctids: Vec::default(),
-            }))
-        } else {
-            let delete_queue = DeleteQueue::default();
-            let delete_cursor = delete_queue.cursor();
-            let opstamp = segment_meta.delete_opstamp().unwrap_or_default();
-
-            // It's important to set the entry/cursor at the beginning vs. when commit() is called,
-            // because the delete cursor can only look forward
-            let segment_entry = SegmentEntry::new(segment_meta.clone(), delete_cursor, None);
-
-            Ok(Self::Immutable(SegmentDeleterImmutable {
-                delete_queue,
-                segment_entry,
-                opstamp,
-            }))
+    fn open(segment_meta: &SegmentMeta) -> Self {
+        let delete_queue = DeleteQueue::default();
+        let delete_cursor = delete_queue.cursor();
+        let opstamp = segment_meta.delete_opstamp().unwrap_or_default();
+        let segment_entry = SegmentEntry::new(segment_meta.clone(), delete_cursor, None);
+        Self {
+            delete_queue,
+            segment_entry,
+            opstamp,
         }
     }
 
-    pub fn delete(&mut self, target: DeleteTarget) {
-        match self {
-            Self::Immutable(inner) => {
-                let DeleteTarget::DocId { doc_id, .. } = target else {
-                    unreachable!("immutable segments are deleted by doc_id, not ctid");
-                };
-                inner.opstamp += 1;
-                inner.delete_queue.push(DeleteOperation::ByAddress {
-                    opstamp: inner.opstamp,
-                    segment_id: inner.segment_entry.meta().id(),
-                    doc_id,
-                });
-            }
-            Self::Mutable(inner) => inner.deleted_ctids.push(target.ctid()),
-        }
+    fn delete(&mut self, doc_id: DocId) {
+        self.opstamp += 1;
+        self.delete_queue.push(DeleteOperation::ByAddress {
+            opstamp: self.opstamp,
+            segment_id: self.segment_entry.meta().id(),
+            doc_id,
+        });
     }
 
-    pub fn commit(self, index: &Index) -> Result<Option<(SegmentMeta, SegmentMeta)>> {
-        match self {
-            Self::Immutable(mut inner) => {
-                let old_meta = inner.segment_entry.meta().clone();
-                let segment = index.segment(inner.segment_entry.meta().clone());
-                advance_deletes(segment, &mut inner.segment_entry, inner.opstamp + 1)?;
-                let new_meta = inner.segment_entry.meta().clone();
-                // [dst correctness] VACUUM delete is monotonic and same-segment: applying this
-                // VACUUM's tombstones to an immutable segment must (a) keep the same segment id and
-                // physical max_doc (advance_deletes never rewrites the segment's docs, only its .del
-                // file), and (b) never resurrect a deleted doc -- num_deleted only grows and live docs
-                // only shrink. A violation means the atomic swap would pair mismatched segments or
-                // un-delete already-dead rows (wrong results / resurrected tuples).
-                dst::observe!(|| {
-                    let old_segment_id = old_meta.id();
-                    let new_segment_id = new_meta.id();
-                    let old_max_doc = old_meta.max_doc();
-                    let new_max_doc = new_meta.max_doc();
-                    let old_num_deleted_docs = old_meta.num_deleted_docs();
-                    let new_num_deleted_docs = new_meta.num_deleted_docs();
-                    let old_num_docs = old_meta.num_docs();
-                    let new_num_docs = new_meta.num_docs();
-                    dst::assert_always!(
-                        new_segment_id == old_segment_id
-                            && new_max_doc == old_max_doc
-                            && new_num_deleted_docs >= old_num_deleted_docs
-                            && new_num_docs <= old_num_docs,
-                        "pg_search: ambulkdelete immutable delete counts are monotonic and same-segment",
-                        &::serde_json::json!({
-                            "old_segment_id": old_segment_id.to_string(),
-                            "new_segment_id": new_segment_id.to_string(),
-                            "old_max_doc": old_max_doc,
-                            "new_max_doc": new_max_doc,
-                            "old_num_deleted_docs": old_num_deleted_docs,
-                            "new_num_deleted_docs": new_num_deleted_docs,
-                            "old_num_docs": old_num_docs,
-                            "new_num_docs": new_num_docs,
-                        })
-                    );
-                });
-                Ok(Some((old_meta, new_meta)))
-            }
-            Self::Mutable(inner) => unsafe {
-                MetaPage::open(&inner.indexrel)
-                    .segment_metas()
-                    .update_item(
-                        |entry| {
-                            entry.segment_id() == inner.segment_id
-                                && matches!(entry.content, SegmentMetaEntryContent::Mutable(_))
-                        },
-                        |entry| {
-                            entry
-                                .mutable_delete_items(&inner.indexrel, inner.deleted_ctids)
-                                .expect("update_item guard not executed properly")
-                        },
-                    )?;
-                Ok(None)
-            },
-        }
+    fn commit(mut self, index: &Index) -> Result<Option<(SegmentMeta, SegmentMeta)>> {
+        let old_meta = self.segment_entry.meta().clone();
+        let segment = index.segment(self.segment_entry.meta().clone());
+        advance_deletes(segment, &mut self.segment_entry, self.opstamp + 1)?;
+        let new_meta = self.segment_entry.meta().clone();
+        // [dst correctness] VACUUM delete is monotonic and same-segment: applying this
+        // VACUUM's tombstones to an immutable segment must (a) keep the same segment id and
+        // physical max_doc (advance_deletes never rewrites the segment's docs, only its .del
+        // file), and (b) never resurrect a deleted doc -- num_deleted only grows and live docs
+        // only shrink. A violation means the atomic swap would pair mismatched segments or
+        // un-delete already-dead rows (wrong results / resurrected tuples).
+        dst::observe!(|| {
+            let old_segment_id = old_meta.id();
+            let new_segment_id = new_meta.id();
+            let old_max_doc = old_meta.max_doc();
+            let new_max_doc = new_meta.max_doc();
+            let old_num_deleted_docs = old_meta.num_deleted_docs();
+            let new_num_deleted_docs = new_meta.num_deleted_docs();
+            let old_num_docs = old_meta.num_docs();
+            let new_num_docs = new_meta.num_docs();
+            dst::assert_always!(
+                new_segment_id == old_segment_id
+                    && new_max_doc == old_max_doc
+                    && new_num_deleted_docs >= old_num_deleted_docs
+                    && new_num_docs <= old_num_docs,
+                "pg_search: ambulkdelete immutable delete counts are monotonic and same-segment",
+                &::serde_json::json!({
+                    "old_segment_id": old_segment_id.to_string(),
+                    "new_segment_id": new_segment_id.to_string(),
+                    "old_max_doc": old_max_doc,
+                    "new_max_doc": new_max_doc,
+                    "old_num_deleted_docs": old_num_deleted_docs,
+                    "new_num_deleted_docs": new_num_deleted_docs,
+                    "old_num_docs": old_num_docs,
+                    "new_num_docs": new_num_docs,
+                })
+            );
+        });
+        Ok(Some((old_meta, new_meta)))
     }
 }
 

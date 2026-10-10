@@ -5,9 +5,8 @@
 -- VACUUM's ambulkdelete used to materialize mutable segments, which re-fetches and
 -- detoasts heap rows. Concurrent with a VACUUM freeing those same TOAST chunks, that
 -- raised spurious "missing/unexpected chunk number ... in pg_toast_*" errors. VACUUM
--- now reads a mutable segment's live ctids from its own add/remove log and never
--- touches the heap, so VACUUM over toasted mutable-segment rows must succeed and still
--- reclaim dead rows.
+-- filters dead ctids before fetching survivors to flush mutable segments, so it must
+-- never detoast a tuple that its deletion callback has marked dead.
 
 DROP TABLE IF EXISTS data_docstore_vacuum;
 CREATE TABLE data_docstore_vacuum (

@@ -216,6 +216,7 @@ pub struct SerialIndexWriter {
     pub(crate) index: Index,
     pending_segment: Option<PendingSegment>,
     new_metas: Vec<SegmentMeta>,
+    replaced_metas: Option<Vec<SegmentMeta>>,
     schema: SearchIndexSchema,
     disk_guard: Option<DiskSpaceGuard>,
     logical_bounds: Option<Arc<LogicalBoundsByField>>,
@@ -319,6 +320,7 @@ impl SerialIndexWriter {
             index,
             pending_segment: Default::default(),
             new_metas: Default::default(),
+            replaced_metas: None,
             schema,
             disk_guard: None,
             logical_bounds: None,
@@ -355,6 +357,7 @@ impl SerialIndexWriter {
             index,
             pending_segment,
             new_metas: Default::default(),
+            replaced_metas: None,
             schema,
             disk_guard: None,
             logical_bounds: None,
@@ -363,6 +366,13 @@ impl SerialIndexWriter {
 
     pub fn schema(&self) -> &SearchIndexSchema {
         &self.schema
+    }
+
+    /// Defer publication until commit, atomically replacing these segments with all outputs.
+    pub(crate) fn replacing_segments(mut self, segments: Vec<SegmentMeta>) -> Self {
+        assert!(self.pending_segment.is_none() && self.new_metas.is_empty());
+        self.replaced_metas = Some(segments);
+        self
     }
 
     pub fn insert<OnFinalize: FnOnce()>(
@@ -420,8 +430,11 @@ impl SerialIndexWriter {
     }
 
     pub fn commit(mut self) -> Result<Option<(SegmentMeta, PgSearchRelation)>> {
-        self.finalize_segment(|| {})
-            .map(|segment_meta| segment_meta.map(|segment_meta| (segment_meta, self.indexrel)))
+        let segment_meta = self.finalize_segment(|| {})?;
+        if let Some(previous_metas) = self.replaced_metas.take() {
+            self.save_metas(self.new_metas.clone(), previous_metas)?;
+        }
+        Ok(segment_meta.map(|segment_meta| (segment_meta, self.indexrel)))
     }
 
     /// Intelligently create a new segment, backed by either a RamDirectory or a MVCCDirectory.
@@ -490,7 +503,9 @@ impl SerialIndexWriter {
         let previous_metas = self.new_metas.clone();
         let new_meta = finalized_segment.meta().clone();
         self.new_metas.push(new_meta.clone());
-        self.save_metas(self.new_metas.clone(), previous_metas)?;
+        if self.replaced_metas.is_none() {
+            self.save_metas(self.new_metas.clone(), previous_metas)?;
+        }
         Ok(new_meta)
     }
 

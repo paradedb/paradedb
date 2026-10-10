@@ -108,6 +108,7 @@ pub mod linked_bytes;
 pub mod linked_items;
 pub mod merge;
 pub mod metadata;
+pub mod mutable_cache;
 pub mod utils;
 mod xlog;
 

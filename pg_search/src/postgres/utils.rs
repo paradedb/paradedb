@@ -52,6 +52,15 @@ unsafe extern "C-unwind" {
     pub fn IsTransactionState() -> bool;
 }
 
+pub(crate) fn vacuum_delay_point() {
+    unsafe {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        pg_sys::vacuum_delay_point();
+        #[cfg(feature = "pg18")]
+        pg_sys::vacuum_delay_point(false);
+    }
+}
+
 /// Implements Drop that skips cleanup during panic unwinding or process exit.
 ///
 /// Because panics are used to propagate PostgreSQL errors via pgrx, it is almost never

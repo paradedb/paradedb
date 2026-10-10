@@ -15,16 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs::WorkMem;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
-use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState};
+use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{SegmentMetaEntry, SegmentMetaEntryContent};
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::vacuum_delay_point;
 
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -172,23 +171,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let searchable_segment_metas = index.searchable_segment_metas().unwrap();
     let mut did_delete = !mutable_segments.is_empty();
 
-    // We periodically poll for a pending interrupt, which raises a cancel query ERROR.
-    // On PG18+, `vacuum_delay_point` requires an `is_analyze` parameter indicating whether
-    // it is being called inside an ANALYZE query.
-    let vacuum_delay_point = || unsafe {
-        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-        pg_sys::vacuum_delay_point();
-        #[cfg(feature = "pg18")]
-        pg_sys::vacuum_delay_point(false);
-    };
-
-    flush_mutable_segments(
-        &index_relation,
-        &mutable_segments,
-        &callback,
-        &vacuum_delay_point,
-    )
-    .expect("ambulkdelete: should be able to flush mutable segments");
+    flush_mutable_segments(&index_relation, &mutable_segments, &callback)
+        .expect("ambulkdelete: should be able to flush mutable segments");
 
     for segment_reader in reader.segment_readers() {
         let segment_id = segment_reader.segment_id();
@@ -305,69 +289,36 @@ unsafe fn seal_mutable_segments(metadata: &mut MetaPage) -> Vec<SegmentMetaEntry
     entries
 }
 
-unsafe fn flush_mutable_segments(
+fn flush_mutable_segments(
     indexrel: &PgSearchRelation,
     segments: &[SegmentMetaEntry],
     callback: &impl Fn(u64) -> bool,
-    vacuum_delay_point: &impl Fn(),
 ) -> Result<()> {
-    if segments.is_empty() {
-        return Ok(());
-    }
-
-    let writer = SerialIndexWriter::with_mvcc(
-        indexrel,
-        MvccSatisfies::Vacuum,
-        IndexWriterConfig::new(WorkMem::Tantivy.get()),
-        Default::default(),
-    )?;
-    let previous_metas = writer
-        .index
-        .load_metas()?
-        .segments
-        .into_iter()
-        .filter(|meta| segments.iter().any(|entry| entry.segment_id() == meta.id()))
-        .collect::<Vec<_>>();
-    assert_eq!(previous_metas.len(), segments.len());
-    let mut writer = writer.replacing_segments(previous_metas);
-    let heaprel = indexrel.heap_relation().expect("index should have a heap");
-    let fetch_state = HeapFetchState::new(&heaprel);
-    let expression_state = ExpressionState::new(indexrel);
-    let heaptupdesc = PgTupleDesc::from_pg_unchecked(heaprel.rd_att);
-    let schema = indexrel.schema()?;
-    let categorized_fields = schema.categorized_fields();
-    let mut fetcher = HeapDocFetcher::new(
-        &fetch_state,
-        &expression_state,
-        &heaprel,
-        &heaptupdesc,
-        categorized_fields.as_slice(),
-        indexrel.created_by_version(),
-        false,
-    );
-    let mut per_row_context = PgMemoryContexts::new("pg_search vacuum materialization");
     for segment in segments {
         let ctids = segment
             .mutable_snapshot(indexrel)
             .map_err(|error| anyhow::anyhow!("{error}"))?;
-        for (i, ctid) in ctids.into_iter().enumerate() {
-            if i % 100 == 0 {
-                vacuum_delay_point();
-            }
-            // Dead tuples may already have lost their TOAST values. Never fetch them.
-            if callback(ctid) {
-                continue;
-            }
-            per_row_context.switch_to(|context| -> Result<()> {
-                if let Some(doc) = fetcher.fetch_doc(ctid) {
-                    writer.insert(doc, ctid, || {})?;
+        let live_ctids = ctids
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, ctid)| {
+                if i % 100 == 0 {
+                    vacuum_delay_point();
                 }
-                context.reset();
-                Ok(())
-            })?;
-        }
+                // Dead tuples may already have lost their TOAST values. Never fetch them.
+                (!callback(ctid)).then_some(ctid)
+            })
+            .collect();
+        let segment_id = segment.segment_id();
+        let mut merger = SearchIndexMerger::open(
+            indexrel,
+            MvccSatisfies::VacuumMerge {
+                segment_id,
+                live_ctids,
+            },
+        )?;
+        merger.merge_segments(&[segment_id])?;
     }
-    writer.commit()?;
     Ok(())
 }
 

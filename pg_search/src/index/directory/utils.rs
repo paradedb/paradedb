@@ -385,6 +385,9 @@ pub unsafe fn load_metas(
                     // vacuum sees everything that hasn't been deleted by a merge
                     || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax() == pg_sys::InvalidTransactionId)
 
+                    || (matches!(solve_mvcc, MvccSatisfies::VacuumMerge { segment_id, .. } if *segment_id == entry.segment_id())
+                        && entry.xmax() == pg_sys::InvalidTransactionId)
+
                     // a snapshot or ::LargestSegment can see any that are visible in its snapshot
                     || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment) && entry.visible())
 
@@ -418,8 +421,16 @@ pub unsafe fn load_metas(
                 return;
             }
 
+            let mut tantivy_meta = entry.as_tantivy();
+            if let MvccSatisfies::VacuumMerge { live_ctids, .. } = solve_mvcc {
+                assert!(entry.is_mutable() && entry.is_mergeable(indexrel));
+                assert!(live_ctids.len() <= entry.num_docs());
+                tantivy_meta.max_doc = live_ctids.len().try_into().expect("too many mutable CTIDs");
+            }
+
+            let tantivy_meta = tantivy_meta.track(inventory);
             total_segments += 1;
-            total_docs += entry.num_docs();
+            total_docs += tantivy_meta.num_docs() as usize;
 
             let mut need_entry = true;
             if is_largest_only {
@@ -440,7 +451,7 @@ pub unsafe fn load_metas(
             if need_entry {
                 pin_cushion.push(bman, &entry);
 
-                alive_segments.push(entry.as_tantivy().track(inventory));
+                alive_segments.push(tantivy_meta);
                 alive_entries.push(entry);
 
                 opstamp = opstamp.max(Some(entry.opstamp()));

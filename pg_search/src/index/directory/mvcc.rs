@@ -34,6 +34,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::any::Any;
+use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Debug, Display};
@@ -333,6 +334,11 @@ pub enum MvccSatisfies {
     LargestSegment,
     Snapshot,
     Vacuum,
+    /// Merge one frozen mutable segment using VACUUM's surviving CTIDs.
+    VacuumMerge {
+        segment_id: SegmentId,
+        live_ctids: Vec<u64>,
+    },
     Mergeable,
 }
 
@@ -445,6 +451,7 @@ impl MVCCDirectory {
             MvccSatisfies::LargestSegment => "largest segment",
             MvccSatisfies::Snapshot => "snapshot",
             MvccSatisfies::Vacuum => "vacuum",
+            MvccSatisfies::VacuumMerge { .. } => "vacuum merge",
             MvccSatisfies::Mergeable => "mergeable",
         }
     }
@@ -622,17 +629,16 @@ impl MVCCDirectory {
             .collect()
     }
 
-    /// Return the [`SegmentMetaEntry`] for a single loaded segment.
-    ///
-    /// Unlike [`Self::all_entries`], this avoids cloning the entire metadata map when only one
-    /// entry is needed.
-    pub(crate) fn segment_meta_entry(&self, segment_id: &SegmentId) -> Option<SegmentMetaEntry> {
+    /// Return the live document count in this directory's materialized view.
+    pub(crate) fn segment_num_docs(&self, segment_id: &SegmentId) -> Option<usize> {
         self.all_entries
             .lock()
             .get(segment_id)
             .map(|entry| match entry {
-                LoadedSegmentMetaEntry::Persisted { meta, .. }
-                | LoadedSegmentMetaEntry::Memory { meta, .. } => *meta,
+                LoadedSegmentMetaEntry::Persisted { meta, .. } => meta.num_docs(),
+                LoadedSegmentMetaEntry::Memory { tantivy_meta, .. } => {
+                    tantivy_meta.num_docs() as usize
+                }
             })
     }
 
@@ -872,7 +878,8 @@ impl Directory for MVCCDirectory {
                     let all_entries: HashMap<_, _> = loaded
                         .entries
                         .into_iter()
-                        .map(|entry| {
+                        .zip(&loaded.meta.segments)
+                        .map(|(entry, tantivy_meta)| {
                             let lsme = match entry.content {
                                 SegmentMetaEntryContent::Immutable(content) => {
                                     LoadedSegmentMetaEntry::Persisted {
@@ -883,7 +890,7 @@ impl Directory for MVCCDirectory {
                                 SegmentMetaEntryContent::Mutable(content) => {
                                     LoadedSegmentMetaEntry::Memory {
                                         meta: entry,
-                                        tantivy_meta: entry.as_tantivy().track(inventory),
+                                        tantivy_meta: tantivy_meta.clone(),
                                         entry: content,
                                         directory: Arc::new(OnceLock::default()),
                                     }
@@ -1095,9 +1102,14 @@ pub fn index_memory_segment(
     let _snapshot_guard = unsafe { ActiveSnapshotGuard::ensure() };
 
     let directory = RamDirectory::create();
-    let ctids = segment
-        .mutable_snapshot(indexrel)
-        .map_err(|e| anyhow::anyhow!("Could not snapshot mutable segment: {e}"))?;
+    let ctids = match mvcc_style {
+        MvccSatisfies::VacuumMerge { live_ctids, .. } => Cow::Borrowed(live_ctids.as_slice()),
+        _ => Cow::Owned(
+            segment
+                .mutable_snapshot(indexrel)
+                .map_err(|e| anyhow::anyhow!("Could not snapshot mutable segment: {e}"))?,
+        ),
+    };
 
     let mut writer = SerialIndexWriter::in_memory(
         indexrel,
@@ -1125,7 +1137,9 @@ pub fn index_memory_segment(
         MvccSatisfies::Snapshot
         | MvccSatisfies::ParallelWorker(_)
         | MvccSatisfies::LargestSegment => true,
-        MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
+        MvccSatisfies::Vacuum | MvccSatisfies::VacuumMerge { .. } | MvccSatisfies::Mergeable => {
+            false
+        }
     };
 
     let mut fetcher = HeapDocFetcher::new(
@@ -1138,13 +1152,23 @@ pub fn index_memory_segment(
         query_visible,
     );
 
-    for ctid in ctids {
+    let mut per_row_context = pgrx::PgMemoryContexts::new("pg_search mutable materialization");
+    for (i, &ctid) in ctids.iter().enumerate() {
+        if i % 100 == 0 && matches!(mvcc_style, MvccSatisfies::VacuumMerge { .. }) {
+            crate::postgres::utils::vacuum_delay_point();
+        }
         // A ctid with nothing to index becomes an empty document: the segment must contain
         // every ctid in the mutable snapshot.
-        let doc = unsafe { fetcher.fetch_doc(ctid) }.unwrap_or_else(tantivy::TantivyDocument::new);
-        writer.insert(doc, ctid, || {
-            unreachable!("No limits configured: should not finalize.")
-        })?;
+        unsafe {
+            per_row_context.switch_to(|context| -> anyhow::Result<()> {
+                let doc = fetcher.fetch_doc(ctid).unwrap_or_default();
+                writer.insert(doc, ctid, || {
+                    unreachable!("No limits configured: should not finalize.")
+                })?;
+                context.reset();
+                Ok(())
+            })?;
+        }
     }
 
     writer.finalize_nocommit()?.expect(

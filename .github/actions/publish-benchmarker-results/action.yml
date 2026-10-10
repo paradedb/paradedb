@@ -1,5 +1,5 @@
 name: Publish Benchmarker Results
-description: Extract latency metrics, upload dashboards, publish to gh-pages, and comment on PRs
+description: Extract latency and QPS metrics, upload dashboards, publish to gh-pages, and comment on PRs
 
 inputs:
   dataset:
@@ -20,9 +20,13 @@ inputs:
     required: false
     default: "benchmarker/results"
   metrics_file:
-    description: "Path to write extracted metrics json"
+    description: "Path to write extracted latency metrics json"
     required: false
     default: "benchmarker/benchmarker_metrics.json"
+  throughput_metrics_file:
+    description: "Path to write extracted QPS metrics json"
+    required: false
+    default: "benchmarker/benchmarker_throughput_metrics.json"
   github_token:
     description: "GitHub token for publishing and comments"
     required: true
@@ -54,6 +58,7 @@ runs:
       env:
         RESULTS_DIR: ${{ inputs.results_dir }}
         METRICS_FILE: ${{ inputs.metrics_file }}
+        THROUGHPUT_METRICS_FILE: ${{ inputs.throughput_metrics_file }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -69,32 +74,53 @@ runs:
               | ($sorted | length) as $n
               | select($n > 0)
               | ([$r.queries[]?.displayName | select(. != null)][0] // ($r.name + " (" + $nm + ")")) as $label
+              | ([$r.queries[]?.timestamps[]?]) as $timestamps
+              | if ($timestamps | length) != $n then
+                  error("Missing query timestamps for " + $label)
+                else . end
+              | ([$r.queries[]? | . as $q | range(0; .latencies | length)
+                  | $q.timestamps[.] - $q.latencies[.]] | min) as $start
+              | ((($timestamps | max) - $start) / 1000) as $seconds
+              | if $seconds <= 0 then
+                  error("Non-positive query duration for " + $label)
+                else . end
               | {
                   name: ($label + " p50 latency"),
                   unit: "ms",
                   value: $sorted[((($n - 1) * 50 / 100) | floor)]
                 },
                 {
+                  name: ($label + " p95 latency"),
+                  unit: "ms",
+                  value: $sorted[((($n - 1) * 95 / 100) | floor)]
+                },
+                {
                   name: ($label + " p99 latency"),
                   unit: "ms",
                   value: $sorted[((($n - 1) * 99 / 100) | floor)]
+                },
+                {
+                  name: ($label + " QPS"),
+                  unit: "queries/s",
+                  value: ($n / $seconds)
                 }
             ]
           ' "$j" > "_metrics/${nm}.json"
         done
 
-        mkdir -p "$(dirname "${METRICS_FILE}")"
+        mkdir -p "$(dirname "${METRICS_FILE}")" "$(dirname "${THROUGHPUT_METRICS_FILE}")"
         if compgen -G "_metrics/*.json" > /dev/null; then
-          jq -s 'add' _metrics/*.json > "${METRICS_FILE}"
+          jq -s 'add | map(select(.unit == "ms"))' _metrics/*.json > "${METRICS_FILE}"
+          jq -s 'add | map(select(.unit == "queries/s"))' _metrics/*.json > "${THROUGHPUT_METRICS_FILE}"
           echo "=== Extracted Metrics ==="
-          cat "${METRICS_FILE}"
+          cat "${METRICS_FILE}" "${THROUGHPUT_METRICS_FILE}"
         fi
 
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash
       run: rm -rf ./benchmark-data-repository
 
-    - name: Publish Latency Metrics (p50 and p99)
+    - name: Publish Latency Metrics (p50, p95, and p99)
       if: hashFiles(inputs.metrics_file) != ''
       continue-on-error: true
       uses: benchmark-action/github-action-benchmark@v1
@@ -103,6 +129,29 @@ runs:
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
         output-file-path: ${{ inputs.metrics_file }}
+        github-token: ${{ inputs.github_token }}
+        gh-repository: github.com/${{ github.repository }}
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: benchmarker
+        auto-push: ${{ inputs.auto_push == 'true' }}
+        alert-threshold: "115%"
+        comment-on-alert: true
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ inputs.pr_number != '' }}
+
+    - name: Cleanup Previous Benchmark Publish Working Directory
+      shell: bash
+      run: rm -rf ./benchmark-data-repository
+
+    - name: Publish QPS Metrics
+      if: hashFiles(inputs.throughput_metrics_file) != ''
+      continue-on-error: true
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: "benchmarker ${{ inputs.dataset }} (throughput)"
+        ref: ${{ inputs.ref }}
+        tool: customBiggerIsBetter
+        output-file-path: ${{ inputs.throughput_metrics_file }}
         github-token: ${{ inputs.github_token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
@@ -148,6 +197,8 @@ runs:
         STEP_COMMIT_INFO_SHORT_COMMIT: ${{ inputs.short_commit }}
         PR_NUMBER: ${{ inputs.pr_number }}
         DATASET: ${{ inputs.dataset }}
+        METRICS_FILE: ${{ inputs.metrics_file }}
+        THROUGHPUT_METRICS_FILE: ${{ inputs.throughput_metrics_file }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -160,11 +211,20 @@ runs:
         done
         {
           printf '### 📊 Benchmarker dashboards (%s): `%s`\n\n' "${DATASET}" "${STEP_COMMIT_INFO_SHORT_COMMIT}"
+          printf '| Workload | p95 latency (ms) | QPS |\n|---|---:|---:|\n'
+          jq -nr --slurpfile latency "${METRICS_FILE}" --slurpfile throughput "${THROUGHPUT_METRICS_FILE}" '
+            $throughput[0][] as $qps
+            | ($qps.name | rtrimstr(" QPS")) as $label
+            | ($latency[0][] | select(.name == ($label + " p95 latency"))) as $p95
+            | "| \($label) | \($p95.value) | \($qps.value * 100 | round / 100) |"
+          '
+          printf '\n'
           printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
           printf '%s\n' "$links"
-          printf 'Over-time tracking (p50 + p99 latency across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
+          printf 'Over-time tracking (p50, p95, p99 latency and QPS across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
           printf '_gh-pages may take ~a minute to deploy after this run._\n'
         } > _comment.md
+        cat _comment.md >> "${GITHUB_STEP_SUMMARY}"
         gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file _comment.md
 
     - name: Fail if no metrics were extracted

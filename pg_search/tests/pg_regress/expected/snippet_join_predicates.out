@@ -68,9 +68,9 @@ ORDER BY b.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+---------------------+------------------+--------------+------------
-       1 | J.K. <b>Rowling</b> | {{5,12}}         |    2.3862944 | 0.20342469
-       2 |                     |                  |            1 | 0.13515766
-       3 | J.K. <b>Rowling</b> | {{5,12}}         |    2.3862944 |  0.2152619
+       1 | J.K. <b>Rowling</b> | {{5,12}}         |    3.3862944 | 0.20342469
+       2 |                     |                  |            2 | 0.13515766
+       3 | J.K. <b>Rowling</b> | {{5,12}}         |    3.3862944 |  0.2152619
 (3 rows)
 
 -- For comparison, show a working case where predicates can be pushed down
@@ -85,7 +85,7 @@ WHERE a.name ||| 'Rowling' AND a.age > 50
 ORDER BY a.id;
  author_id |   author_snippet    | author_positions | author_score 
 -----------+---------------------+------------------+--------------
-         1 | J.K. <b>Rowling</b> | {{5,12}}         |    1.3862944
+         1 | J.K. <b>Rowling</b> | {{5,12}}         |    2.3862944
 (1 row)
 
 -- Show another working case with books
@@ -134,9 +134,9 @@ ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  |   author_snippet    |                                      content_snippet                                      | author_positions |     content_positions     | author_score | book_score 
 ---------+--------------+---------------------+-------------------------------------------------------------------------------------------+------------------+---------------------------+--------------+------------
-       1 | J.K. Rowling | J.K. <b>Rowling</b> | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {{5,12}}         | {{10,14},{15,19},{58,62}} |    2.3862944 | 0.20342469
-       2 | Stephen King |                     | Another <b>test</b> of the snippet snippet function with repeated snippet words           |                  | {{8,12}}                  |            1 | 0.13515766
-       3 | J.K. Rowling | J.K. <b>Rowling</b> | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {{5,12}}         | {{12,16},{17,21},{22,26}} |    2.3862944 |  0.2152619
+       1 | J.K. Rowling | J.K. <b>Rowling</b> | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {{5,12}}         | {{10,14},{15,19},{58,62}} |    3.3862944 | 0.20342469
+       2 | Stephen King |                     | Another <b>test</b> of the snippet snippet function with repeated snippet words           |                  | {{8,12}}                  |            2 | 0.13515766
+       3 | J.K. Rowling | J.K. <b>Rowling</b> | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {{5,12}}         | {{12,16},{17,21},{22,26}} |    3.3862944 |  0.2152619
 (3 rows)
 
 -- Additional test: Show that score functions work (they use placeholder mechanism)
@@ -154,9 +154,9 @@ ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
-       1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3862944 | 0.20342469
-       2 | Stephen King |                     |            1 | 0.13515766
-       3 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3862944 |  0.2152619
+       1 | J.K. Rowling | J.K. <b>Rowling</b> |    3.3862944 | 0.20342469
+       2 | Stephen King |                     |            2 | 0.13515766
+       3 | J.K. Rowling | J.K. <b>Rowling</b> |    3.3862944 |  0.2152619
 (3 rows)
 
 -- Test with different join types to see if the issue persists
@@ -174,9 +174,9 @@ ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
-       1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3862944 | 0.20342469
-       2 | Stephen King |                     |            1 | 0.13515766
-       3 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3862944 |  0.2152619
+       1 | J.K. Rowling | J.K. <b>Rowling</b> |    3.3862944 | 0.20342469
+       2 | Stephen King |                     |            2 | 0.13515766
+       3 | J.K. Rowling | J.K. <b>Rowling</b> |    3.3862944 |  0.2152619
 (3 rows)
 
 -- Cleanup

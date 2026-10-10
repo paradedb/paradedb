@@ -1,7 +1,7 @@
 SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
-SET paradedb.vector_clustering_threshold = 64;
+SET paradedb.vector_min_training_rows = 1;
 SET paradedb.vector_cluster_max_probe = 1.0;
 
 CREATE TABLE training_ratio_options (id integer PRIMARY KEY, vec vector(3));

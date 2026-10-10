@@ -329,6 +329,7 @@ LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_error_audit_internal_wrapper';
 "#
 )]
+#[allow(clippy::type_complexity)]
 fn vector_error_audit_internal(
     index: Option<PgRelation>,
     field: Option<String>,
@@ -583,6 +584,7 @@ LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_error_cone_audit_internal_wrapper';
 "#
 )]
+#[allow(clippy::type_complexity)]
 fn vector_error_cone_audit_internal(
     index: Option<PgRelation>,
     field: Option<String>,
@@ -1214,7 +1216,7 @@ pub(crate) mod test_support {
     use crate::postgres::storage::metadata::MetaPage;
     pub(crate) fn vector_metadata_fixture() -> PgSearchRelation {
         Spi::run("CREATE EXTENSION IF NOT EXISTS vector;
-            SET paradedb.vector_clustering_threshold = 64;
+            SET paradedb.vector_min_training_rows = 1;
             CREATE TABLE metadata_vectors(id int PRIMARY KEY, vec vector(1024));
             INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
                 FROM generate_series(1,1024) i)::vector FROM generate_series(1,2048) g;

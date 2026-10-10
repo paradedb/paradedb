@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
-SET paradedb.vector_clustering_threshold = 64;
+SET paradedb.vector_min_training_rows = 1;
 SET paradedb.vector_cluster_max_probe = 1.0;
 CREATE TABLE training_ratio_options (id integer PRIMARY KEY, vec vector(3));
 INSERT INTO training_ratio_options

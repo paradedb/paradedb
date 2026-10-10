@@ -394,6 +394,7 @@ fn index_info(
 /// aligns with [`index_info`]'s so the two can be joined.
 ///
 /// The cluster columns are IVF-only (`NULL` for flat segments).
+/// Each vector belongs to one cluster.
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(
@@ -475,9 +476,9 @@ fn vector_info(
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
                 field.clone(),
-                match info.format {
-                    tantivy::vector::VectorStorageFormat::Flat => "flat",
-                    tantivy::vector::VectorStorageFormat::Ivf => "ivf",
+                match cluster_stats {
+                    None => "flat",
+                    Some(_) => "ivf",
                 }
                 .to_string(),
                 info.num_vectors.into(),

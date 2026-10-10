@@ -14,6 +14,8 @@
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Tiny fixtures: lower the centroid-training floor.
+SET paradedb.vector_min_training_rows = 1;
 
 CREATE TABLE vsp (
     id    int PRIMARY KEY,
@@ -39,6 +41,35 @@ CREATE INDEX vsp_idx ON vsp
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+
+-- Reopened vector indexes use RNG and remain serial with parallelism enabled.
+SET max_parallel_workers_per_gather = 8;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET min_parallel_table_scan_size = 0;
+DO $$
+DECLARE
+    plan jsonb;
+    routing jsonb;
+BEGIN
+    EXECUTE $query$
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON, COSTS OFF, TIMING OFF)
+        SELECT id FROM vsp WHERE id @@@ pdb.all()
+        ORDER BY vec <-> '[1,0,0]' LIMIT 2
+    $query$ INTO plan;
+    routing := (jsonb_path_query_first(plan, '$.**."Vector Search"') #>> '{}')::jsonb->'routing';
+    IF routing->>'kind' IS DISTINCT FROM 'rng' THEN
+        RAISE EXCEPTION 'unexpected global router: %', routing;
+    END IF;
+    IF jsonb_path_exists(plan, '$.** ? (@."Node Type" == "Gather" || @."Node Type" == "Gather Merge" || @."Parallel Aware" == true)') THEN
+        RAISE EXCEPTION 'vector search must remain serial: %', plan;
+    END IF;
+END;
+$$;
+RESET max_parallel_workers_per_gather;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET min_parallel_table_scan_size;
 
 -- mismatch: <=> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

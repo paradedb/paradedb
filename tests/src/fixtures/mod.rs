@@ -46,7 +46,7 @@ pub fn database() -> Db {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .try_init();
     ensure_dst_init();
-    block_on(async { Db::new().await })
+    block_on(Box::pin(Db::new()))
 }
 
 /// Render a database error the way `sqlx::Error`'s `Display` did before 0.9.

@@ -69,7 +69,7 @@ use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::{
-    DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
+    DateTime, DocAddress, DocId, DocSet, Executor, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
 };
 
@@ -146,6 +146,24 @@ pub struct TopKSearch {
     pub aggregation_results: Option<IntermediateAggregationResults>,
     /// Per-segment collector metrics.
     pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
+    /// Shared router and probe-budget statistics for the entire search.
+    pub vector_search: Option<serde_json::Value>,
+}
+
+fn probe_stats_to_json(stats: &[ProbeStats]) -> serde_json::Value {
+    let Some(stats) = stats.first() else {
+        return serde_json::json!({});
+    };
+    serde_json::json!({
+        "routing": stats.routing,
+        "routing_ns": stats.routing_ns,
+        "work_charged": stats.work_charged,
+        "work_budget": stats.work_budget,
+        "termination": stats.termination,
+        "recall_estimate": stats.recall_estimate,
+        "bound_armed_count": stats.bound_armed_count,
+        "bound_armed_probe_sum": stats.bound_armed_probe_sum,
+    })
 }
 
 impl TopKSearch {
@@ -157,6 +175,7 @@ impl TopKSearch {
             results,
             aggregation_results,
             segment_info: BTreeMap::new(),
+            vector_search: None,
         }
     }
 
@@ -169,6 +188,7 @@ impl TopKSearch {
             results,
             aggregation_results,
             segment_info,
+            vector_search: None,
         }
     }
 
@@ -1661,7 +1681,7 @@ impl SearchIndexReader {
                     crate::gucs::vector_fixed_probe_cost_rows(),
                 );
                 let max_scan_levels = crate::gucs::vector_max_scan_levels();
-                let collector = TopDocs::with_limit(n)
+                let vector_search = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
@@ -1683,47 +1703,71 @@ impl SearchIndexReader {
                     tie_breaks.remove(i);
                 }
 
-                // Record only collected candidates, in the same lazy order as their fruits.
-                // Rejected segment IDs have no corresponding ProbeStats entry.
-                let collected_ids = std::cell::RefCell::new(Vec::new());
-                let readers =
-                    self.segment_readers_in_segments(segment_ids)
-                        .inspect(|(_, reader)| {
-                            collected_ids.borrow_mut().push(reader.segment_id());
-                        });
-                // Fruit is `VectorSimilarityFruit` — hits plus per-segment
-                // ProbeStats — for every tie-break shape.
+                // Vector search is ONE global probe loop across every
+                // segment of the searcher's snapshot, so it cannot ride
+                // the per-segment wrappers: window aggregates are rejected
+                // at plan time, and the parallel path never claims vector scans.
+                assert!(
+                    aux_collector.is_none(),
+                    "vector ORDER BY cannot run with an auxiliary aggregation collector; this \
+                     combination is rejected at plan time"
+                );
+                let consumed: Vec<SegmentId> = segment_ids.collect();
+                assert_eq!(
+                    consumed.len(),
+                    self.searcher.segment_readers().len(),
+                    "vector ORDER BY must run serially over the full segment snapshot"
+                );
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
-                let (fruit, aggregation_results) = match tie_break_count {
-                    0 => self.collect_maybe_auxiliary(readers, collector, aux_collector),
-                    1 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break(next()),
-                        aux_collector,
+                let enable_scoring = EnableScoring::disabled_from_searcher(&self.searcher);
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.reset();
+                }
+                let fruit = match tie_break_count {
+                    0 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search,
+                        &Executor::SingleThread,
+                        enable_scoring,
                     ),
-                    2 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break((next(), next())),
-                        aux_collector,
+                    1 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search.with_tie_break(next()),
+                        &Executor::SingleThread,
+                        enable_scoring,
                     ),
-                    3 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break((next(), next(), next())),
-                        aux_collector,
+                    2 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search.with_tie_break((next(), next())),
+                        &Executor::SingleThread,
+                        enable_scoring,
                     ),
-                    4 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break((next(), next(), next(), next())),
-                        aux_collector,
+                    3 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search.with_tie_break((next(), next(), next())),
+                        &Executor::SingleThread,
+                        enable_scoring,
+                    ),
+                    4 => self.searcher.search_with_executor(
+                        self.query(),
+                        &vector_search.with_tie_break((next(), next(), next(), next())),
+                        &Executor::SingleThread,
+                        enable_scoring,
                     ),
                     x => panic!(
                         "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1
                     ),
-                };
-                let segment_ids = collected_ids.into_inner();
+                }
+                .expect("vector search should not fail");
+                let segment_ids: Vec<_> = self
+                    .searcher
+                    .segment_readers()
+                    .iter()
+                    .map(SegmentReader::segment_id)
+                    .collect();
                 let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
                 if let Some(first_segment) = segment_ids.first()
                     && let Some(serde_json::Value::Object(stats)) =
@@ -1739,14 +1783,15 @@ impl SearchIndexReader {
                     );
                 }
                 if let Some(stats) = &self.directory.io_stats {
+                    if let Some(segment_id) = segment_ids.first() {
+                        stats.end_segment(*segment_id);
+                    }
                     stats.attach(&mut segment_info);
                 }
-                let scored_results: Vec<(SearchIndexScore, DocAddress)> = fruit
-                    .results
-                    .into_iter()
-                    .map(|(score, doc_address)| (SearchIndexScore { bm25: score }, doc_address))
-                    .collect();
-                TopKSearch::with_segment_info(scored_results, aggregation_results, segment_info)
+                let mut results = TopKSearch::new_for_score(fruit.results, None);
+                results.segment_info = segment_info;
+                results.vector_search = Some(probe_stats_to_json(&fruit.stats));
+                results
             }
         }
     }

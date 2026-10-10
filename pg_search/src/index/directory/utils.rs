@@ -19,9 +19,9 @@ use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    CTID_MAP_EXT, DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, STATS_EXT,
-    SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryImmutable, VECTOR_CENTROIDS_EXT,
-    VECTOR_VEC_EXT,
+    CTID_MAP_EXT, DeleteEntry, FileEntry, IndexFileEntry, IndexFileRegistry, LinkedList, MVCCEntry,
+    PgItem, STATS_EXT, SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryImmutable,
+    VECTOR_CENTROIDS_EXT, VECTOR_VEC_EXT,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
@@ -33,6 +33,38 @@ use tantivy::{
     index::{IndexSettings, SegmentId, SegmentMetaInventory},
     schema::Schema,
 };
+
+/// Persist the index-level file registry, write-once at index creation.
+pub fn save_index_files(
+    indexrel: &PgSearchRelation,
+    directory_entries: &mut HashMap<PathBuf, FileEntry>,
+    centroid_index: Option<&tantivy::index::CentroidIndexMeta>,
+) -> Result<()> {
+    let entries: Vec<IndexFileEntry> = directory_entries
+        .extract_if(|path, _| path.segment_id().is_none())
+        .map(|(path, file_entry)| IndexFileEntry {
+            filename: path.to_str().expect("path should be valid UTF8").to_owned(),
+            file_entry,
+        })
+        .collect();
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let bytes_list = MetaPage::open(indexrel)
+        .index_files_bytes()
+        .expect("an index writing index-level files must have a registry block");
+    if bytes_list.is_empty() {
+        let bytes = serde_json::to_vec(&IndexFileRegistry {
+            centroid_index: centroid_index.cloned(),
+            files: entries,
+        })?;
+        unsafe {
+            bytes_list.writer().write(&bytes)?;
+        }
+    }
+    Ok(())
+}
 
 pub fn save_schema(indexrel: &PgSearchRelation, tantivy_schema: &Schema) -> Result<()> {
     let schema = MetaPage::open(indexrel).schema_bytes();
@@ -509,8 +541,8 @@ pub unsafe fn load_metas(
             index_settings: metapage.settings()?,
             opstamp: opstamp.unwrap_or(0),
             payload: None,
-            // Older segments can lack these optional components; readers fall back when absent.
             persisted_custom_extensions: vec![STATS_EXT.to_string(), CTID_MAP_EXT.to_string()],
+            centroid_index: indexrel.centroid_index()?,
         },
         pin_cushion,
         total_segments,

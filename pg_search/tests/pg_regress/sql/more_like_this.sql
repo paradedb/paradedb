@@ -76,7 +76,9 @@ INSERT INTO mlt_vec (description, embedding) VALUES
     ('aaa aaa', '[4,5,6]'),
     ('ddd eee fff', '[7,8,9]');
 
+SET paradedb.vector_min_training_rows = 1;
 CREATE INDEX ON mlt_vec USING paradedb (id, description, embedding);
+RESET paradedb.vector_min_training_rows;
 
 SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1);
 SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1, ARRAY['description']);

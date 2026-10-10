@@ -30,25 +30,18 @@ pub use directory::*;
 pub use search::*;
 
 use crate::api::FieldName;
-use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
 use anyhow::{Context, Result};
 use rand::{TryRng, rngs::SysRng};
 use tantivy::columnar::CodecType;
+use tantivy::directory::Directory;
 use tantivy::schema::FieldType;
 use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer};
 use tantivy::{Index, IndexSettings};
 
-/// Open the tantivy index behind `directory` the way every pg_search reader
-/// and writer must: with the index's IVF centroid router selected. Tantivy
-/// refuses to open an IVF segment for search, or to build one at merge time,
-/// without a configured router.
-pub fn open_index(directory: MVCCDirectory) -> tantivy::Result<Index> {
-    let indexrel = directory.indexrel().clone();
-    let mut index = Index::open(directory)?;
-    crate::vector::clusterer::set_ivf_router(&mut index, indexrel.options())?;
-    Ok(index)
+pub fn open_index<D: Into<Box<dyn Directory>>>(directory: D) -> tantivy::Result<Index> {
+    Index::open(directory)
 }
 
 /// Builds the Tantivy settings for a ParadeDB index.
@@ -91,7 +84,6 @@ pub fn index_settings(
         sort_by_field: SearchIndexSchema::build_sort_by_field(&options.sort_by(), schema),
         docstore_compress_dedicated_thread: false,
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
-        vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
         vector_quantization,
         ..IndexSettings::default()
     })

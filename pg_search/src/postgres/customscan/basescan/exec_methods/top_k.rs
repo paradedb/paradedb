@@ -417,6 +417,9 @@ impl ExecMethod for TopKScanExecState {
             if !top_k_search.segment_info.is_empty() {
                 state.accumulate_segment_info(std::mem::take(&mut top_k_search.segment_info));
             }
+            if let Some(vector_search) = top_k_search.vector_search.take() {
+                state.vector_search_info = Some(vector_search);
+            }
             top_k_search
         } else {
             self.search_reader

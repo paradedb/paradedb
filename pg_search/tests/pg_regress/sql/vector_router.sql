@@ -1,7 +1,7 @@
 SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
-SET paradedb.vector_clustering_threshold = 64;
+SET paradedb.vector_min_training_rows = 1;
 SET paradedb.vector_cluster_max_probe = 1.0;
 
 CREATE TABLE vector_router_items (id integer PRIMARY KEY, vec vector(3));
@@ -52,8 +52,7 @@ FROM (
     LIMIT 512
 ) matches;
 
--- A changed router applies to segments built afterwards; existing segments
--- keep the router they were built with and stay searchable.
+-- A changed router takes effect at REINDEX; inserts use the stored global router.
 ALTER INDEX vector_router_ivf_idx SET (vector_router = 'graph');
 SELECT reloptions @> ARRAY['vector_router=graph'] AS stores_router
 FROM pg_class WHERE oid = 'vector_router_ivf_idx'::regclass;
@@ -72,7 +71,7 @@ FROM (
     LIMIT 768
 ) matches;
 
--- REINDEX rebuilds every segment with the new router.
+-- REINDEX rebuilds the global router.
 REINDEX INDEX vector_router_ivf_idx;
 SELECT id FROM vector_router_items
 WHERE id @@@ pdb.all()

@@ -2,7 +2,7 @@ SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
 
-SET paradedb.vector_clustering_threshold = 64;
+SET paradedb.vector_min_training_rows = 1;
 SET paradedb.vector_cluster_max_probe = 1.0;
 SET paradedb.vector_stats = on;
 
@@ -70,13 +70,13 @@ SELECT * FROM paradedb.vector_estimator_info(
 DROP TABLE q_cal_parent;
 
 CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
+INSERT INTO q_cal_unquantized
+SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
 CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
     vector_fields = '{"vec":{"quantization":false}}'
 );
-INSERT INTO q_cal_unquantized
-SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
 VACUUM q_cal_unquantized;
 SELECT
     bool_and(NOT quantized) AS unquantized_false,
@@ -99,6 +99,7 @@ WITH (
 DROP TABLE q_explicit_below_floor;
 
 CREATE TABLE q_default_below_floor (id integer PRIMARY KEY, vec vector(63));
+INSERT INTO q_default_below_floor SELECT 1, quant_fixture_vector(63, 1);
 CREATE INDEX q_default_below_floor_idx ON q_default_below_floor
 USING paradedb (id, vec vector_l2_ops);
 DROP TABLE q_default_below_floor;
@@ -109,6 +110,7 @@ USING paradedb (id, vec vector_cosine_ops)
 WITH (
     vector_fields = '{"vec":{"quantization":{"layers":[1,1,1,1]}}}'
 );
+INSERT INTO q_schedule_validation SELECT 1, quant_fixture_vector(64, 1);
 CREATE INDEX q_grid_first_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
@@ -117,6 +119,7 @@ WITH (
 DROP TABLE q_schedule_validation;
 
 CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
+INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
 CREATE INDEX q_cosine_idx ON q_cosine
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
@@ -127,11 +130,12 @@ WITH (
     layer_sizes = '400kb',
     background_layer_sizes = '0'
 );
-INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
 INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(101, 200) g;
 VACUUM q_cosine;
 
 CREATE TABLE q_estimator (id integer PRIMARY KEY, vec vector(768));
+INSERT INTO q_estimator
+SELECT g, quant_isotropic_vector(768, g) FROM generate_series(1, 128) g;
 CREATE INDEX q_estimator_idx ON q_estimator
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
@@ -142,8 +146,6 @@ WITH (
     layer_sizes = '400kb',
     background_layer_sizes = '0'
 );
-INSERT INTO q_estimator
-SELECT g, quant_isotropic_vector(768, g) FROM generate_series(1, 128) g;
 INSERT INTO q_estimator
 SELECT g, quant_isotropic_vector(768, g) FROM generate_series(129, 256) g;
 VACUUM q_estimator;
@@ -334,6 +336,7 @@ SELECT
 FROM segment_info;
 
 CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
+INSERT INTO q_l2 SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
 CREATE INDEX q_l2_idx ON q_l2
 USING paradedb (id, vec vector_l2_ops)
 WITH (
@@ -343,7 +346,6 @@ WITH (
     layer_sizes = '400kb',
     background_layer_sizes = '0'
 );
-INSERT INTO q_l2 SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
 INSERT INTO q_l2 SELECT g, quant_fixture_vector(768, g) FROM generate_series(101, 200) g;
 VACUUM q_l2;
 
@@ -361,6 +363,7 @@ FROM (
 ) hits;
 
 CREATE TABLE q_odd (id integer PRIMARY KEY, vec vector(100));
+INSERT INTO q_odd SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 100) g;
 CREATE INDEX q_odd_idx ON q_odd
 USING paradedb (id, vec vector_l2_ops)
 WITH (
@@ -370,7 +373,6 @@ WITH (
     layer_sizes = '50kb',
     background_layer_sizes = '0'
 );
-INSERT INTO q_odd SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 100) g;
 INSERT INTO q_odd SELECT g, quant_fixture_vector(100, g) FROM generate_series(101, 200) g;
 VACUUM q_odd;
 
@@ -387,10 +389,11 @@ FROM (
     LIMIT 10
 ) hits;
 
-CREATE TABLE q_flat (id integer PRIMARY KEY, vec vector(100));
-CREATE INDEX q_flat_idx ON q_flat
-USING paradedb (id, vec vector_cosine_ops);
-INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
+CREATE TABLE q_small (id integer PRIMARY KEY, vec vector(100));
+INSERT INTO q_small SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
+CREATE INDEX q_small_idx ON q_small
+USING paradedb (id, vec vector_cosine_ops)
+WITH (vector_fields = '{"vec":{"quantization":false}}');
 
 SET paradedb.max_scan_levels = 0;
 SET paradedb.vector_cluster_max_probe = 0.25;
@@ -442,7 +445,7 @@ FROM segment_info;
 
 WITH plan AS (
     SELECT quant_explain(
-        'SELECT id FROM q_flat WHERE id @@@ pdb.all() '
+        'SELECT id FROM q_small WHERE id @@@ pdb.all() '
         'ORDER BY vec <=> quant_fixture_vector(100, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
@@ -450,15 +453,15 @@ WITH plan AS (
     FROM plan
 )
 SELECT
-    (jsonb_path_query_first(value, '$.**.exact_rows_read') #>> '{}')::bigint = 32
-        AS flat_reads_every_row,
-    (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint = 0
-        AND (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint = 0
-        AS flat_skips_ivf_routing,
+    (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint = 32
+        AS small_index_scores_every_row,
+    (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
+        AND (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint > 0
+        AS small_index_routes_centroids,
     (jsonb_path_query_first(value, '$.**.exact_scan_ns') #>> '{}')::bigint > 0
-        AS flat_uses_exact_scoring,
+        AS small_index_uses_exact_scoring,
     jsonb_path_query_first(value, '$.**.layer0_scored') IS NULL
-        AS flat_has_no_layer_fields
+        AS small_index_has_no_layer_fields
 FROM segment_info;
 
 RESET paradedb.max_scan_levels;
@@ -486,13 +489,13 @@ RESET paradedb.vector_stats;
 DROP FUNCTION quant_explain_has_segment_info();
 
 RESET paradedb.vector_cluster_max_probe;
-RESET paradedb.vector_clustering_threshold;
+RESET paradedb.vector_min_training_rows;
 
 DROP TABLE q_cosine;
 DROP TABLE q_estimator;
 DROP TABLE q_l2;
 DROP TABLE q_odd;
-DROP TABLE q_flat;
+DROP TABLE q_small;
 DROP FUNCTION quant_explain(text);
 DROP FUNCTION quant_fixture_vector(integer, integer);
 DROP FUNCTION quant_isotropic_vector(integer, integer);

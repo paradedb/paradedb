@@ -1,15 +1,9 @@
--- Deleting every doc that carries a vector field, then merging (tantivy
--- c4582807). At the prior rev the merge SKIPPED the field's composite slots
--- when no live doc carried a vector, and every subsequent read of the field
--- failed with an InternalError; now the merge writes empty slots and the
--- field reads back as empty.
---
--- client_min_messages: the IVF merge emits a paradedb::ivf_build timings
--- NOTICE with nondeterministic millisecond values — keep it out of the
--- captured output.
+-- Merge segments after deleting every vector-bearing document.
 SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
+-- Tiny fixtures: lower the centroid-training floor.
+SET paradedb.vector_min_training_rows = 1;
 
 DROP TABLE IF EXISTS delvec;
 CREATE TABLE delvec (
@@ -18,9 +12,14 @@ CREATE TABLE delvec (
     vec   vector(16)
 );
 
--- Same merge choreography as vector_merge.sql: immutable-only
--- inserts, foreground-only merging, first candidate closes >= 10000 docs so
--- the target is IVF.
+-- Use immutable segments and foreground merges.
+-- Centroids train at CREATE INDEX over existing rows, so seed a
+-- vector-bearing corpus first (deleted along with the rest below).
+INSERT INTO delvec
+SELECT g, md5(g::text),
+       ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
+FROM generate_series(-999, 0) g;
+
 CREATE INDEX delvec_idx ON delvec
     USING paradedb (id, label, vec vector_l2_ops)
     WITH (
@@ -50,17 +49,16 @@ FROM paradedb.vector_info('delvec_idx', 'vec');
 DELETE FROM delvec WHERE vec IS NOT NULL;
 VACUUM delvec;
 
--- Remerge with the (now vector-less) IVF segment as a source: ~880kb after
--- deletes, so an 1100kb layer admits it, and the surviving corpus plus the
--- fresh vector-less rows overfill the extended layer. The merge target has
--- >= 10000 live docs, none carrying a vector — exactly the empty-slots path.
-ALTER INDEX delvec_idx SET (layer_sizes = '1100kb');
+-- Include the deleted vector rows and the new vector-less rows in one merge.
+ALTER INDEX delvec_idx SET (layer_sizes = '1350kb');
 INSERT INTO delvec
 SELECT g, md5(g::text), NULL
 FROM generate_series(24001, 30000) g;
 
--- An IVF segment now exists whose vector field is empty.
-SELECT bool_or(vector_format = 'ivf' AND vector_num_vectors = 0) AS ivf_with_empty_vector_field
+SELECT count(*) = 1 AS merged_to_one_segment
+FROM paradedb.index_info('delvec_idx');
+SELECT bool_and(vector_num_vectors = 0 AND vector_total_rows = 0)
+       AS merged_vector_field_is_empty
 FROM paradedb.vector_info('delvec_idx', 'vec');
 
 -- Vector ORDER BY on the emptied field: no error, zero results. Exhaustive
@@ -77,7 +75,8 @@ FROM (
 RESET paradedb.vector_cluster_max_probe;
 
 -- The index still serves non-vector queries over the surviving docs:
--- 12000 original vector-less rows plus 6000 fresh ones.
+-- 1000 seed rows + 12000 original vector-less rows + 6000 fresh ones,
+-- minus every vector-bearing row deleted above.
 SELECT count(*) AS live_docs
 FROM delvec
 WHERE id @@@ pdb.all();
